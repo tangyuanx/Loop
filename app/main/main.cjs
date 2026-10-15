@@ -10,10 +10,10 @@
 
 const { app, BrowserWindow, Menu, Notification, clipboard, dialog, globalShortcut, ipcMain, screen, shell } = require("electron");
 
-// Chromium owns the text rasterizer for every renderer (main and floating
-// windows). CSS -webkit-font-smoothing only affects macOS. On Windows use
-// grayscale coverage instead of RGB subpixel fringes, before any renderer is
-// created. Keep native DPI handling and GPU acceleration unchanged.
+// Match the bundled Chinese outlines with grayscale coverage on Windows.
+// LCD color fringes make the dense CJK strokes look heavier than on macOS;
+// the shared font and coverage policy must be validated together.
+// Keep display DPI and GPU acceleration under native control.
 if (process.platform === "win32") app.commandLine.appendSwitch("disable-lcd-text");
 
 const fs = require("node:fs/promises");

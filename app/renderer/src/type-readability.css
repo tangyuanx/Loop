@@ -1,17 +1,18 @@
 /* Production typography override. Frozen Demo styles remain byte-identical.
-   Prefer Windows' screen-tuned regular face over a fixed CJK OTF face
-   at small UI sizes. The bundled outline font remains the fallback; legacy
-   SimHei bitmap strikes are not used. Other font choices are retained. */
+   Keep the default blackface on the same bundled outlines on every OS.
+   Resolving Heiti to YaHei on Windows and Noto on macOS changes stroke
+   density and spacing despite identical sizes. System/YaHei remain explicit
+   native-font choices; legacy SimHei bitmap strikes are not used. */
 @font-face {
   font-family: "TaskTrack Chinese Heiti";
-  src: local("Microsoft YaHei UI"), local("Microsoft YaHei"), url("assets/fonts/NotoSansCJKsc-Regular.otf") format("opentype");
+  src: url("assets/fonts/NotoSansCJKsc-Regular.otf") format("opentype");
   font-weight: 400;
   font-display: swap;
   unicode-range: U+2E80-2EFF, U+3000-303F, U+3040-30FF, U+3100-312F, U+31A0-31BF, U+3200-32FF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE10-FE1F, U+FE30-FE4F, U+FF00-FFEF;
 }
 @font-face {
   font-family: "TaskTrack Chinese Heiti";
-  src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), url("assets/fonts/NotoSansCJKsc-Bold.otf") format("opentype");
+  src: url("assets/fonts/NotoSansCJKsc-Bold.otf") format("opentype");
   font-weight: 700 900;
   font-display: swap;
   unicode-range: U+2E80-2EFF, U+3000-303F, U+3040-30FF, U+3100-312F, U+31A0-31BF, U+3200-32FF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE10-FE1F, U+FE30-FE4F, U+FF00-FFEF;
