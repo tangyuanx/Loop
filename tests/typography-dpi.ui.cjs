@@ -34,6 +34,10 @@ const { chromium } = require('playwright-core');
     const cdp = await page.context().newCDPSession(page);
     for (const dpr of [1, 1.25, 1.5, 1.75, 2, 1]) {
       await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 820, deviceScaleFactor: dpr, mobile: false });
+      // CDP emulation may retain the CSS viewport and omit the native resize
+      // notification. Deliver the window event used when a real window moves
+      // between monitors; the product still owns all DPI/grid calculations.
+      await page.evaluate(() => window.dispatchEvent(new Event('resize')));
       await page.waitForFunction(dpr => Math.abs(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--text-pixel')) - 1 / dpr) < 0.00001, dpr);
       for (const scale of ['current', 'larger', 'large', 'largest']) {
         await page.evaluate(scale => { state.fontScale = scale; render(); }, scale);
