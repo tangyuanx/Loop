@@ -25,7 +25,7 @@ const {
 const RENDERER_LAYERS = [
   "shell.css", "knowledge.css", "flow.css", "settings.css", "typography.css",
   "fonts.css", "refinement.css", "selection.css", "shell-refinement.css",
-  "help.css", "work.css", "task-entry.css", "journey.css", "widget12.css",
+  "help.css", "work.css", "task-entry.css", "journey.css", "widget12.css", "type-readability.css",
   "widget13.css", "widget-bridge.css", "bridge.css",
 ];
 const rendererStyles = () => Promise.all(
@@ -4845,10 +4845,11 @@ test("the frozen Demo baseline is the renderer stylesheet authority", async () =
     assert.equal(a, b, `src/${target} must stay byte-identical to the frozen ${source}`);
   }
 
-  // Load order mirrors the Demo entry, and bridge.css is the only override layer.
+  // Preserve the frozen Demo order. The shared production typography correction
+  // follows those layers in main and floating windows without changing them.
   const linked = [...index.matchAll(/<link[^>]+href="\.\/src\/([^"?]+)/g)].map((match) => match[1]);
   const order = ["shell.css", "vendor/milkdown-editor.css", "knowledge.css", "fonts.css", "settings.css", "typography.css", "refinement.css", "selection.css", "flow.css", "shell-refinement.css", "help.css", "work.css", "task-entry.css", "journey.css", "time.css", "desktop.css", "scale.css", "brief21.css", "controls22.css", "notebook23.css", "management24.css", "window25.css", "bridge.css", "recovery26.css", "manual27.css"];
-  assert.deepEqual(linked, order, "stylesheets must load in the frozen Demo order, with bridge.css last");
+  assert.deepEqual(linked, [...order, "type-readability.css"], "preserve the frozen Demo order, followed by the shared typography correction");
   assert.equal(await fs.readFile(path.join(rendererDir, "src", "manual27.css"), "utf8"), await fs.readFile(path.join(__dirname, "..", "prototypes", "baseline", "loop-plane-phase27-frozen", "loop-manual-phase27.css"), "utf8"), "the manual keeps the approved Demo CSS verbatim");
   const scripts = [...index.matchAll(/<script[^>]+src="\.\/src\/([^"?]+)/g)].map((match) => match[1]);
   const phase24Script = scripts.indexOf("management24.js");

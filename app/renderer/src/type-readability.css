@@ -1,0 +1,66 @@
+/* Production typography override. Frozen Demo styles remain byte-identical.
+   The default 黑体 uses the bundled outline font, avoiding SimHei's legacy
+   small-size bitmap strikes and machine-dependent substitution. Font settings
+   for other Chinese families and Times New Roman are retained. */
+@font-face {
+  font-family: "TaskTrack Chinese Heiti";
+  src: url("assets/fonts/NotoSansCJKsc-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-display: swap;
+  unicode-range: U+2E80-2EFF, U+3000-303F, U+3040-30FF, U+3100-312F, U+31A0-31BF, U+3200-32FF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE10-FE1F, U+FE30-FE4F, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "TaskTrack Chinese Heiti";
+  src: url("assets/fonts/NotoSansCJKsc-Bold.otf") format("opentype");
+  font-weight: 700 900;
+  font-display: swap;
+  unicode-range: U+2E80-2EFF, U+3000-303F, U+3040-30FF, U+3100-312F, U+31A0-31BF, U+3200-32FF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE10-FE1F, U+FE30-FE4F, U+FF00-FFEF;
+}
+:root {
+  --type-11: round(nearest, calc(11px * var(--font-scale, 1)), 1px);
+  --type-12: round(nearest, calc(12px * var(--font-scale, 1)), 1px);
+  --type-13: round(nearest, calc(13px * var(--font-scale, 1)), 1px);
+  --type-14: round(nearest, calc(14px * var(--font-scale, 1)), 1px);
+  --type-17: round(nearest, calc(17px * var(--font-scale, 1)), 1px);
+  --type-22: round(nearest, calc(22px * var(--font-scale, 1)), 1px);
+}
+body { font-size: var(--type-13); font-weight: 400; font-synthesis: none; }
+
+/* UI text uses the real regular face. Rich-document strong/emphasis, code,
+   icons, and theme contrast keep their own semantics and styles. The explicit
+   priority reconciles the opt-in Demo layers' more-specific active selectors. */
+body :is(button, input, select, textarea, .task-item-title, .nav-label,
+  .breadcrumb b, .brief-row label, .node-badge, .setting-label,
+  .settings-document h2, .settings-document h3, .page-heading h1,
+  .widget-header strong, .inspector-head) { font-weight: 400 !important; }
+
+body :is(.button, .text-button, .node-title, .node-title-input,
+  .brief-row .brief-value, .pane-tab, .settings-nav button, .prefs-choice,
+  .prefs-menu [role="menuitemradio"], .context-menu button,
+  .widget12 .widget-title, .widget12 .widget-tabs button) { font-size: var(--type-12); }
+body :is(.task-item-title, .nav-button, .record-editor,
+  .phase9 .setting-label, .phase9 .setting-row label,
+  .phase9 .font-preview p) { font-size: var(--type-13); }
+body :is(.property, .tag, .node-badge, .flow-toolbar, .workspace-foot,
+  .task-item-meta, .widget12 .widget-row-copy > small) { font-size: var(--type-11); }
+body .phase9 .setting-row p { font-size: var(--type-12); }
+body .settings-document h2 { font-size: var(--type-17); }
+body .task-title { font-size: var(--type-22); }
+body .navigation .nav-bottom .nav-button { font-size: var(--type-11); }
+body .inspector .record-editor {
+  font-size: var(--type-13) !important;
+  line-height: 1.85 !important;
+  padding-block: 10px;
+}
+
+/* Leave ink room above/below clipped single-line labels while preserving
+   their ellipsis and the existing row boxes. Multiline node titles and record
+   editors already have their own generous line-height/padding. */
+body :is(.task-item-title, .nav-button > span:first-of-type,
+  .scale20-list-title, .scale20-group-name, .breadcrumb > b) {
+  line-height: 1.65;
+  padding-block: 2px;
+  margin-block: -2px;
+}
+body :is(.button, .prefs-choice, .prefs-menu [role="menuitemradio"],
+  .context-menu button) { line-height: 1.65; }
