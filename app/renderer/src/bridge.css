@@ -19,6 +19,22 @@
 .flow-completed-toggle[aria-pressed="true"] { color: var(--green); }
 .flow-filter-empty { margin: 18px 12px; color: var(--secondary); font-size: calc(12px * var(--font-scale, 1)); }
 
+/* Node titles share the row highlight instead of the generic boxed focus ring.
+   Keep keyboard focus visible as a quiet leading mark, including when arrow
+   navigation focuses a different node from the selected inspector. */
+.flow-row.selected,
+.flow-row.selected:hover,
+.flow-row:has(> .node-title:focus-visible) {
+  background: color-mix(in srgb, var(--selected) 70%, var(--canvas));
+}
+.flow-row > .node-title:focus {
+  outline: none;
+  box-shadow: none;
+}
+.flow-row:has(> .node-title:focus-visible) {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--green) 45%, var(--canvas));
+}
+
 /* Context actions survived the shell migration, but their legacy stylesheet
    did not. Keep this floating surface out of the three-column grid and use
    the current shell's tokens; frozen baseline styles remain untouched. */
