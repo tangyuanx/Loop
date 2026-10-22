@@ -45,6 +45,7 @@ jobs:
         run: |
           npm run check
           node --check tests/node-context-menu.ui.cjs
+          node --check tests/context-create.ui.cjs
           node --check tests/node-interactions.ui.cjs
       - name: Check text DPI, completed-node filtering and node interactions in Chromium
         run: |

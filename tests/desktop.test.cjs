@@ -4408,7 +4408,7 @@ test("processing flow matches the compact reference tree and opens details only 
   assert.match(app, /data-action="add-sibling-node"[\s\S]*添加兄弟节点/);
   assert.match(app, /data-action="delete-node"[\s\S]*删除节点/);
   assert.doesNotMatch(app, /context-menu-label">状态/);
-  assert.match(app, /\.flow-main\[data-context="flow-root"\]/);
+  assert.match(app, /document\.querySelectorAll\('\[data-context="flow-root"\]'\)/);
   assert.match(app, /if \(element\.dataset\.context === "flow-root"\) return;/);
   assert.match(app, /data-action="open-node-detail"[\s\S]*aria-label="打开节点详情"/);
   assert.match(app, /data\.action === "navigate-node-detail"[\s\S]*selectNodeForInspector/);
