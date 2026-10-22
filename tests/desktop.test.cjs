@@ -4117,7 +4117,7 @@ test("production Today widget uses its dedicated frontend and a sandboxed Electr
   assert.match(rendererApp, /const effective = action === "download" && !\["available", "downloaded"\]\.includes\(status\)/);
   assert.match(rendererApp, /if \(typeof globalThis\.shellSettingsSyncUpdateCard === "function"\) \{\s*globalThis\.shellSettingsSyncUpdateCard\(\);/);
   // - search scope matches the approved Demo; brief fields stay click-to-edit
-  assert.match(shellSource, /placeholder="搜索全部任务、节点、速记" aria-label="搜索全部任务、节点、速记"/);
+  assert.match(shellSource, /placeholder="搜索任务、节点、速记" aria-label="搜索全部任务、节点、速记"/);
   assert.match(workspaceSource, /<button class="brief-value \$\{value \? "" : "muted"\}" type="button" data-action="shell-edit-brief"/);
   // Group management was removed (the row had no visible control of its own);
   // group rows now render as a single button.

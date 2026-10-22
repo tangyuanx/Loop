@@ -121,7 +121,7 @@ function shellRecurrenceLabel(recurrence) {
 
 function renderShellTaskTitle(task) {
   const note = shellTaskIsNote(task);
-  return `<h1 class="task-title"><button class="title-edit" type="button" data-action="edit-task-title" aria-label="编辑${note ? "速记" : "任务"}标题">${esc(task.title)}${shellIcon("edit")}</button></h1>`;
+  return `<h1 class="task-title"><button class="title-edit" type="button" data-action="edit-task-title" aria-label="编辑${note ? "速记" : "任务"}标题">${esc(task.title || "未命名任务")}${shellIcon("edit")}</button></h1>`;
 }
 
 function renderShellTaskProperties(task) {
@@ -257,6 +257,7 @@ function renderShellFlow(task) {
       <ol class="flow-tree" style="--flow-depth:${shellFlowDepth(task.nodes || [])}">
         ${roots.map((node) => renderShellFlowNode(task, node, 0)).join("")}
       </ol>
+      ${!list.length ? `<div class="flow-start"><span class="empty-state-icon">${shellIcon("tasks")}</span><h3>从下一步开始</h3><p>把要做的事拆成步骤，处理时随手记录。</p></div>` : ""}
       ${shellHideCompletedNodes && list.length && list.every((node) => !shellFlowNodeVisible(node)) ? '<p class="flow-filter-empty" role="status">所有节点均已完成，已隐藏</p>' : ""}
       <button class="add-node" type="button" data-action="add-root-node" data-task-id="${escAttr(task.id)}">${shellIcon("plus")}添加节点</button>
     </div>
@@ -450,15 +451,16 @@ function renderShellWorkspaceFooter(pane = "") {
 }
 
 function renderShellEmptyWorkspace() {
+  const filtered = shellActiveFilterLabels().length || state.taskDateFilter || state.taskFilter === "done";
   // Phase18: the Today route shows a minimal all-done / nothing-today state,
   // and the all-done one links straight to today's completions.
-  if (shellRoute() === "today" && state.captureSourceFilter !== "quick" && state.todayFilter !== "done") {
+  if (!filtered && shellRoute() === "today" && state.captureSourceFilter !== "quick" && state.todayFilter !== "done") {
     const completed = shellCompletedToday().length;
-    return `<div class="workspace-empty time18-empty"><span>${completed ? "今日任务已完成" : "今天暂无任务"}</span>${completed
+    return `<div class="workspace-empty time18-empty product-empty"><span class="empty-state-icon">${shellIcon(completed ? "check" : "sun")}</span><h2>${completed ? "今日任务已完成" : "今天，专注一件事"}</h2><p>${completed ? `今天已完成 ${completed} 项任务。` : "新建一项任务，或从任务仓库加入今日。"}</p>${completed
       ? `<button class="text-button" type="button" data-action="show-today-completed">查看完成任务${shellIcon("arrow")}</button>`
-      : ""}</div>`;
+      : `<div class="empty-state-actions"><button class="button primary" type="button" data-action="add-task">${shellIcon("plus")}新建今日任务</button><button class="text-button" type="button" data-setting-button="task-filter" data-value="all">前往任务仓库${shellIcon("arrow")}</button></div>`}</div>`;
   }
-  return `<div class="workspace-empty">暂无任务</div>`;
+  return `<div class="workspace-empty product-empty"><span class="empty-state-icon">${shellIcon(filtered ? "filter" : "tasks")}</span><h2>${filtered ? "没有匹配的任务" : "开始一项新任务"}</h2><p>${filtered ? "调整筛选条件，查看其他任务。" : "从一个问题开始，记录过程，留下结论。"}</p><button class="button ${filtered ? "" : "primary"}" type="button" data-action="${filtered ? "clear-list-filters" : "add-task"}">${shellIcon(filtered ? "close" : "plus")}${filtered ? "清除筛选" : "新建任务"}</button></div>`;
 }
 
 // The knowledge pane still runs on the project's own renderer: the Demo's

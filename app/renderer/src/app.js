@@ -10320,6 +10320,11 @@ window.addEventListener("keydown", (event) => {
     }
   }
   if (!(event.metaKey || event.ctrlKey)) return;
+  if (event.key.toLowerCase() === "n" && !event.altKey && !event.shiftKey && !shellOverlayIsOpen()) {
+    event.preventDefault();
+    shellOpenCreateDialog();
+    return;
+  }
   if (event.key.toLowerCase() !== "k") return;
   const target = event.target;
   if (target instanceof HTMLTextAreaElement || target?.isContentEditable) return;

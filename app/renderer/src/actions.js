@@ -862,7 +862,7 @@ function shellFocusNextPending() {
   const task = shellActiveTask();
   if (!task) return;
   const list = shellNodeList(task);
-  const start = Math.max(0, list.findIndex((node) => node.id === state.selectedNodeId));
+  const start = list.findIndex((node) => node.id === state.selectedNodeId);
   const next = list.slice(start + 1).find((node) => node.status === "todo" || node.status === "blocked")
     || list.find((node) => node.status === "todo" || node.status === "blocked");
   if (!next) return;
@@ -878,13 +878,14 @@ function shellOption(value, label, selected) {
 }
 
 function shellCombinedFilter(trigger) {
-  const kinds = shellRoute() === "today" ? [["task", "任务"], ["quick", "速记"]] : [["all", "全部"], ["task", "任务"], ["quick", "速记"]];
-  const statuses = [["active", "未完成"], ["all", "全部"], ["done", "已完成"], ["blocked", "卡住"], ["later", "稍后"]];
+  const today = shellRoute() === "today";
+  const kinds = [["all", "全部"], ["task", "任务"], ["quick", "速记"]];
+  const statuses = today ? [["active", "未完成"], ["done", "已完成"]] : [["active", "未完成"], ["all", "全部"], ["done", "已完成"], ["blocked", "卡住"], ["later", "稍后"]];
   shellMountSurface(
     `<form class="surface-popover" id="combined-filter-form" role="dialog" aria-modal="true" aria-label="筛选记录">${shellSurfaceHeader("筛选")}
       <div class="filter-fields">
         <div><label for="record-kind">记录类型</label><select id="record-kind" name="kind">${kinds.map(([value, label]) => shellOption(value, label, state.captureSourceFilter)).join("")}</select></div>
-        <div><label for="record-status">任务状态</label><select id="record-status" name="status">${statuses.map(([value, label]) => shellOption(value, label, state.taskFilter)).join("")}</select></div>
+        <div><label for="record-status">任务状态</label><select id="record-status" name="status">${statuses.map(([value, label]) => shellOption(value, label, today ? state.todayFilter : state.taskFilter)).join("")}</select></div>
         <div><label for="record-priority">优先级</label><select id="record-priority" name="priority">${Object.entries(SHELL_PRIORITY_FILTER_LABELS).map(([value, label]) => shellOption(value, label, state.priorityFilter)).join("")}</select></div>
         <div><label for="record-deadline">截止范围</label><select id="record-deadline" name="deadline">${Object.entries(SHELL_DEADLINE_SCOPE_LABELS).map(([value, label]) => shellOption(value, label, state.taskDeadlineFilter)).join("")}</select></div>
       </div>
@@ -897,13 +898,15 @@ function shellCombinedFilter(trigger) {
     event.preventDefault();
     const data = new FormData(event.target);
     state.captureSourceFilter = normalizeCaptureSourceFilter(String(data.get("kind")));
-    state.taskFilter = normalizeTaskFilter(String(data.get("status")));
+    if (today) state.todayFilter = data.get("status") === "done" ? "done" : "active";
+    state.taskFilter = today ? "today" : normalizeTaskFilter(String(data.get("status")));
     state.priorityFilter = normalizePriorityFilter(String(data.get("priority")));
     state.taskDeadlineFilter = Object.hasOwn(SHELL_DEADLINE_SCOPE_LABELS, String(data.get("deadline"))) ? String(data.get("deadline")) : "all";
     state.taskDateFilter = "";
     if (state.taskDeadlineFilter !== "all") state.activeGroupId = ALL_TASKS_GROUP_ID;
     shellCloseOverlay();
     if (!filteredTasks().some((task) => task.id === state.activeTaskId)) state.activeTaskId = "";
+    save();
     render();
   });
 }
@@ -1416,13 +1419,15 @@ async function shellAction(data, event) {
       shellCloseOverlay({ restoreFocus: false });
       return true;
     case "clear-list-filters":
+      const keepToday = shellRoute() === "today";
       state.query = "";
+      state.searchOpen = false;
       state.priorityFilter = "all";
       state.captureSourceFilter = "all";
       state.taskDeadlineFilter = "all";
       state.taskDateFilter = "";
-      state.activeGroupId = ALL_TASKS_GROUP_ID;
-      state.taskFilter = "all";
+      state.taskFilter = keepToday ? "today" : "all";
+      if (keepToday) state.todayFilter = "active";
       shellCloseOverlay({ restoreFocus: false });
       if (!filteredTasks().some((item) => item.id === state.activeTaskId)) state.activeTaskId = "";
       return true;

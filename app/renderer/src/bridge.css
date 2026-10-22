@@ -12,6 +12,66 @@
    The product has no review bar, so the shell owns the full viewport. */
 .app { height: 100dvh; }
 
+/* Product refinement: shared surfaces and actionable hierarchy. Keep native
+   font rasterization, the flow tree, and all data contracts unchanged. */
+:root { --nav:#f5f6f5; --list:#fafbfa; --line:#e4e7e5; --secondary:#626b67; --hover:#eef1ef; }
+:root[data-theme="dark"] { --nav:#151917; --list:#191d1b; --line:#303833; --secondary:#a5b1aa; --hover:#29312c; }
+body .navigation .nav-button { border-radius:6px; }
+body .navigation .nav-button.active { box-shadow:inset 2px 0 var(--green); }
+body .navigation .group-nav-row .nav-button>span:first-of-type { padding-right:0; }
+body .group-mark { width:7px; height:7px; border-radius:2px; opacity:.75; }
+body .task-list-pane .list-search { border-radius:7px; min-height:34px; }
+body .list-search:focus-within { border-color:var(--green); box-shadow:0 0 0 2px var(--green-soft); }
+body .list-search input:focus-visible { outline:none; }
+body .search-shortcut { flex-shrink:0; font-size:10px; white-space:nowrap; padding:0 3px; }
+body .list-search:has(input:not(:placeholder-shown)) .search-shortcut { display:none; }
+body .heading-list-actions>[data-action="add-task"] { background:var(--green-soft); color:var(--green); border:1px solid color-mix(in srgb,var(--green) 16%,transparent); border-radius:6px; }
+body .heading-list-actions>[data-action="add-task"]:hover { background:var(--selected); }
+/* Single-line rows share the same bounds regardless of title or task state. */
+body .task-list-pane .task-rows { width:100%; min-width:0; }
+body .task-list-pane .task-item { position:relative; box-sizing:border-box; width:100%; max-width:100%; min-width:0; height:44px; min-height:44px; border-radius:6px; margin:3px 0; }
+body .task-item .task-select { flex:1 1 0; min-width:0; padding-block:6px; }
+body .task-item.selected::before { content:""; position:absolute; left:0; top:12px; bottom:12px; width:2px; border-radius:2px; background:var(--green); }
+body .scope-filter.has-filters { color:var(--green); }
+body .filter-count { display:grid; place-items:center; width:17px; height:17px; border-radius:50%; background:var(--green-soft); font-size:var(--type-11); }
+body .active-list-filters { display:flex; align-items:center; justify-content:space-between; gap:5px; margin:8px 14px 0; padding:3px 7px 3px 10px; border:1px solid var(--line); border-radius:5px; color:var(--green); background:var(--green-soft); font-size:var(--type-11); }
+body .active-list-filters>span { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+body .active-list-filters .icon-button { width:22px; height:22px; color:inherit; }
+body .active-list-filters svg { width:12px; height:12px; }
+body .task-heading { padding-top:24px; padding-bottom:16px; }
+body .task-heading .task-properties { gap:8px; }
+body .task-properties>button.property { padding:4px 5px; border-radius:5px; }
+body .task-properties>button.property:hover { background:var(--hover); color:var(--text); }
+body .task-heading-actions>.icon-button { opacity:1; border:1px solid var(--line); width:32px; height:32px; }
+body .task-heading-actions>.button { border-color:color-mix(in srgb,var(--green) 25%,var(--line)); color:var(--green); }
+body .workspace .tabs-bar { gap:22px; }
+body .workspace .pane-tab.active { color:var(--green); }
+body .workspace>.brief .brief21-input::placeholder { color:color-mix(in srgb,var(--secondary) 80%,var(--canvas)); }
+body .flow-tools .text-button { padding-inline:6px; }
+body .flow-row>.node-title { cursor:pointer; }
+body .flow-row>.node-title:active { cursor:grabbing; }
+body .flow-row>.node-badge { background:transparent; }
+body .flow-row:not(:hover):not(.selected)>.node-badge.todo { color:var(--secondary); }
+body .inspector.inspector-record-only { background:var(--list); }
+body .inspector.inspector-record-only .inspector-body { background:var(--list); }
+body .inspector.inspector-record-only .record-editor { background:transparent; }
+body .product-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:36px 24px; text-align:center; }
+body .empty-state-icon { display:grid; place-items:center; width:44px; height:44px; border:1px solid var(--line); background:var(--list); border-radius:12px; color:var(--green); }
+body .empty-state-icon svg { width:22px; height:22px; stroke-width:1.4; }
+body .product-empty h2 { color:var(--text); font-weight:400; font-size:var(--type-17); }
+body .product-empty p, body .flow-start p { font-size:var(--type-12); line-height:1.8; color:var(--secondary); }
+body .empty-state-actions { display:flex; flex-direction:column; align-items:center; gap:8px; margin-top:4px; }
+body .product-empty>.button { margin-top:4px; }
+body .flow-start { display:flex; flex-direction:column; align-items:center; gap:10px; padding:32px 14px 20px; text-align:center; }
+body .flow-start h3 { font-size:var(--type-13); font-weight:400; }
+body .flow-scroll:has(.flow-start)>.add-node { margin-inline:auto; justify-content:center; width:fit-content; min-width:120px; border:1px solid var(--line); border-radius:6px; color:var(--green); }
+@media(max-width:1100px) {
+  body .search-shortcut { display:none; }
+  body .task-heading .task-properties { gap:5px; }
+  body .task-properties>button.property { padding-inline:3px; }
+  body .workspace .tabs-bar { gap:14px; }
+}
+
 /* Completed-node filtering keeps descendant indentation without a blank row. */
 .flow-children > .flow-hidden-parent::before,
 .flow-children > .flow-hidden-parent::after { display: none; }
