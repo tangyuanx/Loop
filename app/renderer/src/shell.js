@@ -374,7 +374,7 @@ function renderShellTaskList(list) {
       </div>
       ${renderShellListFilter()}
       ${renderShellScopeChip()}
-      <div class="tasks-scroll">${renderShellTaskRows(list)}</div>
+      <div class="tasks-scroll" data-context="task-list">${renderShellTaskRows(list)}</div>
       ${shellBulk.active
         ? `<footer class="list-foot bulk-dock" aria-label="批量操作">${shellBulkFooter()}</footer>`
         : `<footer class="list-foot ${shellTodayCompletedFoot() ? "time18-footer" : ""}"><span>${esc(shellListFoot())}</span>${shellTodayCompletedFoot()}${shellBulkFooter()}</footer>`}

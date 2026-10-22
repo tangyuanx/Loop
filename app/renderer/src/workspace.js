@@ -253,7 +253,7 @@ function renderShellFlow(task) {
         <button class="icon-button" type="button" data-action="open-flow-locator" aria-label="定位处理流节点" title="定位节点" aria-haspopup="dialog">${shellIcon("search")}</button>
       </div>
     </div>
-    <div class="flow-scroll">
+    <div class="flow-scroll" data-context="flow-root" data-task-id="${escAttr(task.id)}">
       <ol class="flow-tree" style="--flow-depth:${shellFlowDepth(task.nodes || [])}">
         ${roots.map((node) => renderShellFlowNode(task, node, 0)).join("")}
       </ol>

@@ -3704,8 +3704,8 @@ function renderContextMenu() {
   }
   if (menu.kind === "task-list") {
     return `
-      <div class="context-menu" style="left:${menu.x}px; top:${menu.y}px">
-        <button data-action="add-task">新增任务</button>
+      <div class="context-menu" role="menu" aria-label="任务列表操作" style="left:${menu.x}px; top:${menu.y}px">
+        <button type="button" role="menuitem" data-action="add-task">${shellIcon("plus")}<span>新增任务</span></button>
       </div>
     `;
   }
@@ -3730,8 +3730,8 @@ function renderContextMenu() {
 
   if (menu.kind === "flow-root") {
     return `
-      <div class="context-menu" style="left:${menu.x}px; top:${menu.y}px">
-        <button data-action="add-root-node" data-task-id="${escAttr(menu.taskId)}">新增节点</button>
+      <div class="context-menu" role="menu" aria-label="处理流操作" style="left:${menu.x}px; top:${menu.y}px">
+        <button type="button" role="menuitem" data-action="add-root-node" data-task-id="${escAttr(menu.taskId)}">${shellIcon("plus")}<span>新增节点</span></button>
       </div>
     `;
   }
@@ -6301,6 +6301,8 @@ function bindTaskRepositoryRows(scope = document) {
     if (!bindRenderElement(element, 'base:[data-context]')) return;
     if (element.dataset.context === "flow-root") return;
     element.addEventListener("contextmenu", (event) => {
+      // Editable titles keep their native text menu; rows own their menus.
+      if (element.dataset.context === "task-list" && event.target.closest(".task-item, input, textarea, select, button, [contenteditable]")) return;
       if (element.dataset.context === "task") {
         openTaskContextMenu(element.dataset.taskId, event, element);
         return;
@@ -6311,16 +6313,15 @@ function bindTaskRepositoryRows(scope = document) {
       }
       event.preventDefault();
       event.stopPropagation();
-      const x = Math.min(event.clientX, window.innerWidth - 210);
-      const y = Math.min(event.clientY, window.innerHeight - 245);
+      taskContextMenuReturnFocus = null;
       state.contextMenu = {
         kind: element.dataset.context,
         taskId: element.dataset.taskId,
         nodeId: element.dataset.nodeId || "",
-        x,
-        y,
+        x: event.clientX,
+        y: event.clientY,
       };
-      render();
+      syncContextMenuRoot();
     });
     if (element.dataset.context === "task") element.addEventListener("keydown", (event) => {
       if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openTaskContextMenu(element.dataset.taskId, event, element);
@@ -6330,17 +6331,17 @@ function bindTaskRepositoryRows(scope = document) {
     });
   });
 
-  document.querySelectorAll('.flow-main[data-context="flow-root"]').forEach((element) => {
-    if (!bindRenderElement(element, 'base:.flow-main[data-context="flow-root"]')) return;
+  document.querySelectorAll('[data-context="flow-root"]').forEach((element) => {
+    if (!bindRenderElement(element, 'base:[data-context="flow-root"]')) return;
     element.addEventListener("contextmenu", (event) => {
+      if (event.target.closest('[data-context="node"], input, textarea, select, button, [contenteditable]')) return;
+      if (!state.tasks.some((task) => task.id === element.dataset.taskId)) return;
       event.preventDefault();
       event.stopPropagation();
-      const x = Math.min(event.clientX, window.innerWidth - 210);
-      const y = Math.min(event.clientY, window.innerHeight - 245);
-      state.activeTaskId = element.dataset.taskId;
-      state.selectedNodeId = "";
-      state.contextMenu = { kind: "flow-root", taskId: element.dataset.taskId, nodeId: "", x, y };
-      render();
+      taskContextMenuReturnFocus = null;
+      state.contextMenu = { kind: "flow-root", taskId: element.dataset.taskId, nodeId: "", x: event.clientX, y: event.clientY };
+      // Opening the menu must preserve the selected node, draft and scroll.
+      syncContextMenuRoot();
     });
   });
 

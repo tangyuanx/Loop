@@ -1,6 +1,6 @@
 {
   "name": "personal-task-track",
-  "version": "0.1.230",
+  "version": "0.1.231",
   "description": "Loop is a local-first personal task flow tracker for closing work from creation to completion.",
   "private": true,
   "license": "UNLICENSED",
@@ -21,6 +21,7 @@
     "build:milkdown": "node tools/build-milkdown.cjs",
     "test:ui:group-menu": "node tests/group-context-menu.ui.cjs",
     "test:ui:node-menu": "node tests/node-context-menu.ui.cjs",
+    "test:ui:context-create": "node tests/context-create.ui.cjs",
     "test:ui:node-interactions": "node tests/node-interactions.ui.cjs",
     "test:ui:widget-draft": "node tests/today-widget-draft.ui.cjs",
     "test:ui:continuity": "node tests/continuity28.ui.cjs",
