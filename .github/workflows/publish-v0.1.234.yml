@@ -1,5 +1,5 @@
 name: Publish v0.1.234
-# Refine the task-integrated knowledge workspace and retain Markdown reliability.
+# Verify native undo shortcuts in the refined knowledge workspace on both platforms.
 
 on:
   workflow_dispatch:

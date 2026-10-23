@@ -115,7 +115,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   await page.waitForSelector('.kn-insert-menu',{state:'detached'});
   assert.match(await markdown(),/~~可嵌入~~/);
   assert.equal(await page.locator('[data-kn-action="insert-menu"]').getAttribute('aria-expanded'),'false');
-  await page.keyboard.press('Control+z');assert.equal(await markdown(),workspaceOriginal);
+  await page.keyboard.press(process.platform==='darwin'?'Meta+z':'Control+z');assert.equal(await markdown(),workspaceOriginal);
   await page.locator('[data-kn-action="insert-menu"]').click();await page.keyboard.press('Escape');
   assert.equal(await page.locator('[data-kn-action="insert-menu"]').evaluate(el=>el===document.activeElement),true);
   await page.locator('[data-kn-action="find"]').click();
