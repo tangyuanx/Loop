@@ -1,5 +1,5 @@
 name: Publish v0.1.233
-# Preserve original line separators and validate them on both desktop platforms.
+# Preserve source separators with compact history metadata on both platforms.
 
 on:
   workflow_dispatch:

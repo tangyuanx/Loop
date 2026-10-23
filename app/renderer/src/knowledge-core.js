@@ -9,12 +9,14 @@
   function sourceFormat(raw) {
     const breaks=new Map();let removed=0,preferred='';
     const text=String(raw).replace(/\r\n|\r|\n/g,(ending,offset)=>{
-      breaks.set(offset-removed,ending);removed+=ending.length-1;
-      if(!preferred)preferred=ending;return '\n';
+      if(!preferred)preferred=ending;
+      if(ending!==preferred)breaks.set(offset-removed,ending);
+      removed+=ending.length-1;return '\n';
     });
     return {text,breaks,preferred:preferred||'\n'};
   }
   function serializeSource(text,format) {
+    if(format.preferred==='\n'&&!format.breaks.size)return text;
     return text.replace(/\n/g,(_ending,offset)=>format.breaks.get(offset)||format.preferred);
   }
   function excludedRanges(text) {

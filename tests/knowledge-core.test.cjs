@@ -79,4 +79,5 @@ test('source serialization retains CRLF, CR, LF, mixed separators and Unicode of
   assert.ok(!format.text.includes('\r'));
   assert.equal(core.serializeSource(format.text,format),source);
  }
+ for(const ending of ['\n','\r\n','\r'])assert.equal(core.sourceFormat(('行'+ending).repeat(10000)).breaks.size,0);
 });

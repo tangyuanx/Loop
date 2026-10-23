@@ -19,10 +19,8 @@ function mapLineEndings(format,changes) {
     const next=changes.mapPos(pos,1,MapMode.TrackAfter);
     if(next!==null)breaks.set(next,ending);
   }
-  changes.iterChanges?.((_a,_b,from,_to,inserted)=>{
-    const text=inserted.toString();
-    for(let pos=text.indexOf('\n');pos!==-1;pos=text.indexOf('\n',pos+1))breaks.set(from+pos,format.preferred);
-  });
+  // Only exceptional separators are stored. Newly inserted breaks inherit the
+  // preferred format, so ordinary long notes do not retain a map per line.
   return {breaks,preferred:format.preferred};
 }
 const restoreLineEndings=StateEffect.define({map:mapLineEndings});
