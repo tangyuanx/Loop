@@ -454,10 +454,10 @@ function now() {
   return loopNow().toISOString();
 }
 
-async function confirmDestructiveAction(message) {
+async function confirmDestructiveAction(message, operation) {
   if (desktopDialogs?.confirmDestructive) {
     try {
-      const confirmed = await desktopDialogs.confirmDestructive({ message });
+      const confirmed = await desktopDialogs.confirmDestructive({ message, operation });
       state.restoreMarkdownFocus = false;
       return confirmed === true;
     } catch (error) {
@@ -1368,12 +1368,13 @@ async function reloadKnowledgeTask(taskId) {
   const task = state.tasks.find((item) => item.id === taskId);
   const note = task?.knowledgeNote;
   if (!task || !note?.filePath || !desktopKnowledgeFile?.read) return { success: false, code: "READ_UNAVAILABLE" };
-  if (note.dirty && !(await confirmDestructiveAction("重新加载将丢弃当前未保存的知识笔记修改，是否继续？"))) {
+  if (note.dirty && !(await confirmDestructiveAction("将放弃当前未保存的修改，并读取磁盘上的最新内容。此操作不会删除笔记或文件。", "reload-knowledge"))) {
     return { canceled: true };
   }
 
   captureMountedMilkdownDrafts(); flushNodeNoteDraft(noteDraftKey(task.id, ""), { persist: true });
   const contentAtRead = task.notes;
+  const conflictAtRead = knowledgeExternalSnapshots.get(note.noteId);
   let result;
   try {
     // Reload is an explicit request for the current disk version. Watcher
@@ -1399,7 +1400,7 @@ async function reloadKnowledgeTask(taskId) {
   }
 
   captureMountedMilkdownDrafts(); flushNodeNoteDraft(noteDraftKey(task.id, ""), { persist: true });
-  if (!state.tasks.includes(task) || task.notes !== contentAtRead || task.knowledgeNote.filePath !== note.filePath) {
+  if (!state.tasks.includes(task) || task.notes !== contentAtRead || task.knowledgeNote.noteId !== note.noteId || task.knowledgeNote.filePath !== note.filePath) {
     return { success: false, code: "DRAFT_CHANGED_DURING_READ", message: "读取期间笔记发生修改，已保留当前输入，请重试。" };
   }
   const previousNotes = task.notes;
@@ -1434,8 +1435,10 @@ async function reloadKnowledgeTask(taskId) {
   } catch (error) {
     console.error("Failed to update knowledge file watcher baseline after reload.", error);
   }
-  knowledgeExternalSnapshots.delete(note.noteId);
-  await clearKnowledgeRecoveryRecord(note.noteId);
+  if (knowledgeExternalSnapshots.get(note.noteId) === conflictAtRead) knowledgeExternalSnapshots.delete(note.noteId);
+  if (!task.knowledgeNote.dirty && task.knowledgeNote.documentState === "SAVED" && task.notes === result.content) {
+    await clearKnowledgeRecoveryRecord(note.noteId);
+  }
   return result;
 }
 
@@ -1639,6 +1642,7 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
   const lifecycleBeforeSave = typeof knowledgeGenerations !== "undefined" ? knowledgeGenerations.get(task.id) || 0 : 0;
   const contentBeforeSave = task.notes;
   const sessionBeforeSave = { ...task.knowledgeNote };
+  const conflictBeforeSave = knowledgeExternalSnapshots.get(note.noteId);
   const taskUpdatedAtBeforeSave = task.updatedAt;
   try {
     const fileCheck = await verifyKnowledgeFileBeforeSave(task, { saveAs, allowExternalOverwrite });
@@ -1729,8 +1733,8 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
     } catch (error) {
       console.error("Failed to update knowledge file watcher baseline after save.", error);
     }
-    knowledgeExternalSnapshots.delete(task.knowledgeNote.noteId);
-    if (!task.knowledgeNote.dirty) await clearKnowledgeRecoveryRecord(task.knowledgeNote.noteId);
+    if (knowledgeExternalSnapshots.get(note.noteId) === conflictBeforeSave) knowledgeExternalSnapshots.delete(note.noteId);
+    if (!task.knowledgeNote.dirty && task.knowledgeNote.documentState === "SAVED") await clearKnowledgeRecoveryRecord(task.knowledgeNote.noteId);
     return result;
   } catch (error) {
     console.error("Failed to save knowledge note.", error);
@@ -1872,6 +1876,10 @@ function renderWorkspaceStatus() {
 }
 
 function updateLocalSaveReceipt() {
+  if (state.taskPane === "notes" && typeof knowledgeUpdateChrome === "function") {
+    const task = state.tasks.find(item => item.id === state.activeTaskId);
+    if (task) knowledgeUpdateChrome(task);
+  }
   const status = document.querySelector("[data-workspace-status]");
   if (status) {
     const markup = renderWorkspaceStatus();
@@ -7974,19 +7982,13 @@ async function action(data, event = null) {
     insertIntoActiveEditor(editorSnippet(data.kind));
     return;
   }
-  if (data.action === "save-knowledge" || data.action === "save-knowledge-as") {
-    const result = await saveKnowledgeTask(data.taskId, { saveAs: data.action === "save-knowledge-as" });
-    if (!result?.canceled) render();
-    return;
-  }
-  if (data.action === "save-knowledge-overwrite") {
-    const result = await saveKnowledgeTask(data.taskId, { allowExternalOverwrite: true });
-    if (!result?.canceled) render();
-    return;
-  }
-  if (data.action === "reload-knowledge") {
-    const result = await reloadKnowledgeTask(data.taskId);
-    if (!result?.canceled) render();
+  if (["save-knowledge", "save-knowledge-as", "save-knowledge-overwrite", "reload-knowledge"].includes(data.action)) {
+    await shellRunKnowledgeConflictAction(data, () => data.action === "reload-knowledge"
+      ? reloadKnowledgeTask(data.taskId)
+      : saveKnowledgeTask(data.taskId, {
+        saveAs: data.action === "save-knowledge-as",
+        allowExternalOverwrite: data.action === "save-knowledge-overwrite",
+      }));
     return;
   }
   if (data.action === "relocate-knowledge") {

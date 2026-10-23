@@ -66,6 +66,9 @@
 .kn-upload-status button {margin-left:8px;cursor:pointer;}
 .kn-save-receipt {font-size:11px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:auto;color:var(--secondary);}
 .kn-save-receipt[data-state=failed],.kn-save-receipt[data-state=conflict] {color:#ad6860;}
+.knowledge-dialog .kn-rename-error {margin:8px 0 0;color:#ad6860;font-size:var(--type-12);line-height:1.6;}
+.knowledge-dialog .kn-rename-error:empty {display:none;}
+.knowledge-dialog #kn-rename-title[aria-invalid=true] {border-color:#ad6860;}
 .kn-note-title {border:0;background:transparent;color:var(--text);font-size:var(--type-13);cursor:pointer;min-width:0;max-width:100%;padding:3px 5px;margin-left:-5px;}
 .kn-note-title>svg {color:var(--secondary);width:15px;height:15px;}
 .kn-note-title>span {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}

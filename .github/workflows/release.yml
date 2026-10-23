@@ -54,6 +54,43 @@ jobs:
           if (-not $candidate) { throw "Windows installer was not produced." }
           ./tests/windows-upgrade-installer.test.ps1 -CandidateInstaller $candidate.FullName
 
+      - name: Select packaged macOS app for knowledge regression
+        if: matrix.platform == 'macOS'
+        shell: bash
+        run: |
+          executable="$PWD/release/mac-arm64/Loop.app/Contents/MacOS/Loop"
+          if [ ! -x "$executable" ]; then executable="$PWD/release/mac/Loop.app/Contents/MacOS/Loop"; fi
+          test -x "$executable"
+          echo "LOOP_APP_EXECUTABLE=$executable" >> "$GITHUB_ENV"
+
+      - name: Select packaged Windows app for knowledge regression
+        if: matrix.platform == 'Windows'
+        shell: pwsh
+        run: |
+          $executable = Join-Path $PWD "release/win-unpacked/Loop.exe"
+          if (-not (Test-Path -LiteralPath $executable)) { throw "Packaged Loop.exe is missing." }
+          "LOOP_APP_EXECUTABLE=$executable" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Test packaged knowledge notes before publishing
+        env:
+          LOOP_KNOWLEDGE_QA_DIR: ${{ runner.temp }}/knowledge-export
+          LOOP_CONFLICT_QA_DIR: ${{ runner.temp }}/knowledge-conflict
+          LOOP_FEEDBACK_QA_DIR: ${{ runner.temp }}/knowledge-feedback
+        run: |
+          npm run test:ui:knowledge-release
+
+      - name: Preserve packaged knowledge regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: knowledge-evidence-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/knowledge-export/evidence
+            ${{ runner.temp }}/knowledge-conflict/evidence
+            ${{ runner.temp }}/knowledge-feedback/evidence
+          retention-days: 7
+          if-no-files-found: warn
+
       - name: Verify update metadata
         run: node tools/verify-update-artifacts.cjs release
 

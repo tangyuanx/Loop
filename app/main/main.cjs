@@ -481,15 +481,18 @@ function registerStorageHandlers() {
   });
 
   ipcMain.handle("app:confirm-destructive", async (event, value) => {
-    const message = String(value?.message || "确定删除所选内容？").slice(0, 500);
+    const reloadKnowledge = value?.operation === "reload-knowledge";
+    const message = reloadKnowledge
+      ? "将放弃当前未保存的修改，并读取磁盘上的最新内容。此操作不会删除笔记或文件。"
+      : String(value?.message || "确定删除所选内容？").slice(0, 500);
     const parent = BrowserWindow.fromWebContents(event.sender);
     const options = {
       type: "warning",
-      buttons: ["取消", "删除"],
+      buttons: ["取消", reloadKnowledge ? "放弃修改并重新加载" : "删除"],
       defaultId: 0,
       cancelId: 0,
       noLink: true,
-      title: "确认删除",
+      title: reloadKnowledge ? "重新加载笔记" : "确认删除",
       message,
     };
     const result = parent && !parent.isDestroyed()

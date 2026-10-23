@@ -70,7 +70,7 @@ async function exportedWindow(file, fn) {
     task('e','简单图表','# 简单图表\n\n'+simple),
   ]});
   const env={...process.env,LOOP_USER_DATA_DIR:profile};delete env.ELECTRON_RUN_AS_NODE;
-  app=await _electron.launch({executablePath:require('electron'),args:[source],cwd:source,env});
+  app=await _electron.launch({executablePath:process.env.LOOP_APP_EXECUTABLE||require('electron'),args:process.env.LOOP_APP_EXECUTABLE?[]:[source],cwd:source,env});
   try{
     await until(()=>{page=app.windows().find(p=>p.url().endsWith('/app/renderer/index.html'));return page});
     page.setDefaultTimeout(12000);page.on('pageerror',e=>errors.push(e.message));await page.waitForSelector('.navigation');
@@ -175,7 +175,7 @@ async function exportedWindow(file, fn) {
       }return outputs;
     });
     await test('E03-restart',async()=>{
-      await app.close();app=await _electron.launch({executablePath:require('electron'),args:[source],cwd:source,env});
+      await app.close();app=await _electron.launch({executablePath:process.env.LOOP_APP_EXECUTABLE||require('electron'),args:process.env.LOOP_APP_EXECUTABLE?[]:[source],cwd:source,env});
       await until(()=>{page=app.windows().find(p=>p.url().endsWith('/app/renderer/index.html'));return page});await page.waitForSelector('.navigation');
       await choose('e');await mode('preview');await page.waitForSelector('.kn-reading .kn-mermaid svg',{state:'attached'});
       const rect=await page.locator('.kn-reading .kn-mermaid svg').evaluate(e=>({width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height}));assert.ok(rect.width>=240&&rect.height>=40);return rect;

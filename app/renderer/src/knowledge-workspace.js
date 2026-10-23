@@ -56,9 +56,26 @@ function knowledgeSetMode(mode) {
   state.markdownMode = mode; render();
 }
 function knowledgeReceipt(task) {
-  const status = knowledgeSaveResults.get(task.id), note = task.knowledgeNote;
+  return knowledgeSavePresentation(task);
+}
+function knowledgeSaveStatus(task) {
+  const status=knowledgeSaveResults.get(task.id);
+  return status && (status.filePath||null)===(task.knowledgeNote.filePath||null)?status:null;
+}
+function knowledgeSavePresentation(task) {
+  const bound=Boolean(task.knowledgeNote?.filePath);
+  return {
+    ...knowledgeReceiptState(task),
+    destination:bound?'file':'loop',
+    shortcut:`⌘ / Ctrl + S ${bound?'同步到文件':'保存到 Loop'}`,
+    menuLabel:bound?'同步到文件':'保存笔记',
+  };
+}
+function knowledgeReceiptState(task) {
+  const status = knowledgeSaveStatus(task), note = task.knowledgeNote;
   if (knowledgeFileWriteBusy.has(task.id)) return {text:'保存中…', state:'saving'};
   if (status?.error) return {text:'保存失败 · 点击保存重试', state:'failed'};
+  if (note.filePath && state.knowledgeFileIssues?.[note.noteId]) return {text:'文件未同步 · 当前草稿保留',state:'failed'};
   if (['EXTERNAL_CHANGED','FILE_MISSING','READ_ONLY'].includes(note.documentState)) return {text:SHELL_KNOWLEDGE_STATE_LABELS[note.documentState]+' · 当前草稿保留',state:'conflict'};
   if (nodeNoteDrafts.has(noteDraftKey(task.id,'')) || knowledgeAutosaveTimers.has(task.id)) return {text:'等待保存…',state:'pending'};
   if (localSaveOutcome === 'failed') return {text:'本地保存失败 · 草稿保留',state:'failed'};
@@ -74,9 +91,13 @@ function knowledgeUpdateChrome(task) {
   const title=pane.querySelector('.kn-note-title');
   if(title)title.title=`重命名笔记 · ${noteState.label} · ${file.text} · ${file.title}`;
   const receipt = knowledgeReceipt(task), target = pane.querySelector('[data-kn-receipt]');
-  if (target) {target.textContent = receipt.text;target.dataset.state=receipt.state;target.title=knowledgeSaveResults.get(task.id)?.error||receipt.text;}
+  if (target) {target.textContent = receipt.text;target.dataset.state=receipt.state;target.title=knowledgeSaveStatus(task)?.error||receipt.text;}
   const saveButton = pane.querySelector('[data-note-save]');
-  if (saveButton) {saveButton.disabled=knowledgeFileWriteBusy.has(task.id); saveButton.innerHTML=shellIcon('check')+(knowledgeFileWriteBusy.has(task.id)?'保存中…':'保存');}
+  if (saveButton) {saveButton.disabled=knowledgeFileWriteBusy.has(task.id); saveButton.title=receipt.shortcut;saveButton.innerHTML=shellIcon('check')+(knowledgeFileWriteBusy.has(task.id)?'保存中…':'保存');}
+  const shortcut=document.querySelector('.workspace-foot .foot-shortcut');
+  if(shortcut)shortcut.textContent=receipt.shortcut;
+  const menuSave=document.querySelector(`[data-knowledge-save-label][data-task-id="${CSS.escape(task.id)}"]`);
+  if(menuSave){menuSave.textContent=receipt.menuLabel;menuSave.disabled=knowledgeFileWriteBusy.has(task.id);}
   const meta=pane.querySelector('.knowledge-file-meta');
   if(meta && !meta.querySelector('[data-kn-action="rename"]')) meta.innerHTML=`<button type="button" class="kn-note-title" data-kn-action="rename" title="重命名笔记">${esc(LoopKnowledgeCore.noteTitle(task))}</button>`;
   const statsTarget=pane.querySelector('[data-note-stats]');
@@ -118,9 +139,9 @@ async function knowledgeAutoSave(taskId) {
       await flushKnowledgeRecovery(task.knowledgeNote.noteId,{strict:true});
       await knowledgeRecoveryWriteQueue;
       save();if(!(await flushSave()))throw new Error('本地笔记未能持久化');
-      knowledgeSaveResults.set(taskId,{content});
+      knowledgeSaveResults.set(taskId,{content,filePath:null});
       return {success:true,content,internal:true};
-    }catch(error){knowledgeSaveResults.set(taskId,{error:error.message});return {success:false,message:error.message};}
+    }catch(error){knowledgeSaveResults.set(taskId,{error:error.message,filePath:null});return {success:false,message:error.message};}
     finally{knowledgeFileWriteBusy.delete(taskId);knowledgeUpdateChrome(task);const pane=document.querySelector('.knowledge-pane');if(pane?.dataset.taskId===taskId)knowledgeSyncNotice(task,pane);}
   });
 }
@@ -140,9 +161,9 @@ saveKnowledgeTask = function knowledgeSerializedSave(taskId, options={}) {
       await flushKnowledgeRecovery(task.knowledgeNote.noteId,{strict:true});
       result=await knowledgePriorSave(taskId,options);
       if((knowledgeGenerations.get(taskId)||0)!==generation)return result;
-      if(result?.success)knowledgeSaveResults.set(taskId,{content:result.content??task.notes});
-      else if(!result?.canceled)knowledgeSaveResults.set(taskId,{error:result?.message||'保存未完成，请重试'});
-    }catch(error){result={success:false,code:'SAVE_FAILED',message:error.message};knowledgeSaveResults.set(taskId,{error:error.message});}
+      if(result?.success)knowledgeSaveResults.set(taskId,{content:result.content??task.notes,filePath:task.knowledgeNote.filePath||null});
+      else if(!result?.canceled)knowledgeSaveResults.set(taskId,{error:result?.message||'保存未完成，请重试',filePath:task.knowledgeNote.filePath||null});
+    }catch(error){result={success:false,code:'SAVE_FAILED',message:error.message};knowledgeSaveResults.set(taskId,{error:error.message,filePath:task.knowledgeNote.filePath||null});}
     finally{
       knowledgeFileWriteBusy.delete(taskId);knowledgeUpdateChrome(task);
       if(knowledgeDeferredFileEvents.has(taskId)){knowledgeDeferredFileEvents.delete(taskId);void knowledgeInspectDeferredChange(task);}
@@ -154,7 +175,7 @@ saveKnowledgeTask = function knowledgeSerializedSave(taskId, options={}) {
 };
 function knowledgeSyncNotice(task,pane) {
   pane.querySelector('[data-kn-save-error]')?.remove();
-  const error=knowledgeSaveResults.get(task.id)?.error;
+  const error=knowledgeSaveStatus(task)?.error;
   if(!error)return;
   const notice=document.createElement('div');notice.className='knowledge-notice attention';notice.dataset.knSaveError='true';notice.setAttribute('role','status');
   const text=document.createElement('span');text.textContent=error;notice.append(text);
@@ -252,14 +273,38 @@ function knowledgeShowSwitcher(query='',candidates=null,anchor='') {
   refresh();input.focus();
 }
 function knowledgeRename(task) {
-  shellKnowledgeDialog('重命名笔记',`<label class="knowledge-dialog-copy" for="kn-rename-title">笔记名称</label><input id="kn-rename-title" value="${escAttr(LoopKnowledgeCore.noteTitle(task))}" maxlength="200">`,'<button class="button" data-action="close-dialog">取消</button><button class="button primary" id="kn-rename-commit">保存名称</button>');
-  const field=document.querySelector('#kn-rename-title');field.focus();field.select();
-  const commit=async()=>{const title=field.value.trim();if(!title)return;
-    const previous=task.knowledgeNote;task.knowledgeNote=knowledgeDocument.updateDocumentTitle(previous,title);task.updatedAt=now();save();
-    if(!(await flushSave())){task.knowledgeNote=previous;showWorkspaceError('重命名未能保存，请重试');return;}
-    shellCloseOverlay();knowledgeCurrentEntry(task.id)?.refresh();render();
+  shellKnowledgeDialog('重命名笔记',`<label class="knowledge-dialog-copy" for="kn-rename-title">笔记名称</label><input id="kn-rename-title" value="${escAttr(LoopKnowledgeCore.noteTitle(task))}" maxlength="200" aria-describedby="kn-rename-error"><p id="kn-rename-error" class="kn-rename-error" role="alert"></p>`,'<button class="button" data-action="close-dialog">取消</button><button class="button primary" id="kn-rename-commit">保存名称</button>');
+  const field=document.querySelector('#kn-rename-title'),button=document.querySelector('#kn-rename-commit'),error=document.querySelector('#kn-rename-error'),surface=field.closest('[role="dialog"]');
+  const noteId=task.knowledgeNote.noteId;let busy=false,composing=false;
+  field.focus();field.select();
+  const owns=()=>surface.isConnected && document.querySelector('#kn-rename-title')===field;
+  const clearError=()=>{error.textContent='';field.removeAttribute('aria-invalid');};
+  field.oninput=()=>{if(field.value.trim())clearError();};
+  field.oncompositionstart=()=>{composing=true;};field.oncompositionend=()=>{composing=false;};
+  const commit=async()=>{
+    if(busy||composing)return;
+    const title=field.value.trim();
+    if(!title){error.textContent='请输入笔记名称';field.setAttribute('aria-invalid','true');field.focus();return;}
+    if(!state.tasks.includes(task)||task.knowledgeNote.noteId!==noteId)return;
+    clearError();busy=true;button.disabled=true;field.readOnly=true;surface.setAttribute('aria-busy','true');button.textContent='正在保存…';
+    const previous=task.knowledgeNote,previousUpdatedAt=task.updatedAt;
+    task.knowledgeNote=knowledgeDocument.updateDocumentTitle(previous,title);task.updatedAt=now();const renamedAt=task.updatedAt;
+    let success=false;
+    try{save();success=await flushSave();}catch(failure){console.error('Failed to rename knowledge note.',failure);}
+    finally{busy=false;button.disabled=false;field.readOnly=false;surface.removeAttribute('aria-busy');button.textContent='保存名称';}
+    if(!success){
+      if(state.tasks.includes(task)&&task.knowledgeNote.noteId===noteId){
+        task.knowledgeNote={...task.knowledgeNote,title:previous.title,aliases:previous.aliases};
+        if(task.updatedAt===renamedAt)task.updatedAt=previousUpdatedAt;
+        save();
+      }
+      if(owns()){error.textContent='重命名未能保存，请重试';if(state.activeTaskId===task.id)field.focus();}
+      return;
+    }
+    if(owns()&&state.activeTaskId===task.id&&task.knowledgeNote.noteId===noteId)shellCloseOverlay();
+    knowledgeCurrentEntry(task.id)?.refresh();render();
   };
-  document.querySelector('#kn-rename-commit').onclick=commit;field.onkeydown=event=>{if(event.key==='Enter')void commit();};
+  button.onclick=()=>void commit();field.onkeydown=event=>{if(event.key==='Enter'&&!event.isComposing&&event.keyCode!==229&&!composing){event.preventDefault();void commit();}};
 }
 function knowledgeTableTools() {
   const editor=knowledgeCurrentEntry();if(!editor)return;

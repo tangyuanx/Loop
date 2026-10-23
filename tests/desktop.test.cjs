@@ -2128,6 +2128,101 @@ test("renderer reloads saved external changes and blocks silent overwrite while 
   assert.equal(harness.evaluate(`knowledgeExternalSnapshots.has("external_task")`), false);
 });
 
+async function conflictActionHarness() {
+  const harness = await rendererHarness();
+  harness.evaluate(`
+    state.tasks = normalizeTasks([{id:"s2", title:"冲突", notes:"本地草稿", nodes:[], knowledgeNote:{noteId:"note-s2", filePath:"/tmp/s2.md", dirty:true, documentState:"EXTERNAL_CHANGED"}}]);
+    state.activeTaskId = "s2"; state.taskPane = "notes";
+    globalThis.s2Status = {textContent:""}; globalThis.s2Error = {textContent:""};
+    globalThis.s2Buttons = [{disabled:false},{disabled:false},{disabled:false}];
+    globalThis.s2Previews = [{textContent:"本地草稿"},{textContent:"磁盘内容"}];
+    globalThis.s2Surface = {
+      dataset:{taskId:"s2",noteId:"note-s2"}, isConnected:true,
+      setAttribute(key,value){this[key]=value}, removeAttribute(key){delete this[key]},
+      querySelector(selector){return selector==='[data-conflict-status]'?s2Status:s2Error},
+      querySelectorAll(selector){return selector.includes('footer')?s2Buttons:s2Previews}
+    };
+    globalThis.s2Current = s2Surface; globalThis.s2Closed = 0; globalThis.s2Focused = 0;
+    shellOverlay = () => ({querySelector:()=>s2Current, get firstElementChild(){return s2Current}});
+    shellCloseOverlay = () => {s2Current.isConnected=false;s2Current=null;s2Closed++};
+    document.querySelector = () => ({focus(){s2Focused++}});
+    render = () => {};
+  `);
+  return harness;
+}
+
+test("S2 conflict action closes only a successful owned dialog and restores focus", async () => {
+  const h = await conflictActionHarness();
+  const result = await h.evaluate(`shellRunKnowledgeConflictAction({taskId:"s2",action:"reload-knowledge"},async()=>{state.tasks[0].knowledgeNote.documentState="SAVED";return {success:true}})`);
+  assert.equal(result.success,true);
+  assert.equal(h.json('s2Closed'),1);assert.equal(h.json('s2Focused'),1);
+});
+
+test("S2 cancellation and all failure receipts keep the dialog, enable retry, and preserve content", async () => {
+  for (const receipt of [{canceled:true},{success:false,code:'FILE_READ_FAILED',message:'文件读取失败'},{success:false,code:'TASK_DATA_SAVE_FAILED',message:'无法持久化'},{success:false,code:'DRAFT_CHANGED_DURING_READ',message:'读取时新增输入'},{}]) {
+    const h = await conflictActionHarness();
+    await h.evaluate(`shellRunKnowledgeConflictAction({taskId:"s2",action:"reload-knowledge"},async()=>(${JSON.stringify(receipt)}))`);
+    assert.equal(h.json('s2Closed'),0);assert.equal(h.json('s2Focused'),0);
+    assert.equal(h.json('s2Buttons.some(button=>button.disabled)'),false);
+    assert.equal(h.json('state.tasks[0].notes'),'本地草稿');
+    assert.equal(Boolean(h.json('s2Error.textContent')),!receipt.canceled);
+  }
+});
+
+test("S2 busy actions cannot run twice and a replacement dialog survives late success", async () => {
+  const h = await conflictActionHarness();
+  h.evaluate(`globalThis.s2Pending=shellRunKnowledgeConflictAction({taskId:"s2",action:"reload-knowledge"},()=>new Promise(resolve=>{globalThis.s2Resolve=resolve}));`);
+  assert.equal(h.json('s2Buttons.every(button=>button.disabled)'),true);
+  assert.match(h.json('s2Status.textContent'),/重新加载/);
+  const duplicate = await h.evaluate(`shellRunKnowledgeConflictAction({taskId:"s2"},async()=>{throw Error("must not execute")})`);
+  assert.equal(duplicate.code,'CONFLICT_OPERATION_BUSY');
+  h.evaluate(`s2Surface.isConnected=false;s2Current={dataset:{taskId:"other"}};state.tasks[0].knowledgeNote.documentState="SAVED";s2Resolve({success:true})`);
+  await h.evaluate('s2Pending');
+  assert.equal(h.json('s2Closed'),0);assert.equal(h.json('s2Focused'),0);
+  assert.equal(h.json('s2Current.dataset.taskId'),'other');
+});
+
+test("S2 a new conflict and a switched note are not dismissed by the old receipt", async () => {
+  for (const change of ['knowledgeExternalSnapshots.set("note-s2",{content:"再次外部修改"})','state.activeTaskId="other"','state.tasks[0].knowledgeNote.noteId="replacement-note"']) {
+    const h = await conflictActionHarness();
+    await h.evaluate(`shellRunKnowledgeConflictAction({taskId:"s2",action:"save-knowledge-overwrite"},async()=>{${change};return {success:true}})`);
+    assert.equal(h.json('s2Closed'),0);assert.equal(h.json('s2Focused'),0);
+    if(change.startsWith('knowledgeExternal')) {
+      assert.match(h.json('s2Error.textContent'),/再次发生变化/);
+      assert.equal(h.json('s2Previews[1].textContent'),'再次外部修改');
+    }
+  }
+});
+
+test("S2 native confirmation uses a restricted operation type and retains real deletion semantics", async () => {
+  const source = await fs.readFile(path.join(__dirname,'../app/main/main.cjs'),'utf8');
+  const registration = source.slice(source.indexOf('  ipcMain.handle("app:confirm-destructive"'), source.indexOf('  ipcMain.handle("clipboard:read-image-data-url"'));
+  let handler, options, response=0;
+  vm.runInNewContext(registration, {ipcMain:{handle:(_name,fn)=>{handler=fn}},BrowserWindow:{fromWebContents:()=>null},dialog:{showMessageBox:async value=>{options=value;return {response}}}});
+  const h=await rendererHarness({dialogs:{confirmDestructive:value=>handler({sender:{}},value)}});
+  assert.equal(await h.evaluate('confirmDestructiveAction("ignored", "reload-knowledge")'),false);
+  assert.equal(options.title,'重新加载笔记');assert.deepEqual(Array.from(options.buttons),['取消','放弃修改并重新加载']);
+  assert.match(options.message,/不会删除笔记或文件/);assert.equal(options.defaultId,0);assert.equal(options.cancelId,0);
+  response=1;
+  for(const operation of [undefined,'unknown']) {
+    assert.equal(await handler({sender:{}},{message:'确定删除节点？',operation}),true);
+    assert.equal(options.title,'确认删除');assert.deepEqual(Array.from(options.buttons),['取消','删除']);
+  }
+});
+
+test("S2 reload retains newer conflict evidence and Recovery received during watcher synchronization", async () => {
+  let h, deletes=0;
+  h=await rendererHarness({knowledgeRecovery:{delete:async()=>{deletes++}},knowledgeFile:{
+    read:async()=>({success:true,content:'已读取正文',filePath:'/tmp/s2-new.md',lastSavedHash:'read-hash'}),
+    watch:async()=>{h.evaluate(`state.tasks[0].notes="读取后的新草稿";state.tasks[0].knowledgeNote=knowledgeDocument.markDocumentExternalChanged({...state.tasks[0].knowledgeNote,dirty:true});knowledgeExternalSnapshots.set("s2-new",{content:"新的磁盘版本"})`);}
+  }});
+  h.evaluate(`render=()=>{};state.tasks=normalizeTasks([{id:"s2-new",title:"S2",nodes:[],notes:"旧草稿",knowledgeNote:{noteId:"s2-new",filePath:"/tmp/s2-new.md",dirty:true,documentState:"EXTERNAL_CHANGED"}}]);state.knowledgeRecovery.records["s2-new"]={content:"原Recovery"};knowledgeExternalSnapshots.set("s2-new",{content:"旧冲突"})`);
+  assert.equal((await h.evaluate('reloadKnowledgeTask("s2-new")')).success,true);
+  assert.equal(h.json('state.tasks[0].notes'),'读取后的新草稿');
+  assert.equal(h.json('knowledgeExternalSnapshots.get("s2-new").content'),'新的磁盘版本');
+  assert.equal(h.json('state.knowledgeRecovery.records["s2-new"].content'),'原Recovery');assert.equal(deletes,0);
+});
+
 test("Bug 25 reload reads the current Markdown file and commits its new baseline", async () => {
   let readCalls = 0;
   const recoveryDeletes = [];

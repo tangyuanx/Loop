@@ -1,6 +1,6 @@
 {
   "name": "loop",
-  "version": "0.1.236",
+  "version": "0.1.237",
   "description": "Loop is a local-first personal task flow tracker for closing work from creation to completion.",
   "private": true,
   "license": "UNLICENSED",
@@ -40,6 +40,9 @@
     "test:knowledge": "node --test tests/knowledge-core.test.cjs tests/knowledge-reliability.test.cjs tests/knowledge-export.test.cjs",
     "test:ui:knowledge-desktop": "node tests/knowledge-desktop.ui.cjs",
     "test:ui:knowledge-image": "node tests/knowledge-image.ui.cjs",
+    "test:ui:knowledge-conflict": "node tests/knowledge-conflict.ui.cjs",
+    "test:ui:knowledge-feedback": "node tests/knowledge-feedback.ui.cjs",
+    "test:ui:knowledge-release": "node tools/test-packaged-knowledge.cjs",
     "test:ui:knowledge": "node tests/knowledge-editor.ui.cjs"
   },
   "build": {

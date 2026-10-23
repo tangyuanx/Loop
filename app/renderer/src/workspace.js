@@ -444,9 +444,12 @@ function renderShellWorkspace(task) {
 }
 
 function renderShellWorkspaceFooter(pane = "") {
+  const task=shellActiveTask();
+  const shortcut=pane==='notes' && task && typeof knowledgeSavePresentation==='function'
+    ? knowledgeSavePresentation(task).shortcut : '⌘ / Ctrl + S 保存笔记';
   return `<footer class="workspace-foot">
     <div data-workspace-status>${renderWorkspaceStatus()}</div>
-    ${pane ? `<span class="foot-shortcut">${pane === "notes" ? "⌘ / Ctrl + S 保存文件" : "拖动节点调整层级 · Esc 关闭详情"}</span>` : ""}
+    ${pane ? `<span class="foot-shortcut">${pane === "notes" ? shortcut : "拖动节点调整层级 · Esc 关闭详情"}</span>` : ""}
   </footer>`;
 }
 
