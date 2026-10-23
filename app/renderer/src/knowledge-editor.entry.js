@@ -88,7 +88,9 @@ class KnowledgeEditor {
         return last>end?{from:end,to:last}:null;
       }),
       search({top:true,caseSensitive:false}),highlightSelectionMatches(),
-      autocompletion({override:[context=>this.complete(context)]}),
+      // Wiki completion is explicitly requested by [[; Enter should accept a
+      // visible candidate even when it arrives less than 75ms before the key.
+      autocompletion({override:[context=>this.complete(context)],interactionDelay:0}),
       Prec.high(keymap.of([
         {key:'Mod-b',run:()=>this.format('bold')},{key:'Mod-i',run:()=>this.format('italic')},
         {key:'Mod-k',run:()=>this.format('link','https://')},{key:'Mod-e',run:()=>{options.onToggleMode?.();return true;}},
