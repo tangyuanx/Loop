@@ -1,5 +1,5 @@
 {
-  "name": "personal-task-track",
+  "name": "loop",
   "version": "0.1.235",
   "description": "Loop is a local-first personal task flow tracker for closing work from creation to completion.",
   "private": true,
@@ -7,12 +7,12 @@
   "author": "xuesinian",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tangyuanx/personal-task-track.git"
+    "url": "git+https://github.com/tangyuanx/Loop.git"
   },
   "bugs": {
-    "url": "https://github.com/tangyuanx/personal-task-track/issues"
+    "url": "https://github.com/tangyuanx/Loop/issues"
   },
-  "homepage": "https://github.com/tangyuanx/personal-task-track#readme",
+  "homepage": "https://github.com/tangyuanx/Loop#readme",
   "main": "app/main/main.cjs",
   "scripts": {
     "dev": "electron .",
@@ -64,7 +64,7 @@
       {
         "provider": "github",
         "owner": "tangyuanx",
-        "repo": "personal-task-track"
+        "repo": "Loop"
       }
     ],
     "mac": {

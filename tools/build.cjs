@@ -11,7 +11,7 @@ const shouldUseInternalOutput =
 const platformName = args.includes("--win") ? "win" : args.includes("--mac") ? "mac" : "all";
 const internalOutputDirectory = path.join(
   os.tmpdir(),
-  `personal-task-track-release-${platformName}`,
+  `loop-release-${platformName}`,
 );
 const builderArgs = [...args];
 

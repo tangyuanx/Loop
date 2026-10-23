@@ -4830,7 +4830,7 @@ function renderUpdateStatus(update) {
     title: error.title,
     detail: error.detail,
     notes: error.code ? [`诊断代码：${error.code}`] : [],
-    actions: `<a class="settings-update-button ghost" href="https://github.com/tangyuanx/personal-task-track/releases/latest" target="_blank" rel="noreferrer">打开发布页</a><button class="settings-update-button" type="button" data-update-action="check">重试</button>`,
+    actions: `<a class="settings-update-button ghost" href="https://github.com/tangyuanx/Loop/releases/latest" target="_blank" rel="noreferrer">打开发布页</a><button class="settings-update-button" type="button" data-update-action="check">重试</button>`,
   });
 }
 

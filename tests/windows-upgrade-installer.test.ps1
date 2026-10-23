@@ -84,7 +84,7 @@ try {
         Reset-Fixture -TargetVersion $expectedVersion
         $oldInstaller = Join-Path $downloadDir "Loop-$installedVersion-x64-setup.exe"
         if (-not (Test-Path -LiteralPath $oldInstaller -PathType Leaf)) {
-            $uri = "https://github.com/tangyuanx/personal-task-track/releases/download/v$installedVersion/Loop-$installedVersion-x64-setup.exe"
+            $uri = "https://github.com/tangyuanx/Loop/releases/download/v$installedVersion/Loop-$installedVersion-x64-setup.exe"
             Invoke-WebRequest -Uri $uri -OutFile $oldInstaller
         }
 

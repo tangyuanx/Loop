@@ -3479,7 +3479,7 @@ test("release configuration uses deterministic updater artifacts and excludes de
   assert.equal(packageJson.build.nsis.deleteAppDataOnUninstall, false);
   assert.equal(packageJson.build.nsis.shortcutName, APP_DISPLAY_NAME);
   assert.equal(packageJson.build.nsis.uninstallDisplayName, "Loop ${version}");
-  assert.deepEqual(packageJson.build.publish, [{ provider: "github", owner: "tangyuanx", repo: "personal-task-track" }]);
+  assert.deepEqual(packageJson.build.publish, [{ provider: "github", owner: "tangyuanx", repo: "Loop" }]);
   assert.match(buildScript, /new Set\(\["latest\.yml", "latest-mac\.yml"\]\)/);
   assert.match(workflow, /release\/latest\.yml/);
   assert.match(workflow, /release\/latest-mac\.yml/);

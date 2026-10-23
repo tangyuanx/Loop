@@ -1,6 +1,8 @@
 # Bug Report Server
 
-Personal Task Track 的独立 Bug 反馈服务。客户端只向本服务提交白名单字段；本服务持有 GitHub 凭据并调用 GitHub REST API 创建 Issue。
+Loop 的独立 Bug 反馈服务。客户端只向本服务提交白名单字段；本服务持有 GitHub 凭据并调用 GitHub REST API 创建 Issue。
+
+项目仓库为 `tangyuanx/Loop`。部署配置使用 `GITHUB_REPO=Loop`；旧配置中的 `tangyuanx/personal-task-track` 会自动映射到新仓库，其他仓库配置保持原样。
 
 ## 本地开发
 
@@ -26,7 +28,7 @@ npm run dev
 | --- | --- | --- |
 | `GITHUB_TOKEN` | 是 | 仅保存于服务端的 Fine-grained Token |
 | `GITHUB_OWNER` | 是 | 默认 `tangyuanx` |
-| `GITHUB_REPO` | 是 | 默认 `personal-task-track` |
+| `GITHUB_REPO` | 是 | 默认 `Loop` |
 | `PORT` | 否 | 默认 `3000` |
 | `ALLOWED_ORIGINS` | 否 | 逗号分隔的浏览器 Origin 白名单；桌面主进程请求不带 Origin，可留空 |
 | `GITHUB_TIMEOUT_MS` | 否 | GitHub 请求超时，默认 10000ms，范围 100～30000ms |
@@ -36,7 +38,7 @@ npm run dev
 ## Fine-grained Token
 
 1. 打开 GitHub `Settings → Developer settings → Personal access tokens → Fine-grained tokens`，创建新 Token。
-2. Resource owner 选择 `tangyuanx`，Repository access 选择 `Only select repositories`，只勾选 `personal-task-track`。
+2. Resource owner 选择 `tangyuanx`，Repository access 选择 `Only select repositories`，只勾选 `Loop`。
 3. Repository permissions 只将 `Issues` 设置为 `Read and write`，其余权限保持 `No access`。
 4. 设置尽可能短的有效期，生成后立即存入部署平台的加密 Secret `GITHUB_TOKEN`。
 
@@ -66,12 +68,12 @@ NODE_ENV=production npm start
 Docker：
 
 ```bash
-docker build -t personal-task-track-bug-report-server .
+docker build -t loop-bug-report-server .
 docker run --rm -p 3000:3000 \
   -e GITHUB_TOKEN \
   -e GITHUB_OWNER=tangyuanx \
-  -e GITHUB_REPO=personal-task-track \
-  personal-task-track-bug-report-server
+  -e GITHUB_REPO=Loop \
+  loop-bug-report-server
 ```
 
 生产部署必须放在 HTTPS 入口之后，并在平台 Secret 中配置 `GITHUB_TOKEN`。部署完成后先检查 `/health`，再将桌面端运行环境的 `BUG_REPORT_API_URL` 指向该 HTTPS 域名。服务本身不记录联系方式、Authorization 请求头或 GitHub Token。

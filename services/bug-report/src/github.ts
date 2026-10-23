@@ -77,7 +77,7 @@ async function postIssue(
           accept: "application/vnd.github+json",
           authorization: `Bearer ${config.githubToken}`,
           "content-type": "application/json",
-          "user-agent": "personal-task-track-bug-report-server",
+          "user-agent": "loop-bug-report-server",
           "x-github-api-version": "2022-11-28",
         },
         body: JSON.stringify({

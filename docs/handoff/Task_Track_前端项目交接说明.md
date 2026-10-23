@@ -1,10 +1,10 @@
-# Personal Task Track 项目持续交接说明
+# Loop 项目持续交接说明
 
 > 文档性质：**生产项目的持续交接入口（Living Handoff）**
 > 当前生产版本：**v0.1.200**
 > 当前生产提交：**见标签 `v0.1.200`**
 > 最近核对日期：**2026-10-01（Asia/Shanghai）**
-> 远程仓库：`git@github.com:tangyuanx/personal-task-track.git`
+> 远程仓库：`git@github.com:tangyuanx/Loop.git`
 > 当前生产形态：**Electron 桌面应用 + Vanilla JavaScript + 本地 Milkdown/Crepe**
 > 生产数据持久化：Electron `userData/task-data.json`；浏览器预览使用 `localStorage` 降级
 
@@ -89,7 +89,7 @@ package.json                    当前版本、依赖、构建和打包配置
 
 ## 0.3 当前产品形态
 
-Personal Task Track 是一个本地优先的个人任务处理流桌面工具。当前生产界面以 `prototypes/demos/task-track.html` 的信息架构和视觉语言为主，同时保留了此前 Electron 版本已有的持久化、回顾、导出、主题、字体、拖拽排序等能力。
+Loop 是一个本地优先的个人任务处理流桌面工具。当前生产界面以 `prototypes/demos/task-track.html` 的信息架构和视觉语言为主，同时保留了此前 Electron 版本已有的持久化、回顾、导出、主题、字体、拖拽排序等能力。
 
 当前核心区域：
 

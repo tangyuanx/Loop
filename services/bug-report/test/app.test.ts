@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ServerConfig } from "../src/config.js";
+import { loadConfig, type ServerConfig } from "../src/config.js";
 import { buildApp } from "../src/app.js";
 
 const validPayload = {
@@ -24,7 +24,7 @@ function config(overrides: Partial<ServerConfig> = {}): ServerConfig {
   return {
     githubToken: "test-token",
     githubOwner: "tangyuanx",
-    githubRepo: "personal-task-track",
+    githubRepo: "Loop",
     port: 3000,
     allowedOrigins: new Set(),
     bodyLimit: 100 * 1024,
@@ -35,16 +35,17 @@ function config(overrides: Partial<ServerConfig> = {}): ServerConfig {
   };
 }
 
-function githubResponse(status = 201, body: Record<string, unknown> = { number: 38, html_url: "https://github.com/tangyuanx/personal-task-track/issues/38" }) {
+function githubResponse(status = 201, body: Record<string, unknown> = { number: 38, html_url: "https://github.com/tangyuanx/Loop/issues/38" }) {
   return async () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
 test("normal submission creates a GitHub Issue and returns a report receipt", async (t) => {
   let requestBody: Record<string, unknown> | undefined;
   const fetchImpl = async (_url: string | URL | Request, init?: RequestInit) => {
+    assert.equal(String(_url), "https://api.github.com/repos/tangyuanx/Loop/issues");
     assert.match(String((init?.headers as Record<string, string>).authorization), /^Bearer /);
     requestBody = JSON.parse(String(init?.body));
-    return new Response(JSON.stringify({ number: 38, html_url: "https://github.com/tangyuanx/personal-task-track/issues/38" }), { status: 201 });
+    return new Response(JSON.stringify({ number: 38, html_url: "https://github.com/tangyuanx/Loop/issues/38" }), { status: 201 });
   };
   const app = buildApp({ config: config(), fetchImpl: fetchImpl as typeof fetch });
   t.after(() => app.close());
@@ -56,6 +57,13 @@ test("normal submission creates a GitHub Issue and returns a report receipt", as
   assert.match(String(requestBody?.title), /^\[Bug\]\[功能异常\]/);
   assert.match(String(requestBody?.body), /反馈编号：BR-/);
   assert.doesNotMatch(String(requestBody?.body), /Authorization/i);
+});
+
+test("repository rename keeps existing feedback deployments pointed at Loop", () => {
+  assert.equal(loadConfig({}).githubRepo, "Loop");
+  assert.equal(loadConfig({ GITHUB_OWNER: "tangyuanx", GITHUB_REPO: "personal-task-track" }).githubRepo, "Loop");
+  assert.equal(loadConfig({ GITHUB_OWNER: "another-owner", GITHUB_REPO: "personal-task-track" }).githubRepo, "personal-task-track");
+  assert.equal(loadConfig({ GITHUB_OWNER: "tangyuanx", GITHUB_REPO: "custom-repo" }).githubRepo, "custom-repo");
 });
 
 test("request validation rejects empty title, short description, and oversized fields", async (t) => {
@@ -124,7 +132,7 @@ test("missing optional category label falls back without losing the Issue", asyn
   const fetchImpl = async (_url: string | URL | Request, init?: RequestInit) => {
     requestBodies.push(JSON.parse(String(init?.body)));
     if (requestBodies.length === 1) return new Response(JSON.stringify({ message: "label missing" }), { status: 422 });
-    return new Response(JSON.stringify({ number: 41, html_url: "https://github.com/tangyuanx/personal-task-track/issues/41" }), { status: 201 });
+    return new Response(JSON.stringify({ number: 41, html_url: "https://github.com/tangyuanx/Loop/issues/41" }), { status: 201 });
   };
   const app = buildApp({ config: config(), fetchImpl: fetchImpl as typeof fetch });
   t.after(() => app.close());

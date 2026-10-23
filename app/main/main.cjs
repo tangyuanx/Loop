@@ -360,7 +360,7 @@ function registerStorageHandlers() {
     const parent = BrowserWindow.fromWebContents(event.sender);
     const selectionType = value?.selectionType === "directory" ? "directory" : "file";
     const selection = await dialog.showOpenDialog(parent, selectionType === "directory" ? {
-      title: "选择 Loop 或 Personal Task Track 备份目录",
+      title: "选择 Loop 备份目录",
       properties: ["openDirectory"],
     } : {
       title: "选择 Loop 完整备份文件",

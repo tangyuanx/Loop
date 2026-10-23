@@ -126,7 +126,7 @@ function shellSettingsData() {
     ${shellSettingsAction("完整备份", "包含任务、分组、处理记录、笔记恢复内容及应用偏好。", "导出备份", `data-backup-action="export" ${desktopDataBackup ? "" : "disabled"}`)}
     <h3 class="prefs-subheading">恢复工作空间</h3>
     ${shellSettingsAction("从备份文件恢复", "选择 Loop 完整备份（.loopbackup）。", "选择文件", `data-backup-action="import-file" ${desktopDataBackup ? "" : "disabled"}`)}
-    ${shellSettingsAction("从备份目录恢复", "支持 Loop 与 Personal Task Track 的备份目录。", "选择目录", `data-backup-action="import-directory" ${desktopDataBackup ? "" : "disabled"}`)}
+    ${shellSettingsAction("从备份目录恢复", "支持 Loop 当前及历史版本的备份目录。", "选择目录", `data-backup-action="import-directory" ${desktopDataBackup ? "" : "disabled"}`)}
     <div class="prefs-inline-note">${shellIcon("history")}<span>恢复会替换当前工作空间。Loop 会先备份当前数据，失败时自动回滚；成功后重新启动。<br />外部绑定的 Markdown 文件需要另行备份。</span></div>
     <p class="prefs-transfer-status" data-backup-status role="status"></p>`;
 }

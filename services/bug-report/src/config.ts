@@ -11,10 +11,16 @@ export type ServerConfig = {
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
+  const githubOwner = String(env.GITHUB_OWNER || "tangyuanx").trim();
+  const configuredRepo = String(env.GITHUB_REPO || "Loop").trim();
+  // Existing deployments can still have the repository's former name in .env.
+  const githubRepo = githubOwner.toLowerCase() === "tangyuanx" && configuredRepo.toLowerCase() === "personal-task-track"
+    ? "Loop"
+    : configuredRepo;
   return {
     githubToken: String(env.GITHUB_TOKEN || "").trim(),
-    githubOwner: String(env.GITHUB_OWNER || "tangyuanx").trim(),
-    githubRepo: String(env.GITHUB_REPO || "personal-task-track").trim(),
+    githubOwner,
+    githubRepo,
     port: boundedNumber(env.PORT, 3000, 1, 65_535),
     allowedOrigins: new Set(
       String(env.ALLOWED_ORIGINS || "")
