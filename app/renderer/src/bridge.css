@@ -607,3 +607,7 @@ body[data-window25-inactive] .topbar > .brand-update-slot > .brand-update {
 .workspace-feedback-dismiss svg { width: 12px; height: 12px; }
 .workspace-foot:has(.workspace-feedback) .foot-shortcut { display: none; }
 .workspace > .workspace-empty { flex: 1; }
+
+/* Reduce the visible completion circle without changing its 26 × 28px button. */
+.task-check-ring { width: 14px; height: 14px; }
+.task-check-ring svg { width: 9px; height: 9px; }

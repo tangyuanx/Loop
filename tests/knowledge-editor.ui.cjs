@@ -191,6 +191,63 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   await append('\n\n[[');await page.keyboard.type('目标');await page.waitForSelector('.cm-tooltip-autocomplete');await page.keyboard.press('Enter');
   assert.match(await markdown(),/\[\[note:note-b\|目标笔记\]\]/);
   console.log('UI check 6: Modify a table via the same editor transaction and undo history.');
+  // Actual mouse coordinates must select the visible cell without replacing
+  // the table with source, changing its height, or moving the editing field.
+  await choose('c');await mode('edit');
+  const cellRows=[['表头甲','表头乙','表头丙'],...Array.from({length:12},(_,i)=>[`甲${i+1}`,i===3?'':`乙${i+1}`,i===5?'a\\|b':`丙${i+1}`])];
+  const tableSource='# 表格点击回归\n\n标题下面的正文\n\n'+cellRows.map((row,i)=>(i===1?'| --- | --- | --- |\n':'')+'| '+row.join(' | ')+' |').join('\n')+'\n\n表格后正文\n\n## 末尾标题\n\n末尾正文';
+  await page.evaluate(source=>{const e=knowledgeCurrentEntry();e.view.dispatch({changes:{from:0,to:e.view.state.doc.length,insert:source},selection:{anchor:0}});},tableSource);
+  for(const width of [1024,1440]){
+    await page.setViewportSize({width,height:900});
+    for(let r=0;r<cellRows.length;r++)for(let c=0;c<3;c++){
+      const cell=page.locator('.kn-table-widget tr').nth(r).locator('th,td').nth(c);
+      await cell.scrollIntoViewIfNeeded();const before=await cell.boundingBox();
+      const height=await page.locator('.kn-table-widget table').evaluate(el=>el.getBoundingClientRect().height);
+      await page.mouse.click(before.x+before.width/2,before.y+before.height/2);
+      const input=cell.locator('.kn-table-cell-editor');await input.waitFor();
+      assert.equal(await input.inputValue(),cellRows[r][c],`visible row ${r}, column ${c}`);
+      assert.equal(await input.evaluate(el=>el===document.activeElement),true);
+      const after=await input.boundingBox();assert.ok(Math.abs(before.y-after.y)<2,'cell stays at clicked vertical position');
+      assert.equal(await page.locator('.kn-table-widget table').evaluate(el=>el.getBoundingClientRect().height),height);
+      assert.equal(await markdown(),tableSource);
+    }
+  }
+  const header=page.locator('.kn-table-widget th').nth(1);await header.click();
+  const headerInput=header.locator('input');await headerInput.press('End');await page.keyboard.type('X');
+  assert.equal(await markdown(),tableSource.replace('表头乙','表头乙X'));
+  await headerInput.press(process.platform==='darwin'?'Meta+z':'Control+z');
+  assert.equal(await markdown(),tableSource);assert.equal(await headerInput.inputValue(),'表头乙');
+  await headerInput.press('Tab');assert.equal(await page.locator('.kn-table-cell-editor').inputValue(),'表头丙');
+  await page.keyboard.press('Shift+Tab');assert.equal(await page.locator('.kn-table-cell-editor').inputValue(),'表头乙');
+  await page.keyboard.press('Escape');assert.equal(await page.locator('.kn-table-cell-editor').count(),0);
+  const bodyCell=page.locator('.kn-table-widget tbody tr').nth(4).locator('td').nth(2);
+  await bodyCell.click();const bodyInput=bodyCell.locator('input');
+  await bodyInput.fill('修订 | 单元格');
+  const editedTable=tableSource.replace('丙5','修订 \\| 单元格');assert.equal(await markdown(),editedTable);
+  await page.evaluate(()=>saveKnowledgeTask('c'));await choose('b');await choose('c');await mode('edit');
+  assert.equal(await markdown(),editedTable);assert.match(await page.locator('.kn-table-widget').innerText(),/修订 \| 单元格/);
+  const imeCell=page.locator('.kn-table-widget tbody tr').nth(0).locator('td').nth(0);
+  await imeCell.click();await page.locator('.kn-table-cell-editor').press('End');
+  await cdp.send('Input.imeSetComposition',{text:'中文候选',selectionStart:4,selectionEnd:4});
+  await page.waitForTimeout(1300);assert.equal(await page.locator('.kn-table-cell-editor').evaluate(el=>el===document.activeElement),true);
+  await cdp.send('Input.insertText',{text:'中文单元格😀'});
+  assert.match(await markdown(),/甲1中文单元格😀/);
+  await page.locator('.cm-line.kn-h1').click();
+  assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().view.state.doc.lineAt(knowledgeCurrentEntry().view.state.selection.main.head).number),1);
+  await page.locator('.cm-line').filter({hasText:'标题下面的正文'}).click();
+  assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().view.state.doc.lineAt(knowledgeCurrentEntry().view.state.selection.main.head).text),'标题下面的正文');
+  // Short rows, optional outer pipes and multiple tables preserve exact targets.
+  const sparseSource='甲 | 乙 | 丙\n--- | --- | ---\n一\n\n| 丁 | 戊 | 己 |\n| --- | --- | --- |\n| 二 | | |';
+  await page.evaluate(source=>{const e=knowledgeCurrentEntry();e.view.dispatch({changes:{from:0,to:e.view.state.doc.length,insert:source},selection:{anchor:0}});},sparseSource);
+  await page.locator('.kn-table-widget').nth(0).locator('tbody td').nth(2).click();
+  await page.locator('.kn-table-cell-editor').fill('补全');
+  assert.equal(await markdown(),sparseSource.replace('\n一\n','\n一 |  | 补全\n'));
+  await page.locator('.kn-table-widget').nth(1).locator('tbody td').nth(1).click();
+  await page.locator('.kn-table-cell-editor').fill('第二表');
+  assert.match(await markdown(),/\| 二 \| 第二表\| \|/);
+  await page.locator('.kn-table-cell-editor').press(process.platform==='darwin'?'Meta+s':'Control+s');
+  assert.equal(await page.locator('.kn-table-cell-editor').evaluate(el=>el===document.activeElement),true);
+  await choose('a');await mode('source');
   // Modify a table via the same editor transaction and undo history.
   await page.evaluate(()=>{const e=knowledgeCurrentEntry(),at=e.getMarkdown().indexOf('| 一');e.view.dispatch({selection:{anchor:at+3}});e.table('column-add',1);});
   assert.equal(await page.evaluate(()=>LoopKnowledgeCore.tableAt(knowledgeCurrentEntry().getMarkdown(),knowledgeCurrentEntry().view.state.selection.main.head).rows[0].length),5);

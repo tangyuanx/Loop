@@ -60,6 +60,42 @@ class RenderWidget extends WidgetType {
   }
   ignoreEvent(event) { return event.type !== 'mousedown'; }
 }
+// Tables keep their rendered geometry while a single cell is edited. Switching
+// the entire block to source on mousedown moved later rows away from the click.
+class TableWidget extends RenderWidget {
+  toDOM(view) {
+    const el=document.createElement('div');el.className='kn-live-widget kn-rendered kn-table-widget';
+    el.dataset.sourcePos=String(this.from);el.innerHTML=this.html;
+    el.addEventListener('mousedown',event=>{
+      if(event.button!==0||event.target.closest('button,a,input'))return;
+      const cell=event.target.closest('td,th');
+      if(!cell||cell.closest('table')!==el.querySelector('table'))return;
+      event.preventDefault();event.stopPropagation();this.owner.editTableCell(el,cell);
+    });
+    el.addEventListener('click',event=>this.owner.handleRenderedClick(event,this.from));return el;
+  }
+  updateDOM(el) {
+    // Never reuse another table's focused field when several tables redraw.
+    if(Number(el.dataset.sourcePos)!==this.from)return false;
+    const next=document.createElement('div');next.innerHTML=this.html;
+    const oldTable=el.querySelector('table'),newTable=next.querySelector('table');if(!oldTable||!newTable)return false;
+    const oldRows=[...oldTable.rows],rows=[...newTable.rows];
+    if(rows.length!==oldRows.length||rows.some((row,i)=>row.cells.length!==oldRows[i].cells.length))return false;
+    el.dataset.sourcePos=String(this.from);
+    for(let r=0;r<rows.length;r++)for(let c=0;c<rows[r].cells.length;c++){
+      const cell=oldRows[r].cells[c],fresh=rows[r].cells[c],active=this.owner.activeTableCell;
+      if(active?.cell===cell){
+        // Keep the focused native input connected, including during IME input.
+        for(const child of [...cell.childNodes])if(child!==active.input)child.remove();
+        while(fresh.firstChild)cell.insertBefore(fresh.firstChild,active.input);
+      }else cell.innerHTML=fresh.innerHTML;
+      cell.style.textAlign=fresh.style.textAlign;
+    }
+    return true;
+  }
+  destroy(el){if(this.owner.activeTableCell?.widget===el)this.owner.finishTableCell();}
+  ignoreEvent(){return true;}
+}
 class TaskWidget extends WidgetType {
   constructor(checked,pos) { super(); this.checked=checked; this.pos=pos; }
   eq(other) {return this.checked===other.checked&&this.pos===other.pos;}
@@ -130,6 +166,7 @@ class KnowledgeEditor {
         {key:'Mod-b',run:()=>this.format('bold')},{key:'Mod-i',run:()=>this.format('italic')},
         {key:'Mod-k',run:()=>this.format('link','https://')},{key:'Mod-e',run:()=>{options.onToggleMode?.();return true;}},
         {key:'Mod-s',run:()=>{options.onSave?.();return true;}},
+        {key:'Mod-f',run:()=>{this.openSearch();return true;}},
         {key:'Enter',run:insertNewlineContinueMarkupCommand({nonTightLists:false})},
         {key:'Backspace',run:deleteMarkupBackward},
         {key:'Tab',run:indentMore},{key:'Shift-Tab',run:indentLess},
@@ -170,7 +207,8 @@ class KnowledgeEditor {
     const widget=(node,inline=false)=>{
       const text=state.doc.sliceString(node.from,node.to),key=node.name+':'+text;
       let html=this.renderCache.get(key);if(!html){html=this.renderer.render(text,{noteId:this.options.noteId,stack:[this.options.noteId]});if(this.renderCache.size>160)this.renderCache.clear();this.renderCache.set(key,html);}
-      add(node.from,node.to,Decoration.replace({widget:new RenderWidget(html,this,node.from,inline?'inline':'block'),block:!inline,inclusive:false}));
+      const Type=node.name==='Table'?TableWidget:RenderWidget;
+      add(node.from,node.to,Decoration.replace({widget:new Type(html,this,node.from,inline?'inline':'block'),block:!inline,inclusive:false}));
     };
     syntaxTree(state).iterate({from,to,enter:node=>{
       if(node.to<from||node.from>to)return false;
@@ -179,7 +217,8 @@ class KnowledgeEditor {
         add(node.from,node.to,Decoration.replace({block:node.name!=='ObsidianComment',inclusive:false}));return false;
       }
 
-      if(['FencedCode','Table','HorizontalRule','Frontmatter'].includes(node.name) && !active){widget(node);return false;}
+      if(node.name==='Table'){widget(node);return false;}
+      if(['FencedCode','HorizontalRule','Frontmatter'].includes(node.name) && !active){widget(node);return false;}
       if(node.name==='Blockquote' && /^>\s*\[!/.test(state.doc.sliceString(node.from,Math.min(node.to,node.from+80))) && !active){widget(node);return false;}
       if(['Image'].includes(node.name) && !active){widget(node,true);return false;}
       if(/^(?:ATXHeading|SetextHeading)\d$/.test(node.name)) {
@@ -243,12 +282,100 @@ class KnowledgeEditor {
   }
   onUpdate(update) {
     if(update.docChanged){
+      const cell=this.activeTableCell;
+      if(cell&&!cell.writing&&!cell.composing){
+        const range=this.tableCellRange(cell.widget,cell.row,cell.column);
+        if(range){Object.assign(cell,range);cell.input.value=update.state.doc.sliceString(range.from,range.to);}
+      }
       // Pending upload anchors are mapped through every transaction, including undo.
       for(const upload of this.uploads.values())upload.pos=update.changes.mapPos(upload.pos,1);
       this.options.onChange?.(this.getMarkdown());
       if(this.mode==='preview')this.renderReading();
     }
     if(update.selectionSet)this.options.onSelectionChange?.();
+  }
+  tableCellRange(widget,rowIndex,column) {
+    const state=this.view.state;
+    let node=syntaxTree(state).resolveInner(Number(widget.dataset.sourcePos),1);
+    while(node&&node.name!=='Table')node=node.parent;
+    const rows=node?[...node.getChildren('TableHeader'),...node.getChildren('TableRow')]:[];
+    const row=rows[rowIndex];if(!row)return null;
+    const pipes=row.getChildren('TableDelimiter').filter(n=>state.doc.sliceString(n.from,n.to)==='|');
+    const ranges=[];let start=row.from;
+    for(const pipe of pipes){
+      if(pipe===pipes[0]&&!state.doc.sliceString(start,pipe.from).trim()){start=pipe.to;continue;}
+      ranges.push({from:start,to:pipe.from});start=pipe.to;
+    }
+    const trailing=pipes.length&&!state.doc.sliceString(start,row.to).trim();
+    if(!trailing)ranges.push({from:start,to:row.to});
+    const range=ranges[column];
+    if(!range){
+      // Markdown permits short body rows; materialize only the missing cells.
+      return {from:row.to,to:row.to,prefix:(trailing?' ':' | ')+(' | '.repeat(Math.max(0,column-ranges.length))),suffix:trailing?' |':''};
+    }
+    const raw=state.doc.sliceString(range.from,range.to),leading=raw.match(/^[ \t]*/)[0].length;
+    return {from:range.from+leading,to:range.from+Math.max(leading,raw.trimEnd().length),prefix:'',suffix:''};
+  }
+  finishTableCell() {
+    const active=this.activeTableCell;if(!active)return;
+    this.activeTableCell=null;active.cell.classList.remove('kn-cell-editing');active.input.remove();
+  }
+  editTableCell(widget,cell) {
+    if(this.activeTableCell?.cell===cell)return;
+    this.finishTableCell();
+    const row=cell.parentElement.rowIndex,column=cell.cellIndex,range=this.tableCellRange(widget,row,column);
+    if(!range)return;
+    this.tableColumn=column;
+    this.view.dispatch({selection:{anchor:range.from},scrollIntoView:false});
+    const input=document.createElement('input');input.type='text';input.className='kn-table-cell-editor';
+    input.setAttribute('aria-label',`${row===0?'表头':'第'+row+'行'}，第${column+1}列`);
+    input.spellcheck=false;input.value=this.view.state.doc.sliceString(range.from,range.to);
+    const active={widget,cell,input,row,column,...range,composing:false,writing:false};this.activeTableCell=active;
+    cell.classList.add('kn-cell-editing');cell.append(input);
+    const commit=()=>{
+      if(active.composing||this.activeTableCell!==active)return;
+      const raw=input.value.replace(/\r\n?|\n/g,'<br>'),caret=input.selectionStart??raw.length;let value='',before=caret;
+      for(let i=0;i<raw.length;i++){if(raw[i]==='|'&&!core.escaped(raw,i)){value+='\\';if(i<caret)before++;}value+=raw[i];}
+      const from=active.from,to=active.to,insert=active.prefix+value+active.suffix;
+      input.value=value;input.setSelectionRange(before,before);
+      if(this.view.state.doc.sliceString(from,to)===insert)return;
+      active.from=from+active.prefix.length;active.to=active.from+value.length;active.prefix='';active.suffix='';active.writing=true;
+      try{this.view.dispatch({changes:{from,to,insert},selection:{anchor:active.from+before},userEvent:'input.table-cell'});}
+      finally{
+        active.writing=false;
+        // CodeMirror may move a reused widget DOM when its source length changes.
+        // Native inputs blur on that move even though the cell is still active.
+        if(this.activeTableCell===active&&input.isConnected){input.focus({preventScroll:true});input.setSelectionRange(before,before);}
+      }
+    };
+    input.addEventListener('input',commit);
+    input.addEventListener('compositionstart',()=>{active.composing=true;});
+    input.addEventListener('compositionend',()=>{active.composing=false;commit();});
+    input.addEventListener('blur',()=>{if(this.activeTableCell===active&&!active.writing&&!active.reconciling){if(!active.composing)commit();this.finishTableCell();}});
+    input.addEventListener('keydown',event=>{
+      if(event.isComposing||active.composing||event.keyCode===229)return;
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'){
+        event.preventDefault();event.stopPropagation();commit();this.options.onSave?.();return;
+      }
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='f'){
+        event.preventDefault();event.stopPropagation();this.openSearch();return;
+      }
+      if((event.ctrlKey||event.metaKey)&&['z','y'].includes(event.key.toLowerCase())){
+        event.preventDefault();event.stopPropagation();
+        active.reconciling=true;
+        try{(event.key.toLowerCase()==='y'||event.shiftKey?redo:undo)(this.view);}
+        finally{active.reconciling=false;if(this.activeTableCell===active&&input.isConnected)input.focus({preventScroll:true});}
+        return;
+      }
+      if(!['Tab','Enter','Escape'].includes(event.key))return;
+      event.preventDefault();event.stopPropagation();commit();
+      const table=widget.querySelector('table'),cells=[...table.querySelectorAll('th,td')];
+      const next=event.key==='Tab'?cells[cells.indexOf(cell)+(event.shiftKey?-1:1)]:event.key==='Enter'?table.rows[row+(event.shiftKey?-1:1)]?.cells[column]:null;
+      if(next){this.editTableCell(widget,next);return;}
+      const block=core.tableAt(this.getEditorText(),active.from);
+      this.finishTableCell();this.view.dispatch({selection:{anchor:Math.min(this.view.state.doc.length,(event.shiftKey?block?.from-1:block?.to+1)||0)},scrollIntoView:false});this.view.focus();
+    });
+    input.focus({preventScroll:true});input.setSelectionRange(input.value.length,input.value.length);
   }
   complete(context) {
     const match=context.matchBefore(/\[\[[^\]\n]*$/);if(!match)return null;
@@ -365,7 +492,7 @@ class KnowledgeEditor {
   getSelection(){const r=this.view.state.selection.main;return {start:r.anchor,end:r.head};}
   restoreSelection(r){this.view.dispatch({selection:{anchor:r.start,head:r.end}});this.view.focus();}
   getFormatState(){const node=syntaxTree(this.view.state).resolveInner(this.view.state.selection.main.head,-1);const names=[];for(let n=node;n;n=n.parent)names.push(n.name);return {bold:names.includes('StrongEmphasis'),italic:names.includes('Emphasis'),strike:names.includes('Strikethrough'),inline:names.includes('InlineCode'),heading:names.find(n=>/^ATXHeading\d/.test(n))?.slice(-1)||'0',undo:true,redo:true};}
-  openSearch(){if(this.mode==='preview')this.options.onEditForSearch?.();openSearchPanel(this.view);this.view.focus();}
+  openSearch(){if(this.mode!=='source')this.options.onEditForSearch?.();openSearchPanel(this.view);this.view.focus();}
   table(operation,index,value){for(let n=syntaxTree(this.view.state).resolveInner(this.view.state.selection.main.head,-1);n;n=n.parent)if(n.name==='FencedCode'||n.name==='IndentedCode')return false;const change=core.editTable(this.getEditorText(),this.view.state.selection.main.head,operation,index,value);if(!change)return false;this.view.dispatch({changes:change,userEvent:'input.table'});this.view.focus();return true;}
   async upload(file,pos=this.view.state.selection.main.head) {
     const upload={id:++this.nextUpload,file,pos,status:'正在上传',retry:null};this.uploads.set(upload.id,upload);this.uploadStatus();
