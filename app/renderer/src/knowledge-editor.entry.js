@@ -1,5 +1,5 @@
 import {EditorState,StateField,StateEffect,Compartment,Prec,Transaction,MapMode} from '@codemirror/state';
-import {EditorView,keymap,Decoration,WidgetType,ViewPlugin,drawSelection,highlightActiveLine,rectangularSelection,crosshairCursor,lineNumbers} from '@codemirror/view';
+import {EditorView,keymap,Decoration,WidgetType,ViewPlugin,drawSelection,highlightActiveLine,rectangularSelection,crosshairCursor,lineNumbers,placeholder} from '@codemirror/view';
 import {defaultKeymap,history,historyKeymap,indentWithTab,indentMore,indentLess,undo,redo,invertedEffects} from '@codemirror/commands';
 import {markdown,markdownLanguage,insertNewlineContinueMarkupCommand,deleteMarkupBackward} from '@codemirror/lang-markdown';
 import {yamlFrontmatter} from '@codemirror/lang-yaml';
@@ -71,6 +71,13 @@ class TaskWidget extends WidgetType {
   }
   ignoreEvent(){return true;}
 }
+class BulletWidget extends WidgetType {
+  toDOM() {
+    const marker=document.createElement('span');marker.className='kn-list-bullet';
+    marker.textContent='•';marker.setAttribute('aria-hidden','true');return marker;
+  }
+  ignoreEvent(){return false;}
+}
 function selected(state,from,to) {return state.selection.ranges.some(r=>r.from<=to && r.to>=from);}
 
 class KnowledgeEditor {
@@ -96,10 +103,20 @@ class KnowledgeEditor {
     this.view=new EditorView({parent:this.editHost,state:EditorState.create({doc:source.text,extensions:[
       this.lineEndings,invertedEffects.of(tr=>tr.docChanged||tr.effects.some(e=>e.is(restoreLineEndings))?[restoreLineEndings.of(tr.startState.field(this.lineEndings))]:[]),
       history(),drawSelection(),rectangularSelection(),crosshairCursor(),EditorView.lineWrapping,
+      placeholder('开始记录，支持 Markdown…'),
+      EditorState.phrases.of({'Find':'查找','Replace':'替换','next':'下一个','previous':'上一个','all':'全选匹配',
+        'match case':'区分大小写','regexp':'正则表达式','by word':'全词匹配','replace':'替换','replace all':'全部替换','close':'关闭',
+        'Fold line':'折叠此节','Unfold line':'展开此节','to':'至','folded code':'已折叠内容'}),
       yamlFrontmatter({content:markdown({base:markdownLanguage,codeLanguages:languages,addKeymap:false,completeHTMLTags:false,extensions:[obsidianComments]})}),
       syntaxHighlighting(loopHighlight),indentUnit.of('    '),bracketMatching(),closeBrackets(),
       markdownLanguage.data.of({closeBrackets:{brackets:['(','[','{',"'",'"','`','*','~']}}),
-      foldGutter(),foldService.of((state,start,end)=>{
+      foldGutter({markerDOM:open=>{
+        const button=document.createElement('button');button.type='button';button.className='kn-fold-toggle';
+        button.textContent=open?'⌄':'›';button.title=open?'折叠此节':'展开此节';
+        button.setAttribute('aria-label',button.title);button.setAttribute('aria-expanded',String(open));
+        button.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' ')event.stopPropagation();});
+        return button;
+      }}),foldService.of((state,start,end)=>{
         const line=state.doc.lineAt(start); if(!/^\s*(?:[-+*]|\d+[.)])\s/.test(line.text)) return null;
         const indent=line.text.match(/^\s*/)[0].length; let last=line.to;
         for(let n=line.number+1;n<=state.doc.lines;n++){const next=state.doc.line(n);if(next.text.trim() && next.text.match(/^\s*/)[0].length<=indent)break;last=next.to;}
@@ -175,7 +192,11 @@ class KnowledgeEditor {
       if(node.name==='Blockquote'){for(let n=state.doc.lineAt(node.from).number;n<=state.doc.lineAt(node.to).number;n++){const l=state.doc.line(n);add(l.from,l.from,Decoration.line({class:'kn-quote'}));}}
       if(/^(?:HeaderMark|EmphasisMark|CodeMark|StrikethroughMark|QuoteMark)$/.test(node.name)) {
         const parent=node.node.parent;
-        if(parent&&!selected(state,parent.from,parent.to))add(node.from,node.to,Decoration.replace({inclusive:false}));
+        if(parent&&!selected(state,parent.from,parent.to)){
+          const space=node.name==='HeaderMark'&&parent.name.startsWith('ATXHeading')
+            ?state.doc.sliceString(node.to,Math.min(parent.to,node.to+32)).match(/^[ \t]+/)?.[0].length||0:0;
+          add(node.from,node.to+space,Decoration.replace({inclusive:false}));
+        }
       }
       if(node.name==='Link' && !active) {
         const children=[];let child=node.node.firstChild;while(child){children.push(child);child=child.nextSibling;}
@@ -184,6 +205,10 @@ class KnowledgeEditor {
         add(node.from,node.to,Decoration.mark({class:'kn-external-link'}));
       }
       if(node.name==='TaskMarker'&&!active){const value=state.doc.sliceString(node.from,node.to);add(node.from,node.to,Decoration.replace({widget:new TaskWidget(/[xX]/.test(value),node.from+1),inclusive:false}));return false;}
+      if(node.name==='ListMark'&&!active && /^[-+*]$/.test(state.doc.sliceString(node.from,node.to))) {
+        const task=/^\s+\[[ xX]\]/.test(state.doc.sliceString(node.to,Math.min(node.to+5,state.doc.length)));
+        add(node.from,node.to,Decoration.replace(task?{inclusive:false}:{widget:new BulletWidget(),inclusive:false}));
+      }
     }});
     // Only scan the viewport's leaf text nodes. Code, escapes and comments are
     // excluded by the parser and the shared lexer before wiki/math decoration.

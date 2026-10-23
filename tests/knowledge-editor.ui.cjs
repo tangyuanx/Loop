@@ -98,12 +98,55 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
     }
   });
   await choose('a');assert.equal(await markdown(),original);
+  console.log('UI workspace: compact controls preserve selection, source, history and page width.');
+  await mode('edit');
+  assert.ok(await page.locator('.kn-list-bullet').count()>0);
+  await choose('b');const workspaceOriginal=await markdown();
+  await page.locator('.cm-foldGutter button[aria-expanded=true]').first().click();
+  await page.waitForSelector('.cm-foldPlaceholder');
+  assert.equal(await page.locator('.cm-foldGutter button[aria-expanded=false]:visible').first().evaluate(el=>getComputedStyle(el.parentElement).opacity),'1');
+  await page.locator('.cm-foldGutter button[aria-expanded=false]:visible').first().focus();await page.keyboard.press('Enter');
+  assert.equal(await page.locator('.cm-foldPlaceholder').count(),0);
+  assert.equal(await page.locator('.knowledge-insert-toolbar button').count(),10);
+  await page.evaluate(()=>{const e=knowledgeCurrentEntry(),at=e.getEditorText().indexOf('可嵌入');e.view.dispatch({selection:{anchor:at,head:at+3}});});
+  await page.locator('[data-kn-action="insert-menu"]').click();
+  assert.equal(await page.locator('.kn-insert-menu [data-kn-action="upload"]').count(),1);
+  await page.keyboard.press('End');await page.keyboard.press('ArrowUp');await page.keyboard.press('Enter');
+  await page.waitForSelector('.kn-insert-menu',{state:'detached'});
+  assert.match(await markdown(),/~~可嵌入~~/);
+  assert.equal(await page.locator('[data-kn-action="insert-menu"]').getAttribute('aria-expanded'),'false');
+  await page.keyboard.press('Control+z');assert.equal(await markdown(),workspaceOriginal);
+  await page.locator('[data-kn-action="insert-menu"]').click();await page.keyboard.press('Escape');
+  assert.equal(await page.locator('[data-kn-action="insert-menu"]').evaluate(el=>el===document.activeElement),true);
+  await page.locator('[data-kn-action="find"]').click();
+  assert.equal(await page.locator('.cm-search input[name="search"]').getAttribute('aria-label'),'查找');
+  await page.locator('.cm-search [name="close"]').click();
+  const pageWidths=[];
+  for(const width of ['default','wide','full']){
+    await page.locator('[data-action="knowledge-width-menu"]').click();
+    await page.locator(`[data-action="set-note-width"][data-width="${width}"]`).click();
+    pageWidths.push(await page.locator('.knowledge-page').evaluate(el=>el.getBoundingClientRect().width));
+    assert.equal(await markdown(),workspaceOriginal);
+  }
+  assert.ok(pageWidths[0]<pageWidths[1]&&pageWidths[1]<pageWidths[2],pageWidths.join(','));
+  await page.locator('[data-action="knowledge-width-menu"]').click();await page.locator('[data-width="default"]').click();
+  await page.locator('[data-kn-action="panels"]').click();
+  assert.equal(await page.locator('.knowledge-header [data-kn-action="panels"]').getAttribute('aria-expanded'),'true');
+  await page.locator('[data-kn-heading="1"]').click();
+  assert.equal(await page.locator('[data-kn-heading="1"]').getAttribute('aria-current'),'location');
+  await page.getByRole('button',{name:'关闭关联面板',exact:true}).click();
+  assert.equal(await page.locator('.knowledge-header [data-kn-action="panels"]').getAttribute('aria-expanded'),'false');
+  await choose('a');assert.equal(await markdown(),original);
   console.log('UI check 1: Same view and undo history in all three modes; no serialization at switches.');
   // Same view and undo history in all three modes; no serialization at switches.
   await page.evaluate(()=>window.__firstCM=knowledgeCurrentEntry().view);
   for(const name of ['source','preview','edit','preview','source','edit']){await mode(name);assert.equal(await markdown(),original);assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().view===window.__firstCM),true);}
   await page.waitForSelector('.cm-line.kn-h1');
   assert.ok(await page.locator('.cm-line.kn-h1').evaluate(el=>parseFloat(getComputedStyle(el).fontSize)>24));
+  await mode('preview');
+  const readingLeft=await page.locator('.kn-reading').evaluate(el=>el.getBoundingClientRect().left);
+  await mode('edit');
+  assert.ok(Math.abs(await page.locator('.cm-content').evaluate(el=>el.getBoundingClientRect().left)-readingLeft)<1,'live and reading content start at the same edge');
   await mode('preview');
   for(const selector of ['h1','h6','strong','em','s','mark','code','blockquote','table','img','.footnotes','.katex','.kn-callout','.kn-wiki','.kn-embed'])assert.ok(await page.locator('.kn-reading '+selector).count(),selector);
   await page.waitForSelector('.kn-reading .kn-mermaid svg',{timeout:10000}).catch(async e=>{console.log('DIAGRAM DEBUG',await page.locator('.kn-reading .kn-mermaid').evaluateAll(es=>es.map(el=>el.outerHTML)));throw e;});
@@ -230,6 +273,12 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   for(const theme of ['light','dark'])for(const width of [1024,1440]){
    await page.setViewportSize({width,height:900});await page.evaluate(theme=>{state.theme=theme;render();},theme);
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+   assert.equal(await page.locator('.knowledge-header').evaluate(el=>el.scrollWidth>el.clientWidth+1),false);
+   if(screenshots)await page.screenshot({path:path.join(screenshots,`knowledge-${theme}-${width}.png`)});
+   await page.locator('[data-kn-action="panels"]').click();
+   assert.equal(await page.locator('.knowledge-body').evaluate(el=>el.scrollWidth>el.clientWidth+1),false);
+   if(screenshots)await page.screenshot({path:path.join(screenshots,`knowledge-outline-${theme}-${width}.png`)});
+   await page.getByRole('button',{name:'关闭关联面板',exact:true}).click();
   }
   assert.deepEqual(errors,[]);
   console.log('PASS: original Markdown, three modes, rich rendering, IME, history, find/replace, lists, completion, tables, async images, failure/retry/recovery, A/B race, concurrent saves, conflict detection, rename/backlinks, create/delete/restore, long document and light/dark responsive UI.');
