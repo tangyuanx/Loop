@@ -1084,8 +1084,8 @@ function collectManagedKnowledgeAssets(content) {
   const source = String(content || "");
   const assets = [];
   const seen = new Set();
-  Array.from(source.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)).forEach((match) => {
-    const reference = cleanMarkdownUrl(match[1]);
+  knowledgeDocument.imageReferences(source).forEach((match) => {
+    const reference = match.url;
     let dataUrl = "";
     if (reference.startsWith("task-image:")) {
       const imageId = reference.slice("task-image:".length);
@@ -1115,12 +1115,17 @@ async function stageKnowledgeAssetsForTask(task, content) {
   }
 }
 
-function rememberKnowledgeAssetFiles(assetFiles = []) {
+function rememberKnowledgeAssetFiles(assetFiles = [], noteId = "") {
+  state.knowledgeAssetScopes ||= {};
+  if (noteId) state.knowledgeAssetScopes[noteId] ||= {};
   if (!Array.isArray(assetFiles)) return;
   assetFiles.forEach((asset) => {
     const relativePath = String(asset?.relativePath || "").trim();
     const dataUrl = String(asset?.dataUrl || "").trim();
-    if (relativePath && dataUrl.startsWith("data:image/")) state.knowledgeAssets[relativePath] = dataUrl;
+    if (relativePath && dataUrl.startsWith("data:image/")) {
+      state.knowledgeAssets[relativePath] = dataUrl;
+      if (noteId) state.knowledgeAssetScopes[noteId][relativePath] = dataUrl;
+    }
   });
 }
 
@@ -1259,15 +1264,23 @@ async function restoreKnowledgeRecoveryDrafts() {
       currentFile = await desktopKnowledgeFile.read({ filePath });
     } catch (error) {
       console.error("Failed to read bound knowledge note before recovery.", error);
+      applyKnowledgeRecoveryDraft(task, record);
+      state.knowledgeFileIssues[task.knowledgeNote.noteId] = { code: "FILE_READ_FAILED", message: "暂时无法核对磁盘文件，未保存草稿已恢复。" };
       continue;
     }
-    if (!currentFile?.success) continue;
+    if (!currentFile?.success) {
+      applyKnowledgeRecoveryDraft(task, record);
+      state.knowledgeFileIssues[task.knowledgeNote.noteId] = { code: currentFile?.code || "FILE_READ_FAILED", message: "文件读取失败，已恢复未保存草稿。" };
+      continue;
+    }
     if (currentFile.lastSavedHash !== record.baseFileHash) {
+      applyKnowledgeRecoveryDraft(task, record);
+      knowledgeExternalSnapshots.set(task.knowledgeNote.noteId, currentFile);
       task.knowledgeNote = knowledgeDocument.markDocumentExternalChanged(task.knowledgeNote);
       continue;
     }
 
-    rememberKnowledgeAssetFiles(currentFile.assetFiles);
+    rememberKnowledgeAssetFiles(currentFile.assetFiles, task.knowledgeNote.noteId);
     applyKnowledgeRecoveryDraft(task, record);
   }
 }
@@ -1359,6 +1372,8 @@ async function reloadKnowledgeTask(taskId) {
     return { canceled: true };
   }
 
+  captureMountedMilkdownDrafts(); flushNodeNoteDraft(noteDraftKey(task.id, ""), { persist: true });
+  const contentAtRead = task.notes;
   let result;
   try {
     // Reload is an explicit request for the current disk version. Watcher
@@ -1383,9 +1398,14 @@ async function reloadKnowledgeTask(taskId) {
     return result || { success: false, code: "FILE_READ_FAILED" };
   }
 
+  captureMountedMilkdownDrafts(); flushNodeNoteDraft(noteDraftKey(task.id, ""), { persist: true });
+  if (!state.tasks.includes(task) || task.notes !== contentAtRead || task.knowledgeNote.filePath !== note.filePath) {
+    return { success: false, code: "DRAFT_CHANGED_DURING_READ", message: "读取期间笔记发生修改，已保留当前输入，请重试。" };
+  }
   const previousNotes = task.notes;
   const previousKnowledgeNote = { ...task.knowledgeNote };
   const previousTaskUpdatedAt = task.updatedAt;
+  discardMountedKnowledgeEditor(task.id);
   task.notes = result.content;
   task.knowledgeNote = knowledgeDocument.markDocumentSaved(previousKnowledgeNote, result);
   if (result.readOnly) task.knowledgeNote = knowledgeDocument.markDocumentReadOnly(task.knowledgeNote);
@@ -1406,7 +1426,7 @@ async function reloadKnowledgeTask(taskId) {
   }
 
   discardMountedKnowledgeEditor(task.id);
-  rememberKnowledgeAssetFiles(result.assetFiles);
+  rememberKnowledgeAssetFiles(result.assetFiles, task.knowledgeNote.noteId);
   rememberKnowledgeAssetDiagnostics(note.noteId, result);
   delete state.knowledgeFileIssues[note.noteId];
   try {
@@ -1426,6 +1446,8 @@ async function relocateKnowledgeTask(taskId) {
   if (note.dirty && !(await confirmDestructiveAction("重新定位将使用新文件内容替换当前知识笔记，是否继续？"))) {
     return { canceled: true };
   }
+  captureMountedMilkdownDrafts(); flushNodeNoteDraft(noteDraftKey(task.id, ""), { persist: true });
+  const contentAtChoose = task.notes;
   const result = await desktopKnowledgeFile.choose({ boundPaths: boundKnowledgeFilePaths(task.id) });
   if (result?.canceled) return result;
   if (!result?.success) {
@@ -1433,8 +1455,11 @@ async function relocateKnowledgeTask(taskId) {
     return result || { success: false, code: "FILE_READ_FAILED" };
   }
 
+  captureMountedMilkdownDrafts(); flushNodeNoteDraft(noteDraftKey(task.id, ""), { persist: true });
+  if (!state.tasks.includes(task) || task.notes !== contentAtChoose) return { success: false, code: "DRAFT_CHANGED_DURING_READ", message: "选择文件期间笔记发生修改，已保留当前输入。" };
+  discardMountedKnowledgeEditor(task.id);
   task.notes = result.content;
-  rememberKnowledgeAssetFiles(result.assetFiles);
+  rememberKnowledgeAssetFiles(result.assetFiles, task.knowledgeNote.noteId);
   rememberKnowledgeAssetDiagnostics(note.noteId, result);
   task.knowledgeNote = knowledgeDocument.markDocumentSaved(note, result);
   if (result.readOnly) task.knowledgeNote = knowledgeDocument.markDocumentReadOnly(task.knowledgeNote);
@@ -1507,16 +1532,29 @@ async function handleKnowledgeFileChange(event) {
   const noteId = String(event?.noteId || "").trim();
   const task = state.tasks.find((item) => item.knowledgeNote?.noteId === noteId || item.id === noteId);
   if (!task || !event?.filePath) return;
+  captureMountedMilkdownDrafts();
+  flushNodeNoteDraft(noteDraftKey(task.id, ""), { persist: false });
   const note = task.knowledgeNote;
+  if (typeof knowledgeFileWriteBusy !== "undefined" && knowledgeFileWriteBusy.has(task.id)) {
+    // Our queued write updates the watcher baseline in main before its receipt.
+    // A later external version is still checked by the next CAS save/read.
+    if (event.type === "external-changed") {
+      if (typeof knowledgeDeferredFileEvents !== "undefined") knowledgeDeferredFileEvents.set(task.id, event);
+      return;
+    }
+  }
   if (note.filePath && knowledgeDocument.canonicalFilePath(note.filePath, desktopPlatform) !== knowledgeDocument.canonicalFilePath(event.filePath, desktopPlatform)) return;
 
   if (event.type === "baseline") {
     rememberKnowledgeAssetDiagnostics(note.noteId, event);
-    rememberKnowledgeAssetFiles(event.assetFiles);
+    rememberKnowledgeAssetFiles(event.assetFiles, task.knowledgeNote.noteId);
     if (note.documentState === "SAVED") {
       task.knowledgeNote = knowledgeDocument.markDocumentSaved(note, event);
       save();
-      if (event.assetFiles?.length) render();
+      // Self-write baselines must never detach a focused CodeMirror/IME host.
+      // Attachments are refreshed as decorations, not by rebuilding the shell.
+      milkdownEditors.get(noteDraftKey(task.id, ""))?.instance?.refresh?.();
+      if (typeof knowledgeUpdateChrome === "function") knowledgeUpdateChrome(task);
     }
     return;
   }
@@ -1545,8 +1583,9 @@ async function handleKnowledgeFileChange(event) {
 
   knowledgeExternalSnapshots.set(note.noteId, event);
   if (note.documentState === "SAVED") {
+    discardMountedKnowledgeEditor(task.id);
     task.notes = event.content;
-    rememberKnowledgeAssetFiles(event.assetFiles);
+    rememberKnowledgeAssetFiles(event.assetFiles, task.knowledgeNote.noteId);
     rememberKnowledgeAssetDiagnostics(note.noteId, event);
     task.knowledgeNote = knowledgeDocument.markDocumentSaved(note, event);
     task.knowledgeNote.updatedAt = now();
@@ -1597,6 +1636,7 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
 
   captureMountedMilkdownDrafts();
   flushNodeNoteDraft(noteDraftKey(task.id, ""), { persist: true });
+  const lifecycleBeforeSave = typeof knowledgeGenerations !== "undefined" ? knowledgeGenerations.get(task.id) || 0 : 0;
   const contentBeforeSave = task.notes;
   const sessionBeforeSave = { ...task.knowledgeNote };
   const taskUpdatedAtBeforeSave = task.updatedAt;
@@ -1637,15 +1677,24 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
       return result || { success: false };
     }
 
+    if (!state.tasks.includes(task) || (typeof knowledgeGenerations !== "undefined" && (knowledgeGenerations.get(task.id) || 0) !== lifecycleBeforeSave) || task.knowledgeNote.noteId !== sessionBeforeSave.noteId ||
+        (task.knowledgeNote.filePath !== sessionBeforeSave.filePath && task.knowledgeNote.lastSavedHash !== sessionBeforeSave.lastSavedHash)) {
+      return { success: false, code: "NOTE_CHANGED_DURING_SAVE", message: "文件已写入，但笔记已移除或重新关联；当前笔记未被覆盖。", markdownSaved: true };
+    }
     // Capture edits made while the file write was pending. Its receipt belongs
     // to contentToSave, while newer input must stay an unsaved draft.
     captureMountedMilkdownDrafts();
     flushNodeNoteDraft(noteDraftKey(task.id, ""), { persist: false });
     const hasNewerDraft = task.notes !== contentToSave;
+    rememberKnowledgeAssetFiles(result.assetFiles, task.knowledgeNote.noteId);
     milkdownEditors.get(noteDraftKey(task.id, ""))?.instance?.acceptSavedAssetReferences?.(result.assetFiles);
     if (hasNewerDraft) {
       for (const asset of result.assetFiles || []) {
-        if (asset.source && asset.relativePath) task.notes = task.notes.split(asset.source).join(asset.relativePath);
+        if (asset.source && asset.relativePath) {
+          for (const reference of knowledgeDocument.imageReferences(task.notes).filter((item) => item.url === asset.source).reverse()) {
+            task.notes = task.notes.slice(0, reference.from) + asset.relativePath + task.notes.slice(reference.to);
+          }
+        }
       }
     } else {
       task.notes = result.content ?? contentToSave;
@@ -1657,20 +1706,17 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
       source.value = task.notes;
       source.setSelectionRange(start, end);
     }
-    rememberKnowledgeAssetFiles(result.assetFiles);
-    task.knowledgeNote = knowledgeDocument.markDocumentSaved(sessionBeforeSave, result);
+    rememberKnowledgeAssetFiles(result.assetFiles, task.knowledgeNote.noteId);
+    task.knowledgeNote = knowledgeDocument.markDocumentSaved(task.knowledgeNote, result);
     if (hasNewerDraft) task.knowledgeNote = knowledgeDocument.markDocumentEdited(task.knowledgeNote);
     task.knowledgeNote.updatedAt = now();
     task.updatedAt = now();
     save();
     const taskDataSaved = await flushSave();
     if (!taskDataSaved) {
-      if (allowExternalOverwrite && sessionBeforeSave.documentState === "EXTERNAL_CHANGED") {
-        task.notes = contentBeforeSave;
-        task.knowledgeNote = sessionBeforeSave;
-        task.updatedAt = taskUpdatedAtBeforeSave;
-        save();
-      }
+      // The disk receipt is valid even if task-data persistence failed. Keep
+      // newer input and the accepted file hash so Retry does not invent a conflict.
+      scheduleKnowledgeRecovery(task.id, task.notes);
       return {
         success: false,
         code: "TASK_DATA_SAVE_FAILED",
@@ -7400,7 +7446,11 @@ function stashKnowledgePane() {
   cachedKnowledgePane = { taskId, host };
   cachedKnowledgePanes.delete(taskId);
   cachedKnowledgePanes.set(taskId, cachedKnowledgePane);
-  while (cachedKnowledgePanes.size > 8) discardCachedKnowledgePane(cachedKnowledgePanes.keys().next().value);
+  while (cachedKnowledgePanes.size > 8) {
+    const candidate = [...cachedKnowledgePanes.keys()].find((taskId) => !milkdownEditors.get(noteDraftKey(taskId, ""))?.instance?.uploads?.size);
+    if (!candidate) break;
+    discardCachedKnowledgePane(candidate);
+  }
   host.remove();
 }
 
@@ -7416,6 +7466,7 @@ function discardCachedKnowledgePane(taskId = cachedKnowledgePane?.taskId) {
 }
 
 function discardMountedKnowledgeEditor(taskId) {
+  if (typeof knowledgeGenerations !== "undefined") knowledgeGenerations.set(String(taskId), (knowledgeGenerations.get(String(taskId)) || 0) + 1);
   const normalizedTaskId = String(taskId || "");
   if (!normalizedTaskId) return;
   const key = noteDraftKey(normalizedTaskId, "");
@@ -7472,6 +7523,9 @@ function updateNodeNoteDraft(taskId, nodeId, markdown, host = null) {
   if (host) updateMarkdownStatsForMarkdown(host, markdown);
   if (!nodeId) {
     scheduleKnowledgeRecovery(taskId, markdown);
+    const editedTask = state.tasks.find((item) => item.id === taskId);
+    if (editedTask) editedTask.knowledgeNote = knowledgeDocument.markDocumentEdited(editedTask.knowledgeNote);
+    if (typeof knowledgeDidEdit === "function") knowledgeDidEdit(taskId);
     const task = state.tasks.find((item) => item.id === taskId);
     if (task && typeof note23EvaluateDraft === "function") note23EvaluateDraft(task, markdown);
   }
@@ -7550,7 +7604,11 @@ function mountMilkdownEditors() {
     const node = task && nodeId ? findNode(task.nodes, nodeId) : null;
     if (!task || (nodeId && !node)) return;
     const editorKey = noteDraftKey(taskId, nodeId);
-    if (milkdownEditors.has(editorKey)) return;
+    if (milkdownEditors.has(editorKey)) {
+      const existing = milkdownEditors.get(editorKey).instance;
+      if (!nodeId && existing.setMode) existing.setMode(shellKnowledgeMode());
+      return;
+    }
     // A render can run again before create() resolves. Without this registry
     // the second pass would build a second editor for the same host, leaking
     // the first one and losing its content.
@@ -7561,10 +7619,13 @@ function mountMilkdownEditors() {
     const rawMarkdown = nodeNoteDrafts.get(editorKey)?.markdown ?? (node ? node.note : task.notes) ?? "";
     const markdown = node ? rawMarkdown : hydrateKnowledgeEditorMarkdown(rawMarkdown);
 
-    window.MilkdownTaskEditor.create({
+    const editorFactory = !nodeId && window.LoopKnowledgeEditor ? window.LoopKnowledgeEditor : window.MilkdownTaskEditor;
+    editorFactory.create({
+      ...(!nodeId && window.LoopKnowledgeEditor ? knowledgeEditorOptions(task) : {}),
       root: host,
       markdown,
       sourceMarkdown: rawMarkdown,
+      mode: nodeId ? "edit" : shellKnowledgeMode(),
       placeholder: node ? "记录处理过程" : "记录分析过程、知识点和可复用结论……",
       enableTableResizing: !nodeId,
       tableColumnWidths: nodeId ? [] : task.knowledgeNote?.tableColumnWidths,
@@ -7657,6 +7718,11 @@ function bindMilkdownSurfaceEvents(host) {
 }
 
 function updateMarkdownStatsForMarkdown(host, markdown) {
+  if (host?.dataset?.editorKind === "knowledge" && typeof knowledgeUpdateChrome === "function") {
+    const task = state.tasks.find((item) => item.id === host.dataset.taskId);
+    if (task) knowledgeUpdateChrome(task);
+    return;
+  }
   const stats = markdownStats(markdown);
   const scope = host.closest(".knowledge-pane") || host.closest(".markdown-panel") || host.parentElement;
   const statsElement = scope?.querySelector("[data-markdown-stats], [data-note-stats]");
@@ -7698,6 +7764,7 @@ function editorSnippet(kind) {
 }
 
 function insertIntoActiveEditor(text) {
+  if (state.taskPane === "notes" && shellKnowledgeEditorEntry()?.insertText) return shellKnowledgeEditorEntry().insertText(text);
   const active = document.activeElement;
   if (active?.classList?.contains("markdown-editor")) {
     const start = active.selectionStart ?? active.value.length;
@@ -7784,6 +7851,7 @@ function activeRichEditor() {
 }
 
 function focusKnowledgeEditor() {
+  if (shellKnowledgeEditorEntry()?.view) { shellKnowledgeEditorEntry().view.focus(); return true; }
   const editor = document.querySelector(".task-knowledge-pane .ProseMirror, .task-knowledge-pane .markdown-editor");
   if (!editor) return false;
   editor.focus({ preventScroll: true });

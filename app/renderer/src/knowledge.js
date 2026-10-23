@@ -110,6 +110,8 @@ function renderShellKnowledge(task) {
           ${noteState.note.filePath ? '<span class="example-file">本地文件</span>' : ""}
         </div>
         <div class="knowledge-header-actions">
+          <button class="icon-button" type="button" data-kn-action="switcher" aria-label="搜索和切换笔记" title="搜索和切换笔记（Ctrl/Cmd+O）">${shellIcon("search")}</button>
+          <button class="icon-button" type="button" data-kn-action="panels" aria-label="大纲与关联笔记" title="大纲与关联笔记">${shellIcon("note23Outline")}</button>
           ${renderShellKnowledgeViewbar(mode)}
           <button class="icon-button" type="button" data-action="knowledge-file-menu" data-knowledge-action="file-menu" aria-label="笔记文件操作" aria-haspopup="menu">${shellIcon("more")}</button>
         </div>
@@ -118,15 +120,11 @@ function renderShellKnowledge(task) {
       ${renderShellKnowledgeTools(mode)}
       <div class="knowledge-body" data-knowledge-scroll data-knowledge-view="${escAttr(knowledgeViewKey(task))}">
         <div class="knowledge-page width-${width} ${mode === "source" ? "source-page" : ""}">
-          ${mode === "edit"
-            ? `<div id="knowledge-rich-host" class="knowledge-rich-host milkdown-editor-host" data-editor-kind="task" data-task-id="${escAttr(task.id)}" aria-label="笔记编辑器"><p class="knowledge-loading">正在打开笔记…</p></div>`
-            : mode === "source"
-              ? `<textarea id="knowledge-source" data-task-id="${escAttr(task.id)}" aria-label="Markdown 内容" spellcheck="false">${esc(task.notes)}</textarea>`
-              : `<article class="knowledge-preview" aria-label="笔记预览">${renderMarkdown(task.notes)}</article>`}
+          <div id="knowledge-rich-host" class="knowledge-rich-host milkdown-editor-host" data-editor-kind="knowledge" data-task-id="${escAttr(task.id)}" aria-label="笔记编辑器"><p class="knowledge-loading">正在打开笔记…</p></div>
         </div>
       </div>
       <footer class="knowledge-footer">
-        <span class="knowledge-feature-caution" title="知识笔记功能不完善，暂不建议使用">知识笔记功能不完善，暂不建议使用</span>
+        <span class="kn-save-receipt" role="status" data-kn-receipt>正在读取保存状态…</span>
         <div class="knowledge-footer-meta">
           <span data-note-stats>${stats.characters} 字 · ${stats.lines} 行</span>
           <span data-note-recovery>${esc(shellKnowledgeRecoveryText(task))}</span>
@@ -137,7 +135,7 @@ function renderShellKnowledge(task) {
 }
 
 function renderShellKnowledgeViewbar(mode) {
-  const modes = [["edit", "编辑"], ["source", "Markdown"], ["preview", "预览"]]
+  const modes = [["edit", "实时预览"], ["source", "源码"], ["preview", "阅读"]]
     .map(([value, label]) => `<button type="button" data-action="knowledge-mode" data-mode="${value}" aria-pressed="${value === mode}" class="${value === mode ? "active" : ""}">${label}</button>`)
     .join("");
   return `<div class="knowledge-viewbar">
@@ -172,7 +170,7 @@ function renderShellKnowledgeTools(mode) {
   if (mode === "preview") return "";
   const format = (action, image, label) => `<button class="knowledge-tool" type="button" data-action="note-format" data-format="${action}" title="${escAttr(label)}" aria-label="${escAttr(label)}"${["bold", "italic", "strike", "inline"].includes(action) ? ' aria-pressed="false"' : ""}>${shellIcon(image)}</button>`;
   const group = (name, html) => `<div class="note-tool-group" role="group" aria-label="${escAttr(name)}">${html}</div>`;
-  const heading = `<select class="note-heading-select" aria-label="段落格式"><option value="0">正文</option><option value="1">标题 1</option><option value="2">标题 2</option><option value="3">标题 3</option></select>`;
+  const heading = `<select class="note-heading-select" aria-label="段落格式"><option value="0">正文</option><option value="1">标题 1</option><option value="2">标题 2</option><option value="3">标题 3</option><option value="4">标题 4</option><option value="5">标题 5</option><option value="6">标题 6</option></select>`;
   const tools = group("文字格式", heading
       + format("bold", "noteBold", "粗体")
       + format("italic", "noteItalic", "斜体")
@@ -250,7 +248,7 @@ function shellKnowledgeExportNote(task) {
   captureMountedMilkdownDrafts();
   flushNodeNoteDrafts({ persist: true });
   const markdown = String(task.notes || "");
-  const bodyHtml = renderMarkdown(markdown);
+  const bodyHtml = window.LoopKnowledgeEditor ? knowledgeRendererForTask(task).render(markdown, {noteId: task.knowledgeNote.noteId}) : renderMarkdown(markdown);
   const title = typeof note23FileName === "function"
     ? note23FileName(task, { path: task.knowledgeNote?.filePath }).replace(/\.md$/i, "")
     : task.title || "未命名笔记";
@@ -318,7 +316,7 @@ function shellKnowledgeConflict(task) {
     `<p class="knowledge-dialog-copy">当前草稿仍保留。选择作用于整篇笔记。</p>
      <div class="knowledge-version-grid">
        <section><h3>当前编辑内容</h3><p>本页草稿</p><pre>${esc(String(task.notes || "").slice(0, 600))}</pre></section>
-       <section><h3>磁盘上的文件</h3><p>${esc(note.filePath || "本地文件")}</p><pre>${esc(String(note.externalPreview || note.savedContent || "文件内容已变化，重新加载后可查看。").slice(0, 600))}</pre></section>
+       <section><h3>磁盘上的文件</h3><p>${esc(note.filePath || "本地文件")}</p><pre>${esc(String(knowledgeExternalSnapshots.get(note.noteId)?.content || note.externalPreview || note.savedContent || "文件内容已变化，重新加载后可查看。").slice(0, 600))}</pre></section>
      </div>`,
     `<button class="button" type="button" data-action="close-dialog" autofocus>取消</button>
      <button class="button" type="button" data-action="save-knowledge-as" data-task-id="${escAttr(task.id)}">另存为新文件</button>
@@ -367,6 +365,7 @@ function shellKnowledgeEditorEntry() {
 }
 
 function shellApplyNoteFormat(action, value) {
+  if (window.LoopKnowledgeEditor && shellKnowledgeEditorEntry()?.view) return shellKnowledgeEditorEntry().format(action, value);
   if (shellKnowledgeMode() === "source") return shellFormatKnowledgeSource(action, value);
   const instance = shellKnowledgeEditorEntry();
   if (!instance?.format) return false;
@@ -499,12 +498,12 @@ function shellBindKnowledge() {
       if (event.target.closest?.(".knowledge-tool")) event.preventDefault();
     });
     document.addEventListener("keydown", (event) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") return;
+      if (event.isComposing || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") return;
       if (state.taskPane !== "notes") return;
       if (shellOverlayIsOpen()) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      void saveKnowledgeTask(state.activeTaskId, { saveAs: false });
+      void saveKnowledgeTask(state.activeTaskId, { saveAs: event.shiftKey });
     }, true);
   }
   const source = document.querySelector("#knowledge-source");
@@ -516,7 +515,7 @@ function shellBindKnowledge() {
         shellKnowledgeSyncStats({ ...task, notes: source.value });
       });
       source.addEventListener("keydown", (event) => {
-        if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") return;
+        if (event.isComposing || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") return;
         event.preventDefault();
         void saveKnowledgeTask(task.id, { saveAs: false });
       });

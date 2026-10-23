@@ -310,6 +310,7 @@ function rendererHarness(personalTaskTrack = undefined) {
     location: { reload() {} },
   };
   const context = vm.createContext({
+    LoopKnowledgeCore: require("../app/renderer/src/knowledge-core.js"),
     alert(message) { alerts.push(String(message)); },
     Blob,
     confirm: () => true,
@@ -2315,7 +2316,7 @@ test("Bug 25 overwrite write failure leaves the conflict transaction untouched",
   assert.equal(recoveryDeletes, 0);
 });
 
-test("Bug 25 overwrite keeps conflict and Recovery when metadata persistence fails", async () => {
+test("overwrite keeps the accepted disk hash and Recovery when metadata persistence fails", async () => {
   let storageWrites = 0;
   let recoveryDeletes = 0;
   const savePayloads = [];
@@ -2368,8 +2369,8 @@ test("Bug 25 overwrite keeps conflict and Recovery when metadata persistence fai
   assert.equal(savePayloads[0].content, "编辑器权威正文");
   assert.equal(savePayloads[0].allowExternalOverwrite, true);
   assert.equal(harness.json(`state.tasks[0].notes`), "编辑器权威正文");
-  assert.equal(harness.json(`state.tasks[0].knowledgeNote.documentState`), "EXTERNAL_CHANGED");
-  assert.equal(harness.json(`state.tasks[0].knowledgeNote.lastSavedHash`), "old-baseline");
+  assert.equal(harness.json(`state.tasks[0].knowledgeNote.documentState`), "SAVED");
+  assert.equal(harness.json(`state.tasks[0].knowledgeNote.lastSavedHash`), "overwritten-hash");
   assert.equal(harness.json(`state.knowledgeRecovery.records.bug_25_overwrite_failed.content`), "Recovery 权威正文");
   assert.equal(harness.evaluate(`knowledgeExternalSnapshots.has("bug_25_overwrite_failed")`), true);
   assert.equal(recoveryDeletes, 0);
@@ -2521,6 +2522,7 @@ test("document export writes the selected format and preserves the legacy task e
   let chosen = { canceled: true }, options;
   const writes = [], windows = [];
   const context = vm.createContext({
+    LoopKnowledgeCore: require("../app/renderer/src/knowledge-core.js"),
     dialog: { showSaveDialog: async value => { options = value; return chosen; } },
     fs: { writeFile: async (...args) => { writes.push(args); } },
     sanitizeFileName: value => value,
@@ -2846,7 +2848,7 @@ test("renderer recovery debounces input and restores only newer unfiled drafts",
   assert.deepEqual(boundFilePreserved, { content: "本地未保存正文", filePath: "/tmp/bound.md" });
 });
 
-test("bound recovery restores only when the current file matches its base hash", async () => {
+test("bound recovery restores the draft and requires conflict resolution if its file baseline changed", async () => {
   const readCalls = [];
   const harness = await rendererHarness({
     knowledgeFile: {
@@ -2925,7 +2927,7 @@ test("bound recovery restores only when the current file matches its base hash",
     dirty: task.knowledgeNote.dirty
   }))`), [
     { id: "bound_same", notes: "应恢复的 Recovery 正文", state: "DIRTY", dirty: true },
-    { id: "bound_changed", notes: "应保留的本地正文", state: "EXTERNAL_CHANGED", dirty: true },
+    { id: "bound_changed", notes: "外部冲突 Recovery 正文", state: "EXTERNAL_CHANGED", dirty: true },
   ]);
 });
 
@@ -4849,11 +4851,11 @@ test("the frozen Demo baseline is the renderer stylesheet authority", async () =
   // follows those layers in main and floating windows without changing them.
   const linked = [...index.matchAll(/<link[^>]+href="\.\/src\/([^"?]+)/g)].map((match) => match[1]);
   const order = ["shell.css", "vendor/milkdown-editor.css", "knowledge.css", "fonts.css", "settings.css", "typography.css", "refinement.css", "selection.css", "flow.css", "shell-refinement.css", "help.css", "work.css", "task-entry.css", "journey.css", "time.css", "desktop.css", "scale.css", "brief21.css", "controls22.css", "notebook23.css", "management24.css", "window25.css", "bridge.css", "recovery26.css", "manual27.css"];
-  assert.deepEqual(linked, [...order, "type-readability.css"], "preserve the frozen Demo order, followed by the shared typography correction");
+  assert.deepEqual(linked, [...order, "vendor/knowledge-editor.css", "knowledge-editor.css", "type-readability.css"], "preserve the frozen Demo order, followed by the shared typography correction");
   assert.equal(await fs.readFile(path.join(rendererDir, "src", "manual27.css"), "utf8"), await fs.readFile(path.join(__dirname, "..", "prototypes", "baseline", "loop-plane-phase27-frozen", "loop-manual-phase27.css"), "utf8"), "the manual keeps the approved Demo CSS verbatim");
   const scripts = [...index.matchAll(/<script[^>]+src="\.\/src\/([^"?]+)/g)].map((match) => match[1]);
   const phase24Script = scripts.indexOf("management24.js");
-  assert.ok(phase24Script > scripts.indexOf("notebook23.js"), "phase24 must load after the phase23 layer");
+  assert.ok(phase24Script > scripts.indexOf("knowledge-workspace.js"), "phase24 must load after the knowledge workspace");
   assert.ok(phase24Script < scripts.indexOf("work.js"), "phase24 must load before the work-navigation layer");
   assert.ok(index.includes("data-management24-enabled"), "the phase24 sheet is gated on the body flag");
   const window25Script = scripts.indexOf("window25.js");
@@ -6665,6 +6667,7 @@ test("Milkdown normalization and hydrated images stay clean until a real documen
   }
   const window = { setTimeout, clearTimeout };
   const context = vm.createContext({
+    LoopKnowledgeCore: require("../app/renderer/src/knowledge-core.js"),
     window, Crepe: FakeCrepe, instances: new WeakMap(), completeInlineCodeInputRule: {}, editorViewCtx: {}, imageFileToDataUrl() {},
     milkdownMetrics: { serializations: 0, cacheHits: 0, mounts: 0 }, queueMicrotask() {},
     scheduleIdle: (callback) => setTimeout(callback, 1000), cancelScheduledIdle: (timer) => clearTimeout(timer),
@@ -7402,6 +7405,7 @@ test('native import releases the write lock on cancellation or successful rollba
   for (const scenario of ['canceled', 'IMPORT_ROLLED_BACK', 'IMPORT_ROLLBACK_FAILED', 'success']) {
     const lock = createDataMaintenanceLock(); let handler;
     const context = vm.createContext({
+    LoopKnowledgeCore: require("../app/renderer/src/knowledge-core.js"),
       ipcMain: {handle:(_,fn)=>{handler=fn;}}, BrowserWindow:{fromWebContents:()=>({})}, path, process,
       dialog:{showOpenDialog:async()=>({canceled:scenario==='canceled',filePaths:['/synthetic/incoming.loopbackup']}),showMessageBox:async()=>({response:1})},
       app:{getPath:()=>'/synthetic/profile',relaunch(){},exit(){}}, dataMaintenance:lock,

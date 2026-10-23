@@ -1,6 +1,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { imageReferences } = require("../renderer/src/knowledge-core.js");
 
 const RECOVERY_ASSETS_DIR = "knowledge-note-recovery";
 const ATTACHMENTS_DIR = "attachments";
@@ -21,6 +22,7 @@ const EXTENSION_MIME = Object.freeze(Object.fromEntries(
 function createFsOperations(overrides = {}) {
   return {
     access: overrides.access || ((...args) => fs.access(...args)),
+    realpath: overrides.realpath || ((...args) => fs.realpath(...args)),
     mkdir: overrides.mkdir || ((...args) => fs.mkdir(...args)),
     open: overrides.open || ((...args) => fs.open(...args)),
     readFile: overrides.readFile || ((...args) => fs.readFile(...args)),
@@ -181,26 +183,36 @@ function mimeForExtension(extension) {
 
 async function readKnowledgeAssetFiles(markdownPath, content, { fsOps: injectedFsOps } = {}) {
   const references = new Set();
-  Array.from(normalizeText(content).matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)).forEach((match) => {
-    const reference = normalizeText(match[1]).trim().split(/\s+["']/, 1)[0];
-    if (reference.startsWith("./attachments/")) references.add(reference);
+  imageReferences(normalizeText(content)).forEach((match) => {
+    const reference = match.url;
+    if (!reference || /^(?:[a-z][a-z0-9+.-]*:|\/|\\)/i.test(reference)) return;
+    let decoded;
+    try { decoded = decodeURIComponent(reference); } catch { return; }
+    const extension = path.extname(decoded).slice(1).toLowerCase();
+    if (!EXTENSION_MIME[extension] && extension !== "jpeg") return;
+    if (decoded.split(/[\\/]/).includes("..")) return;
+    references.add(reference);
   });
   if (!references.size) return { assetFiles: [], missingAssetFiles: [] };
   const fsOps = createFsOperations(injectedFsOps);
   const result = [];
   const missingAssetFiles = [];
   for (const relativePath of references) {
-    const relativeName = relativePath.slice("./attachments/".length);
-    if (!relativeName || relativeName.includes("/") || relativeName.includes("\\") || relativeName === "." || relativeName === "..") continue;
-    const filePath = path.join(formalAssetsDirectory(markdownPath), relativeName);
+    const decoded = decodeURIComponent(relativePath);
+    const relativeName = path.basename(decoded);
+    const filePath = path.resolve(path.dirname(markdownPath), decoded);
     try {
+      const root = await fsOps.realpath(path.dirname(markdownPath));
+      const real = await fsOps.realpath(filePath);
+      const relative = path.relative(root, real);
+      if (relative.startsWith(".." + path.sep) || relative === ".." || path.isAbsolute(relative)) continue;
       const buffer = await fsOps.readFile(filePath);
       const extension = path.extname(relativeName).replace(/^\./, "").toLowerCase();
       result.push({
         fileName: relativeName,
         filePath,
         relativePath,
-        dataUrl: `data:${mimeForExtension(extension)};base64,${Buffer.from(buffer).toString("base64")}`,
+        dataUrl: `data:${mimeForExtension(extension === "jpeg" ? "jpg" : extension)};base64,${Buffer.from(buffer).toString("base64")}`,
       });
     } catch (error) {
       missingAssetFiles.push({
@@ -237,7 +249,9 @@ async function migrateKnowledgeAssets(markdownPath, content, assets = [], { fsOp
       const writeResult = await writeAssetFile(filePath, parsed.buffer, fsOps);
       if (!writeResult.reused) createdFiles.push(filePath);
       const relativePath = `./${ATTACHMENTS_DIR}/${fileName}`;
-      migratedContent = migratedContent.split(asset.source).join(relativePath);
+      for (const reference of imageReferences(migratedContent).filter((item) => item.url === asset.source).reverse()) {
+        migratedContent = migratedContent.slice(0, reference.from) + relativePath + migratedContent.slice(reference.to);
+      }
       assetFiles.push({
         source: asset.source,
         fileName,

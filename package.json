@@ -1,6 +1,6 @@
 {
   "name": "personal-task-track",
-  "version": "0.1.232",
+  "version": "0.1.233",
   "description": "Loop is a local-first personal task flow tracker for closing work from creation to completion.",
   "private": true,
   "license": "UNLICENSED",
@@ -26,16 +26,19 @@
     "test:ui:node-interactions": "node tests/node-interactions.ui.cjs",
     "test:ui:widget-draft": "node tests/today-widget-draft.ui.cjs",
     "test:ui:continuity": "node tests/continuity28.ui.cjs",
-    "test:ui:knowledge-save": "node tests/knowledge-save.ui.cjs",
-    "test:ui:knowledge-input": "node tests/knowledge-input.ui.cjs",
-    "test": "node --test tests/desktop.test.cjs tests/bug-report-client.test.cjs tests/updater.test.cjs tests/deadline-reminders.test.cjs tests/data-continuity.test.cjs tests/work-navigation-model.test.cjs tests/work-rhythm-ui.test.cjs tests/pointer-continuity.test.cjs tests/continuity28-renderer.test.cjs tests/window25-renderer.test.cjs && npm --prefix services/bug-report test",
+    "test:ui:knowledge-save": "node tests/knowledge-editor.ui.cjs",
+    "test:ui:knowledge-input": "node tests/knowledge-editor.ui.cjs",
+    "test": "node --test tests/knowledge-core.test.cjs tests/knowledge-reliability.test.cjs tests/desktop.test.cjs tests/bug-report-client.test.cjs tests/updater.test.cjs tests/deadline-reminders.test.cjs tests/data-continuity.test.cjs tests/work-navigation-model.test.cjs tests/work-rhythm-ui.test.cjs tests/pointer-continuity.test.cjs tests/continuity28-renderer.test.cjs tests/window25-renderer.test.cjs && npm --prefix services/bug-report test",
     "check:pointer": "node --check app/main/pointer-continuity.cjs && node --check app/main/pointer-adapter.cjs && node --check app/renderer/src/continuity28.js && node --check tools/build-native-pointer.cjs && node --check tests/pointer-continuity.test.cjs && node --check tests/continuity28-renderer.test.cjs",
-    "check": "npm run build:milkdown && node --check app/renderer/src/window25.js && node --check app/renderer/src/type-readability.js && node --check app/renderer/src/app.js && node --check app/renderer/src/work-navigation-model.js && node --check app/renderer/src/today-widget-runtime.js && node --check app/main/app-identity.cjs && node --check app/main/data-continuity.cjs && node --check app/main/main.cjs && node --check app/main/preload.cjs && node --check app/main/storage.cjs && node --check app/main/today-widget.cjs && node --check app/main/deadline-reminders.cjs && node --check app/main/updater.cjs && node --check app/main/bug-report-client.cjs && node --check tools/after-pack.cjs && node --check tools/build.cjs && node --check tools/build-milkdown.cjs && node --check tools/make-ico.cjs && node --check tools/verify-update-artifacts.cjs && node --check tests/desktop.test.cjs && node --check tests/window25-renderer.test.cjs && node --check tests/bug-report-client.test.cjs && node --check tests/updater.test.cjs && node --check tests/deadline-reminders.test.cjs && node --check tests/data-continuity.test.cjs && node --check tests/work-navigation-model.test.cjs && node --check tests/work-rhythm-ui.test.cjs && node --check app/renderer/src/management24.js && node --check app/renderer/src/recovery26.js && node --check app/renderer/src/manual27.js && node --check tests/group-context-menu.ui.cjs && npm --prefix services/bug-report run build && npm test",
+    "check": "npm run build:milkdown && npm run build:knowledge && node --check app/renderer/src/window25.js && node --check app/renderer/src/type-readability.js && node --check app/renderer/src/app.js && node --check app/renderer/src/work-navigation-model.js && node --check app/renderer/src/today-widget-runtime.js && node --check app/main/app-identity.cjs && node --check app/main/data-continuity.cjs && node --check app/main/main.cjs && node --check app/main/preload.cjs && node --check app/main/storage.cjs && node --check app/main/today-widget.cjs && node --check app/main/deadline-reminders.cjs && node --check app/main/updater.cjs && node --check app/main/bug-report-client.cjs && node --check tools/after-pack.cjs && node --check tools/build.cjs && node --check tools/build-milkdown.cjs && node --check tools/make-ico.cjs && node --check tools/verify-update-artifacts.cjs && node --check tests/desktop.test.cjs && node --check tests/window25-renderer.test.cjs && node --check tests/bug-report-client.test.cjs && node --check tests/updater.test.cjs && node --check tests/deadline-reminders.test.cjs && node --check tests/data-continuity.test.cjs && node --check tests/work-navigation-model.test.cjs && node --check tests/work-rhythm-ui.test.cjs && node --check app/renderer/src/management24.js && node --check app/renderer/src/recovery26.js && node --check app/renderer/src/manual27.js && node --check tests/group-context-menu.ui.cjs && npm --prefix services/bug-report run build && npm test",
     "dist": "node tools/build.cjs",
     "dist:mac": "node tools/build.cjs --mac",
     "dist:win": "node tools/build.cjs --win",
     "test:ui:typography": "node tests/typography-dpi.ui.cjs",
-    "test:ui:flow-filter": "node tests/flow-completed-filter.ui.cjs"
+    "test:ui:flow-filter": "node tests/flow-completed-filter.ui.cjs",
+    "build:knowledge": "node tools/build-knowledge.cjs",
+    "test:knowledge": "node --test tests/knowledge-core.test.cjs tests/knowledge-reliability.test.cjs",
+    "test:ui:knowledge": "node tests/knowledge-editor.ui.cjs"
   },
   "build": {
     "appId": "io.github.tangyuanx.personal-task-track",
@@ -97,13 +100,30 @@
     }
   },
   "devDependencies": {
+    "@codemirror/autocomplete": "^6.20.4",
     "@codemirror/commands": "6.10.4",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/lang-yaml": "^6.1.3",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/language-data": "^6.5.2",
+    "@codemirror/search": "^6.7.2",
+    "@codemirror/state": "^6.7.6",
     "@codemirror/view": "6.43.4",
     "@milkdown/crepe": "^7.21.3",
+    "dompurify": "^3.4.17",
     "electron": "^42.7.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.1",
-    "playwright-core": "1.62.1"
+    "highlight.js": "^11.12.0",
+    "katex": "^0.19.0",
+    "markdown-it": "^15.0.3",
+    "markdown-it-footnote": "^4.0.0",
+    "markdown-it-mark": "^4.0.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "markdown-it-texmath": "^1.0.0",
+    "mermaid": "^12.2.0",
+    "playwright-core": "1.62.1",
+    "@lezer/highlight": "^1.2.3"
   },
   "dependencies": {
     "electron-updater": "6.8.9"

@@ -106,7 +106,8 @@ function shellReviewRangeLabel(range) {
   if (state.reviewPreset === "all") return "全部时间";
   if (!range.start || !range.end) return "选择日期范围";
   const inclusiveEnd = new Date(range.end.getFullYear(), range.end.getMonth(), range.end.getDate() - 1);
-  return `${shellDisplayDate(localDateKey(range.start))} — ${shellDisplayDate(localDateKey(inclusiveEnd))}`;
+  // Keep calendar dates local; reparsing a YYYY-MM-DD key treats it as UTC.
+  return `${shellDisplayDate(range.start)} — ${shellDisplayDate(inclusiveEnd)}`;
 }
 
 /** Same value the range filter used, so the column never disagrees with the range. */

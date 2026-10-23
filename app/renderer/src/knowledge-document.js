@@ -1,5 +1,6 @@
 (function exposeKnowledgeDocument(root, factory) {
   const api = factory();
+
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.KnowledgeDocument = api;
 })(typeof globalThis === "object" ? globalThis : this, () => {
@@ -88,6 +89,8 @@
       noteId: normalizeText(noteId).trim() || normalizeText(taskId).trim(),
       taskId: normalizeText(taskId).trim(),
       title: normalizeText(title),
+      aliases: [],
+      isDeleted: false,
       filePath: null,
       documentState: "DRAFT",
       dirty: false,
@@ -123,6 +126,8 @@
       noteId: normalizeText(raw.noteId || fallback.noteId).trim() || normalizedTaskId,
       taskId: normalizedTaskId,
       title: normalizeText(raw.title ?? title),
+      aliases: Array.isArray(raw.aliases) ? [...new Set(raw.aliases.filter((v) => typeof v === "string" && v.trim()))] : [],
+      isDeleted: raw.isDeleted === true,
       filePath,
       documentState: normalizeDocumentState(state),
       dirty,
@@ -148,7 +153,9 @@
 
   function updateDocumentTitle(session, title) {
     const next = normalizeKnowledgeNote(session);
+    const previous = next.title;
     next.title = normalizeText(title);
+    if (previous && previous !== next.title) next.aliases = [...new Set([...next.aliases, previous])];
     return next;
   }
 
@@ -161,6 +168,7 @@
   function markDocumentEdited(session) {
     const next = normalizeKnowledgeNote(session);
     next.dirty = true;
+    next.isDeleted = false;
     if (next.documentState === "SAVED") next.documentState = "DIRTY";
     return next;
   }
@@ -208,6 +216,7 @@
 
   return Object.freeze({
     DOCUMENT_STATES,
+    imageReferences: typeof module === "object" && module.exports ? require("./knowledge-core.js").imageReferences : globalThis.LoopKnowledgeCore.imageReferences,
     canonicalFilePath,
     createDocumentSession,
     createKnowledgeNoteMetadata,

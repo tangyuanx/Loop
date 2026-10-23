@@ -28,6 +28,8 @@ const milkdownResult = spawnSync(process.execPath, ["tools/build-milkdown.cjs"],
 });
 
 if (milkdownResult.status !== 0) process.exit(milkdownResult.status ?? 1);
+const knowledgeResult = spawnSync(process.execPath, ["tools/build-knowledge.cjs"], {env: process.env, stdio: "inherit"});
+if (knowledgeResult.status !== 0) process.exit(knowledgeResult.status ?? 1);
 
 const result = spawnSync(process.execPath, [require.resolve("electron-builder/cli.js"), ...builderArgs], {
   env: process.env,

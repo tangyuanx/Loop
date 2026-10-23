@@ -606,6 +606,7 @@ function recovery26RemoveNote(taskId) {
   const task = r26Task(taskId);
   if (!task || !String(task.notes || "").trim()) return { ok: false, message: "这篇笔记没有正文" };
   const noteId = task.knowledgeNote?.noteId || task.id;
+  discardMountedKnowledgeEditor(task.id);
   const entry = recovery26Archive({
     kind: "note",
     transactionId: r26TransactionId(),
@@ -629,6 +630,7 @@ function recovery26RemoveNote(taskId) {
   task.notes = "";
   task.knowledgeNote = knowledgeDocument.normalizeKnowledgeNote({
     ...(task.knowledgeNote || {}),
+    isDeleted: true,
     filePath: null,
     documentState: "DRAFT",
     dirty: false,
