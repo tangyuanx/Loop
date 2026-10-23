@@ -42,6 +42,8 @@ contextBridge.exposeInMainWorld("personalTaskTrack", {
   },
   export: {
     nodeDetailPdf: (payload) => ipcRenderer.invoke("node-detail:export-pdf", payload),
+    // documentKind="note": frozen, enhanced static body from the renderer;
+    // main owns the offline template/fonts and validates resources before PDF.
     // Shared document export: optional documentKind="note" and md/html/pdf
     // format select an unbound copy; no knowledge-file save/rebind is invoked.
     taskDocument: (payload) => ipcRenderer.invoke("task:export-document", payload),

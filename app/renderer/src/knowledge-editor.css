@@ -52,7 +52,16 @@
 .kn-frontmatter {border:1px solid color-mix(in srgb,currentColor 14%,transparent);border-radius:6px;padding:8px 12px;margin:12px 0;color:var(--muted,#777);font-size:.9em;}
 .kn-frontmatter summary {cursor:pointer;}.kn-frontmatter pre {margin:8px 0 0;}
 .kn-reading {padding:0 0 80px;min-height:360px;outline:none;}
-.kn-mermaid {overflow:auto;min-height:40px;}.kn-mermaid svg {max-width:100%;height:auto;}
+.kn-mermaid {overflow:auto;max-width:100%;min-width:0;min-height:40px;}
+/* Diagrams own their geometry; the shell's 16px SVG rule is for controls. */
+.kn-mermaid>svg {display:block;width:var(--kn-diagram-width,auto);max-width:none;height:auto;fill:initial;stroke:initial;stroke-width:initial;stroke-linecap:initial;stroke-linejoin:initial;flex-shrink:0;}
+.kn-export-surface {color:#17211c;background:#fff;font-size:15px;line-height:1.8;}
+.kn-export-surface .kn-embed-body {max-height:none;overflow:visible;}
+.knowledge-export-preview {max-height:360px;overflow:auto;padding:12px;}
+.knowledge-export-issues {padding:12px 0;}
+.knowledge-export-issues ul {padding-left:20px;max-height:120px;overflow:auto;}
+.knowledge-dialog .knowledge-export-issues label {display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.7;color:var(--text);font-weight:400;}
+.knowledge-export-issues input[type=checkbox] {width:16px;height:16px;min-width:16px;padding:0;margin:2px 0 0;flex:0 0 16px;accent-color:var(--green);}
 .kn-upload-status:empty {display:none;}.kn-upload-status {position:sticky;bottom:0;padding:8px;font-size:12px;background:var(--panel,#f4f5f2);border-radius:5px;}
 .kn-upload-status button {margin-left:8px;cursor:pointer;}
 .kn-save-receipt {font-size:11px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:auto;color:var(--secondary);}

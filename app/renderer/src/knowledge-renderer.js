@@ -12,7 +12,8 @@ import 'katex/dist/katex.min.css';
 const core = window.LoopKnowledgeCore;
 const escape = value => String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let graphId=0;
-mermaid.initialize({startOnLoad:false,securityLevel:'strict',suppressErrorRendering:true,theme:'neutral',maxTextSize:100000,
+mermaid.initialize({startOnLoad:false,securityLevel:'strict',suppressErrorRendering:true,theme:'neutral',maxTextSize:100000,htmlLabels:false,
+  secure:['secure','securityLevel','startOnLoad','maxTextSize','suppressErrorRendering','maxEdges','htmlLabels'],
   flowchart:{htmlLabels:false}});
 export function safeURL(value, image=false) {
   const raw=String(value||'').trim();
@@ -115,6 +116,7 @@ export function createRenderer(options) {
     const src=tokens[i].attrGet('src');
     const resolved=options.resolveImage?.(env.noteId,src) || (/^(https?:|data:image\/)/i.test(src) ? safeURL(src,true) : '');
     const safeImage=safeURL(resolved,true);
+    if(options.offlineExport && /^https?:/i.test(safeImage))return `<span class="kn-image-missing">网络图片未内嵌：${escape(tokens[i].content||src)}</span>`;
     if(!safeImage) return `<span class="kn-image-missing">图片不可用：${escape(tokens[i].content)}</span>`;
     tokens[i].attrSet('src',safeImage); tokens[i].attrSet('loading','lazy');
     return defaultImage(tokens,i,o,env,self);
@@ -145,17 +147,73 @@ export function createRenderer(options) {
       return DOMPurify.sanitize(html,{ADD_ATTR:['data-task-pos','data-note-target','data-note-anchor','data-relative-note','data-diagram','data-callout','data-source-line','aria-expanded'],FORBID_TAGS:['style','iframe','object','embed','script'],USE_PROFILES:{html:true,svg:true,svgFilters:true}});
     } catch(error) { return `<pre class="kn-render-failure">${escape(source)}</pre>`; }
   }
-  async function enhance(root,onChange) {
+  async function enhance(root,onChange,{signal,timeoutMs=12000}={}) {
+    const results=[];
     for(const node of root.querySelectorAll('.kn-mermaid:not([data-rendering])')) {
+      if(signal?.aborted)throw new DOMException('导出已取消','AbortError');
       node.dataset.rendering='true';
+      const diagramSource=node.querySelector('code')?.textContent || '';
+      let timer;
       try {
-        const {svg}=await mermaid.render('loopDiagram'+(++graphId),node.querySelector('code')?.textContent || '');
-        if(root.contains(node)) { node.innerHTML=DOMPurify.sanitize(svg,{USE_PROFILES:{svg:true,svgFilters:true}}); onChange?.(); }
+        const {svg}=await Promise.race([
+          mermaid.render('loopDiagram'+(++graphId),diagramSource,node),
+          new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('图表渲染超时')),timeoutMs);}),
+        ]);
+        if(signal?.aborted)throw new DOMException('导出已取消','AbortError');
+        if(root.contains(node)) {
+          if(/<foreignObject\b/i.test(svg))throw new Error('图表标签无法安全显示，请改用纯文本标签');
+          node.innerHTML=DOMPurify.sanitize(svg,{USE_PROFILES:{svg:true,svgFilters:true}});
+          const graph=node.querySelector('svg'),box=graph?.viewBox?.baseVal;
+          if(!graph || !box?.width || !box?.height)throw new Error('图表没有有效尺寸');
+          graph.setAttribute('width',String(box.width));graph.setAttribute('height',String(box.height));
+          graph.style.setProperty('--kn-diagram-width',box.width+'px');
+          results.push({success:true,width:box.width,height:box.height});onChange?.();
+        }
       } catch(error) {
-        if(root.contains(node)) { const notice=document.createElement('small'); notice.textContent='图表语法有误，已保留源码'; node.prepend(notice); }
-      }
+        if(error.name==='AbortError')throw error;
+        results.push({success:false,message:error.message?.includes('超时')?'图表渲染超时':error.message?.includes('纯文本标签')?error.message:'图表语法有误，已保留源码'});
+        if(root.contains(node)) {node.innerHTML='<pre><code>'+escape(diagramSource)+'</code></pre>'; const notice=document.createElement('small'); notice.textContent=results.at(-1).message; node.prepend(notice); }
+      } finally {clearTimeout(timer);}
     }
+    return results;
   }
-  return {render,enhance,parse:source=>md.parse(source,{})};
+  async function exportStatic(source,env={}, {signal,timeoutMs=12000}={}) {
+    const root=document.createElement('article');
+    root.className='kn-rendered kn-export-surface';root.style.cssText='position:fixed;left:-20000px;top:0;width:720px;pointer-events:none;';
+    root.setAttribute('aria-hidden','true');root.innerHTML=render(source,env);
+    const issues=[];
+    // Remote URLs remain links in Markdown, but never become offline dependencies.
+    for(const img of root.querySelectorAll('img')) {
+      if(!img.getAttribute('src')?.startsWith('data:image/')) {
+        const missing=document.createElement('span');missing.className='kn-image-missing';
+        missing.textContent='网络图片未内嵌：'+(img.alt||img.getAttribute('src')||'未命名图片');img.replaceWith(missing);
+      } else {img.removeAttribute('loading');}
+    }
+    document.body.append(root);
+    const abort=()=>root.remove();signal?.addEventListener('abort',abort,{once:true});
+    try {
+      const diagrams=await enhance(root,null,{signal,timeoutMs});
+      issues.push(...diagrams.filter(r=>!r.success).map((r,i)=>`图表 ${i+1}：${r.message}`));
+      for(const missing of root.querySelectorAll('.kn-image-missing,.kn-render-failure,.katex-error'))issues.push(missing.textContent.slice(0,180));
+      for(const img of root.querySelectorAll('img')) {
+        let timer;
+        try {
+          await Promise.race([img.decode(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('图片加载超时')),timeoutMs);})]);
+          if(!img.naturalWidth)throw new Error('图片无法解码');
+        } catch(error) {
+          const missing=document.createElement('span');missing.className='kn-image-missing';missing.textContent='图片不可用：'+(img.alt||'未命名图片');img.replaceWith(missing);issues.push(missing.textContent);
+        } finally {clearTimeout(timer);}
+      }
+      if(signal?.aborted)throw new DOMException('导出已取消','AbortError');
+      root.querySelectorAll('.kn-code-copy').forEach(el=>el.remove());
+      root.querySelectorAll('.kn-callout').forEach(el=>el.classList.remove('is-collapsed'));
+      root.querySelectorAll('details').forEach(el=>el.open=true);
+      root.querySelectorAll('button').forEach(el=>{const title=document.createElement('strong');title.className=el.className;title.textContent=el.textContent;el.replaceWith(title);});
+      root.querySelectorAll('input[type=checkbox]').forEach(el=>{const mark=document.createElement('span');mark.className='kn-static-checkbox';mark.textContent=el.checked?'☑ ':'☐ ';el.replaceWith(mark);});
+      const html=DOMPurify.sanitize(root.innerHTML,{USE_PROFILES:{html:true,svg:true,svgFilters:true,mathMl:true},FORBID_TAGS:['script','iframe','object','embed','foreignObject','input','button','form']});
+      return {html,issues:[...new Set(issues)],diagrams};
+    } finally {signal?.removeEventListener('abort',abort);root.remove();}
+  }
+  return {render,enhance,exportStatic,parse:source=>md.parse(source,{})};
 }
 export {escape};

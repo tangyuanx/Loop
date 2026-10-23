@@ -2488,8 +2488,17 @@ test("note export uses the latest body without rebinding and recovers from cance
     state.tasks[0].knowledgeNote.filePath = "/original/linked.md";
     state.tasks[0].knowledgeNote.lastSavedHash = "original-hash";
     nodeNoteDrafts.set(noteDraftKey("export-note", null), { taskId: "export-note", nodeId: null, markdown: "最新正文" });
-    globalThis.exportButton = { disabled: false, isConnected: true, addEventListener: (_type, listener) => { globalThis.exportClick = listener; } };
+    globalThis.structuredClone = value => JSON.parse(JSON.stringify(value));
+    globalThis.MutationObserver = class { observe() {} disconnect() {} };
+    globalThis.AbortController = class { constructor() { this.signal = {}; } abort() {} };
+    globalThis.knowledgeText = task => task.notes;
+    globalThis.knowledgeNotes = () => state.tasks;
+    window.LoopKnowledgeEditor = { createRenderer: () => ({ exportStatic: async () => ({ html: '<p>最新正文</p>', issues: [], diagrams: [] }) }) };
+    globalThis.exportControls = {};
+    globalThis.exportButton = { disabled: false, isConnected: true, closest: () => ({ querySelector: selector => exportControls[selector] }), addEventListener: (_type, listener) => { globalThis.exportClick = listener; } };
     globalThis.exportError = { hidden: true, textContent: "" };
+    for (const name of ['status','preview','issues','incomplete','retry','format']) exportControls['#knowledge-export-'+name] = { hidden:true, checked:false, value:'html', addEventListener() {}, querySelector: () => ({innerHTML:''}) };
+    exportControls['#knowledge-export-error'] = exportError;
     globalThis.closedExports = 0;
     document.querySelector = selector => selector === "#knowledge-export-download" ? exportButton
       : selector === "#knowledge-export-error" ? exportError
@@ -2499,6 +2508,7 @@ test("note export uses the latest body without rebinding and recovers from cance
     shellCloseOverlay = () => { closedExports++; };
     shellKnowledgeExportNote(state.tasks[0]);
   `);
+  await harness.evaluate("Promise.resolve()");
   await harness.evaluate("exportClick()");
   assert.equal(calls[0].markdown, "最新正文");
   assert.equal(calls[0].documentKind, "note");
@@ -2527,8 +2537,10 @@ test("document export writes the selected format and preserves the legacy task e
     fs: { writeFile: async (...args) => { writes.push(args); } },
     sanitizeFileName: value => value,
     taskDocumentPdfHtml: ({ bodyHtml }) => `<!doctype html>${bodyHtml}`,
+    noteDocumentHtml: async ({ bodyHtml }) => `<!doctype html>${bodyHtml}`,
+    readyNoteDocument: async () => {},
     BrowserWindow: class {
-      constructor() { windows.push(this); this.webContents = { printToPDF: async () => Buffer.from("PDF") }; }
+      constructor() { windows.push(this); this.webContents = { executeJavaScript: async () => {}, printToPDF: async () => Buffer.from("PDF") }; }
       async loadURL(value) { this.url = value; }
       destroy() { this.destroyed = true; }
     },

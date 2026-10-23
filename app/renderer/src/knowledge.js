@@ -243,31 +243,79 @@ function shellKnowledgeExportNote(task) {
   if (!task) return;
   captureMountedMilkdownDrafts();
   flushNodeNoteDrafts({ persist: true });
-  const markdown = String(task.notes || "");
-  const bodyHtml = window.LoopKnowledgeEditor ? knowledgeRendererForTask(task).render(markdown, {noteId: task.knowledgeNote.noteId}) : renderMarkdown(markdown);
+  const markdown = String(knowledgeText(task));
+  // Freeze every dependency before any async rendering or file dialog.
+  const notes = knowledgeNotes().map(note => ({ ...structuredClone(note), notes: String(knowledgeText(note)) }));
+  const scopes = structuredClone(state.knowledgeAssetScopes || {});
+  const images = structuredClone(state.attachments?.images || {});
+  const noteId = task.knowledgeNote.noteId;
+  const renderer = window.LoopKnowledgeEditor?.createRenderer({
+    offlineExport: true,
+    getNotes: () => notes, getContent: note => note.notes,
+    resolveImage: (id, source) => {
+      if (source.startsWith("task-image:")) return images[source.slice(11)] || "";
+      try { return scopes[id]?.[source] || scopes[id]?.[decodeURIComponent(source)] || ""; } catch { return ""; }
+    },
+  });
   const title = typeof note23FileName === "function"
     ? note23FileName(task, { path: task.knowledgeNote?.filePath }).replace(/\.md$/i, "")
     : task.title || "未命名笔记";
   shellKnowledgeDialog("导出笔记",
-    `<p class="knowledge-dialog-copy">导出当前笔记内容；不改变文件关联。</p><div class="export-format-row"><label for="knowledge-export-format">格式</label><select id="knowledge-export-format"><option value="md">Markdown</option><option value="html">HTML</option><option value="pdf">PDF（桌面应用）</option></select></div><article class="knowledge-preview export-preview">${bodyHtml}</article><p class="knowledge-demo-boundary">HTML 与 PDF 包含已加载的图片；Markdown 保留图片引用，附件请一同备份。</p><p class="error" id="knowledge-export-error" role="status" hidden></p>`,
+    `<p class="knowledge-dialog-copy">导出打开此窗口时的笔记快照；不改变文件关联。</p><div class="export-format-row"><label for="knowledge-export-format">格式</label><select id="knowledge-export-format"><option value="md">Markdown</option><option value="html">HTML</option><option value="pdf">PDF（桌面应用）</option></select></div><p id="knowledge-export-status" role="status">正在生成导出预览…</p><article id="knowledge-export-preview" class="kn-rendered knowledge-export-preview"></article><div id="knowledge-export-issues" class="knowledge-export-issues" hidden><ul></ul><label><input type="checkbox" id="knowledge-export-incomplete">保留图表源码与缺失资源说明，继续导出</label></div><p class="knowledge-demo-boundary">HTML 与 PDF 内嵌公式字体、本地图片及静态图表，可离线阅读。Markdown 保留原文和图片引用。</p><p class="error" id="knowledge-export-error" role="alert" hidden></p><button class="button" id="knowledge-export-retry" hidden>重新生成预览</button>`,
     '<button class="button" data-action="close-dialog">取消</button><button class="button primary" id="knowledge-export-download">导出</button>', 680);
   const button = document.querySelector("#knowledge-export-download");
+  const dialog = button.closest('[role="dialog"]');
+  const formatSelect = dialog.querySelector("#knowledge-export-format");
+  const error = dialog.querySelector("#knowledge-export-error");
+  const status = dialog.querySelector("#knowledge-export-status");
+  const issues = dialog.querySelector("#knowledge-export-issues");
+  const allowIncomplete = dialog.querySelector("#knowledge-export-incomplete");
+  const retry = dialog.querySelector("#knowledge-export-retry");
+  let prepared = null, preparing = false, exporting = false, controller;
+  const update = () => { button.disabled = exporting || (formatSelect.value !== "md" && (!prepared || preparing || (prepared.issues.length > 0 && !allowIncomplete.checked))); };
+  const observer = new MutationObserver(() => { if (!button.isConnected) { controller?.abort(); observer.disconnect(); } });
+  observer.observe(shellOverlay(), { childList: true, subtree: true });
+  async function prepare() {
+    controller?.abort(); controller = new AbortController();
+    prepared = null; preparing = true; allowIncomplete.checked = false;
+    error.hidden = true; retry.hidden = true; issues.hidden = true;
+    status.textContent = "正在生成导出预览…"; update();
+    try {
+      if (!renderer) throw new Error("笔记渲染器尚未就绪，请关闭窗口后重试。");
+      const result = await renderer.exportStatic(markdown, { noteId }, { signal: controller.signal });
+      if (!button.isConnected) return;
+      prepared = result;
+      dialog.querySelector("#knowledge-export-preview").innerHTML = result.html;
+      issues.hidden = result.issues.length === 0;
+      issues.querySelector("ul").innerHTML = result.issues.map(issue => `<li>${esc(issue)}</li>`).join("");
+      retry.hidden = result.issues.length === 0;
+      status.textContent = result.issues.length ? "部分内容未能完整渲染，请检查后选择重试或继续。" : "预览已就绪，HTML 与 PDF 使用相同内容。";
+    } catch (failure) {
+      if (failure.name === "AbortError" || !button.isConnected) return;
+      error.textContent = failure.message || "预览生成失败，请重试。"; error.hidden = false; retry.hidden = false;
+      status.textContent = "预览未完成；仍可导出 Markdown 原文。";
+    } finally { preparing = false; update(); }
+  }
+  retry.addEventListener("click", () => void prepare());
+  allowIncomplete.addEventListener("change", update); formatSelect.addEventListener("change", update);
+  void prepare();
   button?.addEventListener("click", async () => {
-    const format = document.querySelector("#knowledge-export-format")?.value || "md";
-    const error = document.querySelector("#knowledge-export-error");
-    button.disabled = true;
+    if (button.disabled || exporting) return;
+    const format = formatSelect.value;
+    exporting = true; update();
     if (error) error.hidden = true;
     try {
       if (!desktopExport?.taskDocument) throw new Error("请在桌面应用中导出笔记。");
-      const result = await desktopExport.taskDocument({ taskTitle: title, documentKind: "note", format, markdown, html: bodyHtml });
+      const incomplete = format !== "md" && prepared.issues.length > 0;
+      const result = await desktopExport.taskDocument({ taskTitle: title, documentKind: "note", format, markdown, html: prepared?.html || "" });
       if (result?.canceled) return;
       if (!result?.filePath) throw new Error("文件未导出，请重试。");
       if (button.isConnected) shellCloseOverlay();
-      shellToast("笔记已导出");
+      shellToast(incomplete ? "已导出，包含保留的源码或缺失资源说明" : "笔记已导出");
     } catch (failure) {
-      if (error) { error.textContent = failure?.message || "导出失败，请重试。"; error.hidden = false; }
+      if (error) { error.textContent = (failure?.message || "导出失败，请重试。").replace(/^Error invoking remote method '[^']+': (?:Error: )?/, ""); error.hidden = false; }
     } finally {
-      button.disabled = false;
+      exporting = false; update();
     }
   });
 }

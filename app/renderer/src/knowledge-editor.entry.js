@@ -45,6 +45,9 @@ class RenderWidget extends WidgetType {
     const el=document.createElement(this.kind==='block'?'div':'span');
     el.className='kn-live-widget kn-rendered'; el.dataset.sourcePos=String(this.from); el.innerHTML=this.html;
     el.addEventListener('mousedown',event=>{
+      // An image inside a callout or embedded note must not unfold the entire
+      // containing block and move the caret into unrelated reference syntax.
+      if(event.target.closest('img')){event.preventDefault();event.stopPropagation();return;}
       if(event.target.closest('button,a,input')) return;
       event.preventDefault(); let pos=Number(el.dataset.sourcePos);
       const cell=event.target.closest('td,th');
@@ -58,7 +61,31 @@ class RenderWidget extends WidgetType {
     this.owner.renderer.enhance(el,()=>view.requestMeasure());
     return el;
   }
-  ignoreEvent(event) { return event.type !== 'mousedown'; }
+  ignoreEvent(event) { return event.type !== 'mousedown' || Boolean(event.target.closest?.('img')); }
+}
+// Images remain visual objects when selected. Revealing their Markdown during
+// mousedown changed the layout before CodeMirror placed its native selection.
+class ImageWidget extends RenderWidget {
+  constructor(html,owner,from,kind,to) {super(html,owner,from,kind);this.to=to;}
+  eq(other) {return other instanceof ImageWidget && super.eq(other) && this.to===other.to;}
+  toDOM(view) {
+    const el=document.createElement('span');el.className='kn-live-widget kn-rendered kn-image-widget';
+    el.dataset.sourcePos=String(this.from);el.innerHTML=this.html;
+    // Markdown rendering adds a paragraph even for one inline image. A block
+    // paragraph inside this inline replacement leaves CodeMirror's cursor
+    // buffer on a separate line above the image despite a correct source offset.
+    const paragraph=el.firstElementChild;
+    if(el.childElementCount===1 && paragraph?.tagName==='P')el.replaceChildren(...paragraph.childNodes);
+    el.addEventListener('mousedown',event=>{
+      if(event.button!==0||event.target.closest('a,button,input'))return;
+      event.preventDefault();event.stopPropagation();
+      if(event.target.closest('.kn-embed-body'))return;
+      view.dispatch({selection:{anchor:this.to},scrollIntoView:false});view.focus();
+    });
+    el.addEventListener('click',event=>this.owner.handleRenderedClick(event,this.from));
+    return el;
+  }
+  ignoreEvent(){return true;}
 }
 // Tables keep their rendered geometry while a single cell is edited. Switching
 // the entire block to source on mousedown moved later rows away from the click.
@@ -171,7 +198,11 @@ class KnowledgeEditor {
         {key:'Backspace',run:deleteMarkupBackward},
         {key:'Tab',run:indentMore},{key:'Shift-Tab',run:indentLess},
       ])),keymap.of([...closeBracketsKeymap,...completionKeymap,...historyKeymap,...searchKeymap,...foldKeymap,...defaultKeymap,indentWithTab]),
-      this.decorations,this.lineConfig.of(this.mode==='source'?[lineNumbers(),highlightActiveLine()]:[]),
+      this.decorations,
+      // Skip hidden image syntax for keyboard navigation and deletion. Source
+      // mode has no image decorations and remains fully editable as Markdown.
+      EditorView.atomicRanges.of(view=>view.state.field(this.decorations).update({filter:(_from,_to,value)=>value.spec.widget instanceof ImageWidget})),
+      this.lineConfig.of(this.mode==='source'?[lineNumbers(),highlightActiveLine()]:[]),
       EditorView.contentAttributes.of({'aria-label':'Markdown 内容',spellcheck:'false'}),
       EditorView.updateListener.of(update=>this.onUpdate(update)),
       EditorView.domEventHandlers({paste:(event)=>this.paste(event),drop:(event,view)=>this.drop(event,view),dragover:event=>{
@@ -207,8 +238,8 @@ class KnowledgeEditor {
     const widget=(node,inline=false)=>{
       const text=state.doc.sliceString(node.from,node.to),key=node.name+':'+text;
       let html=this.renderCache.get(key);if(!html){html=this.renderer.render(text,{noteId:this.options.noteId,stack:[this.options.noteId]});if(this.renderCache.size>160)this.renderCache.clear();this.renderCache.set(key,html);}
-      const Type=node.name==='Table'?TableWidget:RenderWidget;
-      add(node.from,node.to,Decoration.replace({widget:new Type(html,this,node.from,inline?'inline':'block'),block:!inline,inclusive:false}));
+      const Type=node.name==='Image'?ImageWidget:node.name==='Table'?TableWidget:RenderWidget;
+      add(node.from,node.to,Decoration.replace({widget:new Type(html,this,node.from,inline?'inline':'block',node.to),block:!inline,inclusive:false}));
     };
     syntaxTree(state).iterate({from,to,enter:node=>{
       if(node.to<from||node.from>to)return false;
@@ -220,7 +251,7 @@ class KnowledgeEditor {
       if(node.name==='Table'){widget(node);return false;}
       if(['FencedCode','HorizontalRule','Frontmatter'].includes(node.name) && !active){widget(node);return false;}
       if(node.name==='Blockquote' && /^>\s*\[!/.test(state.doc.sliceString(node.from,Math.min(node.to,node.from+80))) && !active){widget(node);return false;}
-      if(['Image'].includes(node.name) && !active){widget(node,true);return false;}
+      if(node.name==='Image'){widget(node,true);return false;}
       if(/^(?:ATXHeading|SetextHeading)\d$/.test(node.name)) {
         const line=state.doc.lineAt(node.from);add(line.from,line.from,Decoration.line({class:'kn-heading kn-h'+node.name.slice(-1)}));
       }

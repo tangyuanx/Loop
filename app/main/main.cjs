@@ -31,6 +31,7 @@ const {
 } = require("./knowledge-file.cjs");
 const { createKnowledgeFileWatcher } = require("./knowledge-watcher.cjs");
 const { stageKnowledgeAssets } = require("./knowledge-assets.cjs");
+const { noteDocumentHtml, readyNoteDocument } = require("./knowledge-export.cjs");
 const {
   deleteKnowledgeRecovery,
   readKnowledgeRecovery,
@@ -562,15 +563,18 @@ async function exportTaskDocument(payload) {
     });
 
     try {
-      const html = taskDocumentPdfHtml({
+      const html = await (safePayload.documentKind === "note" ? noteDocumentHtml : taskDocumentPdfHtml)({
         taskTitle,
         bodyHtml: String(safePayload.html || ""),
       });
       await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+      if (safePayload.documentKind === "note") {
+        await window.webContents.executeJavaScript(`(${readyNoteDocument.toString()})()`);
+      }
       const pdf = await window.webContents.printToPDF({
         printBackground: true,
         pageSize: "A4",
-        margins: { marginType: "custom", top: 0.48, bottom: 0.48, left: 0.52, right: 0.52 },
+        ...(safePayload.documentKind === "note" ? { preferCSSPageSize: true, margins: {top:0,bottom:0,left:0,right:0} } : { margins: { marginType: "custom", top: 0.48, bottom: 0.48, left: 0.52, right: 0.52 } }),
       });
       await fs.writeFile(exportPath, pdf);
       return { canceled: false, filePath: exportPath };
@@ -580,7 +584,15 @@ async function exportTaskDocument(payload) {
   }
 
   if (format === "html") {
-    await fs.writeFile(exportPath, taskDocumentPdfHtml({ taskTitle, bodyHtml: String(safePayload.html || "") }), "utf8");
+    const html = await (safePayload.documentKind === "note" ? noteDocumentHtml : taskDocumentPdfHtml)({ taskTitle, bodyHtml: String(safePayload.html || "") });
+    if (safePayload.documentKind === "note") {
+      const preview = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } });
+      try {
+        await preview.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+        await preview.webContents.executeJavaScript(`(${readyNoteDocument.toString()})({print:false})`);
+      } finally { preview.destroy(); }
+    }
+    await fs.writeFile(exportPath, html, "utf8");
     return { canceled: false, filePath: exportPath };
   }
   const markdownPath = exportPath.toLowerCase().endsWith(".md") ? exportPath : `${exportPath}.md`;
