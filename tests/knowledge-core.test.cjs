@@ -73,3 +73,10 @@ test('image destination scanning respects code, comments, escapes, titles and ba
  assert.deepEqual(refs.map(r=>r.url),['task-image:a','images/test(1).png','images/space name.png']);
  refs.forEach(r=>assert.equal(source.slice(r.from,r.to),r.url));
 });
+test('source serialization retains CRLF, CR, LF, mixed separators and Unicode offsets',()=>{
+ for(const source of ['中文😀\r\n\r\n尾行\r\n','中文😀\r尾行\r','中文😀\n尾行\n','中文😀\r\n空行\n\r末行']){
+  const format=core.sourceFormat(source);
+  assert.ok(!format.text.includes('\r'));
+  assert.equal(core.serializeSource(format.text,format),source);
+ }
+});

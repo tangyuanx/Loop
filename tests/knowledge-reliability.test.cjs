@@ -8,6 +8,16 @@ const {writeTaskData,readTaskData}=require('../app/main/storage.cjs');
 const {createKnowledgePathGate}=require('../app/main/knowledge-access.cjs');
 const {SerialQueue}=require('../app/renderer/src/knowledge-core.js');
 async function fixture(t){const dir=await fs.mkdtemp(path.join(os.tmpdir(),'loop-knowledge-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));return dir;}
+test('disk reads and saves preserve mixed separators and reject external line-ending-only changes',async t=>{
+ const dir=await fixture(t),filePath=path.join(dir,'换行.md'),content='# 中文😀\r\n\r\n正文\n下一行\r末行';
+ const saved=await saveKnowledgeDocument({filePath,content});assert.equal(saved.success,true);
+ assert.equal(await fs.readFile(filePath,'utf8'),content);
+ const baseline=await readKnowledgeDocument(filePath);assert.equal(baseline.content,content);
+ assert.equal(baseline.lastSavedHash,saved.lastSavedHash);
+ const changed=content.replace(/\r\n?/g,'\n');await fs.writeFile(filePath,changed);
+ const rejected=await saveKnowledgeDocument({filePath,content:content+'本地修改',expectedLastSavedHash:baseline.lastSavedHash});
+ assert.equal(rejected.code,'EXTERNAL_CHANGE_REQUIRES_CONFIRMATION');assert.equal(await fs.readFile(filePath,'utf8'),changed);
+});
 test('two competing file writers cannot silently overwrite the newer revision',async t=>{
  const dir=await fixture(t),filePath=path.join(dir,'中文😀.md');await fs.writeFile(filePath,'原始\n\n\n');
  const baseline=await readKnowledgeDocument(filePath);

@@ -107,7 +107,9 @@ async function readKnowledgeDocument(filePath, { fsOps: injectedFsOps } = {}) {
     await recoverInterruptedReplacement(normalizedPath, fsOps);
     const rawBuffer = await fsOps.readFile(normalizedPath);
     const rawContent = Buffer.isBuffer(rawBuffer) ? rawBuffer.toString("utf8") : String(rawBuffer || "");
-    const content = normalizeMarkdownContent(rawContent);
+    // Preserve source bytes, including line separators. Hash the same text we
+    // return so a formatting-only external change is also a real CAS conflict.
+    const content = rawContent;
     const stats = await fsOps.stat(normalizedPath);
     const assetRead = await readKnowledgeAssetFiles(normalizedPath, content, { fsOps });
     let readOnly = false;
@@ -313,7 +315,7 @@ async function saveKnowledgeDocument(payload, {
     return { canceled: false, success: false, code: "DUPLICATE_BINDING", filePath };
   }
 
-  const content = normalizeMarkdownContent(safePayload.content);
+  const content = String(safePayload.content ?? "");
   const fsOps = createFsOperations(injectedFsOps);
   const queueKey = canonicalFilePath(filePath, platform);
   return enqueueSave(queueKey, async () => {
@@ -355,7 +357,7 @@ async function saveKnowledgeDocument(payload, {
         lastSavedHash,
         lastSavedMtime: stats.mtimeMs,
         encoding: "UTF-8",
-        lineEnding: "LF",
+        lineEnding: migrated.content.includes("\r\n") ? "CRLF" : "LF",
         atomic: true,
         replacement,
       };

@@ -245,7 +245,7 @@ function knowledgeRename(task) {
 }
 function knowledgeTableTools() {
   const editor=knowledgeCurrentEntry();if(!editor)return;
-  const table=LoopKnowledgeCore.tableAt(editor.getMarkdown(),editor.view.state.selection.main.head);
+  const table=LoopKnowledgeCore.tableAt(editor.getEditorText(),editor.view.state.selection.main.head);
   if(!table){shellToast('请先将光标放入表格的源码单元格。');return;}
   shellKnowledgeDialog('编辑表格',`<div class="kn-table-controls"><label>列 <select id="kn-table-column">${table.rows[0].map((_,i)=>`<option value="${i}" ${i===(editor.tableColumn||0)?'selected':''}>${i+1}</option>`).join('')}</select></label><label>单元格 <input id="kn-table-value" value="${escAttr(table.rows[table.row]?.[editor.tableColumn||0]||'')}"></label><button class="button" data-kn-table="cell">更新单元格</button><button class="button" data-kn-table="row-add">在下方插入行</button><button class="button" data-kn-table="row-delete">删除当前行</button><button class="button" data-kn-table="column-add">在右侧插入列</button><button class="button" data-kn-table="column-delete">删除当前列</button><label>对齐 <select id="kn-table-align"><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option></select></label><button class="button" data-kn-table="align">应用对齐</button></div>`,'<button class="button" data-action="close-dialog">关闭</button>');
   const column=document.querySelector('#kn-table-column'),value=document.querySelector('#kn-table-value');
@@ -263,7 +263,7 @@ shellBindKnowledge = function() {
   if(toolbar&&!toolbar.querySelector('[data-kn-action="table-tools"]'))toolbar.insertAdjacentHTML('beforeend','<div class="note-tool-group"><button class="knowledge-tool" type="button" data-kn-action="table-tools" title="表格行列与单元格">行列</button><button class="knowledge-tool" type="button" data-kn-action="find" title="查找和替换">查找</button><button class="knowledge-tool" type="button" data-kn-action="upload" title="插入图片">图片</button></div>');
 };
 document.addEventListener('click',event=>{
-  const heading=event.target.closest('[data-kn-heading]');if(heading){const task=state.tasks.find(t=>t.id===state.activeTaskId),h=LoopKnowledgeCore.headings(knowledgeText(task))[Number(heading.dataset.knHeading)];if(h)knowledgeCurrentEntry()?.locate(h.offset);return;}
+  const heading=event.target.closest('[data-kn-heading]');if(heading){const task=state.tasks.find(t=>t.id===state.activeTaskId),h=LoopKnowledgeCore.headings(knowledgeCurrentEntry()?.getEditorText()||LoopKnowledgeCore.sourceFormat(knowledgeText(task)).text)[Number(heading.dataset.knHeading)];if(h)knowledgeCurrentEntry()?.locate(h.offset);return;}
   const back=event.target.closest('[data-kn-note]');if(back){const note=state.tasks.find(t=>t.id===back.dataset.knNote);if(note)knowledgeOpen(note);return;}
   const button=event.target.closest('[data-kn-action]');if(!button)return;
   const task=state.tasks.find(t=>t.id===state.activeTaskId);if(!task)return;

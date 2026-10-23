@@ -4,6 +4,19 @@
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.LoopKnowledgeCore = api;
 })(typeof globalThis === 'object' ? globalThis : this, () => {
+  // CodeMirror uses one position for each line break. Keep the original byte
+  // spelling separately, including mixed endings, for lossless persistence.
+  function sourceFormat(raw) {
+    const breaks=new Map();let removed=0,preferred='';
+    const text=String(raw).replace(/\r\n|\r|\n/g,(ending,offset)=>{
+      breaks.set(offset-removed,ending);removed+=ending.length-1;
+      if(!preferred)preferred=ending;return '\n';
+    });
+    return {text,breaks,preferred:preferred||'\n'};
+  }
+  function serializeSource(text,format) {
+    return text.replace(/\n/g,(_ending,offset)=>format.breaks.get(offset)||format.preferred);
+  }
   function excludedRanges(text) {
     const ranges = [];
     let offset = 0, fence = null, listIndent = null;
@@ -186,5 +199,5 @@
       return next.finally(()=>{ if(this.queues.get(key)===next) this.queues.delete(key); });
     }
   }
-  return {excludedRanges,escaped,parseTarget,links,imageReferences,noteId,noteTitle,resolve,stableLink,headings,fragment,splitRow,tableAt,editTable,SerialQueue};
+  return {sourceFormat,serializeSource,excludedRanges,escaped,parseTarget,links,imageReferences,noteId,noteTitle,resolve,stableLink,headings,fragment,splitRow,tableAt,editTable,SerialQueue};
 });

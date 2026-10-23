@@ -1191,9 +1191,9 @@ test("knowledge file save flow handles Markdown paths, cancel, Save As, and dupl
     assert.equal(first.success, true);
     assert.equal(dialogCalls.length, 1);
     assert.equal(first.filePath.endsWith("知识笔记-B.md"), true);
-    assert.equal(await fs.readFile(first.filePath, "utf8"), markdownContent.replace(/\r\n/g, "\n"));
+    assert.equal(await fs.readFile(first.filePath, "utf8"), markdownContent);
     assert.equal(first.encoding, "UTF-8");
-    assert.equal(first.lineEnding, "LF");
+    assert.equal(first.lineEnding, "CRLF");
     assert.equal(first.atomic, true);
     assert.equal(first.replacement, "atomic-rename");
 

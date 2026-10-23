@@ -1,6 +1,6 @@
-import {EditorState,StateField,StateEffect,Compartment,Prec,Transaction} from '@codemirror/state';
+import {EditorState,StateField,StateEffect,Compartment,Prec,Transaction,MapMode} from '@codemirror/state';
 import {EditorView,keymap,Decoration,WidgetType,ViewPlugin,drawSelection,highlightActiveLine,rectangularSelection,crosshairCursor,lineNumbers} from '@codemirror/view';
-import {defaultKeymap,history,historyKeymap,indentWithTab,indentMore,indentLess,undo,redo} from '@codemirror/commands';
+import {defaultKeymap,history,historyKeymap,indentWithTab,indentMore,indentLess,undo,redo,invertedEffects} from '@codemirror/commands';
 import {markdown,markdownLanguage,insertNewlineContinueMarkupCommand,deleteMarkupBackward} from '@codemirror/lang-markdown';
 import {yamlFrontmatter} from '@codemirror/lang-yaml';
 import {languages} from '@codemirror/language-data';
@@ -13,6 +13,19 @@ import {createRenderer,safeURL,escape} from './knowledge-renderer.js';
 const core=window.LoopKnowledgeCore;
 const viewportEffect=StateEffect.define(),refreshEffect=StateEffect.define();
 const instances=new WeakMap();
+function mapLineEndings(format,changes) {
+  const breaks=new Map();
+  for(const [pos,ending] of format.breaks) {
+    const next=changes.mapPos(pos,1,MapMode.TrackAfter);
+    if(next!==null)breaks.set(next,ending);
+  }
+  changes.iterChanges?.((_a,_b,from,_to,inserted)=>{
+    const text=inserted.toString();
+    for(let pos=text.indexOf('\n');pos!==-1;pos=text.indexOf('\n',pos+1))breaks.set(from+pos,format.preferred);
+  });
+  return {breaks,preferred:format.preferred};
+}
+const restoreLineEndings=StateEffect.define({map:mapLineEndings});
 const loopHighlight=HighlightStyle.define([
   {tag:tags.heading,color:'var(--text)',fontWeight:'600'},
   {tag:tags.strong,fontWeight:'600'},{tag:tags.emphasis,fontStyle:'italic'},
@@ -64,6 +77,12 @@ function selected(state,from,to) {return state.selection.ranges.some(r=>r.from<=
 
 class KnowledgeEditor {
   constructor(options) {
+    const source=core.sourceFormat(options.sourceMarkdown ?? options.markdown ?? '');
+    this.lineEndings=StateField.define({create:()=>source,update:(format,tr)=>{
+      if(tr.docChanged)format=mapLineEndings(format,tr.changes);
+      for(const effect of tr.effects)if(effect.is(restoreLineEndings))format=effect.value;
+      return format;
+    }});
     this.options=options; this.root=options.root; this.mode=options.mode||'edit';this.destroyed=false;this.uploads=new Map();this.nextUpload=0;
     this.range={from:0,to:8000};this.renderCache=new Map();this.lineConfig=new Compartment();
     this.renderer=createRenderer(options); this.root.replaceChildren();this.root.classList.add('kn-editor-host');
@@ -76,7 +95,8 @@ class KnowledgeEditor {
       if(tr.docChanged||tr.selection||tr.effects.some(e=>e.is(viewportEffect)||e.is(refreshEffect))) return this.buildDecorations(tr.state);
       return decos.map(tr.changes);
     },provide:field=>EditorView.decorations.from(field)});
-    this.view=new EditorView({parent:this.editHost,state:EditorState.create({doc:options.sourceMarkdown ?? options.markdown ?? '',extensions:[
+    this.view=new EditorView({parent:this.editHost,state:EditorState.create({doc:source.text,extensions:[
+      this.lineEndings,invertedEffects.of(tr=>tr.docChanged||tr.effects.some(e=>e.is(restoreLineEndings))?[restoreLineEndings.of(tr.startState.field(this.lineEndings))]:[]),
       history(),drawSelection(),rectangularSelection(),crosshairCursor(),EditorView.lineWrapping,
       yamlFrontmatter({content:markdown({base:markdownLanguage,codeLanguages:languages,addKeymap:false,completeHTMLTags:false,extensions:[obsidianComments]})}),
       syntaxHighlighting(loopHighlight),indentUnit.of('    '),bracketMatching(),closeBrackets(),
@@ -202,7 +222,7 @@ class KnowledgeEditor {
     if(update.docChanged){
       // Pending upload anchors are mapped through every transaction, including undo.
       for(const upload of this.uploads.values())upload.pos=update.changes.mapPos(upload.pos,1);
-      this.options.onChange?.(update.state.doc.toString());
+      this.options.onChange?.(this.getMarkdown());
       if(this.mode==='preview')this.renderReading();
     }
     if(update.selectionSet)this.options.onSelectionChange?.();
@@ -248,7 +268,7 @@ class KnowledgeEditor {
   }
   renderReading() {
     const scroll=this.readHost.scrollTop;
-    this.readHost.innerHTML=this.renderer.render(this.getMarkdown(),{noteId:this.options.noteId,stack:[this.options.noteId]});
+    this.readHost.innerHTML=this.renderer.render(this.getEditorText(),{noteId:this.options.noteId,stack:[this.options.noteId]});
     this.readHost.scrollTop=scroll;this.renderer.enhance(this.readHost);
   }
   handleRenderedClick(event,base) {
@@ -278,14 +298,14 @@ class KnowledgeEditor {
     }
   }
   locateAnchor(anchor) {
-    const doc=this.getMarkdown();const target=anchor.startsWith('^')?doc.indexOf(anchor):core.headings(doc).find(h=>h.text===anchor)?.offset;
+    const doc=this.getEditorText();const target=anchor.startsWith('^')?doc.indexOf(anchor):core.headings(doc).find(h=>h.text===anchor)?.offset;
     if(typeof target==='number'&&target>=0)this.locate(target);
   }
   locate(pos) {
     pos=Math.max(0,Math.min(this.view.state.doc.length,pos));
     this.view.dispatch({selection:{anchor:pos},effects:EditorView.scrollIntoView(pos,{y:'start'}),scrollIntoView:true});
     if(this.mode==='preview'){
-      const hs=core.headings(this.getMarkdown()),index=hs.findIndex(h=>h.offset===pos);
+      const hs=core.headings(this.getEditorText()),index=hs.findIndex(h=>h.offset===pos);
       this.readHost.querySelectorAll('h1,h2,h3,h4,h5,h6')[index]?.scrollIntoView({block:'start'});
     }else this.view.focus();
   }
@@ -317,12 +337,13 @@ class KnowledgeEditor {
     view.dispatch({changes:{from,to,insert},selection:{anchor:from+insert.length},userEvent:'input.format'});view.focus();return true;
   }
   insertText(text) {this.view.dispatch(this.view.state.replaceSelection(text));this.view.focus();return true;}
-  getMarkdown(){return this.view.state.doc.toString();}
+  getEditorText(){return this.view.state.doc.toString();}
+  getMarkdown(){return core.serializeSource(this.getEditorText(),this.view.state.field(this.lineEndings));}
   getSelection(){const r=this.view.state.selection.main;return {start:r.anchor,end:r.head};}
   restoreSelection(r){this.view.dispatch({selection:{anchor:r.start,head:r.end}});this.view.focus();}
   getFormatState(){const node=syntaxTree(this.view.state).resolveInner(this.view.state.selection.main.head,-1);const names=[];for(let n=node;n;n=n.parent)names.push(n.name);return {bold:names.includes('StrongEmphasis'),italic:names.includes('Emphasis'),strike:names.includes('Strikethrough'),inline:names.includes('InlineCode'),heading:names.find(n=>/^ATXHeading\d/.test(n))?.slice(-1)||'0',undo:true,redo:true};}
   openSearch(){if(this.mode==='preview')this.options.onEditForSearch?.();openSearchPanel(this.view);this.view.focus();}
-  table(operation,index,value){for(let n=syntaxTree(this.view.state).resolveInner(this.view.state.selection.main.head,-1);n;n=n.parent)if(n.name==='FencedCode'||n.name==='IndentedCode')return false;const change=core.editTable(this.getMarkdown(),this.view.state.selection.main.head,operation,index,value);if(!change)return false;this.view.dispatch({changes:change,userEvent:'input.table'});this.view.focus();return true;}
+  table(operation,index,value){for(let n=syntaxTree(this.view.state).resolveInner(this.view.state.selection.main.head,-1);n;n=n.parent)if(n.name==='FencedCode'||n.name==='IndentedCode')return false;const change=core.editTable(this.getEditorText(),this.view.state.selection.main.head,operation,index,value);if(!change)return false;this.view.dispatch({changes:change,userEvent:'input.table'});this.view.focus();return true;}
   async upload(file,pos=this.view.state.selection.main.head) {
     const upload={id:++this.nextUpload,file,pos,status:'正在上传',retry:null};this.uploads.set(upload.id,upload);this.uploadStatus();
     const perform=async()=>{
@@ -353,7 +374,7 @@ class KnowledgeEditor {
   // Saving migrates only exact managed image destinations, as transactions.
   // Selection, history and pending upload anchors are mapped by CodeMirror.
   acceptSavedAssetReferences(assets){
-    const doc=this.getMarkdown(),changes=[];
+    const doc=this.getEditorText(),changes=[];
     for(const asset of assets||[]){if(!asset.source||!asset.relativePath)continue;for(const ref of core.imageReferences(doc)){if(ref.url===asset.source)changes.push({from:ref.from,to:ref.to,insert:asset.relativePath});}}
     if(changes.length)this.view.dispatch({changes:changes.sort((a,b)=>a.from-b.from),annotations:Transaction.addToHistory.of(false),userEvent:'input.assets'});
   }

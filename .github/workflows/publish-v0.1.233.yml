@@ -1,5 +1,5 @@
 name: Publish v0.1.233
-# Accept wiki completion immediately; rerun the full platform release checks.
+# Preserve original line separators and validate them on both desktop platforms.
 
 on:
   workflow_dispatch:

@@ -23,13 +23,16 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   try{res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.woff2')?'font/woff2':file.endsWith('.woff')?'font/woff':file.endsWith('.ttf')?'font/ttf':'text/html');res.end(await fs.readFile(file));}catch{res.writeHead(404).end();}
  });
  try{
-  const original=await fs.readFile(path.join(repository,'tests/fixtures/knowledge.md'),'utf8');
+  const original=(await fs.readFile(path.join(repository,'tests/fixtures/knowledge.md'),'utf8')).replace(/\r\n?/g,'\n');
   const aPath=path.join(profile,'原始笔记.md');await fs.writeFile(aPath,original);const aDisk=await readKnowledgeDocument(aPath);
+  const windowsSource='# Windows\r\n\r\n- [ ] 中文😀\r\n\r\n## 定位\r\n尾行\r\n',dPath=path.join(profile,'Windows 换行.md');
+  await fs.writeFile(dPath,windowsSource);const dDisk=await readKnowledgeDocument(dPath);
   const stamp=new Date().toISOString();
   await writeTaskData(profile,{version:2,knowledgeSchemaVersion:1,tasks:[
    {id:'a',title:'任务 A',notes:original,nodes:[],createdAt:stamp,updatedAt:stamp,knowledgeNote:{noteId:'note-a',title:'原始笔记',filePath:aPath,documentState:'SAVED',dirty:false,...aDisk}},
    {id:'b',title:'目标笔记',notes:'# 目标笔记\n\n## 目标标题\n\n可嵌入的段落\n第二行 ^sample-block\n',nodes:[],createdAt:stamp,updatedAt:stamp,knowledgeNote:{noteId:'note-b',title:'目标笔记',documentState:'DRAFT'}},
-   {id:'c',title:'第三篇',notes:'# 第三篇\n\n独立内容',nodes:[],createdAt:stamp,updatedAt:stamp,knowledgeNote:{noteId:'note-c',title:'第三篇',documentState:'DRAFT'}}
+   {id:'c',title:'第三篇',notes:'# 第三篇\n\n独立内容',nodes:[],createdAt:stamp,updatedAt:stamp,knowledgeNote:{noteId:'note-c',title:'第三篇',documentState:'DRAFT'}},
+   {id:'d',title:'Windows 换行',notes:windowsSource,nodes:[],createdAt:stamp,updatedAt:stamp,knowledgeNote:{noteId:'note-d',title:'Windows 换行',filePath:dPath,documentState:'SAVED',dirty:false,...dDisk}}
   ],attachments:{images:{'fixture-image':PNG}},taskGroups:[{id:'work',title:'开发',order:1}]});
   const gate=createKnowledgePathGate({userDataPath:profile,dataFilePath:path.join(profile,'task-data.json')});
   await new Promise(r=>server.listen(0,'127.0.0.1',r));
@@ -66,6 +69,34 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   const mode=async name=>{await page.locator(`[data-action="knowledge-mode"][data-mode="${name}"]`).click();await page.waitForFunction(name=>knowledgeCurrentEntry()?.mode===name,name);};
   const append=async text=>page.evaluate(text=>{const e=knowledgeCurrentEntry();e.view.dispatch({changes:{from:e.view.state.doc.length,insert:text},selection:{anchor:e.view.state.doc.length+text.length},userEvent:'input'});},text);
   const diskContains=async text=>{for(let i=0;i<100;i++){if((await fs.readFile(aPath,'utf8')).includes(text))return;await pause(50);}assert.fail('disk never received '+text);};
+  console.log('UI check 0: CRLF, CR and mixed line endings survive modes, edits, asset migration and undo.');
+  await choose('d');
+  for(const name of ['edit','preview','source']){await mode(name);assert.equal(await markdown(),windowsSource);}
+  assert.equal((await page.evaluate(()=>saveKnowledgeTask('d'))).success,true);
+  assert.equal(await fs.readFile(dPath,'utf8'),windowsSource);
+  await mode('preview');await page.locator('.kn-reading input[data-task-pos]').first().click();
+  await mode('source');await append('\n新增中文😀\n');
+  assert.equal((await page.evaluate(()=>saveKnowledgeTask('d'))).success,true);
+  assert.equal(await fs.readFile(dPath,'utf8'),windowsSource.replace('- [ ]','- [x]')+'\r\n新增中文😀\r\n');
+  await page.evaluate(async()=>{
+    const assert=(ok,message)=>{if(!ok)throw new Error(message);};
+    for(const separator of ['\r\n','\r','mixed']) {
+      const source=separator==='mixed'?'# 格式\r\n\r\n中文😀\n尾行\r![图](task-image:test)\r\n':['# 格式','','中文😀','尾行','![图](task-image:test)',''].join(separator);
+      const root=document.createElement('div');document.body.append(root);let changed='';
+      const e=await LoopKnowledgeEditor.create({root,sourceMarkdown:source,mode:'source',noteId:'eol-test',onChange:text=>changed=text});
+      for(const mode of ['edit','preview','source']){e.setMode(mode);assert(e.getMarkdown()===source,'mode changed '+separator);}
+      const at=e.getEditorText().indexOf('中文');
+      e.view.dispatch({changes:{from:at,insert:'编辑\n'},userEvent:'input'});
+      const edited=source.replace('中文','编辑'+(separator==='mixed'?'\r\n':separator)+'中文');
+      assert(e.getMarkdown()===edited&&changed===edited,'editing changed separators '+separator);
+      e.format('undo');assert(e.getMarkdown()===source,'undo changed separators '+separator);
+      e.format('redo');assert(e.getMarkdown()===edited,'redo changed separators '+separator);
+      e.acceptSavedAssetReferences([{source:'task-image:test',relativePath:'./attachments/a.png'}]);
+      assert(e.getMarkdown()===edited.replace('task-image:test','./attachments/a.png'),'asset migration changed separators '+separator);
+      e.format('undo');assert(e.getMarkdown()===source.replace('task-image:test','./attachments/a.png'),'mapped undo changed separators '+separator);
+      await e.destroy();root.remove();
+    }
+  });
   await choose('a');assert.equal(await markdown(),original);
   console.log('UI check 1: Same view and undo history in all three modes; no serialization at switches.');
   // Same view and undo history in all three modes; no serialization at switches.
