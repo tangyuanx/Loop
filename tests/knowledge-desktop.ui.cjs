@@ -48,7 +48,13 @@ async function download(name, format, {open=true}={}) {
   await page.locator('#knowledge-export-download').waitFor({state:'detached'});return file;
 }
 async function exportedWindow(file, fn) {
-  await app.evaluate(async({BrowserWindow},file)=>{global.__exportInspect=new BrowserWindow({show:false,width:1000,height:1000,webPreferences:{sandbox:true}});await global.__exportInspect.loadFile(file);},file);
+  await app.evaluate(async({BrowserWindow},file)=>{
+    // Windows does not reliably produce compositor frames for a hidden native
+    // window. Show the isolated offline artifact there so screenshots verify
+    // the actual output instead of waiting forever on an occluded surface.
+    global.__exportInspect=new BrowserWindow({show:process.platform==='win32',width:1000,height:1000,webPreferences:{sandbox:true,backgroundThrottling:false}});
+    await global.__exportInspect.loadFile(file);
+  },file);
   await until(()=>app.windows().some(p=>p.url().endsWith(path.basename(file))));
   const tab=app.windows().find(p=>p.url().endsWith(path.basename(file)));
   try{return await fn(tab)}finally{await app.evaluate(()=>global.__exportInspect.destroy())}
