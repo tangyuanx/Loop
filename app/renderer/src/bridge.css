@@ -411,6 +411,22 @@ body .flow-scroll:has(.flow-start)>.add-node { margin-inline:auto; justify-conte
   white-space: nowrap;
 }
 
+/* One version comparison and one divider on the live Software Update page. */
+.phase9 .prefs-update-detail { margin-top:28px; padding:0; border:0; }
+.prefs-update-heading { display:flex; align-items:center; justify-content:space-between; gap:24px; }
+.prefs-update-heading>div:first-child { min-width:0; }
+.prefs-update-heading h3 { margin:0; font-size:calc(15px * var(--font-scale,1)); line-height:1.6; }
+.prefs-update-version { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-top:7px; color:var(--secondary); font-size:calc(13px * var(--font-scale,1)); font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.prefs-update-version strong { color:var(--text); font-weight:400; }
+.prefs-version-arrow { color:var(--secondary); }
+.prefs-update-actions { flex-shrink:0; }
+.prefs-update-detail>p { margin:12px 0 0; max-width:65ch; }
+.prefs-update-options { margin-top:28px; }
+.phase9 .prefs-update-options>.setting-row { border-top:1px solid var(--line); border-bottom:0; }
+.prefs-update-progress { height:4px; margin-top:18px; background:var(--line); border-radius:2px; overflow:hidden; }
+.prefs-update-progress>span { display:block; height:100%; background:var(--green); }
+@media(max-width:720px) { .prefs-update-heading { align-items:flex-start; flex-direction:column; gap:14px; } }
+
 /* The top-left update chip lives in a slot so it can be re-rendered in place
    (its label carries live download progress). display:contents keeps the slot
    out of the .brand flex layout, so an empty slot adds no gap. */

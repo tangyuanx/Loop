@@ -144,7 +144,7 @@ function shellSettingsUpdateCardBody() {
     ? `刚刚检查 · ${checkedAt.getHours()}:${String(checkedAt.getMinutes()).padStart(2, "0")}`
     : "";
   const titles = {
-    available: `新版本 v${update.version || ""} 可用`,
+    available: "有可用更新",
     downloading: `正在下载更新 · ${Math.round(update.percent || 0)}%`,
     downloaded: "更新已准备好",
     preparing: "正在保存并准备升级…",
@@ -156,20 +156,21 @@ function shellSettingsUpdateCardBody() {
     idle: "尚未检查更新",
   };
   const bodies = {
-    available: "确认后在后台下载，完成后自动安装并重新启动。",
+    available: "后台下载完成后，自动安装并重新启动。",
     downloading: "下载期间可继续处理任务；完成后应用会自动重启。",
     downloaded: update.errorCode ? "升级前保存未完成，应用没有退出。请检查磁盘空间或目录权限后重试。" : "请保存正在编辑的内容，然后重启完成安装。",
     preparing: "正在安全写入任务与知识笔记草稿。",
     installing: "应用即将自动重启，请稍候。",
     error: updateErrorPresentation(update.errorCode).detail,
-    latest: `当前为 v${esc(update.currentVersion || APP_VERSION || "")}${checkedLabel ? " · " + checkedLabel : ""}`,
+    latest: checkedLabel,
     checking: "正在连接 GitHub Release。",
     idle: "应用启动后会定期检查，也可以手动检查。",
     unsupported: update.unsupportedReason === "development" ? "开发检阅不会连接更新服务。" : "请从发布页获取安装包。",
   };
   const busy = ["checking", "downloading", "preparing", "installing"].includes(status);
-  const progress = ["downloading", "preparing", "installing"].includes(status)
-    ? `<div class="prefs-progress" role="progressbar" aria-label="更新进度" aria-valuenow="${Math.round(update.percent || 0)}" aria-valuemin="0" aria-valuemax="100"><span style="width:${Math.max(4, Math.round(update.percent || 0))}%"></span></div>`
+  const percent = Math.max(0, Math.min(100, Math.round(Number(update.percent) || 0)));
+  const progress = status === "downloading"
+    ? `<div class="prefs-update-progress" role="progressbar" aria-label="更新下载进度" aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100"><span style="width:${percent}%"></span></div>`
     : "";
   // One entry point. What it does follows the state, so it is never a no-op:
   // checking while busy is disabled, otherwise it offers the only useful action.
@@ -177,10 +178,14 @@ function shellSettingsUpdateCardBody() {
     : status === "downloaded" ? '<button class="button primary" type="button" data-update-action="install">重启并安装</button>'
       : status === "error" ? `<button class="button primary" type="button" data-update-action="${update.retryAction}">${update.retryAction === "check" ? "重新检查" : update.retryAction === "install" ? "重试安装" : "重试下载"}</button>`
         : `<button class="button" type="button" data-update-action="check" ${busy || !update.supported ? "disabled" : ""}>${status === "checking" ? "检查中…" : "检查更新"}</button>`;
-  return `<h3>${esc(titles[status] || "软件更新")}</h3>
-      <p>${esc(bodies[status] || "")}</p>
-      ${progress}
-      ${actions ? `<footer>${actions}</footer>` : ""}`;
+  const currentVersion = String(update.currentVersion || APP_VERSION || "");
+  const hasTarget = ["available", "downloading", "downloaded", "preparing", "installing"].includes(status)
+    || (status === "error" && update.retryAction !== "check");
+  const targetVersion = hasTarget && update.version && update.version !== currentVersion ? String(update.version) : "";
+  const versions = `<div class="prefs-update-version"><span aria-label="${escAttr(`当前版本 v${currentVersion}`)}">v${esc(currentVersion)}</span>${targetVersion ? `<span class="prefs-version-arrow" aria-hidden="true">→</span><strong aria-label="${escAttr(`更新版本 v${targetVersion}`)}">v${esc(targetVersion)}</strong>` : ""}</div>`;
+  return `<div class="prefs-update-heading"><div><h3>${esc(titles[status] || "软件更新")}</h3>${versions}</div><div class="prefs-update-actions">${actions}</div></div>
+      ${bodies[status] ? `<p>${esc(bodies[status])}</p>` : ""}
+      ${progress}`;
 }
 
 /** Cheap in-place sync used by app.js whenever appUpdateState changes. */
@@ -201,9 +206,8 @@ function shellSettingsSyncUpdateCard() {
 function shellSettingsUpdates() {
   const update = appUpdateState;
   return `<h2>软件更新</h2><p>检查新版本，管理更新方式。</p>
-    ${shellSettingsToggle("自动检查更新", update.preferenceError ? "设置未保存，请检查目录权限后重试。" : update.automaticChecks ? "应用启动后定期检查。" : "仅在手动操作时检查。", update.automaticChecks === true, `data-update-automatic ${update.supported && !updatePreferenceInFlight ? "" : "disabled"}`)}
-    ${shellSettingsInfo("当前版本", "Loop 的当前安装版本。", `Loop v${esc(update.currentVersion || APP_VERSION || "")}`)}
     <section class="prefs-update-detail" data-shell-update-detail aria-live="polite">${shellSettingsUpdateCardBody()}</section>
+    <div class="prefs-update-options">${shellSettingsToggle("自动检查更新", update.preferenceError ? "设置未保存，请检查目录权限后重试。" : update.automaticChecks ? "应用启动后定期检查。" : "仅在手动操作时检查。", update.automaticChecks === true, `data-update-automatic ${update.supported && !updatePreferenceInFlight ? "" : "disabled"}`)}</div>
     ${update.supported ? "" : '<p class="prefs-native-caption">开发模式或未签名的构建不连接更新服务。</p>'}`;
 }
 
