@@ -1,3 +1,4 @@
+const wb=require('./workbench-helpers.cjs');
 /* Real Electron release-report regressions; all data and native picker answers
    are isolated. Never reads the user's Loop profile. */
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
@@ -10,7 +11,7 @@ async function open(id='edit'){await page.evaluate(id=>knowledgeOpen(state.tasks
 async function reset(text,from=0,to=from,mode='edit'){await page.evaluate(({text,from,to,mode})=>{shellCloseOverlay({restoreFocus:false});const e=knowledgeCurrentEntry();e.setMode(mode);e.view.dispatch({changes:{from:0,to:e.view.state.doc.length,insert:text},selection:{anchor:from,head:to}});e.view.focus();},{text,from,to,mode});}
 const text=()=>page.evaluate(()=>knowledgeCurrentEntry().getEditorText());
 const focused=()=>page.evaluate(()=>knowledgeCurrentEntry().view.hasFocus);
-async function insert(kind){await page.locator('[data-kn-action="insert-menu"]').click();await page.locator(`.kn-insert-menu [data-kn-format="${kind}"]`).click();}
+async function insert(kind){await wb.format(page,kind);}
 async function prompt(id){await open(id);await page.locator('[data-action="knowledge-file-menu"]').click();await page.locator('[data-action="close-knowledge-editor"]').click();await page.locator('.knowledge-draft-dialog').waitFor();}
 (async()=>{
  run=await fs.mkdtemp(path.join(os.tmpdir(),'loop-report-fixes-'));files=path.join(run,'files');out=path.join(run,'evidence');await fs.mkdir(files);await fs.mkdir(out);
@@ -47,18 +48,18 @@ async function prompt(id){await open(id);await page.locator('[data-action="knowl
   await test('D2-format-type-undo',async()=>{
     await open();
     for(const format of ['bold','italic','inline','bullet','task']){
-      await reset('正文',0,2);await page.locator(`[data-action="note-format"][data-format="${format}"]`).click();assert.equal(await focused(),true,format+' retains focus');
+      await reset('正文',0,2);await wb.format(page,format);assert.equal(await focused(),true,format+' retains focus');
       const formatted=await text();assert.notEqual(formatted,'正文');await page.keyboard.type('继续');assert.match(await text(),/继续/);await page.keyboard.press('ControlOrMeta+z');assert.equal(await text(),formatted);await page.keyboard.press('ControlOrMeta+z');assert.equal(await text(),'正文');
     }
-    await reset('正文',0,2);await page.locator('.note-heading-select').click();await page.locator('.control22-option').filter({hasText:'标题 2'}).click();assert.equal(await focused(),true,'custom heading dropdown returns editor focus');await page.keyboard.type('继续');assert.match(await text(),/继续/);await page.keyboard.press('ControlOrMeta+z');assert.equal(await text(),'## 正文');
+    await reset('正文',0,2);await wb.format(page,'heading',2);assert.equal(await focused(),true,'custom heading dropdown returns editor focus');await page.keyboard.type('继续');assert.match(await text(),/继续/);await page.keyboard.press('ControlOrMeta+z');assert.equal(await text(),'## 正文');
   });
   await test('D3-code-caret',async()=>{await reset('前文',2);await insert('code');await page.keyboard.type('const x = 1;');assert.match(await text(),/```text\nconst x = 1;\n```/);});
   await test('D4-table-caret-and-tab',async()=>{await reset('前文',2);await insert('table');await page.locator('.kn-table-cell-editor').waitFor();await page.keyboard.type('甲');await page.keyboard.press('Tab');await page.keyboard.type('乙');assert.deepEqual(await page.evaluate(()=>LoopKnowledgeCore.tableAt(knowledgeCurrentEntry().getEditorText(),knowledgeCurrentEntry().view.state.selection.main.head).rows[2]),['甲','乙']);});
   await test('D5-block-prefix-and-multiline',async()=>{
-    for(const line of ['# 一级标题','> 引用','- 列表','- [ ] 任务']){await reset(line,0,line.length);await page.locator('[data-format="bold"]').click();const expected=line.replace(/([^ ]+)$/, '**$1**');assert.equal(await text(),expected);await page.locator('[data-format="bold"]').click();assert.equal(await text(),line);}
-    const lines='# 标题\n\n> 引用\n- 列表';await reset(lines,0,lines.length);await page.locator('[data-format="italic"]').click();assert.equal(await text(),'# *标题*\n\n> *引用*\n- *列表*');
+    for(const line of ['# 一级标题','> 引用','- 列表','- [ ] 任务']){await reset(line,0,line.length);await wb.format(page,'bold');const expected=line.replace(/([^ ]+)$/, '**$1**');assert.equal(await text(),expected);await wb.format(page,'bold');assert.equal(await text(),line);}
+    const lines='# 标题\n\n> 引用\n- 列表';await reset(lines,0,lines.length);await wb.format(page,'italic');assert.equal(await text(),'# *标题*\n\n> *引用*\n- *列表*');
   });
-  await test('D8-no-phantom-list-item',async()=>{for(const format of ['bullet','task']){const input='甲\n乙\n丙\n\n';await reset(input,0,input.length);await page.locator(`[data-format="${format}"]`).click();assert.equal((await text()).split('\n').filter(l=>l.startsWith('- ')).length,3);assert.ok((await text()).endsWith('\n\n'));}});
+  await test('D8-no-phantom-list-item',async()=>{for(const format of ['bullet','task']){const input='甲\n乙\n丙\n\n';await reset(input,0,input.length);await wb.format(page,format);assert.equal((await text()).split('\n').filter(l=>l.startsWith('- ')).length,3);assert.ok((await text()).endsWith('\n\n'));}});
   await test('D12-grid-paste-and-undo',async()=>{
     await reset('段前\n\n| 一 | 二 |\n| --- | --- |\n| 旧 | 保留 |\n\n段后');await page.locator('.kn-table-widget tbody td').first().click();
     await page.locator('.kn-table-cell-editor').evaluate(el=>{const data=new DataTransfer();data.setData('text/plain','甲1\t乙1\n甲2\t乙|2\n');el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));});
@@ -76,7 +77,7 @@ async function prompt(id){await open(id);await page.locator('[data-action="knowl
       await app.evaluate(({BrowserWindow},s)=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(...s),size);
       await page.evaluate(theme=>{state.theme=theme;state.markdownMode='preview';render();},theme);await page.locator('.kn-reading mark').waitFor();const css=await page.locator('.kn-reading mark').evaluate(e=>({bg:getComputedStyle(e).backgroundColor,color:getComputedStyle(e).color}));assert.notEqual(css.bg,'rgba(0, 0, 0, 0)');assert.equal(await page.locator('.kn-reading .kn-wiki').evaluate(e=>getComputedStyle(e).textDecorationLine),'underline');await page.screenshot({path:path.join(out,`reading-${theme}-${size[0]}.png`)});
     }
-    await page.evaluate(()=>{state.markdownMode='edit';render()});await page.locator('.note-heading-select').focus();await page.keyboard.press('Tab');await page.keyboard.press('Shift+Tab');assert.equal(await page.locator('.note-heading-select').evaluate(e=>getComputedStyle(e).outlineStyle),'solid');
+    await page.evaluate(()=>{state.markdownMode='edit';render()});await page.locator('[data-wb-action="mode"]').focus();await page.keyboard.press('Tab');await page.keyboard.press('Shift+Tab');assert.equal(await page.locator('[data-wb-action="mode"]').evaluate(e=>getComputedStyle(e).outlineStyle),'solid');
   });
   await test('D13-portable-markdown-export',async()=>{
     await open('image');const md='文字\n\n![样本](task-image:report-image)\n',data='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=';

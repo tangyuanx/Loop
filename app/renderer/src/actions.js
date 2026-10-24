@@ -1977,6 +1977,9 @@ function shellBindOverlayDismissal() {
     const overlay = shellOverlay();
     const surface = overlay.querySelector(".dialog") || overlay.firstElementChild;
     if (surface?.contains(event.target)) return;
+    // Contextual branches share this overlay but are positioned as siblings
+    // to avoid clipping. Clicking a branch is still an inside interaction.
+    if (event.target.closest?.("#overlay .wb-submenu")) return;
     if (event.target.closest(SHELL_OVERLAY_TRIGGERS)) return;
     consumeOutsideClick = event.button === 0;
     shellCloseOverlay({ restoreFocus: false });

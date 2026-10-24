@@ -1,3 +1,4 @@
+const wb=require('./workbench-helpers.cjs');
 /* Real Loop renderer in Chromium, with the production disk services behind an
    isolated IPC test bridge. This never reads the user's actual Loop profile. */
 const assert=require('node:assert/strict');
@@ -66,7 +67,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   await page.goto(url);await page.waitForFunction(()=>typeof state!=='undefined'&&state.tasks.some(t=>t.id==='a'));
   async function choose(id){await page.evaluate(id=>knowledgeOpen(state.tasks.find(t=>t.id===id)),id);await page.waitForFunction(id=>knowledgeCurrentEntry(id)?.view && document.querySelector('.knowledge-pane')?.dataset.taskId===id,id,{timeout:5000}).catch(async error=>{console.log('CHOOSE DEBUG',await page.evaluate(()=>({active:state.activeTaskId,pane:state.taskPane,body:document.querySelector('.workspace')?.innerText.slice(0,1000),keys:[...milkdownEditors.keys()],errors:typeof dataProtectionMessage!=='undefined'?dataProtectionMessage:''})));throw error;});}
   const markdown=()=>page.evaluate(()=>knowledgeCurrentEntry().getMarkdown());
-  const mode=async name=>{await page.locator(`[data-action="knowledge-mode"][data-mode="${name}"]`).click();await page.waitForFunction(name=>knowledgeCurrentEntry()?.mode===name,name);};
+  const mode=async name=>{await wb.mode(page,name);await page.waitForFunction(name=>knowledgeCurrentEntry()?.mode===name,name);};
   const append=async text=>page.evaluate(text=>{const e=knowledgeCurrentEntry();e.view.dispatch({changes:{from:e.view.state.doc.length,insert:text},selection:{anchor:e.view.state.doc.length+text.length},userEvent:'input'});},text);
   const diskContains=async text=>{for(let i=0;i<100;i++){if((await fs.readFile(aPath,'utf8')).includes(text))return;await pause(50);}assert.fail('disk never received '+text);};
   console.log('UI check 0: CRLF, CR and mixed line endings survive modes, edits, asset migration and undo.');
@@ -107,36 +108,36 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   assert.equal(await page.locator('.cm-foldGutter button[aria-expanded=false]:visible').first().evaluate(el=>getComputedStyle(el.parentElement).opacity),'1');
   await page.locator('.cm-foldGutter button[aria-expanded=false]:visible').first().focus();await page.keyboard.press('Enter');
   assert.equal(await page.locator('.cm-foldPlaceholder').count(),0);
-  assert.equal(await page.locator('.knowledge-insert-toolbar button').count(),9);
+  assert.equal(await page.locator('.knowledge-insert-toolbar button').count(),0);
   await page.evaluate(()=>{const e=knowledgeCurrentEntry(),at=e.getEditorText().indexOf('可嵌入');e.view.dispatch({selection:{anchor:at,head:at+3}});});
-  await page.locator('[data-kn-action="insert-menu"]').click();
-  assert.equal(await page.locator('.kn-insert-menu [data-kn-action="upload"]').count(),1);
-  await page.keyboard.press('End');await page.keyboard.press('ArrowUp');await page.keyboard.press('Enter');
-  await page.waitForSelector('.kn-insert-menu',{state:'detached'});
+  await wb.context(page);await page.locator('[data-wb-sub="insert"]').click();
+  assert.equal(await page.locator('.wb-submenu [data-kn-action="upload"]').count(),1);
+  await page.locator('[data-wb-sub="text"]').click();
+  await page.keyboard.press('ArrowDown');await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');
+  await page.waitForSelector('.wb-context-menu',{state:'detached'});
   assert.match(await markdown(),/~~可嵌入~~/);
-  assert.equal(await page.locator('[data-kn-action="insert-menu"]').getAttribute('aria-expanded'),'false');
+  assert.equal(await page.locator('.wb-submenu').count(),0);
   await page.keyboard.press(process.platform==='darwin'?'Meta+z':'Control+z');assert.equal(await markdown(),workspaceOriginal);
-  await page.locator('[data-kn-action="insert-menu"]').click();await page.keyboard.press('Escape');
-  assert.equal(await page.locator('[data-kn-action="insert-menu"]').evaluate(el=>el===document.activeElement),true);
+  await wb.context(page);await page.keyboard.press('Escape');
+  assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().view.hasFocus),true);
   await page.locator('[data-kn-action="find"]').click();
   await page.locator('.kn-find input[name="search"]').fill('查找');
   assert.equal(await page.locator('.kn-find input[name="search"]').getAttribute('aria-label'),'查找当前笔记');
   await page.locator('.kn-find [name="close"]').click();
   const pageWidths=[];
   for(const width of ['default','wide','full']){
-    await page.locator('[data-action="knowledge-width-menu"]').click();
-    await page.locator(`[data-action="set-note-width"][data-width="${width}"]`).click();
+    await wb.width(page,width);
     pageWidths.push(await page.locator('.knowledge-page').evaluate(el=>el.getBoundingClientRect().width));
     assert.equal(await markdown(),workspaceOriginal);
   }
   assert.ok(pageWidths[0]<pageWidths[1]&&pageWidths[1]<pageWidths[2],pageWidths.join(','));
-  await page.locator('[data-action="knowledge-width-menu"]').click();await page.locator('[data-width="default"]').click();
-  await page.locator('[data-kn-action="panels"]').click();
-  assert.equal(await page.locator('.knowledge-header [data-kn-action="panels"]').getAttribute('aria-expanded'),'true');
+  await wb.width(page,'default');
+  await wb.panels(page);
+  assert.equal(await page.locator('.kn-side-panel').count(),1);
   await page.locator('[data-kn-heading="1"]').click();
   assert.equal(await page.locator('[data-kn-heading="1"]').getAttribute('aria-current'),'location');
   await page.getByRole('button',{name:'关闭关联面板',exact:true}).click();
-  assert.equal(await page.locator('.knowledge-header [data-kn-action="panels"]').getAttribute('aria-expanded'),'false');
+  assert.equal(await page.locator('.kn-side-panel').count(),0);
   await choose('a');assert.equal(await markdown(),original);
   console.log('UI check 1: Same view and undo history in all three modes; no serialization at switches.');
   // Same view and undo history in all three modes; no serialization at switches.
@@ -300,10 +301,10 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   await page.evaluate(()=>saveKnowledgeTask('a',{allowExternalOverwrite:true}));await diskContains('本地冲突稿');
   console.log('UI check 11: Alias + stable ID links survive note-only rename and preserve ownership.');
   // Alias + stable ID links survive note-only rename and preserve ownership.
-  await choose('b');await page.locator('[data-kn-action="rename"]').click();await page.locator('#kn-rename-title').fill('重命名目标');await page.locator('#kn-rename-commit').click();await page.waitForSelector('#kn-rename-title',{state:'detached'});
+  await choose('b');await wb.more(page);await page.locator('.wb-more-menu [data-kn-action="rename"]').click();await page.locator('#kn-rename-title').fill('重命名目标');await page.locator('#kn-rename-commit').click();await page.waitForSelector('#kn-rename-title',{state:'detached'});
   assert.equal(await page.evaluate(()=>state.tasks.find(t=>t.id==='b').title),'目标笔记');
   assert.equal(await page.evaluate(()=>LoopKnowledgeCore.resolve('目标笔记',knowledgeNotes()).note.id),'b');
-  await page.locator('[data-kn-action="panels"]').click();assert.match(await page.locator('.kn-side-panel').innerText(),/原始笔记/);
+  await wb.panels(page);assert.match(await page.locator('.kn-side-panel').innerText(),/原始笔记/);
   console.log('UI check 12: Search and switch on Chinese text, create a real task-backed note.');
   // Search and switch on Chinese text, create a real task-backed note.
   await page.keyboard.press('Control+o');await page.locator('#kn-switcher-query').fill('知识笔记新建');await page.locator('#kn-create-note').click();
@@ -334,7 +335,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
    assert.equal(await page.locator('.knowledge-header').evaluate(el=>el.scrollWidth>el.clientWidth+1),false);
    if(screenshots)await page.screenshot({path:path.join(screenshots,`knowledge-${theme}-${width}.png`)});
-   await page.locator('[data-kn-action="panels"]').click();
+   await wb.panels(page);
    assert.equal(await page.locator('.knowledge-body').evaluate(el=>el.scrollWidth>el.clientWidth+1),false);
    if(screenshots)await page.screenshot({path:path.join(screenshots,`knowledge-outline-${theme}-${width}.png`)});
    await page.getByRole('button',{name:'关闭关联面板',exact:true}).click();

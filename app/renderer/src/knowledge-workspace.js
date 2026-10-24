@@ -96,13 +96,11 @@ function knowledgeUpdateChrome(task) {
   const receipt = knowledgeReceipt(task), target = pane.querySelector('[data-kn-receipt]');
   if (target) {target.textContent = receipt.text;target.dataset.state=receipt.state;target.title=knowledgeSaveStatus(task)?.error||receipt.text;}
   const saveButton = pane.querySelector('[data-note-save]');
-  if (saveButton) {saveButton.disabled=knowledgeFileWriteBusy.has(task.id); saveButton.title=receipt.shortcut;saveButton.innerHTML=shellIcon('check')+(knowledgeFileWriteBusy.has(task.id)?'保存中…':'保存');}
+  if (saveButton) {saveButton.hidden=receipt.state==='saved';saveButton.disabled=knowledgeFileWriteBusy.has(task.id); saveButton.title=receipt.shortcut;saveButton.innerHTML=shellIcon('check')+(knowledgeFileWriteBusy.has(task.id)?'保存中…':'保存');}
   const shortcut=document.querySelector('.workspace-foot .foot-shortcut');
   if(shortcut)shortcut.textContent=receipt.shortcut;
   const menuSave=document.querySelector(`[data-knowledge-save-label][data-task-id="${CSS.escape(task.id)}"]`);
   if(menuSave){menuSave.textContent=receipt.menuLabel;menuSave.disabled=knowledgeFileWriteBusy.has(task.id);}
-  const meta=pane.querySelector('.knowledge-file-meta');
-  if(meta && !meta.querySelector('[data-kn-action="rename"]')) meta.innerHTML=`<button type="button" class="kn-note-title" data-kn-action="rename" title="重命名笔记">${esc(LoopKnowledgeCore.noteTitle(task))}</button>`;
   const statsTarget=pane.querySelector('[data-note-stats]');
   if(statsTarget){const text=knowledgeText(task),characters=[...text].length,words=(text.match(/[\p{Script=Han}]/gu)||[]).length+(text.match(/[\p{L}\p{N}]+/gu)||[]).filter(word=>!/[\p{Script=Han}]/u.test(word)).length;statsTarget.textContent=`${words} 字/词 · ${characters} 字符`;}
   pane.querySelector('[data-note-recovery]')?.remove();
@@ -369,7 +367,7 @@ document.addEventListener('click',event=>{
   if(action==='insert-menu')knowledgeInsertMenu(button);
   if(action==='insert-format')shellApplyNoteFormat(button.dataset.knFormat);
   if(action==='switcher')knowledgeShowSwitcher();
-  if(action==='panels'){const closing=button.closest('.kn-side-panel');if(knowledgePanels.has(task.id))knowledgePanels.delete(task.id);else knowledgePanels.add(task.id);knowledgeRefreshPanels(task);if(closing)document.querySelector('.knowledge-header [data-kn-action="panels"]')?.focus({preventScroll:true});}
+  if(action==='panels'){const closing=button.closest('.kn-side-panel');if(knowledgePanels.has(task.id))knowledgePanels.delete(task.id);else knowledgePanels.add(task.id);knowledgeRefreshPanels(task);if(closing)(document.querySelector('.knowledge-header [data-kn-action="panels"]')||document.querySelector('[data-wb-action="more"]'))?.focus({preventScroll:true});}
   if(action==='rename')knowledgeRename(task);
   if(action==='find')knowledgeCurrentEntry()?.openSearch();
   if(action==='table-tools')knowledgeTableTools();

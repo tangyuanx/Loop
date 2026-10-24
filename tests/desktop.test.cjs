@@ -26,7 +26,7 @@ const RENDERER_LAYERS = [
   "shell.css", "knowledge.css", "flow.css", "settings.css", "typography.css",
   "fonts.css", "refinement.css", "selection.css", "shell-refinement.css",
   "help.css", "work.css", "task-entry.css", "journey.css", "widget12.css", "type-readability.css",
-  "widget13.css", "widget-bridge.css", "bridge.css",
+  "widget13.css", "widget-bridge.css", "bridge.css", "workbench.css",
 ];
 const rendererStyles = () => Promise.all(
   RENDERER_LAYERS.map((name) => fs.readFile(path.join(__dirname, "..", "app", "renderer", "src", name), "utf8")),
@@ -272,6 +272,8 @@ function rendererHarness(personalTaskTrack = undefined) {
   const windowListeners = new Map();
   const document = {
     activeElement: null,
+    addEventListener() {},
+    removeEventListener() {},
     body: {
       appendChild() {},
       contains: () => true,
@@ -346,7 +348,8 @@ function rendererHarness(personalTaskTrack = undefined) {
     fs.readFile(path.join(__dirname, "..", "app", "renderer", "src", "pages.js"), "utf8"),
     fs.readFile(path.join(__dirname, "..", "app", "renderer", "src", "settings.js"), "utf8"),
     fs.readFile(path.join(__dirname, "..", "app", "renderer", "src", "app.js"), "utf8"),
-  ]).then(([documentSource, recoverySource, navigationSource, clockSource, shellSource, workspaceSource, actionsSource, bulkSource, knowledgeSource, pagesSource, settingsSource, source]) => {
+    fs.readFile(path.join(__dirname, "..", "app", "renderer", "src", "workbench.js"), "utf8"),
+  ]).then(([documentSource, recoverySource, navigationSource, clockSource, shellSource, workspaceSource, actionsSource, bulkSource, knowledgeSource, pagesSource, settingsSource, source, workbenchSource]) => {
       vm.runInContext(documentSource, context, {
         filename: "app/renderer/src/knowledge-document.js",
       });
@@ -360,6 +363,7 @@ function rendererHarness(personalTaskTrack = undefined) {
       vm.runInContext(clockSource, context, {
         filename: "app/renderer/src/clock.js",
       });
+      vm.runInContext(workbenchSource, context, {filename:"app/renderer/src/workbench.js"});
       vm.runInContext(shellSource, context, {
         filename: "app/renderer/src/shell.js",
       });
@@ -4962,7 +4966,7 @@ test("the frozen Demo baseline is the renderer stylesheet authority", async () =
   // follows those layers in main and floating windows without changing them.
   const linked = [...index.matchAll(/<link[^>]+href="\.\/src\/([^"?]+)/g)].map((match) => match[1]);
   const order = ["shell.css", "vendor/milkdown-editor.css", "knowledge.css", "fonts.css", "settings.css", "typography.css", "refinement.css", "selection.css", "flow.css", "shell-refinement.css", "help.css", "work.css", "task-entry.css", "journey.css", "time.css", "desktop.css", "scale.css", "brief21.css", "controls22.css", "notebook23.css", "management24.css", "window25.css", "bridge.css", "recovery26.css", "manual27.css"];
-  assert.deepEqual(linked, [...order, "vendor/knowledge-editor.css", "knowledge-editor.css", "type-readability.css"], "preserve the frozen Demo order, followed by the shared typography correction");
+  assert.deepEqual(linked, [...order, "vendor/knowledge-editor.css", "knowledge-editor.css", "type-readability.css", "workbench.css"], "preserve the frozen Demo order, followed by typography and the scoped workbench refinement");
   assert.equal(await fs.readFile(path.join(rendererDir, "src", "manual27.css"), "utf8"), await fs.readFile(path.join(__dirname, "..", "prototypes", "baseline", "loop-plane-phase27-frozen", "loop-manual-phase27.css"), "utf8"), "the manual keeps the approved Demo CSS verbatim");
   const scripts = [...index.matchAll(/<script[^>]+src="\.\/src\/([^"?]+)/g)].map((match) => match[1]);
   const phase24Script = scripts.indexOf("management24.js");

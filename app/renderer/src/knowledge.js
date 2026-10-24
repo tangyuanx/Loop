@@ -104,15 +104,13 @@ function renderShellKnowledge(task) {
   return `
     <section class="knowledge-pane task-knowledge-pane" data-task-id="${escAttr(task.id)}" data-knowledge-state="${escAttr(noteState.key)}" aria-label="知识笔记">
       <header class="knowledge-header">
-        <div class="knowledge-file-meta">
-          <button type="button" class="kn-note-title" data-kn-action="rename" title="重命名笔记 · ${escAttr(noteState.label)} · ${escAttr(file.text)} · ${escAttr(file.title)}">${shellIcon("note")}<span>${esc(LoopKnowledgeCore.noteTitle(task))}</span></button>
-        </div>
+        <div class="wb-tabs">${renderShellTabs(task)}</div>
         <div class="knowledge-header-actions">
-          <button class="text-button kn-switch-note" type="button" data-kn-action="switcher" aria-label="切换笔记" title="切换笔记（Ctrl/Cmd+O）">${shellIcon("note")}<span>切换笔记</span></button>
-          <button class="icon-button" type="button" data-kn-action="panels" aria-label="大纲与关联笔记" title="大纲与关联笔记" aria-expanded="false" aria-controls="kn-side-panel">${shellIcon("note23Outline")}</button>
-          <button class="icon-button" type="button" data-kn-action="find" aria-label="查找当前笔记" title="查找当前笔记（Ctrl/Cmd+F）" aria-expanded="false">${shellIcon("search")}</button>
+          <button class="text-button kn-switch-note" type="button" data-kn-action="switcher" aria-label="切换笔记" title="${escAttr(LoopKnowledgeCore.noteTitle(task))} · ${escAttr(noteState.label)} · ${escAttr(file.text)} · ${escAttr(file.title)} · 切换笔记（Ctrl/Cmd+O）"><span>${esc(LoopKnowledgeCore.noteTitle(task) === task.title ? "任务笔记" : LoopKnowledgeCore.noteTitle(task))}</span>${shellIcon("down")}</button>
           ${renderShellKnowledgeViewbar(mode)}
-          <button class="icon-button" type="button" data-action="knowledge-file-menu" data-knowledge-action="file-menu" aria-label="笔记文件操作" aria-haspopup="menu">${shellIcon("more")}</button>
+          <button class="icon-button" type="button" data-kn-action="find" aria-label="查找当前笔记" title="查找当前笔记（Ctrl/Cmd+F）" aria-expanded="false">${shellIcon("search")}</button>
+          <button class="icon-button" type="button" data-wb-action="focus" aria-label="${Workbench.focus ? "退出" : "进入"}专注模式" title="专注模式" aria-pressed="${Workbench.focus}">${shellIcon(Workbench.focus ? "restoreRecord" : "expandRecord")}</button>
+          <button class="icon-button" type="button" data-wb-action="more" data-action="knowledge-file-menu" data-knowledge-action="file-menu" aria-label="更多笔记操作" aria-haspopup="menu">${shellIcon("more")}</button>
         </div>
       </header>
       ${renderShellKnowledgeNotice(task, noteState)}
@@ -127,19 +125,14 @@ function renderShellKnowledge(task) {
         <div class="knowledge-footer-meta">
           <span data-note-stats>${stats.characters} 字 · ${stats.lines} 行</span>
         </div>
-        ${renderShellKnowledgeWidthButton()}
+        <span class="wb-global-status" data-workspace-status>${renderWorkspaceStatus()}</span>
         <button class="button" type="button" data-note-save data-action="save-knowledge" data-task-id="${escAttr(task.id)}" title="保存笔记（Ctrl/Cmd+S）">${shellIcon("check")}保存</button>
       </footer>
     </section>`;
 }
 
 function renderShellKnowledgeViewbar(mode) {
-  const modes = [["edit", "实时预览"], ["source", "源码"], ["preview", "阅读"]]
-    .map(([value, label]) => `<button type="button" data-action="knowledge-mode" data-mode="${value}" aria-pressed="${value === mode}" class="${value === mode ? "active" : ""}">${label}</button>`)
-    .join("");
-  return `<div class="knowledge-viewbar">
-    <div class="knowledge-modes" role="group" aria-label="笔记视图">${modes}</div>
-  </div>`;
+  return `<div class="knowledge-viewbar"><button type="button" data-wb-action="mode" aria-label="笔记视图：${{edit:"编辑",source:"源码",preview:"阅读"}[mode]}" aria-haspopup="menu">${{edit:"编辑",source:"源码",preview:"阅读"}[mode]}${shellIcon("down")}</button></div>`;
 }
 
 function renderShellKnowledgeWidthButton() {
@@ -169,20 +162,7 @@ function renderShellKnowledgeNotice(task, noteState) {
 }
 
 function renderShellKnowledgeTools(mode) {
-  if (mode === "preview") return '<div class="knowledge-tools knowledge-search-only"><div class="kn-find-mount"></div></div>';
-  const format = (action, image, label) => `<button class="knowledge-tool" type="button" data-action="note-format" data-format="${action}" title="${escAttr(label)}" aria-label="${escAttr(label)}"${["bold", "italic", "strike", "inline"].includes(action) ? ' aria-pressed="false"' : ""}>${shellIcon(image)}</button>`;
-  const group = (name, html) => `<div class="note-tool-group" role="group" aria-label="${escAttr(name)}">${html}</div>`;
-  const heading = `<select class="note-heading-select" aria-label="段落格式"><option value="0">正文</option><option value="1">标题 1</option><option value="2">标题 2</option><option value="3">标题 3</option><option value="4">标题 4</option><option value="5">标题 5</option><option value="6">标题 6</option></select>`;
-  const tools = group("文字格式", heading
-      + format("bold", "noteBold", "粗体")
-      + format("italic", "noteItalic", "斜体")
-      + format("inline", "noteInline", "行内代码"))
-    + group("段落与列表", format("bullet", "noteBullet", "无序列表")
-      + format("task", "noteTask", "任务列表"))
-    + group("插入内容", format("link", "noteLink", "链接")
-      + `<button class="knowledge-tool kn-insert-button" type="button" data-kn-action="insert-menu" title="插入与更多格式" aria-haspopup="menu" aria-expanded="false">${shellIcon("plus")}<span>插入</span>${shellIcon("chevron")}</button>`)
-    + group("编辑历史", format("undo", "noteUndo", "撤销（Ctrl/Cmd+Z）") + format("redo", "noteRedo", "重做（Ctrl/Cmd+Shift+Z）"));
-  return `<div class="knowledge-tools"><div class="knowledge-insert-toolbar" role="toolbar" aria-label="笔记格式工具">${tools}</div><div class="kn-find-mount"></div></div>`;
+  return '<div class="knowledge-tools knowledge-search-only"><div class="kn-find-mount"></div></div>';
 }
 
 // ------------------------------------------------------------
@@ -221,7 +201,13 @@ function shellKnowledgeFileMenu(trigger) {
     ? '<div class="menu-divider"></div><button class="button danger-action" type="button" role="menuitem" data-recovery26="remove-note" data-task-id="' + escAttr(task.id) + '">' + shellIcon("close") + '移除软件内笔记…</button>'
     : "";
   shellMountSurface(
-    `<div class="surface-popover" role="menu" aria-label="笔记文件操作"><div class="note23-menu-label">文件</div>
+    `<div class="surface-popover wb-more-menu" role="menu" aria-label="更多笔记操作">
+      <button class="button" type="button" role="menuitem" data-wb-action="format">格式与插入…</button>
+      <button class="button" type="button" role="menuitem" data-kn-action="panels" aria-pressed="${knowledgePanels.has(task.id)}">大纲与关联笔记</button>
+      ${renderShellKnowledgeWidthButton()}
+      <button class="button" type="button" role="menuitem" data-kn-action="rename">重命名笔记…</button>
+      <button class="button" type="button" role="menuitem" data-wb-action="properties">笔记属性（源码）</button>
+      <div class="menu-divider"></div><div class="note23-menu-label">文件</div>
       <button class="button" type="button" role="menuitem" data-knowledge-save-label data-action="save-knowledge" data-task-id="${escAttr(task.id)}" ${savePresentation.state==='saving'?'disabled':''}>${esc(savePresentation.menuLabel)}</button>
       <button class="button" type="button" role="menuitem" data-action="relocate-knowledge" data-task-id="${escAttr(task.id)}">打开 Markdown 文件…</button>
       <button class="button" type="button" role="menuitem" data-action="save-knowledge-as" data-task-id="${escAttr(task.id)}">另存为…</button>

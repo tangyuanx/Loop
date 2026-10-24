@@ -1,3 +1,4 @@
+const wb=require('./workbench-helpers.cjs');
 /* Real Electron and production storage, with isolated synthetic notes. */
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
 const {_electron}=require('playwright-core');
@@ -5,7 +6,7 @@ const {writeTaskData}=require('../app/main/storage.cjs');
 const source=path.resolve(__dirname,'..'),results=[],errors=[];
 const original='# 行内查找验收\n\n测试第一行，测试第二处。\n\n中文 **测试** 与 Test test tester。\n\n'+Array.from({length:65},(_,i)=>`第 ${i+1} 行普通内容。`).join('\n')+'\n\n末尾测试，定位到对应行。\n';
 let app,page,out;
-async function mode(name){await page.locator(`[data-action=knowledge-mode][data-mode=${name}]`).click();await page.waitForFunction(name=>knowledgeCurrentEntry()?.mode===name,name);}
+async function mode(name){await wb.mode(page,name);await page.waitForFunction(name=>knowledgeCurrentEntry()?.mode===name,name);}
 async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catch(e){results.push({id,status:'FAIL',error:e.stack});await page.screenshot({path:path.join(out,id+'-failure.png')});}console.log(JSON.stringify(results.at(-1)));}
 (async()=>{
  const run=process.env.LOOP_SEARCH_QA_DIR||await fs.mkdtemp(path.join(os.tmpdir(),'loop-search-'));out=path.join(run,'evidence');await fs.mkdir(out,{recursive:true});
@@ -24,7 +25,7 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
   const input=page.locator('.kn-find [name=search]'),count=page.locator('.kn-find-count');
   const openFind=async()=>{if(!await input.isVisible())await page.locator('[data-kn-action=find]').click();};
   await test('S01-one-inline-entry-and-live-matches',async()=>{
-   assert.equal(await page.locator('[data-kn-action=find]').count(),1);assert.equal(await page.locator('[data-kn-action=switcher]').innerText(),'切换笔记');
+   assert.equal(await page.locator('[data-kn-action=find]').count(),1);assert.equal(await page.locator('[data-kn-action=switcher]').getAttribute('aria-label'),'切换笔记');
    assert.equal(await input.isVisible(),false);assert.equal(await page.locator('[data-kn-action=find]').getAttribute('aria-expanded'),'false');
    await mode('source');assert.equal(await input.isVisible(),false);await openFind();assert.equal(await page.locator('[data-kn-action=find]').getAttribute('aria-expanded'),'true');
    await input.fill('测试');assert.equal(await count.innerText(),'1/4');assert.ok(await page.locator('.cm-searchMatch').count()>=3);assert.equal(await page.locator('[role=dialog]').count(),0);

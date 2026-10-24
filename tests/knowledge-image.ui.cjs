@@ -1,3 +1,4 @@
+const wb=require('./workbench-helpers.cjs');
 /* Image selection regression in real Electron; no IPC or input mocks. */
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
 const {_electron}=require('playwright-core');
@@ -28,7 +29,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
     await app.evaluate(({BrowserWindow},width)=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(width,820),width);
     await page.evaluate(id=>knowledgeOpen(state.tasks.find(t=>t.id===id)),id);
     await page.waitForFunction(id=>knowledgeCurrentEntry(id)?.view,id);
-    await page.locator('[data-action="knowledge-mode"][data-mode="edit"]').click();
+    await wb.mode(page,'edit');
     await page.waitForFunction(()=>knowledgeCurrentEntry()?.mode==='edit');
     await page.evaluate(()=>{const e=knowledgeCurrentEntry();e.locate(Math.max(0,e.getEditorText().indexOf('![')-2));});
     const image=page.locator('.kn-edit-surface .kn-live-widget img').first();await image.waitFor();await image.scrollIntoViewIfNeeded();await pause(150);
@@ -63,8 +64,8 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
     await page.keyboard.press('ArrowRight');assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().view.state.selection.main.head),before.markdown.indexOf(snippet)+snippet.length);
     await page.keyboard.press('Backspace');assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),before.markdown.replace(snippet,''));
     await page.keyboard.press(process.platform==='darwin'?'Meta+z':'Control+z');assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),before.markdown);
-    await page.locator('[data-action="knowledge-mode"][data-mode="source"]').click();assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),before.markdown);
-    await page.locator('[data-action="knowledge-mode"][data-mode="preview"]').click();await page.locator('.kn-reading img').first().click();assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),before.markdown);
+    await wb.mode(page,'source');assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),before.markdown);
+    await wb.mode(page,'preview');await page.locator('.kn-reading img').first().click();assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),before.markdown);
     await page.screenshot({path:path.join(out,label+'-after.png')});results.push({label,status:'PASS',clicks:snapshots.length,typingUndoAtomicNavigationAndDelete:true});
    }catch(error){results.push({label,status:'FAIL',error:error.stack});await page.screenshot({path:path.join(out,label+'-failure.png')}).catch(()=>{})}
    await fs.writeFile(path.join(out,'results.json'),JSON.stringify({source,profile,results,errors},null,2));
@@ -72,7 +73,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   for(const id of ['image-c','image-d']){
    try{
     await page.evaluate(id=>knowledgeOpen(state.tasks.find(t=>t.id===id)),id);await page.waitForFunction(id=>knowledgeCurrentEntry(id)?.view,id);
-    await page.locator('[data-action="knowledge-mode"][data-mode="edit"]').click();
+    await wb.mode(page,'edit');
     await page.evaluate(()=>{const e=knowledgeCurrentEntry();e.view.dispatch({selection:{anchor:0}})});
     const img=page.locator('.kn-edit-surface .kn-live-widget img').first();await img.waitFor();await img.scrollIntoViewIfNeeded();
     const before=await page.evaluate(()=>{const e=knowledgeCurrentEntry(),img=document.querySelector('.kn-edit-surface .kn-live-widget img');window.__compoundImage=img;return {source:e.getMarkdown(),anchor:e.view.state.selection.main.head,top:img.getBoundingClientRect().top,scroll:document.querySelector('.knowledge-body').scrollTop}});

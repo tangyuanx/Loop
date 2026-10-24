@@ -1,0 +1,46 @@
+/* Scoped refinement of the existing desktop workbench. */
+.knowledge-pane .cm-editor,.knowledge-pane .cm-editor.cm-focused,.knowledge-pane .cm-content,.knowledge-pane .cm-content:focus,.knowledge-pane .cm-content:focus-visible,.knowledge-pane .kn-reading:focus,.knowledge-pane .kn-reading:focus-visible{outline:none!important;box-shadow:none!important}
+.wb-task-context [data-wb-action=details]{padding:2px 5px;color:var(--secondary)}
+.wb-task-context [data-wb-action=details][aria-expanded=true] svg{transform:rotate(180deg)}
+.wb-task-details{padding:0 28px 18px;flex-shrink:0;max-height:40vh;overflow:auto}
+.wb-task-details>.task-properties{margin:0 0 15px;gap:18px}
+.wb-task-details>.task-properties>.badge,.wb-task-details>.task-properties>span.property{display:none}
+.wb-task-details>.brief{margin:0!important;padding:0!important;border:0!important;background:transparent!important}
+body[data-notebook23-enabled] .knowledge-header{padding:0 24px;gap:12px;flex-wrap:wrap;min-height:46px;border-bottom:1px solid var(--line)}
+.knowledge-header .wb-tabs{min-width:0}
+body .workspace .knowledge-header .tabs-bar{border:0;padding:0;gap:22px;min-height:45px}
+.knowledge-header .tabs-actions{display:none}
+.knowledge-header .knowledge-header-actions{margin-left:auto;min-height:44px;gap:5px;max-width:100%;flex-wrap:wrap}
+.knowledge-header .kn-switch-note{max-width:180px;padding:0 5px}
+.kn-switch-note span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.knowledge-header .kn-switch-note svg,.knowledge-header .knowledge-viewbar svg{width:11px;height:11px}
+.knowledge-header [data-wb-action=mode]{padding:5px;color:var(--secondary);font-size:var(--type-12)}
+.knowledge-header [data-wb-action=focus][aria-pressed=true]{color:var(--green);background:var(--selected)}
+.knowledge-tools.knowledge-search-only{justify-content:flex-end;min-height:0;padding-block:4px;border:0}
+.knowledge-tools.knowledge-search-only:not(:has(.kn-find:not([hidden]))){display:none}
+.knowledge-pane .knowledge-page{margin-inline:auto}
+.knowledge-pane .knowledge-footer{min-height:36px;font-size:var(--type-11)}
+.knowledge-footer [data-note-save][hidden]{display:none!important}
+.knowledge-footer .wb-global-status{display:none}
+.knowledge-footer .wb-global-status:has([data-state=failed],[data-state=protected],[data-state=transferring],.workspace-feedback){display:flex;min-width:0}
+.knowledge-footer:has(.wb-global-status [data-state=failed],.wb-global-status [data-state=protected],.wb-global-status [data-state=transferring],.workspace-feedback) [data-kn-receipt]{display:none}
+.wb-more-menu{max-height:calc(100vh - 24px);overflow:auto}
+.wb-more-menu>.note-width-button{width:100%;min-height:28px;justify-content:flex-start;padding:6px 10px;font-size:var(--type-12)}
+.wb-more-menu>.note-width-button svg:last-child{margin-left:auto}
+.wb-menu{width:224px!important;min-width:0!important;padding:5px!important;border:0!important;border-radius:8px!important;background:var(--canvas);box-shadow:0 8px 28px #0003,0 1px 5px #0001;z-index:1000;overflow:visible!important}
+.wb-submenu{width:196px!important;z-index:1001}
+.wb-menu-list{max-height:calc(100vh - 30px);overflow:auto}
+.wb-menu:focus{outline:none}
+.wb-menu button[role=menuitem]{width:100%;display:flex;align-items:center;justify-content:flex-start;gap:8px;padding:5px 8px;min-height:28px;font:var(--type-13)/1.4 var(--sans);border:0;border-radius:4px;white-space:nowrap;background:transparent;color:var(--text)}
+.wb-menu button>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.wb-menu button>svg{margin-left:auto;width:12px;height:12px}
+.wb-menu kbd{border:0;padding:0;margin-left:auto;font-size:var(--type-11);white-space:nowrap}
+.wb-menu button:not(:disabled):hover,.wb-menu button:focus-visible,.wb-menu button.submenu-open{background:var(--green);color:var(--canvas);outline:none}
+.wb-menu button:hover kbd,.wb-menu button:focus-visible kbd,.wb-menu button.submenu-open kbd{color:inherit}
+.wb-menu .menu-divider{margin:5px 7px}
+.wb-link-label{display:flex;flex-direction:column;gap:8px;font-size:var(--type-12)}
+.wb-link-label input{padding:8px;border:1px solid var(--line);background:var(--canvas);width:100%}
+body.wb-focus:has(.knowledge-pane) .app{grid-template-columns:0 0 minmax(0,1fr)}
+body.wb-focus:has(.knowledge-pane) .navigation,body.wb-focus:has(.knowledge-pane) .task-list-pane,body.wb-focus:has(.knowledge-pane) .workspace>.task-heading,body.wb-focus:has(.knowledge-pane) .wb-task-details{display:none}
+body.wb-focus:has(.knowledge-pane) .workspace{grid-column:3}
+@container(max-width:700px){body[data-notebook23-enabled] .knowledge-header{padding-inline:18px;gap:0 10px}.knowledge-header .kn-switch-note{max-width:120px}.wb-task-details{padding-inline:22px}.knowledge-header .knowledge-header-actions{gap:2px}body .workspace .knowledge-header .tabs-bar{gap:16px}}

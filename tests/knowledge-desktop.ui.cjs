@@ -1,3 +1,4 @@
+const wb=require('./workbench-helpers.cjs');
 /* Real Electron/production IPC. Only file picker results and explicit failure
    injections are substituted. Every run owns a new profile and external files. */
 const assert = require('node:assert/strict');
@@ -33,7 +34,7 @@ async function choose(id) {
   await page.locator('[data-pane="notes"]').click();
   await page.waitForFunction(id=>knowledgeCurrentEntry(id)?.view && document.querySelector('.knowledge-pane')?.dataset.taskId===id,id);
 }
-async function mode(value) { await page.locator(`[data-action="knowledge-mode"][data-mode="${value}"]`).click();await page.waitForFunction(value=>knowledgeCurrentEntry()?.mode===value,value); }
+async function mode(value) { await wb.mode(page,value);await page.waitForFunction(value=>knowledgeCurrentEntry()?.mode===value,value); }
 async function nativeSave(file) { await app.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>file?{canceled:false,filePath:file}:{canceled:true};},file); }
 async function openExport(format='html') {
   await page.keyboard.press('Escape');await page.locator('[data-action="knowledge-file-menu"]').click();

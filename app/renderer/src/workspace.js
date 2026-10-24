@@ -427,19 +427,18 @@ function renderShellWorkspace(task) {
   const selected = shellNodeList(task).find((node) => node.id === state.selectedNodeId);
   const pane = state.taskPane === "notes" ? "notes" : state.taskPane === "history" ? "history" : "flow";
   return `<div class="task-heading">
-      <div class="task-heading-main">${renderShellTaskTitle(task)}${renderShellTaskProperties(task)}</div>
+      <div class="task-heading-main">${renderShellTaskTitle(task)}${pane === "notes" ? renderWorkbenchContext(task) : renderShellTaskProperties(task)}</div>
       <div class="task-heading-actions">
         <button class="button" type="button" data-action="toggle-task-done" data-task-id="${escAttr(task.id)}" aria-label="${shellTaskDone(task) ? "恢复任务" : "完成任务"}">${shellIcon("check")}${shellTaskDone(task) ? "恢复任务" : "完成任务"}</button>
         <button class="icon-button" type="button" data-action="open-task-menu" aria-label="任务操作" aria-expanded="${state.taskMenuOpen === true}">${shellIcon("more")}</button>
       </div>
     </div>
-    ${pane === "notes" ? `<div class="note-summary-toggle"><button type="button" data-action="toggle-note-summary" aria-expanded="${state.noteSummaryOpen === true}">${shellIcon(state.noteSummaryOpen ? "down" : "chevron")}任务简报</button></div>` : ""}
-    ${pane !== "notes" || state.noteSummaryOpen ? renderShellBrief(task) : ""}
-    ${renderShellTabs(task)}
+    ${pane === "notes" ? renderWorkbenchDetails(task) : renderShellBrief(task)}
+    ${pane === "notes" ? "" : renderShellTabs(task)}
     <div class="tab-content ${reading ? "flow-reading" : ""}">
       ${pane === "flow" ? renderShellFlow(task) : pane === "notes" ? renderShellNotes(task) : renderShellHistory(task)}
     </div>
-    ${renderShellWorkspaceFooter(pane)}
+    ${pane === "notes" ? "" : renderShellWorkspaceFooter(pane)}
     ${state.taskMenuOpen ? renderShellTaskMenu(task) : ""}`;
 }
 
