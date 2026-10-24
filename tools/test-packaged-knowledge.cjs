@@ -7,7 +7,7 @@ if (!executable || !path.isAbsolute(executable) || !fs.existsSync(executable)) {
   throw new Error('LOOP_APP_EXECUTABLE must identify the actual packaged Loop executable.');
 }
 let failed = false;
-for (const name of ['knowledge-desktop.ui.cjs', 'knowledge-conflict.ui.cjs', 'knowledge-feedback.ui.cjs']) {
+for (const name of ['knowledge-desktop.ui.cjs', 'knowledge-conflict.ui.cjs', 'knowledge-feedback.ui.cjs', 'knowledge-search.ui.cjs']) {
   console.log(`Packaged Loop regression: ${name}`);
   const result = spawnSync(process.execPath, [path.join(__dirname, '..', 'tests', name)], {
     env: process.env,

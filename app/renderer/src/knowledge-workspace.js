@@ -367,7 +367,7 @@ document.addEventListener('keydown',event=>{
   const key=event.key.toLowerCase();
   if(key==='o'){event.preventDefault();event.stopImmediatePropagation();knowledgeShowSwitcher();}
   if(key==='e'){event.preventDefault();event.stopImmediatePropagation();knowledgeSetMode(shellKnowledgeMode()==='preview'?'edit':'preview');}
-  if(key==='f' && !document.activeElement?.closest('.cm-editor')){event.preventDefault();event.stopImmediatePropagation();knowledgeCurrentEntry()?.openSearch();}
+  if(key==='f'){event.preventDefault();event.stopImmediatePropagation();knowledgeCurrentEntry()?.openSearch();}
 },true);
 // Dismissing this formatting menu must not rerender the workspace and discard
 // the trigger's keyboard focus. Other Loop dialogs keep their own dismissal.

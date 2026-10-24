@@ -6,7 +6,8 @@ import {yamlFrontmatter} from '@codemirror/lang-yaml';
 import {languages} from '@codemirror/language-data';
 import {syntaxTree,syntaxHighlighting,HighlightStyle,foldGutter,foldKeymap,indentUnit,bracketMatching,foldService} from '@codemirror/language';
 import {closeBrackets,closeBracketsKeymap,autocompletion,completionKeymap} from '@codemirror/autocomplete';
-import {searchKeymap,highlightSelectionMatches,openSearchPanel,search} from '@codemirror/search';
+import {searchKeymap,highlightSelectionMatches,search} from '@codemirror/search';
+import {KnowledgeFind} from './knowledge-search.js';
 import {tags} from '@lezer/highlight';
 import {obsidianComments} from './knowledge-syntax.js';
 import {createRenderer,safeURL,escape} from './knowledge-renderer.js';
@@ -158,6 +159,7 @@ class KnowledgeEditor {
     this.readHost=document.createElement('article');this.readHost.className='kn-reading kn-rendered';this.readHost.tabIndex=0;this.readHost.setAttribute('aria-label','阅读笔记');this.root.append(this.readHost);
     this.statusHost=document.createElement('div');this.statusHost.className='kn-upload-status';this.statusHost.setAttribute('role','status');this.root.append(this.statusHost);
     this.readHost.addEventListener('click',event=>this.handleRenderedClick(event,0));
+    this.readHost.addEventListener('toggle',()=>this.find?.update(true),true);
     this.decorations=StateField.define({create:state=>this.buildDecorations(state),update:(decos,tr)=>{
       for(const effect of tr.effects) if(effect.is(viewportEffect)) this.range=effect.value;
       if(tr.docChanged||tr.selection||tr.effects.some(e=>e.is(viewportEffect)||e.is(refreshEffect))) return this.buildDecorations(tr.state);
@@ -185,7 +187,9 @@ class KnowledgeEditor {
         for(let n=line.number+1;n<=state.doc.lines;n++){const next=state.doc.line(n);if(next.text.trim() && next.text.match(/^\s*/)[0].length<=indent)break;last=next.to;}
         return last>end?{from:end,to:last}:null;
       }),
-      search({top:true,caseSensitive:false}),highlightSelectionMatches(),
+      // An invisible CM panel enables its match decorations; the actual search
+      // controls live in the workspace toolbar in every note mode.
+      search({caseSensitive:false,createPanel:()=>{const dom=document.createElement('div');dom.hidden=true;return {dom};}}),highlightSelectionMatches(),
       // Wiki completion is explicitly requested by [[; Enter should accept a
       // visible candidate even when it arrives less than 75ms before the key.
       autocompletion({override:[context=>this.complete(context)],interactionDelay:0}),
@@ -194,6 +198,7 @@ class KnowledgeEditor {
         {key:'Mod-k',run:()=>this.format('link','https://')},{key:'Mod-e',run:()=>{options.onToggleMode?.();return true;}},
         {key:'Mod-s',run:()=>{options.onSave?.();return true;}},
         {key:'Mod-f',run:()=>{this.openSearch();return true;}},
+        {key:'Escape',run:()=>{if(!this.find?.active)return false;this.find.clear();return true;}},
         {key:'Enter',run:insertNewlineContinueMarkupCommand({nonTightLists:false})},
         {key:'Backspace',run:deleteMarkupBackward},
         {key:'Tab',run:indentMore},{key:'Shift-Tab',run:indentLess},
@@ -228,7 +233,7 @@ class KnowledgeEditor {
         destroy(){cancelAnimationFrame(this.frame);}
       }),
     ]})});
-    this.setMode(this.mode);instances.set(options.root,this);
+    this.find=new KnowledgeFind(this);this.setMode(this.mode);instances.set(options.root,this);
   }
   buildDecorations(state) {
     if(this.mode!=='edit')return Decoration.none;
@@ -324,6 +329,7 @@ class KnowledgeEditor {
       if(this.mode==='preview')this.renderReading();
     }
     if(update.selectionSet)this.options.onSelectionChange?.();
+    if(update.docChanged||update.selectionSet||update.transactions.some(tr=>tr.effects.length))this.find?.update();
   }
   tableCellRange(widget,rowIndex,column) {
     const state=this.view.state;
@@ -429,6 +435,7 @@ class KnowledgeEditor {
     }}))};
   }
   setMode(mode) {
+    this.find?.attach();
     if(!['edit','source','preview'].includes(mode))mode='edit';
     if(this.mode===mode && this.modeInitialized)return;
     this.modeInitialized=true;
@@ -446,11 +453,12 @@ class KnowledgeEditor {
       this.view.dispatch({effects:[refreshEffect.of(null),this.lineConfig.reconfigure(mode==='source'?[lineNumbers(),highlightActiveLine()]:[])]});
       if(prior==='preview'&&mode!=='preview'){this.view.requestMeasure();this.view.focus();this.view.dispatch({effects:EditorView.scrollIntoView(this.view.state.selection.main.head,{y:'nearest'})});}
     }
+    this.find?.update();
   }
   renderReading() {
     const scroll=this.readHost.scrollTop;
     this.readHost.innerHTML=this.renderer.render(this.getEditorText(),{noteId:this.options.noteId,stack:[this.options.noteId]});
-    this.readHost.scrollTop=scroll;this.renderer.enhance(this.readHost);
+    this.readHost.scrollTop=scroll;Promise.resolve(this.renderer.enhance(this.readHost)).then(()=>{if(!this.destroyed)this.find?.update(true);});this.find?.update();
   }
   handleRenderedClick(event,base) {
     const target=event.target;
@@ -523,7 +531,8 @@ class KnowledgeEditor {
   getSelection(){const r=this.view.state.selection.main;return {start:r.anchor,end:r.head};}
   restoreSelection(r){this.view.dispatch({selection:{anchor:r.start,head:r.end}});this.view.focus();}
   getFormatState(){const node=syntaxTree(this.view.state).resolveInner(this.view.state.selection.main.head,-1);const names=[];for(let n=node;n;n=n.parent)names.push(n.name);return {bold:names.includes('StrongEmphasis'),italic:names.includes('Emphasis'),strike:names.includes('Strikethrough'),inline:names.includes('InlineCode'),heading:names.find(n=>/^ATXHeading\d/.test(n))?.slice(-1)||'0',undo:true,redo:true};}
-  openSearch(){if(this.mode!=='source')this.options.onEditForSearch?.();openSearchPanel(this.view);this.view.focus();}
+  openSearch(){this.find.open();}
+  searchScrollEffect(pos){return EditorView.scrollIntoView(pos,{y:'center'});}
   table(operation,index,value){for(let n=syntaxTree(this.view.state).resolveInner(this.view.state.selection.main.head,-1);n;n=n.parent)if(n.name==='FencedCode'||n.name==='IndentedCode')return false;const change=core.editTable(this.getEditorText(),this.view.state.selection.main.head,operation,index,value);if(!change)return false;this.view.dispatch({changes:change,userEvent:'input.table'});this.view.focus();return true;}
   async upload(file,pos=this.view.state.selection.main.head) {
     const upload={id:++this.nextUpload,file,pos,status:'正在上传',retry:null};this.uploads.set(upload.id,upload);this.uploadStatus();
@@ -560,6 +569,6 @@ class KnowledgeEditor {
     if(changes.length)this.view.dispatch({changes:changes.sort((a,b)=>a.from-b.from),annotations:Transaction.addToHistory.of(false),userEvent:'input.assets'});
   }
   refresh(){this.renderCache.clear();if(this.mode==='preview')this.renderReading();this.view.dispatch({effects:refreshEffect.of(null)});this.view.requestMeasure();}
-  destroy(){this.destroyed=true;this.view.destroy();instances.delete(this.root);return Promise.resolve();}
+  destroy(){this.destroyed=true;this.find?.destroy();this.view.destroy();instances.delete(this.root);return Promise.resolve();}
 }
 window.LoopKnowledgeEditor={create:async options=>new KnowledgeEditor(options),createRenderer,safeURL,instances};

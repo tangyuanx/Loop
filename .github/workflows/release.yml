@@ -2,16 +2,40 @@ name: Release Desktop Apps
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
 
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  prepare:
+    name: Prepare unpublished release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.draft.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/release-draft.cjs prepare
+        id: draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   build:
     name: Release ${{ matrix.platform }}
+    needs: prepare
     runs-on: ${{ matrix.os }}
+    # Tag-only trusted source; the script rejects uploads to published releases.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -19,33 +43,44 @@ jobs:
           - platform: macOS
             os: macos-latest
             script: npm run dist:mac -- --x64 --arm64 --publish never
-            artifact: release-macos
           - platform: Windows
             os: windows-latest
             script: npm run dist:win -- --publish never
-            artifact: release-windows
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
+          cache-dependency-path: |
+            package-lock.json
+            services/bug-report/package-lock.json
+      - name: Cache Electron and builder downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: packaging-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: packaging-${{ runner.os }}-
       - name: Install dependencies
         run: npm ci
-
       - name: Check JavaScript
         run: npm run check
-
       - name: Build app
         run: ${{ matrix.script }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
-
+      - name: Cache historical Windows upgrade installers
+        if: matrix.platform == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/loop-upgrade-installer-fixture/installers
+          key: windows-upgrade-installers-151-152-153-v1
       - name: Test Windows installer upgrade matrix
         if: matrix.platform == 'Windows'
         shell: pwsh
@@ -53,7 +88,6 @@ jobs:
           $candidate = Get-ChildItem release -Filter "Loop-*-x64-setup.exe" | Select-Object -First 1
           if (-not $candidate) { throw "Windows installer was not produced." }
           ./tests/windows-upgrade-installer.test.ps1 -CandidateInstaller $candidate.FullName
-
       - name: Select packaged macOS app for knowledge regression
         if: matrix.platform == 'macOS'
         shell: bash
@@ -62,7 +96,6 @@ jobs:
           if [ ! -x "$executable" ]; then executable="$PWD/release/mac/Loop.app/Contents/MacOS/Loop"; fi
           test -x "$executable"
           echo "LOOP_APP_EXECUTABLE=$executable" >> "$GITHUB_ENV"
-
       - name: Select packaged Windows app for knowledge regression
         if: matrix.platform == 'Windows'
         shell: pwsh
@@ -70,15 +103,13 @@ jobs:
           $executable = Join-Path $PWD "release/win-unpacked/Loop.exe"
           if (-not (Test-Path -LiteralPath $executable)) { throw "Packaged Loop.exe is missing." }
           "LOOP_APP_EXECUTABLE=$executable" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
       - name: Test packaged knowledge notes before publishing
         env:
           LOOP_KNOWLEDGE_QA_DIR: ${{ runner.temp }}/knowledge-export
           LOOP_CONFLICT_QA_DIR: ${{ runner.temp }}/knowledge-conflict
           LOOP_FEEDBACK_QA_DIR: ${{ runner.temp }}/knowledge-feedback
-        run: |
-          npm run test:ui:knowledge-release
-
+          LOOP_SEARCH_QA_DIR: ${{ runner.temp }}/knowledge-search
+        run: npm run test:ui:knowledge-release
       - name: Preserve packaged knowledge regression evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -88,82 +119,48 @@ jobs:
             ${{ runner.temp }}/knowledge-export/evidence
             ${{ runner.temp }}/knowledge-conflict/evidence
             ${{ runner.temp }}/knowledge-feedback/evidence
+            ${{ runner.temp }}/knowledge-search/evidence
           retention-days: 7
           if-no-files-found: warn
-
-      - name: Verify update metadata
+      - name: Verify update metadata against real bytes
         run: node tools/verify-update-artifacts.cjs release
-
-      - name: Stage platform release assets
+      - name: Upload verified assets directly to draft
+        run: node tools/release-draft.cjs upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PLATFORM: ${{ matrix.platform }}
+          RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+      # Only manifests travel to the final job. Installers, blockmaps,
+      # release/latest.yml and release/latest-mac.yml are already in the draft.
+      - name: Stage platform verification manifest
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: |
-            release/*.dmg
-            release/*.zip
-            release/*.exe
-            release/*.blockmap
-            release/latest.yml
-            release/latest-mac.yml
+          name: release-manifest-${{ matrix.platform }}
+          path: release-manifests/*.json
           if-no-files-found: error
-          retention-days: 2
+          retention-days: 7
 
   publish:
-    name: Publish complete release
-    needs: build
+    name: Publish complete verified release
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Collect platform release assets
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Collect small verification manifests
         uses: actions/download-artifact@v4
         with:
-          pattern: release-*
-          path: release
+          pattern: release-manifest-*
+          path: release-manifests
           merge-multiple: true
-
-      - name: Verify complete cross-platform update feed
-        run: node tools/verify-update-artifacts.cjs release --require-all-platforms
-
-      # One source of truth for the notes: docs/release-notes/<tag>.md when the
-      # version has hand-written notes, otherwise the generated changelog.
-      - name: Resolve the release notes
-        id: notes
-        shell: bash
-        run: |
-          file="docs/release-notes/${GITHUB_REF_NAME}.md"
-          if [ -f "$file" ]; then
-            echo "body_path=$file" >> "$GITHUB_OUTPUT"
-            echo "using hand-written notes from $file"
-          else
-            echo "body_path=" >> "$GITHUB_OUTPUT"
-            echo "no $file; the release will use the generated changelog"
-          fi
-
-      - name: Upload complete release assets
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            release/*.dmg
-            release/*.zip
-            release/*.exe
-            release/*.blockmap
-            release/latest.yml
-            release/latest-mac.yml
-          body_path: ${{ steps.notes.outputs.body_path }}
-          generate_release_notes: ${{ steps.notes.outputs.body_path == '' }}
-          prerelease: ${{ contains(github.ref_name, '-') }}
-
-      # action-gh-release uploads assets for an existing release but does not
-      # rewrite its body, so a re-run (a re-pointed tag, a retried release)
-      # would keep the stale notes. Set them explicitly.
-      - name: Keep the release notes in sync
-        if: steps.notes.outputs.body_path != ''
+      - name: Verify complete cross-platform feed and publish draft
+        # Equivalent --require-all-platforms gate: verified local feed SHA-512
+        # plus GitHub's server SHA-256 of every uploaded asset.
+        run: node tools/release-draft.cjs publish
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: gh release edit "$GITHUB_REF_NAME" --notes-file "${{ steps.notes.outputs.body_path }}"
+          RELEASE_ID: ${{ needs.prepare.outputs.release_id }}

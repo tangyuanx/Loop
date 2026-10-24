@@ -117,14 +117,15 @@ body[data-notebook23-enabled] .knowledge-header {min-height:48px;padding:8px 24p
 .knowledge-modes {background:transparent;gap:2px;padding:2px;}
 .knowledge-modes button {font-size:var(--type-12);padding-inline:10px;}
 .knowledge-modes button.active {color:var(--green);background:var(--selected);box-shadow:none;}
-.knowledge-tools {padding:5px 24px;border-bottom:1px solid var(--line);}
-.knowledge-insert-toolbar {flex:1;flex-wrap:nowrap;gap:0;}
+.knowledge-tools {display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 12px;padding:5px 24px;border-bottom:1px solid var(--line);}
+.knowledge-insert-toolbar {flex:1 1 460px;min-width:0;flex-wrap:nowrap;gap:0;}
 .note-tool-group {gap:1px;padding-right:8px;margin-right:8px;}
 .knowledge-tool {height:30px;min-width:30px;}
 .kn-insert-button {font-size:var(--type-12);gap:5px;}
 .kn-insert-button>svg:last-child {width:10px;height:10px;transform:rotate(90deg);}
 .note-tool-group[aria-label="编辑历史"] {margin-left:auto;border:0;margin-right:2px;padding-right:0;}
-.knowledge-tool.kn-find-button {margin-left:4px;}
+.kn-switch-note {display:inline-flex;align-items:center;gap:5px;font-size:var(--type-12);white-space:nowrap;}
+.kn-switch-note svg {width:14px;height:14px;}
 .kn-insert-menu .button {justify-content:flex-start;gap:10px;}
 .kn-insert-menu .button svg {width:15px;height:15px;color:var(--secondary);}
 .knowledge-page {width:100%;padding:28px 32px 24px;}
@@ -148,14 +149,36 @@ body[data-notebook23-enabled] .knowledge-footer {padding-inline:24px;gap:12px;}
 body[data-notebook23-enabled] .knowledge-footer-meta {display:flex;margin-left:auto;font-size:var(--type-11);flex-shrink:1;white-space:nowrap;}
 .knowledge-footer .note-width-button {font-size:var(--type-11);flex-shrink:0;}
 .knowledge-footer [data-note-save] {background:transparent;color:var(--secondary);font-size:var(--type-11);}
-.kn-editor-host .cm-panels-top {border-bottom:1px solid var(--line);border-radius:6px;margin-bottom:14px;}
-.kn-editor-host .cm-search {padding:10px 30px 10px 10px;line-height:2.4;}
-.kn-editor-host .cm-search label {display:inline-flex;align-items:center;gap:4px;white-space:nowrap;margin-right:8px;font-size:11px;}
-.kn-editor-host .cm-search input[type=checkbox] {accent-color:var(--green);}
-.kn-editor-host .cm-search input[type=text] {width:150px;min-width:60px;}
-.kn-editor-host .cm-search button {height:26px;line-height:1.4;cursor:pointer;}
-.kn-editor-host .cm-search button:hover {background:var(--hover);}
-:root[data-theme=dark] .kn-editor-host .cm-panels {background:var(--list);color:var(--text);}
+.kn-editor-host .cm-panels:has(>[hidden]) {display:none;}
+:root {--kn-find-match:color-mix(in srgb,#c69b28 30%,transparent);--kn-find-current:color-mix(in srgb,#c69b28 55%,transparent);}
+:root[data-theme=dark] {--kn-find-match:color-mix(in srgb,#e2b958 30%,transparent);--kn-find-current:color-mix(in srgb,#e2b958 55%,transparent);}
+.kn-editor-host .cm-searchMatch {background:var(--kn-find-match)!important;border-radius:2px;}
+.kn-editor-host .cm-searchMatch-selected {background:var(--kn-find-current)!important;outline:1px solid color-mix(in srgb,currentColor 35%,transparent);}
+.kn-find-mount {flex:0 1 380px;min-width:0;max-width:100%;margin-left:auto;}
+.kn-find-mount:not(:has(>.kn-find:not([hidden]))),.knowledge-search-only:not(:has(.kn-find:not([hidden]))),.kn-find[hidden] {display:none;}
+.kn-find {width:100%;font-size:var(--type-12);color:var(--text);}
+.kn-find-row {display:flex;align-items:center;gap:2px;min-height:30px;}
+.kn-find button {display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-width:24px;height:28px;padding:3px;border:0;border-radius:4px;color:var(--secondary);background:transparent;font:inherit;cursor:pointer;}
+.kn-find button svg,.kn-find-field>svg {width:14px;height:14px;flex-shrink:0;}
+.kn-find button:hover:not(:disabled) {background:var(--hover);color:var(--text);}
+.kn-find button:disabled {opacity:.4;cursor:default;}
+.kn-find button:focus-visible {outline:2px solid var(--green);outline-offset:1px;}
+.kn-find button[aria-pressed=true] {color:var(--green);background:var(--selected);}
+.kn-find button[name=wholeWord] {text-decoration:underline;text-underline-offset:3px;}
+.kn-find [name=toggleReplace][aria-expanded=true] svg {transform:rotate(90deg);}
+.kn-find-field {display:flex;align-items:center;gap:2px;flex:1;min-width:0;border:1px solid var(--line);border-radius:5px;background:var(--surface);padding:0 3px 0 6px;}
+.kn-find-field:focus-within {border-color:var(--green);}
+.kn-find-field>svg {color:var(--secondary);}
+.kn-find input {font:inherit;color:var(--text);caret-color:var(--green);background:transparent;border:0;border-radius:0;outline:0;min-width:40px;width:100%;height:28px;padding:3px 4px;}
+.kn-find input::placeholder {color:var(--secondary);opacity:1;}
+.kn-find-field:has([aria-invalid=true]) {border-color:var(--danger,#b3493f);}
+.kn-find-count {min-width:44px;max-width:72px;white-space:nowrap;text-align:center;color:var(--secondary);font-size:var(--type-11);font-variant-numeric:tabular-nums;}
+.kn-find[data-empty=true] .kn-find-count {color:var(--danger,#b3493f);}
+.kn-replace-row {display:flex;align-items:center;gap:5px;padding:5px 0 2px 26px;}
+.kn-replace-row[hidden] {display:none;}
+.kn-replace-row input {flex:1;border:1px solid var(--line);border-radius:5px;background:var(--surface);}
+.kn-replace-row input:focus {border-color:var(--green);}
+.kn-replace-row button {padding-inline:6px;}
 @container (max-width:700px) {
   body[data-notebook23-enabled] .knowledge-header {padding-inline:18px;flex-wrap:wrap;gap:4px 10px;}
   .knowledge-file-meta {flex-basis:120px;}
@@ -172,8 +195,8 @@ body[data-notebook23-enabled] .knowledge-footer-meta {display:flex;margin-left:a
 @container (max-width:460px) {
   .knowledge-header .knowledge-modes button {padding-inline:7px;}
   .knowledge-header-actions {gap:2px;}
-  .knowledge-tools {overflow-x:auto;flex-shrink:0;}
-  .knowledge-insert-toolbar {min-width:380px;}
+  .knowledge-tools {flex-shrink:0;}
+  .knowledge-insert-toolbar {min-width:0;overflow-x:auto;}
   .knowledge-body:has(.kn-side-panel) {grid-template-columns:minmax(0,1fr);}
   .kn-side-panel {grid-row:1;max-height:180px;border-left:0;border-bottom:1px solid var(--line);position:relative;}
   .knowledge-footer .note-width-button span {display:none;}

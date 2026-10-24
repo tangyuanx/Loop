@@ -3558,7 +3558,7 @@ test("the active workflows declare an explicit permission scope", async () => {
   ]);
   assert.match(build, /^permissions:\r?\n  contents: read$/m, "the build workflow only needs read access");
   assert.match(release, /^permissions:\r?\n  contents: read$/m, "the release workflow defaults to read");
-  assert.match(release, /^ {4}permissions:\r?\n {6}contents: write$/m, "only the publish job may write");
+  assert.match(release, /^ {4}permissions:\r?\n {6}contents: write$/m, "draft upload and publication need explicit write scope");
   assert.ok(
     !/pull_request_target|workflow_run/.test(build),
     "the untrusted pull_request trigger must not gain a privileged companion workflow",
@@ -3570,11 +3570,12 @@ test("the active workflows declare an explicit permission scope", async () => {
 });
 
 test("release configuration uses deterministic updater artifacts and excludes debug metadata", async () => {
-  const [packageJson, buildScript, workflow, verifier] = await Promise.all([
+  const [packageJson, buildScript, workflow, verifier, branchWorkflow] = await Promise.all([
     fs.readFile(path.join(__dirname, "..", "package.json"), "utf8").then(JSON.parse),
     fs.readFile(path.join(__dirname, "..", "tools", "build.cjs"), "utf8"),
     fs.readFile(path.join(__dirname, "..", ".github", "workflows", "release.yml"), "utf8"),
     fs.readFile(path.join(__dirname, "..", "tools", "verify-update-artifacts.cjs"), "utf8"),
+    fs.readFile(path.join(__dirname, "..", ".github", "workflows", "build.yml"), "utf8"),
   ]);
 
   assert.equal(packageJson.build.productName, "Loop");
@@ -3588,13 +3589,16 @@ test("release configuration uses deterministic updater artifacts and excludes de
   assert.equal(packageJson.build.nsis.uninstallDisplayName, "Loop ${version}");
   assert.deepEqual(packageJson.build.publish, [{ provider: "github", owner: "tangyuanx", repo: "Loop" }]);
   assert.match(buildScript, /new Set\(\["latest\.yml", "latest-mac\.yml"\]\)/);
-  assert.match(workflow, /release\/latest\.yml/);
-  assert.match(workflow, /release\/latest-mac\.yml/);
-  assert.doesNotMatch(workflow, /release\/\*\.yml/);
-  assert.match(workflow, /needs:\s*build/);
+  assert.doesNotMatch(branchWorkflow, /tags:|npm run dist:/, "branch checks must not duplicate release packaging");
+  assert.match(workflow, /tags: \["v\*"\]/);
+  assert.match(workflow, /needs:\s*\[prepare, build\]/);
   assert.match(workflow, /actions\/upload-artifact@v4/);
   assert.match(workflow, /actions\/download-artifact@v4/);
-  assert.match(workflow, /--require-all-platforms/);
+  assert.match(workflow, /node tools\/verify-update-artifacts\.cjs release/);
+  assert.match(workflow, /node tools\/release-draft\.cjs upload/);
+  assert.match(workflow, /node tools\/release-draft\.cjs publish/);
+  assert.match(workflow, /pattern: release-manifest-\*/);
+  assert.doesNotMatch(workflow, /path: release\r?\n/, "the final job must not download all installer bytes again");
   assert.match(verifier, /references missing artifact/);
   assert.match(verifier, /Combined release is missing required update metadata/);
 });

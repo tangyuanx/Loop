@@ -108,8 +108,9 @@ function renderShellKnowledge(task) {
           <button type="button" class="kn-note-title" data-kn-action="rename" title="重命名笔记 · ${escAttr(noteState.label)} · ${escAttr(file.text)} · ${escAttr(file.title)}">${shellIcon("note")}<span>${esc(LoopKnowledgeCore.noteTitle(task))}</span></button>
         </div>
         <div class="knowledge-header-actions">
-          <button class="icon-button" type="button" data-kn-action="switcher" aria-label="搜索和切换笔记" title="搜索和切换笔记（Ctrl/Cmd+O）">${shellIcon("search")}</button>
+          <button class="text-button kn-switch-note" type="button" data-kn-action="switcher" aria-label="切换笔记" title="切换笔记（Ctrl/Cmd+O）">${shellIcon("note")}<span>切换笔记</span></button>
           <button class="icon-button" type="button" data-kn-action="panels" aria-label="大纲与关联笔记" title="大纲与关联笔记" aria-expanded="false" aria-controls="kn-side-panel">${shellIcon("note23Outline")}</button>
+          <button class="icon-button" type="button" data-kn-action="find" aria-label="查找当前笔记" title="查找当前笔记（Ctrl/Cmd+F）" aria-expanded="false">${shellIcon("search")}</button>
           ${renderShellKnowledgeViewbar(mode)}
           <button class="icon-button" type="button" data-action="knowledge-file-menu" data-knowledge-action="file-menu" aria-label="笔记文件操作" aria-haspopup="menu">${shellIcon("more")}</button>
         </div>
@@ -168,7 +169,7 @@ function renderShellKnowledgeNotice(task, noteState) {
 }
 
 function renderShellKnowledgeTools(mode) {
-  if (mode === "preview") return "";
+  if (mode === "preview") return '<div class="knowledge-tools knowledge-search-only"><div class="kn-find-mount"></div></div>';
   const format = (action, image, label) => `<button class="knowledge-tool" type="button" data-action="note-format" data-format="${action}" title="${escAttr(label)}" aria-label="${escAttr(label)}"${["bold", "italic", "strike", "inline"].includes(action) ? ' aria-pressed="false"' : ""}>${shellIcon(image)}</button>`;
   const group = (name, html) => `<div class="note-tool-group" role="group" aria-label="${escAttr(name)}">${html}</div>`;
   const heading = `<select class="note-heading-select" aria-label="段落格式"><option value="0">正文</option><option value="1">标题 1</option><option value="2">标题 2</option><option value="3">标题 3</option><option value="4">标题 4</option><option value="5">标题 5</option><option value="6">标题 6</option></select>`;
@@ -180,9 +181,8 @@ function renderShellKnowledgeTools(mode) {
       + format("task", "noteTask", "任务列表"))
     + group("插入内容", format("link", "noteLink", "链接")
       + `<button class="knowledge-tool kn-insert-button" type="button" data-kn-action="insert-menu" title="插入与更多格式" aria-haspopup="menu" aria-expanded="false">${shellIcon("plus")}<span>插入</span>${shellIcon("chevron")}</button>`)
-    + group("编辑历史", format("undo", "noteUndo", "撤销（Ctrl/Cmd+Z）") + format("redo", "noteRedo", "重做（Ctrl/Cmd+Shift+Z）"))
-    + `<button class="knowledge-tool kn-find-button" type="button" data-kn-action="find" title="查找和替换（Ctrl/Cmd+F）" aria-label="查找和替换">${shellIcon("search")}</button>`;
-  return `<div class="knowledge-tools"><div class="knowledge-insert-toolbar" role="toolbar" aria-label="笔记格式工具">${tools}</div></div>`;
+    + group("编辑历史", format("undo", "noteUndo", "撤销（Ctrl/Cmd+Z）") + format("redo", "noteRedo", "重做（Ctrl/Cmd+Shift+Z）"));
+  return `<div class="knowledge-tools"><div class="knowledge-insert-toolbar" role="toolbar" aria-label="笔记格式工具">${tools}</div><div class="kn-find-mount"></div></div>`;
 }
 
 // ------------------------------------------------------------

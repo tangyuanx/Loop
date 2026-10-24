@@ -2,8 +2,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const releaseDirectory = path.resolve(process.argv[2] || "release");
-const requireAllPlatforms = process.argv.includes("--require-all-platforms");
+function verifyReleaseDirectory(releaseDirectory, requireAllPlatforms = false) {
 const allowedExtensions = new Set([".blockmap", ".dmg", ".exe", ".yml", ".zip"]);
 
 if (!fs.existsSync(releaseDirectory)) fail(`Release directory does not exist: ${releaseDirectory}`);
@@ -37,7 +36,7 @@ for (const metadataFile of metadataFiles) {
     if (/\s/.test(name)) fail(`${metadataFile} references a filename containing spaces: ${name}`);
     // The filenames alone prove nothing: the feed has to match the real bytes,
     // otherwise a tampered or stale artifact can be published unnoticed.
-    verifyArtifactBytes(metadataFile, name, target);
+    verifyArtifactBytes(metadataFile, name, target, releaseDirectory);
     verifiedArtifacts += 1;
   }
 }
@@ -47,6 +46,7 @@ for (const file of files) {
 }
 
 console.log(`Verified ${metadataFiles.length} update metadata file(s) and ${verifiedArtifacts} artifact digest(s) against ${files.length} release artifact(s).`);
+}
 
 /**
  * Read the artifact shape that electron-builder writes: a top-level version and
@@ -94,7 +94,7 @@ function unquoteYamlValue(value) {
   return text;
 }
 
-function verifyArtifactBytes(metadataFile, name, target) {
+function verifyArtifactBytes(metadataFile, name, target, releaseDirectory) {
   const filePath = path.join(releaseDirectory, name);
   const stats = fs.statSync(filePath);
   const declaredSize = Number(target.size);
@@ -133,3 +133,6 @@ function fail(message) {
   console.error(`Update artifact verification failed: ${message}`);
   process.exit(1);
 }
+
+module.exports = { parseUpdateMetadata, verifyReleaseDirectory };
+if (require.main === module) verifyReleaseDirectory(path.resolve(process.argv[2] || "release"), process.argv.includes("--require-all-platforms"));
