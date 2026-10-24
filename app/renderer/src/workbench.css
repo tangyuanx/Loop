@@ -16,6 +16,10 @@ body .workspace .knowledge-header .tabs-bar{border:0;padding:0;gap:22px;min-heig
 .knowledge-header .kn-switch-note svg,.knowledge-header .knowledge-viewbar svg{width:11px;height:11px}
 .knowledge-header [data-wb-action=mode]{padding:5px;color:var(--secondary);font-size:var(--type-12)}
 .knowledge-header [data-wb-action=focus][aria-pressed=true]{color:var(--green);background:var(--selected)}
+.knowledge-header .knowledge-header-actions [data-wb-action=more]{width:28px;height:28px;background:transparent;color:var(--secondary)}
+.knowledge-header .knowledge-header-actions [data-wb-action=more]:hover{background:transparent;color:var(--text)}
+.knowledge-header .knowledge-header-actions [data-wb-action=more]:active,.knowledge-header .knowledge-header-actions [data-wb-action=more][aria-expanded=true]{background:transparent;color:var(--green)}
+.knowledge-header [data-wb-action=more] svg{width:18px;height:18px;transform:rotate(90deg);stroke-width:3.4;stroke-linecap:round}
 .knowledge-tools.knowledge-search-only{justify-content:flex-end;min-height:0;padding-block:4px;border:0}
 .knowledge-tools.knowledge-search-only:not(:has(.kn-find:not([hidden]))){display:none}
 .knowledge-pane .knowledge-page{margin-inline:auto}
