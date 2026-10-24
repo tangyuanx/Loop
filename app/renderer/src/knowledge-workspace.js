@@ -15,7 +15,10 @@ function knowledgeText(task) { return nodeNoteDrafts.get(noteDraftKey(task.id, '
 function knowledgeCurrentEntry(taskId = state.activeTaskId) { return milkdownEditors.get(noteDraftKey(taskId, ''))?.instance; }
 function knowledgeDetail(task) {
   const group = state.taskGroups.find(g => g.id === task.groupId)?.title || '未分组';
-  return `${group} · ${task.title} · ${LoopKnowledgeCore.noteId(task).slice(-8)}`;
+  const note=task.knowledgeNote,updated=note.updatedAt||task.updatedAt;
+  const location=note.filePath?.replace(/\\/g,'/').split('/').at(-1)||'Loop 草稿';
+  const time=updated?new Date(updated).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+  return [group,task.title,location,time].filter(Boolean).join(' · ');
 }
 function knowledgeRendererForTask(task) { return LoopKnowledgeEditor.createRenderer(knowledgeEditorOptions(task)); }
 function knowledgeEditorOptions(task) {
@@ -173,10 +176,20 @@ saveKnowledgeTask = function knowledgeSerializedSave(taskId, options={}) {
     return result;
   });
 };
+const knowledgePriorReload = reloadKnowledgeTask;
+reloadKnowledgeTask = async function knowledgeReloadWithReceipt(taskId) {
+  const result = await knowledgePriorReload(taskId);
+  if (result?.success) {
+    knowledgeSaveResults.delete(taskId);
+    const task=state.tasks.find(t=>t.id===taskId),pane=document.querySelector('.knowledge-pane');
+    if(task){knowledgeUpdateChrome(task);if(pane?.dataset.taskId===taskId)knowledgeSyncNotice(task,pane);}
+  }
+  return result;
+};
 function knowledgeSyncNotice(task,pane) {
   pane.querySelector('[data-kn-save-error]')?.remove();
   const error=knowledgeSaveStatus(task)?.error;
-  if(!error)return;
+  if(!error || renderShellKnowledgeNotice(task,shellKnowledgeState(task)))return;
   const notice=document.createElement('div');notice.className='knowledge-notice attention';notice.dataset.knSaveError='true';notice.setAttribute('role','status');
   const text=document.createElement('span');text.textContent=error;notice.append(text);
   const retry=document.createElement('button');retry.type='button';retry.className='text-button';retry.textContent='重试';retry.onclick=()=>void saveKnowledgeTask(task.id);notice.append(retry);

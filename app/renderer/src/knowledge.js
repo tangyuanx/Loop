@@ -263,7 +263,7 @@ function shellKnowledgeExportNote(task) {
     ? note23FileName(task, { path: task.knowledgeNote?.filePath }).replace(/\.md$/i, "")
     : task.title || "未命名笔记";
   shellKnowledgeDialog("导出笔记",
-    `<p class="knowledge-dialog-copy">导出打开此窗口时的笔记快照；不改变文件关联。</p><div class="export-format-row"><label for="knowledge-export-format">格式</label><select id="knowledge-export-format"><option value="md">Markdown</option><option value="html">HTML</option><option value="pdf">PDF（桌面应用）</option></select></div><p id="knowledge-export-status" role="status">正在生成导出预览…</p><article id="knowledge-export-preview" class="kn-rendered knowledge-export-preview"></article><div id="knowledge-export-issues" class="knowledge-export-issues" hidden><ul></ul><label><input type="checkbox" id="knowledge-export-incomplete">保留图表源码与缺失资源说明，继续导出</label></div><p class="knowledge-demo-boundary">HTML 与 PDF 内嵌公式字体、本地图片及静态图表，可离线阅读。Markdown 保留原文和图片引用。</p><p class="error" id="knowledge-export-error" role="alert" hidden></p><button class="button" id="knowledge-export-retry" hidden>重新生成预览</button>`,
+    `<p class="knowledge-dialog-copy">导出打开此窗口时的笔记快照；不改变文件关联。</p><div class="export-format-row"><label for="knowledge-export-format">格式</label><select id="knowledge-export-format"><option value="md">Markdown</option><option value="html">HTML</option><option value="pdf">PDF（桌面应用）</option></select></div><p id="knowledge-export-status" role="status">正在生成导出预览…</p><article id="knowledge-export-preview" class="kn-rendered knowledge-export-preview"></article><div id="knowledge-export-issues" class="knowledge-export-issues" hidden><ul></ul><label><input type="checkbox" id="knowledge-export-incomplete">保留图表源码与缺失资源说明，继续导出</label></div><p class="knowledge-demo-boundary">HTML 与 PDF 内嵌公式字体、本地图片及静态图表，可离线阅读。Markdown 保留原文，并内嵌 Loop 中的图片以便分享。</p><p class="error" id="knowledge-export-error" role="alert" hidden></p><button class="button" id="knowledge-export-retry" hidden>重新生成预览</button>`,
     '<button class="button" data-action="close-dialog">取消</button><button class="button primary" id="knowledge-export-download">导出</button>', 680);
   const button = document.querySelector("#knowledge-export-download");
   const dialog = button.closest('[role="dialog"]');
@@ -309,7 +309,8 @@ function shellKnowledgeExportNote(task) {
     try {
       if (!desktopExport?.taskDocument) throw new Error("请在桌面应用中导出笔记。");
       const incomplete = format !== "md" && prepared.issues.length > 0;
-      const result = await desktopExport.taskDocument({ taskTitle: title, documentKind: "note", format, markdown, html: prepared?.html || "" });
+      const portable = format === "md" ? knowledgePortableMarkdown(markdown, images) : markdown;
+      const result = await desktopExport.taskDocument({ taskTitle: title, documentKind: "note", format, markdown: portable, html: prepared?.html || "" });
       if (result?.canceled) return;
       if (!result?.filePath) throw new Error("文件未导出，请重试。");
       if (button.isConnected) shellCloseOverlay();
@@ -636,4 +637,50 @@ function shellBindKnowledge() {
     shellApplyNoteFormat("heading", Number(select.value) || 0);
   });
   shellRefreshNoteFormatState();
+}
+
+function knowledgeShowDraftPrompt(taskId, mode) {
+  const active = document.activeElement;
+  knowledgeDraftReturnAction = mode === 'close-editor' ? 'knowledge-file-menu' : active?.dataset?.action || '';
+  shellCloseOverlay({restoreFocus:false});
+  state.knowledgeDraftPrompt = {taskId, mode};
+  render();
+}
+let knowledgeDraftReturnAction = '';
+function knowledgeCancelDraftPrompt() {
+  state.knowledgeDraftPrompt = null;
+  render();
+  const trigger = knowledgeDraftReturnAction && document.querySelector(`[data-action="${CSS.escape(knowledgeDraftReturnAction)}"]`);
+  if(trigger)trigger.focus({preventScroll:true});
+  else shellKnowledgeEditorEntry()?.view?.focus();
+}
+function knowledgeBindDraftPrompt() {
+  const dialog = document.querySelector('.knowledge-draft-dialog');
+  if (!dialog) return;
+  document.querySelector('.app')?.setAttribute('inert', '');
+  dialog.focus({preventScroll:true});
+}
+window.addEventListener('keydown', event => {
+  const dialog = document.querySelector('.knowledge-draft-dialog');
+  if (!dialog || event.isComposing) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();event.stopImmediatePropagation();knowledgeCancelDraftPrompt();
+  } else if (event.key === 'Tab') {
+    const buttons = [...dialog.querySelectorAll('button:not(:disabled)')];
+    const index = buttons.indexOf(document.activeElement);
+    if(index < 0 || (!event.shiftKey && index === buttons.length-1) || (event.shiftKey && index === 0)) {
+      event.preventDefault();buttons[event.shiftKey ? buttons.length-1 : 0]?.focus();
+    }
+  }
+}, true);
+
+function knowledgePortableMarkdown(markdown, images) {
+  let result=markdown;
+  for(const ref of LoopKnowledgeCore.imageReferences(markdown).reverse()){
+    if(!ref.url.startsWith('task-image:'))continue;
+    const data=images[ref.url.slice(11)];
+    if(!/^data:image\//.test(data||''))throw new Error('图片资源缺失，请恢复图片后重新导出。');
+    result=result.slice(0,ref.from)+data+result.slice(ref.to);
+  }
+  return result;
 }

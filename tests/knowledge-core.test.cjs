@@ -81,3 +81,15 @@ test('source serialization retains CRLF, CR, LF, mixed separators and Unicode of
  }
  for(const ending of ['\n','\r\n','\r'])assert.equal(core.sourceFormat(('行'+ending).repeat(10000)).breaks.size,0);
 });
+
+test('spreadsheet paste expands a table grid, escapes pipes and preserves surrounding prose',()=>{
+ const source='前文\n\n| 一 | 二 |\n| --- | --- |\n| 旧 | 保留 |\n\n后文';
+ const pos=source.indexOf('旧');
+ const change=core.pasteTable(source,pos,1,'甲\t乙|丙\r\n丁\t戊\r\n');
+ const result=source.slice(0,change.from)+change.insert+source.slice(change.to);
+ assert.equal(result,'前文\n\n| 一 | 二 |  |\n| --- | --- | --- |\n| 旧 | 甲 | 乙\\|丙 |\n|  | 丁 | 戊 |\n\n后文');
+ assert.equal(core.tableAt(result,result.indexOf('戊')).rows.length,4);
+ assert.equal(core.pasteTable('普通正文',0,0,'甲\t乙'),null);
+ const header=core.pasteTable(source,source.indexOf('一'),0,'新一\t新二\n值一\t值二');
+ assert.match(header.insert,/\| 新一 \| 新二 \|\n\| --- \| --- \|\n\| 值一 \| 值二 \|/);
+});

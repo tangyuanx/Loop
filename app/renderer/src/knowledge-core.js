@@ -193,6 +193,19 @@
     else return null;
     return {from:table.from,to:table.to,insert:rows.map(r=>'| '+r.join(' | ')+' |').join('\n')};
   }
+  function pasteTable(text,pos,column,clipboard) {
+    const table=tableAt(text,pos);if(!table||table.row===1)return null;
+    const grid=String(clipboard).replace(/\r\n?/g,'\n').replace(/\n$/,'').split('\n').map(line=>line.split('\t'));
+    const rows=table.rows.map(row=>row.slice()),start=table.row;
+    const count=Math.max(rows[0].length,column+Math.max(...grid.map(row=>row.length)));
+    for(const row of rows)while(row.length<count)row.push(row===rows[1]?'---':'');
+    for(let r=0;r<grid.length;r++){
+      const target=start+r+(start===0&&r>0?1:0);
+      while(rows.length<=target)rows.push(Array(count).fill(''));
+      for(let c=0;c<grid[r].length;c++)rows[target][column+c]=grid[r][c].replace(/(?<!\\)\|/g,'\\|');
+    }
+    return {from:table.from,to:table.to,insert:rows.map(row=>'| '+row.join(' | ')+' |').join('\n')};
+  }
   class SerialQueue {
     constructor() { this.queues=new Map(); }
     run(key,operation) {
@@ -201,5 +214,5 @@
       return next.finally(()=>{ if(this.queues.get(key)===next) this.queues.delete(key); });
     }
   }
-  return {sourceFormat,serializeSource,excludedRanges,escaped,parseTarget,links,imageReferences,noteId,noteTitle,resolve,stableLink,headings,fragment,splitRow,tableAt,editTable,SerialQueue};
+  return {sourceFormat,serializeSource,excludedRanges,escaped,parseTarget,links,imageReferences,noteId,noteTitle,resolve,stableLink,headings,fragment,splitRow,tableAt,editTable,pasteTable,SerialQueue};
 });

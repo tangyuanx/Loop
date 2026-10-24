@@ -1523,8 +1523,7 @@ async function closeKnowledgeEditor(taskId) {
   const task = state.tasks.find((item) => item.id === taskId);
   if (!task) return { success: false, code: "TASK_NOT_FOUND" };
   if (task.knowledgeNote?.documentState === "DRAFT" && String(task.notes || "").trim()) {
-    state.knowledgeDraftPrompt = { taskId, mode: "close-editor" };
-    render();
+    knowledgeShowDraftPrompt(taskId, "close-editor");
     return { success: false, code: "DRAFT_REQUIRES_DECISION" };
   }
   state.taskPane = "flow";
@@ -2413,6 +2412,7 @@ function render() {
   clearRenderScrollCache();
   restoreCachedKnowledgePane(task);
   bind();
+  knowledgeBindDraftPrompt();
   syncContextMenuRoot();
   if (typeof shellAfterRender === "function") shellAfterRender();
   if (typeof shellBindFlowKeyboard === "function") shellBindFlowKeyboard();
@@ -2491,14 +2491,14 @@ function renderKnowledgeDraftPrompt() {
   const closingEditor = mode === "close-editor";
   return `
     <div class="knowledge-draft-backdrop" role="presentation">
-      <section class="knowledge-draft-dialog" role="dialog" aria-modal="true" aria-labelledby="knowledge-draft-title">
+      <section class="knowledge-draft-dialog" role="dialog" aria-modal="true" aria-labelledby="knowledge-draft-title" aria-describedby="knowledge-draft-description" tabindex="-1">
         <div class="knowledge-draft-heading">
-          <span class="knowledge-draft-kicker">知识笔记</span>
           <h2 id="knowledge-draft-title">${closingEditor ? "关闭前如何处理这篇草稿？" : "这篇笔记尚未保存为本地文件"}</h2>
-          <p>${closingEditor ? "保存会打开文件选择；保留会关闭编辑页但继续保护草稿。" : "你可以先保存文件，也可以保留草稿。删除草稿不会删除任何本地 Markdown 文件或附件。"}</p>
+          <p id="knowledge-draft-description">${closingEditor ? "保存会打开文件选择；保留会关闭编辑页但继续保护草稿。" : "你可以先保存文件，也可以保留草稿。删除草稿不会删除任何本地 Markdown 文件或附件。"}</p>
         </div>
         <div class="knowledge-draft-context">${esc(task.title || "未命名任务")}</div>
         <div class="knowledge-draft-actions">
+          <button type="button" data-action="cancel-knowledge-draft">取消</button>
           <button type="button" data-action="keep-knowledge-draft" data-task-id="${escAttr(task.id)}">保留为草稿</button>
           <button type="button" data-action="delete-knowledge-draft" data-task-id="${escAttr(task.id)}">删除草稿</button>
           <button class="primary" type="button" data-action="${closingEditor ? "save-knowledge-before-close" : "save-knowledge-before-delete"}" data-task-id="${escAttr(task.id)}">保存</button>
@@ -7914,7 +7914,7 @@ async function action(data, event = null) {
   // recognises is executed there and re-rendered, the legacy chain below
   // keeps handling the remaining project commands.
   if (typeof shellAction === "function" && await shellAction(data, event)) {
-    if (data.action !== "close-dialog" || true) render();
+    if (!["note-format", "note-heading"].includes(data.action)) render();
     return;
   }
   state.contextMenu = null;
@@ -8014,6 +8014,10 @@ async function action(data, event = null) {
     if (result?.success) render();
     return;
   }
+  if (data.action === "cancel-knowledge-draft") {
+    knowledgeCancelDraftPrompt();
+    return;
+  }
   if (data.action === "keep-knowledge-draft") {
     const mode = state.knowledgeDraftPrompt?.mode;
     state.knowledgeDraftPrompt = null;
@@ -8042,6 +8046,7 @@ async function action(data, event = null) {
         render();
       }
     } else if (typeof recovery26ReviewDeleteTask === "function") {
+      render();
       recovery26ReviewDeleteTask(data.taskId);
       return;
     } else {
@@ -8051,7 +8056,7 @@ async function action(data, event = null) {
     return;
   }
   if (data.action === "save-knowledge-before-delete") {
-    const result = await saveKnowledgeTask(data.taskId);
+    const result = await saveKnowledgeTask(data.taskId, { saveAs: true });
     if (result?.success) {
       state.knowledgeDraftPrompt = null;
       await deleteTask(data.taskId, { skipDraftPrompt: true });
@@ -8062,7 +8067,7 @@ async function action(data, event = null) {
     return;
   }
   if (data.action === "save-knowledge-before-close") {
-    const result = await saveKnowledgeTask(data.taskId);
+    const result = await saveKnowledgeTask(data.taskId, { saveAs: true });
     if (result?.success) {
       state.knowledgeDraftPrompt = null;
       state.taskPane = "flow";
@@ -9171,8 +9176,7 @@ async function deleteTask(taskId, { skipDraftPrompt = false, skipConfirm = false
   const task = state.tasks.find((item) => item.id === taskId);
   if (!task) return false;
   if (!skipDraftPrompt && task.knowledgeNote?.documentState === "DRAFT" && String(task.notes || "").trim()) {
-    state.knowledgeDraftPrompt = { taskId };
-    render();
+    knowledgeShowDraftPrompt(taskId, "delete-task");
     return false;
   }
   // skipConfirm: the Today widget already confirmed in the Demo's own dialog, so

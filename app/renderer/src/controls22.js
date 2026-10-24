@@ -126,7 +126,7 @@ function control22Commit(index) {
     select.dispatchEvent(new Event("input", { bubbles: true }));
     select.dispatchEvent(new Event("change", { bubbles: true }));
   }
-  if (select.isConnected) select.focus({ preventScroll: true });
+  if (select.isConnected && (!changed || !select.matches(".note-heading-select"))) select.focus({ preventScroll: true });
 }
 
 function control22Stop(event) {

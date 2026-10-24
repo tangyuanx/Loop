@@ -1,10 +1,10 @@
 import {EditorState,StateField,StateEffect,Compartment,Prec,Transaction,MapMode} from '@codemirror/state';
 import {EditorView,keymap,Decoration,WidgetType,ViewPlugin,drawSelection,highlightActiveLine,rectangularSelection,crosshairCursor,lineNumbers,placeholder} from '@codemirror/view';
-import {defaultKeymap,history,historyKeymap,indentWithTab,indentMore,indentLess,undo,redo,invertedEffects} from '@codemirror/commands';
+import {defaultKeymap,history,historyKeymap,indentWithTab,indentMore,indentLess,undo,redo,invertedEffects,isolateHistory} from '@codemirror/commands';
 import {markdown,markdownLanguage,insertNewlineContinueMarkupCommand,deleteMarkupBackward} from '@codemirror/lang-markdown';
 import {yamlFrontmatter} from '@codemirror/lang-yaml';
 import {languages} from '@codemirror/language-data';
-import {syntaxTree,syntaxHighlighting,HighlightStyle,foldGutter,foldKeymap,indentUnit,bracketMatching,foldService} from '@codemirror/language';
+import {syntaxTree,syntaxHighlighting,HighlightStyle,foldGutter,foldKeymap,indentUnit,bracketMatching,foldService,forceParsing} from '@codemirror/language';
 import {closeBrackets,closeBracketsKeymap,autocompletion,completionKeymap} from '@codemirror/autocomplete';
 import {searchKeymap,highlightSelectionMatches,search} from '@codemirror/search';
 import {KnowledgeFind} from './knowledge-search.js';
@@ -385,6 +385,21 @@ class KnowledgeEditor {
         if(this.activeTableCell===active&&input.isConnected){input.focus({preventScroll:true});input.setSelectionRange(before,before);}
       }
     };
+    input.addEventListener('paste',event=>{
+      const text=event.clipboardData?.getData('text/plain')||'';
+      if(!/[\t\r\n]/.test(text))return;
+      const change=core.pasteTable(this.getEditorText(),active.from,active.column,text);
+      if(!change)return;
+      event.preventDefault();event.stopPropagation();
+      this.finishTableCell();
+      this.view.dispatch({changes:change,userEvent:'input.table-paste'});
+      requestAnimationFrame(()=>{
+        if(this.destroyed)return;
+        const next=[...this.root.querySelectorAll('.kn-table-widget')].find(el=>Number(el.dataset.sourcePos)===change.from);
+        const target=next?.querySelector('table')?.rows[row]?.cells[column];
+        if(target)this.editTableCell(next,target);else this.view.focus();
+      });
+    });
     input.addEventListener('input',commit);
     input.addEventListener('compositionstart',()=>{active.composing=true;});
     input.addEventListener('compositionend',()=>{active.composing=false;commit();});
@@ -501,29 +516,63 @@ class KnowledgeEditor {
   format(action,value) {
     if(this.mode==='preview')return false;
     const view=this.view,{from,to}=view.state.selection.main,doc=view.state.doc,text=doc.sliceString(from,to);
-    if(action==='undo')return undo(view);if(action==='redo')return redo(view);
+    if(action==='undo'||action==='redo'){const applied=(action==='undo'?undo:redo)(view);view.focus();return applied;}
     const wraps={bold:'**',italic:'*',strike:'~~',inline:'`',highlight:'=='};
     if(wraps[action]){
-      const token=wraps[action];let a=from,b=to,insert;
-      if(text.startsWith(token)&&text.endsWith(token)&&text.length>=2*token.length){insert=text.slice(token.length,-token.length);}
-      else if(from>=token.length&&doc.sliceString(from-token.length,from)===token&&doc.sliceString(to,to+token.length)===token){a-=token.length;b+=token.length;insert=text;}
-      else {insert=token+text+token;view.dispatch({changes:{from:a,to:b,insert},selection:{anchor:a+token.length,head:a+token.length+text.length},userEvent:'input.format'});view.focus();return true;}
-      view.dispatch({changes:{from:a,to:b,insert},selection:{anchor:a,head:a+insert.length},userEvent:'input.format'});view.focus();return true;
+      const token=wraps[action],changes=[],ranges=[];
+      const first=doc.lineAt(from),last=doc.lineAt(to>from?to-1:to);
+      for(let n=first.number;n<=last.number;n++){
+        const line=doc.line(n);
+        // Inline formatting leaves Markdown block markers outside emphasis.
+        const prefix=line.text.match(/^[ \t]*(?:>[ \t]*)*(?:#{1,6}[ \t]+|(?:[-+*]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?)?/)[0];
+        let a=Math.max(from,line.from+prefix.length),b=Math.min(to,line.to);
+        if(from===to)a=b=from;
+        if(a>b || (a===b&&from!==to))continue;
+        const text=doc.sliceString(a,b);let insert,offset=0,length;
+        if(text.startsWith(token)&&text.endsWith(token)&&text.length>=2*token.length){insert=text.slice(token.length,-token.length);length=insert.length;}
+        else if(a>=token.length&&doc.sliceString(a-token.length,a)===token&&doc.sliceString(b,b+token.length)===token){a-=token.length;b+=token.length;insert=text;length=text.length;}
+        else {insert=token+text+token;offset=token.length;length=text.length;}
+        const delta=changes.reduce((sum,c)=>sum+c.insert.length-(c.to-c.from),0);
+        ranges.push({from:a+delta+offset,to:a+delta+offset+length});
+        changes.push({from:a,to:b,insert});
+      }
+      if(!changes.length)return false;
+      view.dispatch({changes,selection:{anchor:ranges[0].from,head:ranges.at(-1).to},annotations:isolateHistory.of('full'),userEvent:'input.format'});view.focus();return true;
     }
     if(['heading','bullet','ordered','task','quote'].includes(action)){
-      const first=doc.lineAt(from),last=doc.lineAt(to);const changes=[];
+      const first=doc.lineAt(from);let last=doc.lineAt(to>from?to-1:to);
+      while(last.number>first.number&&!last.text.trim())last=doc.line(last.number-1);
+      const changes=[];
       for(let n=first.number;n<=last.number;n++){
         const line=doc.line(n);const clean=line.text.replace(/^(\s*)(?:#{1,6}\s+|[-+*]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+|>\s*)/,'$1');
         const indent=clean.match(/^\s*/)[0],body=clean.slice(indent.length);
         const prefix=action==='heading'?'#'.repeat(Math.max(0,Math.min(6,Number(value)||0)))+(Number(value)?' ':''):action==='ordered'?`${n-first.number+1}. `:action==='task'?'- [ ] ':action==='quote'?'> ':'- ';
         changes.push({from:line.from,to:line.to,insert:indent+prefix+body});
       }
-      view.dispatch({changes,userEvent:'input.format'});view.focus();return true;
+      view.dispatch({changes,annotations:isolateHistory.of('full'),userEvent:'input.format'});view.focus();return true;
     }
     const blocks={code:'```text\n'+text+'\n```',table:'| 项目 | 内容 |\n| --- | --- |\n|  |  |',rule:'---',image:value||'![图片](https://)',link:`[${text||'链接'}](${safeURL(value)||'https://'})`};
     if(!(action in blocks))return false;
     const insert=action==='link'||action==='image'?blocks[action]:'\n\n'+blocks[action]+'\n\n';
-    view.dispatch({changes:{from,to,insert},selection:{anchor:from+insert.length},userEvent:'input.format'});view.focus();return true;
+    const anchor=action==='code'?from+2+'```text\n'.length:action==='table'?from+2+blocks.table.lastIndexOf('|  |  |')+2:from+insert.length;
+    view.dispatch({changes:{from,to,insert},selection:{anchor},annotations:isolateHistory.of('full'),userEvent:'input.format'});view.focus();
+    if(action==='table'&&this.mode==='edit'){
+      // A prior code block can leave incremental parsing behind this edit.
+      // Materialize the new table before choosing its first editable cell.
+      forceParsing(view,from+insert.length,100);
+      view.dispatch({effects:refreshEffect.of(null)});
+      const expected=view.state.doc;let attempts=0;
+      const enterCell=()=>{
+        if(this.destroyed||this.mode!=='edit'||view.state.doc!==expected||view.state.selection.main.head!==anchor)return;
+        const widget=[...this.root.querySelectorAll('.kn-table-widget')].find(el=>Number(el.dataset.sourcePos)===from+2);
+        const cell=widget?.querySelector('tbody td');
+        if(cell)this.editTableCell(widget,cell);
+        // CM materializes replacement widgets in its following layout pass.
+        else if(++attempts<8){view.requestMeasure();requestAnimationFrame(enterCell);}
+      };
+      requestAnimationFrame(enterCell);
+    }
+    return true;
   }
   insertText(text) {this.view.dispatch(this.view.state.replaceSelection(text));this.view.focus();return true;}
   getEditorText(){return this.view.state.doc.toString();}

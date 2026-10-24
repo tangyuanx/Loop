@@ -201,3 +201,19 @@ body[data-notebook23-enabled] .knowledge-footer-meta {display:flex;margin-left:a
   .kn-side-panel {grid-row:1;max-height:180px;border-left:0;border-bottom:1px solid var(--line);position:relative;}
   .knowledge-footer .note-width-button span {display:none;}
 }
+
+/* Draft choices belong above the workspace and stay usable at minimum size. */
+.knowledge-draft-backdrop {position:fixed;inset:0;z-index:240;display:grid;place-items:center;padding:24px;background:#0006;}
+.knowledge-draft-dialog {width:min(500px,100%);max-height:calc(100dvh - 48px);overflow:auto;padding:24px;background:var(--canvas);color:var(--text);border-radius:12px;box-shadow:0 16px 48px #0003;outline:none;}
+.knowledge-draft-heading h2 {margin:0 0 12px;font-size:18px;line-height:1.5;font-weight:600;}
+.knowledge-draft-heading p {margin:0;color:var(--secondary);font-size:13px;line-height:1.8;}
+.knowledge-draft-context {margin:16px 0;padding:10px 12px;background:var(--list);border-radius:6px;overflow-wrap:anywhere;font-size:13px;}
+.knowledge-draft-actions {display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;}
+.knowledge-draft-actions button {padding:7px 12px;min-height:32px;border-radius:5px;font:inherit;font-size:12px;background:var(--list);}
+.knowledge-draft-actions .primary {background:var(--green);color:var(--canvas);}
+.knowledge-draft-actions button:focus-visible {outline:2px solid var(--green);outline-offset:2px;}
+body[data-controls22-enabled] .note-heading-select.control22-field:focus-visible {outline:2px solid var(--green);outline-offset:2px;}
+.knowledge-rich-host.kn-editor-host .kn-rendered mark {background:#e9ca594d;color:inherit;border-radius:2px;padding-inline:2px;}
+:root[data-theme=dark] .knowledge-rich-host.kn-editor-host .kn-rendered mark {background:#e9ca5966;color:inherit;}
+.knowledge-rich-host.kn-editor-host .kn-rendered a.kn-wiki {color:var(--green);text-decoration:underline;text-underline-offset:3px;}
+.knowledge-rich-host.kn-editor-host .kn-rendered a.kn-wiki:focus-visible {outline:2px solid var(--green);outline-offset:2px;}
