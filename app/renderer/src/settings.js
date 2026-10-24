@@ -357,12 +357,14 @@ function renderShellSettings() {
 function shellSettingsChoiceMenu(trigger, key) {
   const options = shellSettingsChoiceOptions(key);
   const value = shellSettingsChoiceValue(key);
+  const compact = ["task-filter", "priority-filter", "new-task-priority"].includes(key);
+  const width = compact ? Math.max(120, trigger.getBoundingClientRect().width) : 258;
   shellMountSurface(
     `<div class="surface-popover prefs-menu" role="menu" aria-label="${escAttr(SHELL_SETTINGS_CHOICE_LABELS[key] || key)}">
       ${Object.entries(options).map(([optionValue, label]) => `<button type="button" role="menuitemradio" aria-checked="${String(value) === optionValue}" data-action="set-settings-choice" data-key="${escAttr(key)}" data-value="${escAttr(optionValue)}"><span>${esc(label)}</span>${String(value) === optionValue ? shellIcon("check") : "<span></span>"}</button>`).join("")}
     </div>`,
     trigger,
-    258,
+    width,
   );
   const menu = document.querySelector(".prefs-menu");
   if (menu) menu.dataset.returnFocus = `[data-action="open-settings-choice"][data-key="${CSS.escape(key)}"]`;
