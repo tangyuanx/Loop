@@ -62,9 +62,15 @@ body .product-empty h2 { color:var(--text); font-weight:400; font-size:var(--typ
 body .product-empty p, body .flow-start p { font-size:var(--type-12); line-height:1.8; color:var(--secondary); }
 body .empty-state-actions { display:flex; flex-direction:column; align-items:center; gap:8px; margin-top:4px; }
 body .product-empty>.button { margin-top:4px; }
-body .flow-start { display:flex; flex-direction:column; align-items:center; gap:10px; padding:32px 14px 20px; text-align:center; }
-body .flow-start h3 { font-size:var(--type-13); font-weight:400; }
-body .flow-scroll:has(.flow-start)>.add-node { margin-inline:auto; justify-content:center; width:fit-content; min-width:120px; border:1px solid var(--line); border-radius:6px; color:var(--green); }
+/* Empty flows start at the list's own inset, with one action and its hint.
+   Preserve the mounted entry while a first draft is edited: outside-click
+   cancellation removes that draft in place, without remounting clicked UI. */
+body .flow-start { display:flex; flex-direction:column; align-items:flex-start; gap:2px; padding:20px 8px 0; text-align:left; }
+body .flow-start>.add-node { margin:0; min-height:34px; height:auto; padding:0 9px; color:var(--green); }
+body .flow-start>p { padding-left:30px; }
+body .flow-empty>.flow-toolbar { display:none; }
+body .flow-empty:has(.node-draft) .flow-start { display:none; }
+body .flow-empty .flow-tree:has(.node-draft) { padding-top:20px; }
 @media(max-width:1100px) {
   body .search-shortcut { display:none; }
   body .task-heading .task-properties { gap:5px; }

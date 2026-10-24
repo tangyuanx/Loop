@@ -169,12 +169,14 @@ function renderShellEditActions(key) {
 // ------------------------------------------------------------
 
 function renderShellTabs(task) {
-  const total = shellNodeList(task).length;
+  const nodes = shellNodeList(task);
+  const total = nodes.length;
+  const hasCommittedNodes = nodes.some((node) => node.id !== state.focusNodeTitleId);
   const panes = [["flow", "处理流"], ["notes", "知识笔记"], ["history", "历史处理"]];
   const anyCollapsed = shellNodeList(task).some((node) => node.collapsed);
   return `<nav class="tabs-bar" aria-label="任务内容">
     ${panes.map(([pane, label]) => `<button class="pane-tab ${state.taskPane === pane ? "active" : ""}" type="button" data-action="switch-task-pane" data-pane="${pane}" aria-pressed="${state.taskPane === pane}">${label}${pane === "flow" ? `<span class="pane-count">${total}</span>` : ""}</button>`).join("")}
-    <div class="tabs-actions">${state.taskPane === "flow" ? `<button class="text-button collapse-all" type="button" data-action="toggle-all-nodes">${anyCollapsed ? "展开全部" : "收起全部"}</button>` : ""}</div>
+    <div class="tabs-actions">${state.taskPane === "flow" && hasCommittedNodes ? `<button class="text-button collapse-all" type="button" data-action="toggle-all-nodes">${anyCollapsed ? "展开全部" : "收起全部"}</button>` : ""}</div>
   </nav>`;
 }
 
@@ -241,10 +243,14 @@ function shellFlowDepth(nodes) {
 
 function renderShellFlow(task) {
   const list = shellNodeList(task);
+  // The first draft is a temporary node. Keep the empty entry mounted beneath
+  // it so cancelling a blank draft in place can reveal the same entry again.
+  const empty = !list.length || (list.length === 1 && list[0].id === state.focusNodeTitleId);
   const pending = list.filter((node) => node.status === "todo" || node.status === "blocked");
   const selected = list.find((node) => node.id === state.selectedNodeId);
   const roots = sort(task.nodes || []);
-  return `<section class="flow-pane" aria-label="层级处理流">
+  const addButton = `<button class="add-node" type="button" data-action="add-root-node" data-task-id="${escAttr(task.id)}">${shellIcon("plus")}添加节点</button>`;
+  return `<section class="flow-pane${empty ? " flow-empty" : ""}" aria-label="层级处理流">
     <div class="flow-toolbar">
       <span>${shellCountDoneNodes(task)} / ${list.length} 已完成</span>
       <div class="flow-tools">
@@ -257,9 +263,9 @@ function renderShellFlow(task) {
       <ol class="flow-tree" style="--flow-depth:${shellFlowDepth(task.nodes || [])}">
         ${roots.map((node) => renderShellFlowNode(task, node, 0)).join("")}
       </ol>
-      ${!list.length ? `<div class="flow-start"><span class="empty-state-icon">${shellIcon("tasks")}</span><h3>从下一步开始</h3><p>把要做的事拆成步骤，处理时随手记录。</p></div>` : ""}
+      ${empty ? `<div class="flow-start">${addButton}<p>拆成步骤，逐步推进。</p></div>` : ""}
       ${shellHideCompletedNodes && list.length && list.every((node) => !shellFlowNodeVisible(node)) ? '<p class="flow-filter-empty" role="status">所有节点均已完成，已隐藏</p>' : ""}
-      <button class="add-node" type="button" data-action="add-root-node" data-task-id="${escAttr(task.id)}">${shellIcon("plus")}添加节点</button>
+      ${empty ? "" : addButton}
     </div>
     </section>
     ${selected ? renderShellInspector(task, selected) : ""}`;
