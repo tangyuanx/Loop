@@ -33,7 +33,9 @@ export function safeURL(value, image=false) {
   return '';
 }
 export function createRenderer(options) {
-  const md=new MarkdownIt({html:false,linkify:true,breaks:false,typographer:false,highlight(code,language) {
+  // Match the editor's visible source lines in reading, embeds and exports.
+  // Render soft breaks without rewriting the authoritative Markdown document.
+  const md=new MarkdownIt({html:false,linkify:true,breaks:true,typographer:false,highlight(code,language) {
     try { return language && hljs.getLanguage(language) ? hljs.highlight(code,{language,ignoreIllegals:true}).value : ''; }
     catch { return ''; }
   }}).use(footnote).use(mark).use(tasks,{enabled:true}).use(texmath,{engine:katex,delimiters:'dollars',katexOptions:{throwOnError:false,trust:false,strict:'warn',maxExpand:1000,maxSize:20}});

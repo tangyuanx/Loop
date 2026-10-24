@@ -17,6 +17,12 @@ const rich = '# 技术内容保真\n\n原公式：$x^2+y^2=z^2$\n\n' + simple +
   '```mermaid\nflowchart TD\n A[中文长标签：检查输入内容] --> B[生成正确结果]\n```\n\n' +
   '![本地附件](attachments/sample.svg)\n\n> [!NOTE]- 折叠内容也应完整导出\n>\n> 不可遗漏的提示内容\n\n![[note:note-b]]\n\n- [x] 已核对\n- [ ] 待验收\n\n' +
   '| 项目 | 状态 |\n| --- | --- |\n| 图表与公式 | 等待验收 |\n\n## 多页代码\n\n```js\n' + longCode + '\n```\n\n文档结束标记。\n';
+const lineBreaks = ['测试知识笔记：检查逐行文字与图片','测试第一行','测试第二行','测','测试第三行',
+  '![终端截图](attachments/terminal.svg)','现在在哪里？','测试第四行','测试第五行','',
+  '同行图片 ![行内图标](attachments/inline.svg) 后面文字','','硬换行  ','下一行','','反斜线换行\\','下一段',
+  '','- 列表首行','  列表续行','','> 引用首行','> 引用续行','',
+  '| 项目 | 内容 |','| --- | --- |','| 表格 | 原样保留 |','','```text','原样代码','下一行代码','```','',
+  '![[note:note-g]]',''].join('\r\n');
 let app, page, run, out, files, profile;
 const results = [], errors = [];
 const pause = ms => new Promise(r => setTimeout(r, ms));
@@ -66,7 +72,10 @@ async function exportedWindow(file, fn) {
   await fs.mkdir(out,{recursive:true});await fs.mkdir(path.join(files,'attachments'),{recursive:true});
   await fs.access(path.join(profile,'task-data.json')).then(()=>{throw Error('Refusing to overwrite existing test data')},()=>{});
   await fs.writeFile(path.join(files,'attachments/sample.svg'),'<svg xmlns="http://www.w3.org/2000/svg" width="180" height="80" viewBox="0 0 180 80"><rect width="180" height="80" rx="8" fill="#d5e8dd"/><text x="20" y="48" font-size="20">本地图片</text></svg>');
+  await fs.writeFile(path.join(files,'attachments/terminal.svg'),'<svg xmlns="http://www.w3.org/2000/svg" width="273" height="146"><rect width="273" height="146" rx="4" fill="black"/><text x="12" y="80" fill="white" font-family="monospace" font-size="20">vim session1.txt</text></svg>');
+  await fs.writeFile(path.join(files,'attachments/inline.svg'),'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18"><circle cx="9" cy="9" r="7" fill="#387356"/></svg>');
   const bound=path.join(files,'bound.md');await fs.writeFile(bound,rich);const disk=await readKnowledgeDocument(bound);
+  const linesFile=path.join(files,'line-breaks.md');await fs.writeFile(linesFile,lineBreaks);const linesDisk=await readKnowledgeDocument(linesFile);
   const stamp=new Date().toISOString();
   const task=(id,title,notes,note={})=>({id,title,notes,nodes:[],createdAt:stamp,updatedAt:stamp,knowledgeNote:{noteId:'note-'+id,title,documentState:'DRAFT',...note}});
   await writeTaskData(profile,{version:2,knowledgeSchemaVersion:1,taskFilter:'all',activeTaskId:'a',tasks:[
@@ -75,6 +84,8 @@ async function exportedWindow(file, fn) {
     task('c','异常图表与资源','# 异常内容\n\n```mermaid\nflowchart LR\n A[bad syntax\n```\n\n![缺失附件](attachments/missing.png)\n\n![网络图片](https://example.invalid/remote.png)\n'),
     task('d','超宽图表','# 超宽图表\n\n```mermaid\nflowchart LR\n'+Array.from({length:18},(_,i)=>` N${i}[中文节点${i}] --> N${i+1}[中文节点${i+1}]`).join('\n')+'\n```\n'),
     task('e','简单图表','# 简单图表\n\n'+simple),
+    task('f','编辑与阅读换行一致性',lineBreaks,{filePath:linesFile,documentState:'SAVED',dirty:false,...linesDisk}),
+    task('g','换行嵌入目标','嵌入第一行\n嵌入第二行\n'),
   ]});
   const env={...process.env,LOOP_USER_DATA_DIR:profile};delete env.ELECTRON_RUN_AS_NODE;
   app=await _electron.launch({executablePath:process.env.LOOP_APP_EXECUTABLE||require('electron'),args:process.env.LOOP_APP_EXECUTABLE?[]:[source],cwd:source,env});
@@ -82,6 +93,67 @@ async function exportedWindow(file, fn) {
     await until(()=>{page=app.windows().find(p=>p.url().endsWith('/app/renderer/index.html'));return page});
     page.setDefaultTimeout(12000);page.on('pageerror',e=>errors.push(e.message));await page.waitForSelector('.navigation');
     await json('runtime',await app.evaluate(({app})=>({version:app.getVersion(),userData:app.getPath('userData'),appPath:app.getAppPath(),versions:process.versions})));
+    await test('E11-line-breaks-images-and-source-fidelity',async()=>{
+      await choose('f');const observations=[];
+      async function layout(scope) {
+        return page.locator(scope).evaluate(root=>{
+          function text(value) {
+            const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let node;
+            while(node=walker.nextNode()) {const at=node.textContent.indexOf(value);if(at<0)continue;
+              const range=document.createRange();range.setStart(node,at);range.setEnd(node,at+value.length);const r=range.getBoundingClientRect();
+              return {left:r.left,top:r.top,bottom:r.bottom};}
+            throw Error('Missing rendered text: '+value);
+          }
+          const image=root.querySelector('img[alt="终端截图"]'),r=image.getBoundingClientRect();
+          return {lines:['测试第一行','测试第二行','测试第三行','现在在哪里？','测试第四行','测试第五行'].map(text),
+            image:{left:r.left,top:r.top,bottom:r.bottom,width:r.width,height:r.height},
+            inline:[text('同行图片'),text('后面文字')],breaks:root.querySelectorAll('br').length};
+        });
+      }
+      function separated(result) {
+        for(let i=1;i<result.lines.length;i++)assert.ok(result.lines[i].top>result.lines[i-1].top+10,'separate source lines must remain separate visual lines');
+        assert.ok(result.image.top>=result.lines[2].bottom-1,'image follows its preceding text');
+        assert.ok(result.lines[3].top>=result.image.bottom-1,'text after an image begins on the next line');
+        assert.ok(Math.abs(result.lines[0].left-result.image.left)<2,'standalone image aligns with text');
+        assert.ok(Math.abs(result.inline[0].top-result.inline[1].top)<2,'same-source-line image and text remain inline');
+      }
+      for(const theme of ['light','dark'])for(const size of [[1024,820],[1440,960]]){
+        await app.evaluate(({BrowserWindow},size)=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(...size),size);
+        await page.evaluate(theme=>{state.theme=theme;render();},theme);
+        for(const value of ['edit','preview']){
+          await mode(value);const scope=value==='edit'?'.cm-content':'.kn-reading';
+          await page.waitForFunction(scope=>{const img=document.querySelector(scope+' img[alt="终端截图"]');return img?.complete&&img.naturalWidth>0},scope);
+          const result=await layout(scope);await shot(`E11-${theme}-${size[0]}-${value}`);separated(result);
+          assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),lineBreaks);
+          observations.push({theme,width:size[0],mode:value,...result});
+        }
+      }
+      const structures=await page.evaluate(()=>{
+        const renderer=knowledgeRendererForTask(shellActiveTask()),root=document.querySelector('.kn-reading');
+        const endings=['\n','\r\n','\r'].map(ending=>{const el=document.createElement('div');el.innerHTML=renderer.render(['首行','次行','末行'].join(ending));return el.querySelectorAll('br').length});
+        return {endings,hardBreaks:[...root.querySelectorAll('p')].filter(p=>p.textContent.includes('硬换行')||p.textContent.includes('反斜线换行')).map(p=>p.querySelectorAll('br').length),
+          list:root.querySelector('li')?.querySelectorAll('br').length,quote:root.querySelector('blockquote')?.querySelectorAll('br').length,
+          cells:root.querySelectorAll('td').length,code:root.querySelector('pre code')?.textContent,
+          embedded:root.querySelector('.kn-embed-body')?.querySelectorAll('br').length};
+      });
+      assert.deepEqual(structures.endings,[2,2,2]);assert.deepEqual(structures.hardBreaks,[1,1]);
+      assert.equal(structures.list,1);assert.equal(structures.quote,1);assert.equal(structures.cells,2);
+      assert.equal(structures.code,'原样代码\n下一行代码\n');assert.equal(structures.embedded,1);
+      const outputs={};for(const format of ['md','html','pdf'])outputs[format]=await download('line-breaks',format);
+      assert.equal(await fs.readFile(outputs.md,'utf8'),lineBreaks);
+      await exportedWindow(outputs.html,async tab=>{
+        await tab.waitForFunction(()=>[...document.images].every(img=>img.complete&&img.naturalWidth>0));
+        const main=tab.locator('main');assert.ok(await main.locator('br').count()>10);
+        const result=await main.evaluate(root=>{const image=root.querySelector('img[alt="终端截图"]'),texts=[];const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let node;
+          while(node=walker.nextNode())for(const label of ['测试第三行','现在在哪里？']){const at=node.textContent.indexOf(label);if(at<0)continue;const range=document.createRange();range.setStart(node,at);range.setEnd(node,at+label.length);texts.push({label,top:range.getBoundingClientRect().top,bottom:range.getBoundingClientRect().bottom});}
+          const r=image.getBoundingClientRect();return {texts,top:r.top,bottom:r.bottom};});
+        assert.ok(result.top>=result.texts.find(r=>r.label==='测试第三行').bottom-1);assert.ok(result.texts.find(r=>r.label==='现在在哪里？').top>=result.bottom-1);
+        await tab.screenshot({path:path.join(out,'E11-export-html.png'),fullPage:true});
+      });
+      await mode('source');assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),lineBreaks);
+      assert.equal((await page.evaluate(()=>saveKnowledgeTask('f'))).success,true);assert.equal(await fs.readFile(linesFile,'utf8'),lineBreaks);
+      return {observations,structures,outputs,sourceUnchanged:true};
+    });
     await test('E03-layouts-and-modes',async()=>{
       await choose('e');const metrics=[];
       for(const theme of ['light','dark'])for(const [width,height] of [[1024,680],[1280,820],[1440,900]]){
