@@ -65,3 +65,48 @@ body :is(.task-item-title, .nav-button > span:first-of-type,
 }
 body :is(.button, .prefs-choice, .prefs-menu [role="menuitemradio"],
   .context-menu button) { line-height: 1.65; }
+
+/* Windows: give the compact shell a calmer text hierarchy without changing
+   font preferences, physical-pixel sizing, row geometry or semantic colors.
+   Supporting text stays above 4.5:1 on its light surface; dark mode uses its
+   own tones. Avoid opacity/filter-based thinning of small Chinese glyphs. */
+body[data-window25="windows"] {
+  --windows-supporting: #67716b;
+  --windows-completed: #6b756f;
+}
+:root[data-theme="dark"] body[data-window25="windows"] {
+  --windows-supporting: #a2afa7;
+  --windows-completed: #99a79e;
+}
+
+body[data-window25="windows"] .task-title {
+  font-weight: 400;
+  letter-spacing: -.01em;
+}
+body[data-window25="windows"] .list-heading h2 { font-weight: 500; }
+body[data-window25="windows"] .task-properties { font-weight: 400; }
+
+body[data-window25="windows"] :is(.task-properties, .nav-label,
+  .nav-section-heading, .brief21-toggle, .flow-toolbar, .workspace-foot,
+  .list-foot, .topbar .rhythm) {
+  color: var(--windows-supporting);
+}
+body[data-window25="windows"] .brief-row:not(:focus-within) label {
+  color: var(--windows-supporting);
+}
+/* The selected group retains its green surface and marker. Its parent route
+   remains a quiet location cue rather than a second selected destination. */
+body[data-window25="windows"] .navigation .nav-button.parent-active {
+  color: var(--windows-supporting);
+}
+
+/* Keep completed text readable; reduce the crossing line's ink separately.
+   Selected/bulk-selected tasks retain their existing emphasis and hit areas. */
+body[data-window25="windows"] .task-item.done:not(.selected):not(.bulk-selected) .task-item-title {
+  color: var(--windows-completed);
+  text-decoration-color: color-mix(in srgb, var(--windows-completed) 62%, var(--list));
+  text-decoration-thickness: 1px;
+}
+body[data-window25="windows"] .flow-row.done:not(.selected):not(:hover) .node-title {
+  color: var(--windows-completed);
+}
