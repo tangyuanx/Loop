@@ -3246,6 +3246,33 @@ test("disk and renderer typography default to Heiti and Times while preserving e
 
 });
 
+test("global knowledge preferences survive browser and desktop saves with safe legacy defaults", async (t) => {
+  const browser = await rendererHarness();
+  assert.equal(browser.evaluate('loadBrowserPreferences().knowledgeWidth'), 'default');
+  assert.equal(browser.evaluate('loadBrowserPreferences().markdownMode'), 'edit');
+  browser.evaluate(`applySetting('knowledge-width', 'wide'); applySetting('knowledge-mode', 'source'); save();`);
+  assert.equal(browser.evaluate('loadBrowserPreferences().knowledgeWidth'), 'wide');
+  assert.equal(browser.evaluate('loadBrowserPreferences().markdownMode'), 'source');
+
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'loop-knowledge-preferences-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const desktop = await rendererHarness({ storage: {
+    read: () => readTaskData(directory),
+    write: payload => writeTaskData(directory, payload),
+  } });
+  desktop.evaluate(`applySetting('knowledge-width', 'full'); applySetting('knowledge-mode', 'preview'); save();`);
+  await desktop.evaluate('flushSave()');
+  const reopened = await rendererHarness({ storage: { read: () => readTaskData(directory) } });
+  const loaded = await reopened.evaluate('loadAppData()');
+  assert.equal(loaded.knowledgeWidth, 'full');
+  assert.equal(loaded.markdownMode, 'preview');
+  for (const data of [{}, { knowledgeWidth: 'invalid', markdownMode: 'invalid' }]) {
+    const normalized = normalizeTaskData(data);
+    assert.equal(normalized.knowledgeWidth, 'default');
+    assert.equal(normalized.markdownMode, 'edit');
+  }
+});
+
 test("disk normalization creates and preserves a random UUID installation identifier", () => {
   const created = normalizeTaskData({}).installationId;
   assert.match(created, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);

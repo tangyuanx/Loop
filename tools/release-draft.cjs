@@ -87,9 +87,32 @@ async function findRelease(api, tag) {
   throw Error('Draft lookup pagination limit reached; refusing to create a duplicate');
 }
 
+function resolveReleaseTag(ref, refType, version) {
+  const tag = 'v' + version;
+  if (refType === 'tag' && ref === tag) return tag;
+  if (refType === 'branch' && ref === 'release/' + tag) return tag;
+  throw Error('Release ref does not match the package version');
+}
+
+async function ensureReleaseTag(api, tag, sha) {
+  let ref;
+  try { ref = await api('git/ref/tags/' + encodeURIComponent(tag)); }
+  catch (error) { if (error.status !== 404) throw error; }
+  if (!ref) {
+    await api('git/refs', 'POST', {ref: 'refs/tags/' + tag, sha});
+    ref = await api('git/ref/tags/' + encodeURIComponent(tag));
+  }
+  let target = ref.object;
+  for (let depth = 0; target?.type === 'tag' && depth < 8; depth++) {
+    target = (await api('git/tags/' + target.sha)).object;
+  }
+  if (target?.type !== 'commit' || target.sha !== sha) throw Error('Release tag points to a different commit; refusing to replace it');
+}
+
 async function run(command) {
   if (process.env.GITHUB_ACTIONS !== 'true') throw Error('Release mutation is restricted to GitHub Actions');
-  const repo = process.env.GITHUB_REPOSITORY, sha = process.env.GITHUB_SHA, version = require('../package.json').version, tag = process.env.GITHUB_REF_NAME;
+  const repo = process.env.GITHUB_REPOSITORY, sha = process.env.GITHUB_SHA, version = require('../package.json').version;
+  const tag = resolveReleaseTag(process.env.GITHUB_REF_NAME, process.env.GITHUB_REF_TYPE, version);
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo || '') || !/^[a-f0-9]{40}$/.test(sha || '') || tag !== 'v' + version || !process.env.GH_TOKEN) throw Error('Invalid release identity or missing workflow token');
   if (execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim() !== sha) throw Error('Checkout does not match the release commit');
   const api = async (route, method = 'GET', body) => {
@@ -108,6 +131,10 @@ async function run(command) {
   };
   if (command === 'prepare') {
     let release = await findRelease(api, tag);
+    if (release && !release.draft) throw Error('Release is already published; use a new version');
+    // GITHUB_TOKEN-created tags do not trigger a second workflow run. The
+    // current release-branch run continues through the same native gates.
+    if (process.env.GITHUB_REF_TYPE === 'branch') await ensureReleaseTag(api, tag, sha);
     if (!release) {
       const notes = path.join('docs', 'release-notes', tag + '.md');
       release = await api('releases', 'POST', {tag_name: tag, target_commitish: sha, name: tag, draft: true, prerelease: version.includes('-'),
@@ -139,5 +166,5 @@ async function run(command) {
   } else throw Error('Expected prepare, upload or publish');
 }
 
-module.exports = {requiredNames, createManifest, validateManifests, validateRemoteRelease, findRelease};
+module.exports = {requiredNames, createManifest, validateManifests, validateRemoteRelease, findRelease, resolveReleaseTag, ensureReleaseTag};
 if (require.main === module) run(process.argv[2]).catch(error => {console.error(error.message); process.exitCode = 1;});

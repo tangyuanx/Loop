@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const {spawnSync} = require('node:child_process');
-const {requiredNames, createManifest, validateManifests, validateRemoteRelease, findRelease} = require('../tools/release-draft.cjs');
+const {requiredNames, createManifest, validateManifests, validateRemoteRelease, findRelease, resolveReleaseTag, ensureReleaseTag} = require('../tools/release-draft.cjs');
 const version = '0.1.239', sha = 'a'.repeat(40), tag = 'v' + version;
 
 function fixture(t) {
@@ -88,4 +88,33 @@ test('draft lookup falls back from the published tag endpoint to authenticated l
 test('draft lookup distinguishes an absent release from access failures', async () => {
   assert.equal(await findRelease(async route => {if (route.startsWith('releases/tags/')) throw Object.assign(Error('missing'), {status:404}); return [];}, tag), null);
   await assert.rejects(findRelease(async () => {throw Object.assign(Error('denied'), {status:403});}, tag), /denied/);
+});
+
+test('only the exact version tag or release branch can enter the release pipeline', () => {
+  assert.equal(resolveReleaseTag(tag, 'tag', version), tag);
+  assert.equal(resolveReleaseTag('release/' + tag, 'branch', version), tag);
+  for (const [ref, type] of [['main','branch'], [tag,'branch'], ['release/v0.1.238','branch'], ['v0.1.238','tag'], ['release/' + tag,'tag']]) {
+    assert.throws(() => resolveReleaseTag(ref, type, version), /does not match/);
+  }
+});
+
+test('release branches create and verify an absent tag exactly once', async () => {
+  const calls = []; let created = false;
+  await ensureReleaseTag(async (route, method, body) => {
+    calls.push({route, method, body});
+    if (method === 'POST') { created = true; return {}; }
+    if (!created) throw Object.assign(Error('missing'), {status:404});
+    return {object:{type:'commit',sha}};
+  }, tag, sha);
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls[1], {route:'git/refs', method:'POST', body:{ref:'refs/tags/' + tag,sha}});
+});
+
+test('release branches reuse matching tags but never move another commit or ignore access errors', async () => {
+  const calls = [];
+  await ensureReleaseTag(async (route, method) => { calls.push(method); return {object:{type:'commit',sha}}; }, tag, sha);
+  assert.equal(calls.length, 1);
+  await assert.rejects(ensureReleaseTag(async () => ({object:{type:'commit',sha:'b'.repeat(40)}}), tag, sha), /refusing to replace/);
+  await assert.rejects(ensureReleaseTag(async () => {throw Object.assign(Error('denied'), {status:403});}, tag, sha), /denied/);
+  await ensureReleaseTag(async route => ({object:{type:route.startsWith('git/tags/')?'commit':'tag',sha}}), tag, sha);
 });

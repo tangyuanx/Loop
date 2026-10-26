@@ -56,7 +56,7 @@ function knowledgeEditorOptions(task) {
 }
 function knowledgeSetMode(mode) {
   captureMountedMilkdownDrafts(); flushNodeNoteDrafts({persist:true});
-  state.markdownMode = mode; render();
+  applySetting('knowledge-mode', mode); save(); render();
 }
 function knowledgeReceipt(task) {
   return knowledgeSavePresentation(task);

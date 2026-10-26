@@ -186,6 +186,8 @@ function normalizeTaskData(data) {
     priorityFilter: PRIORITY_FILTERS.has(safeData.priorityFilter) ? safeData.priorityFilter : "all",
     captureSourceFilter: CAPTURE_SOURCE_FILTERS.has(safeData.captureSourceFilter) ? safeData.captureSourceFilter : "all",
     newTaskPriority: PRIORITIES.has(safeData.newTaskPriority) ? safeData.newTaskPriority : "medium",
+    knowledgeWidth: ["default", "wide", "full"].includes(safeData.knowledgeWidth) ? safeData.knowledgeWidth : "default",
+    markdownMode: ["edit", "source", "preview"].includes(safeData.markdownMode) ? safeData.markdownMode : "edit",
     uiPreferences: safeData.uiPreferences && typeof safeData.uiPreferences === "object" ? {
       continuous: safeData.uiPreferences.continuous !== false,
       follow: safeData.uiPreferences.follow !== false,

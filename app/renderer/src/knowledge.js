@@ -44,6 +44,7 @@ Object.assign(SHELL_ICON_PATHS, {
 });
 
 const SHELL_NOTE_WIDTH_NAMES = { default: "默认", wide: "较宽", full: "全宽" };
+const SHELL_NOTE_MODE_NAMES = { edit: "编辑", source: "源码", preview: "阅读" };
 const SHELL_NOTE_WIDTH_DESCRIPTIONS = {
   default: "适合阅读与日常记录",
   wide: "适合代码与多列表格",
@@ -136,7 +137,7 @@ function renderShellKnowledgeViewbar(mode) {
 }
 
 function renderShellKnowledgeWidthButton() {
-  return `<button class="note-width-button" type="button" data-action="knowledge-width-menu" aria-label="笔记页宽：${escAttr(SHELL_NOTE_WIDTH_NAMES[shellNoteWidth()])}" title="调整笔记页宽" aria-haspopup="menu">${shellIcon("noteWidth")}<span>${esc(SHELL_NOTE_WIDTH_NAMES[shellNoteWidth()])}</span>${shellIcon("chevron")}</button>`;
+  return `<button class="note-width-button" type="button" data-action="knowledge-width-menu" aria-label="笔记页宽：${escAttr(SHELL_NOTE_WIDTH_NAMES[shellNoteWidth()])}" title="调整所有笔记的页宽" aria-haspopup="menu">${shellIcon("noteWidth")}<span>${esc(SHELL_NOTE_WIDTH_NAMES[shellNoteWidth()])}</span>${shellIcon("chevron")}</button>`;
 }
 
 function renderShellKnowledgeNotice(task, noteState) {
@@ -171,7 +172,7 @@ function renderShellKnowledgeTools(mode) {
 
 function shellNoteWidthMenu(trigger) {
   shellMountSurface(
-    `<div class="surface-popover note-width-menu" role="menu" aria-label="选择笔记页宽">${shellSurfaceHeader("笔记页宽")}
+    `<div class="surface-popover note-width-menu" role="menu" aria-label="选择笔记页宽">${shellSurfaceHeader("笔记页宽 · 全局")}
       ${Object.entries(SHELL_NOTE_WIDTH_NAMES).map(([value, label]) => `<button class="note-width-option" type="button" role="menuitemradio" aria-checked="${value === shellNoteWidth()}" data-action="set-note-width" data-width="${value}"><span class="note-width-sample sample-${value}" aria-hidden="true"><i></i><i></i><i></i></span><span class="note-width-copy"><strong>${label}</strong><small>${esc(SHELL_NOTE_WIDTH_DESCRIPTIONS[value])}</small></span><span class="note-width-check">${value === shellNoteWidth() ? shellIcon("check") : ""}</span></button>`).join("")}
     </div>`,
     trigger,
@@ -205,6 +206,7 @@ function shellKnowledgeFileMenu(trigger) {
       <button class="button" type="button" role="menuitem" data-wb-action="format">格式与插入…</button>
       <button class="button" type="button" role="menuitem" data-kn-action="panels" aria-pressed="${knowledgePanels.has(task.id)}">大纲与关联笔记</button>
       ${renderShellKnowledgeWidthButton()}
+      <button class="button" type="button" role="menuitem" data-action="open-knowledge-settings">全局笔记设置…</button>
       <button class="button" type="button" role="menuitem" data-kn-action="rename">重命名笔记…</button>
       <button class="button" type="button" role="menuitem" data-wb-action="properties">笔记属性（源码）</button>
       <div class="menu-divider"></div><div class="note23-menu-label">文件</div>

@@ -3,6 +3,7 @@ name: Release Desktop Apps
 on:
   push:
     tags: ["v*"]
+    branches: ["release/v*"]
 
 permissions:
   contents: read
@@ -33,7 +34,7 @@ jobs:
     name: Release ${{ matrix.platform }}
     needs: prepare
     runs-on: ${{ matrix.os }}
-    # Tag-only trusted source; the script rejects uploads to published releases.
+    # Trusted versioned source; the script rejects uploads to published releases.
     permissions:
       contents: write
     strategy:

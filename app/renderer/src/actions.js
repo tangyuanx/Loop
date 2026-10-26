@@ -1584,7 +1584,7 @@ async function shellAction(data, event) {
       shellNoteWidthMenu(trigger);
       return true;
     case "set-note-width":
-      state.knowledgeWidth = Object.hasOwn(SHELL_NOTE_WIDTH_NAMES, data.width) ? data.width : "default";
+      applySetting("knowledge-width", data.width);
       shellCloseOverlay({ restoreFocus: false });
       return true;
     case "knowledge-file-menu":
@@ -1631,8 +1631,18 @@ async function shellAction(data, event) {
       save();
       return true;
     }
+    case "open-knowledge-settings":
+      state.settingsOpen = true;
+      state.calendarOpen = false;
+      state.reviewOpen = false;
+      state.feedbackOpen = false;
+      state.globalListReturn = null;
+      activeSettingsPage = "knowledge";
+      settingsMotion = "page";
+      shellCloseOverlay({ restoreFocus: false });
+      return true;
     case "set-settings-page":
-      if (["appearance", "tasks", "data", "updates", "advanced", "help"].includes(data.page)) {
+      if (SHELL_SETTINGS_CATEGORIES.some(([page]) => page === data.page)) {
         activeSettingsPage = data.page;
         settingsMotion = "page";
       }
