@@ -523,6 +523,7 @@ function shellFormatKnowledgeSource(action, value) {
   } else {
     const blocks = {
       code: `\`\`\`text\n${text || "代码或命令"}\n\`\`\``,
+      diagram: "```mermaid\nflowchart LR\n  A[开始] --> B[处理]\n  B --> C[完成]\n```",
       table: "| 项目 | 验证依据 |\n| --- | --- |\n| 待补充 | 待补充 |",
       rule: "---",
       image: value,

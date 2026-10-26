@@ -551,7 +551,12 @@ class KnowledgeEditor {
       }
       view.dispatch({changes,annotations:isolateHistory.of('full'),userEvent:'input.format'});view.focus();return true;
     }
-    const blocks={code:'```text\n'+text+'\n```',table:'| 项目 | 内容 |\n| --- | --- |\n|  |  |',rule:'---',image:value||'![图片](https://)',link:`[${text||'链接'}](${safeURL(value)||'https://'})`};
+    const blocks={
+      code:'```text\n'+text+'\n```',
+      diagram:'```mermaid\nflowchart LR\n  A[开始] --> B[处理]\n  B --> C[完成]\n```',
+      table:'| 项目 | 内容 |\n| --- | --- |\n|  |  |',
+      rule:'---',image:value||'![图片](https://)',link:`[${text||'链接'}](${safeURL(value)||'https://'})`
+    };
     if(!(action in blocks))return false;
     const insert=action==='link'||action==='image'?blocks[action]:'\n\n'+blocks[action]+'\n\n';
     const anchor=action==='code'?from+2+'```text\n'.length:action==='table'?from+2+blocks.table.lastIndexOf('|  |  |')+2:from+insert.length;

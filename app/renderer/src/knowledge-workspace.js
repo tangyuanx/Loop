@@ -340,6 +340,7 @@ function knowledgeInsertMenu(trigger) {
     ${item('insert-format','knowledgeTable','表格','data-kn-format="table"')}
     ${item('table-tools','knowledgeTable','编辑表格行列…')}
     ${item('insert-format','knowledgeCode','代码块','data-kn-format="code"')}
+    ${item('insert-format','knowledgeDiagram','Mermaid 图表','data-kn-format="diagram"')}
     ${item('upload','knowledgeImage','图片…')}
     <div class="menu-divider"></div>
     ${item('insert-format','noteQuote','引用','data-kn-format="quote"')}
