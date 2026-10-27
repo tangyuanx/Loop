@@ -3246,6 +3246,33 @@ test("disk and renderer typography default to Heiti and Times while preserving e
 
 });
 
+test("global knowledge preferences survive browser and desktop saves with safe legacy defaults", async (t) => {
+  const browser = await rendererHarness();
+  assert.equal(browser.evaluate('loadBrowserPreferences().knowledgeWidth'), 'default');
+  assert.equal(browser.evaluate('loadBrowserPreferences().markdownMode'), 'edit');
+  browser.evaluate(`applySetting('knowledge-width', 'wide'); applySetting('knowledge-mode', 'source'); save();`);
+  assert.equal(browser.evaluate('loadBrowserPreferences().knowledgeWidth'), 'wide');
+  assert.equal(browser.evaluate('loadBrowserPreferences().markdownMode'), 'source');
+
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'loop-knowledge-preferences-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const desktop = await rendererHarness({ storage: {
+    read: () => readTaskData(directory),
+    write: payload => writeTaskData(directory, payload),
+  } });
+  desktop.evaluate(`applySetting('knowledge-width', 'full'); applySetting('knowledge-mode', 'preview'); save();`);
+  await desktop.evaluate('flushSave()');
+  const reopened = await rendererHarness({ storage: { read: () => readTaskData(directory) } });
+  const loaded = await reopened.evaluate('loadAppData()');
+  assert.equal(loaded.knowledgeWidth, 'full');
+  assert.equal(loaded.markdownMode, 'preview');
+  for (const data of [{}, { knowledgeWidth: 'invalid', markdownMode: 'invalid' }]) {
+    const normalized = normalizeTaskData(data);
+    assert.equal(normalized.knowledgeWidth, 'default');
+    assert.equal(normalized.markdownMode, 'edit');
+  }
+});
+
 test("disk normalization creates and preserves a random UUID installation identifier", () => {
   const created = normalizeTaskData({}).installationId;
   assert.match(created, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
@@ -3705,12 +3732,14 @@ test("an isolated profile never triggers legacy user-data recovery", async () =>
 
 test("the group context menu UI suite runs against its own isolated profile", async () => {
   const suiteSource = await fs.readFile(path.join(__dirname, "group-context-menu.ui.cjs"), "utf8");
-  assert.match(suiteSource, /--user-data-dir=\$\{profile\}/);
-  assert.match(suiteSource, /await seedProfile\(profile\)/, "the suite must seed the profile it owns");
-  assert.match(suiteSource, /delete env\.ELECTRON_RUN_AS_NODE/, "the binary must start as the app, not as plain Node");
+  const helper = await fs.readFile(path.join(__dirname, "electron-ui-helpers.cjs"), "utf8");
+  assert.match(suiteSource, /await launchRepository\(/, "the suite launches the real app with its own seed");
+  assert.match(helper, /LOOP_USER_DATA_DIR: profile/);
+  assert.match(helper, /app\.getPath\('userData'\)/, "the suite verifies the actual profile path");
+  assert.match(helper, /delete env\.ELECTRON_RUN_AS_NODE/, "the binary must start as the app, not as plain Node");
   assert.match(
     suiteSource,
-    /the UI write must land in the isolated profile/,
+    /stored\.taskGroups\.some/,
     "the suite must prove where its writes went",
   );
   assert.doesNotMatch(suiteSource, /querySelector\("\.repository-group-trigger"\)/, "the picker lives in the filter popover");
@@ -4234,7 +4263,7 @@ test("production Today widget uses its dedicated frontend and a sandboxed Electr
   assert.match(rendererApp, /const effective = action === "download" && !\["available", "downloaded"\]\.includes\(status\)/);
   assert.match(rendererApp, /if \(typeof globalThis\.shellSettingsSyncUpdateCard === "function"\) \{\s*globalThis\.shellSettingsSyncUpdateCard\(\);/);
   // - search scope matches the approved Demo; brief fields stay click-to-edit
-  assert.match(shellSource, /placeholder="搜索任务、节点、速记" aria-label="搜索全部任务、节点、速记"/);
+  assert.match(shellSource, /placeholder="搜索任务、节点、速记" aria-label="搜索\$\{escAttr\(shellListTitle\(\)\)\}中的任务、节点、速记"/);
   assert.match(workspaceSource, /<button class="brief-value \$\{value \? "" : "muted"\}" type="button" data-action="shell-edit-brief"/);
   // Group management was removed (the row had no visible control of its own);
   // group rows now render as a single button.
@@ -4966,7 +4995,7 @@ test("the frozen Demo baseline is the renderer stylesheet authority", async () =
   // follows those layers in main and floating windows without changing them.
   const linked = [...index.matchAll(/<link[^>]+href="\.\/src\/([^"?]+)/g)].map((match) => match[1]);
   const order = ["shell.css", "vendor/milkdown-editor.css", "knowledge.css", "fonts.css", "settings.css", "typography.css", "refinement.css", "selection.css", "flow.css", "shell-refinement.css", "help.css", "work.css", "task-entry.css", "journey.css", "time.css", "desktop.css", "scale.css", "brief21.css", "controls22.css", "notebook23.css", "management24.css", "window25.css", "bridge.css", "recovery26.css", "manual27.css"];
-  assert.deepEqual(linked, [...order, "vendor/knowledge-editor.css", "knowledge-editor.css", "type-readability.css", "workbench.css"], "preserve the frozen Demo order, followed by typography and the scoped workbench refinement");
+  assert.deepEqual(linked, [...order, "vendor/knowledge-editor.css", "knowledge-editor.css", "type-readability.css", "workbench.css", "repository.css", "task-workspace.css", "knowledge-workspace.css", "foundation.css"], "preserve the frozen Demo order, then load feature geometry and the shared foundation last");
   assert.equal(await fs.readFile(path.join(rendererDir, "src", "manual27.css"), "utf8"), await fs.readFile(path.join(__dirname, "..", "prototypes", "baseline", "loop-plane-phase27-frozen", "loop-manual-phase27.css"), "utf8"), "the manual keeps the approved Demo CSS verbatim");
   const scripts = [...index.matchAll(/<script[^>]+src="\.\/src\/([^"?]+)/g)].map((match) => match[1]);
   const phase24Script = scripts.indexOf("management24.js");
@@ -5742,7 +5771,8 @@ test("global search floats from the app rail while repository tools remain conte
     assert.match(surfaces.topbar, /class="app-command-utilities"[\s\S]*data-action="toggle-settings"[\s\S]*data-action="toggle-theme"/);
     assert.match(surfaces.topbar, /class="app-topbar-search is-open"[\s\S]*id="search"[\s\S]*class="global-search-panel"/);
     assert.doesNotMatch(surfaces.panel, /global-search-layer|id="search"/);
-    assert.match(app, /state\.searchOpen \? `<div class="global-search-layer"/);
+    assert.doesNotMatch(app.slice(app.indexOf('function render()'), app.indexOf('function renderGlobalSearchResults()')), /class="global-search-layer"/,
+      'the production repository search leaves task results directly reachable');
     assert.match(app, /search\.addEventListener\("focus"[\s\S]*state\.searchOpen = true;/);
     return;
   }

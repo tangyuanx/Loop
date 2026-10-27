@@ -1,0 +1,119 @@
+/* Stage 2: navigation and repository geometry. Shared fields and focus remain
+   owned by foundation.css, loaded after this feature sheet. */
+:root {
+  --repository-nav: #efeeeb;
+  --repository-list: #f5f4f1;
+  --repository-hover: #eae9e4;
+  --repository-selected: #e9e9e3;
+}
+
+:root[data-theme="dark"] {
+  --repository-nav: #1d1f1d;
+  --repository-list: #212321;
+  --repository-hover: #30332e;
+  --repository-selected: #353931;
+}
+
+body .navigation {
+  --nav: var(--repository-nav);
+  background: var(--repository-nav);
+  border-right: 0;
+  padding-inline: 12px;
+}
+
+body[data-window25] .topbar {
+  border-bottom: 0;
+  box-shadow: none;
+}
+
+body[data-window25] .topbar .brand { background: var(--repository-nav); }
+body[data-window25] .breadcrumb { min-width: 0; font-size: var(--type-11); }
+body[data-window25] .breadcrumb b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body[data-window25] .breadcrumb > svg { flex-shrink: 0; }
+body .shell-actions { gap: 8px; flex-shrink: 0; }
+body .preview-date { font-size: var(--type-11); }
+
+body .navigation .nav-button {
+  min-height: 38px;
+  margin-block: 3px;
+  padding-inline: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--secondary);
+  box-shadow: none;
+}
+
+body .navigation .nav-button svg { width: 16px; height: 16px; stroke-width: 1.55; }
+body .navigation .nav-button:hover,
+body .navigation .nav-button.active,
+body .navigation .nav-button.active:not(:disabled):hover { color: var(--text); background: var(--repository-hover); box-shadow: none; }
+body .navigation .nav-button.active::before { display: none; }
+body .navigation .nav-button[data-value="today"].active,
+body .navigation .nav-button[data-value="today"].active:not(:disabled):hover { background: #365b48; color: #f3f4ed; }
+body .navigation .nav-button[data-value="today"].active :is(svg, .count) { color: inherit; background: transparent; }
+body .nav-groups { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+body .nav-section-heading { padding-inline: 2px; gap: 2px; }
+body .nav-section-heading > span:first-child { white-space: nowrap; }
+body .nav-section-heading .icon-button { width: 20px; height: 24px; flex-shrink: 0; }
+body .navigation .group-nav-row .nav-button { min-height: 34px; font-size: var(--type-12); }
+body .nav-groups .count { font-size: var(--type-11); }
+body .nav-bottom { border: 0; padding-top: 12px; flex-shrink: 0; }
+body .nav-bottom .nav-button { min-height: 32px; margin: 0; }
+
+body .task-list-pane {
+  --list: var(--repository-list);
+  --hover: var(--repository-hover);
+  --selected: var(--repository-selected);
+  --input-surface: color-mix(in srgb, var(--list) 97%, var(--text));
+  --field22-bg: var(--input-surface);
+  min-width: 0;
+  background: var(--list);
+  border-right: 0;
+}
+
+body .task-list-pane .list-search {
+  margin: 16px 16px 7px;
+  min-height: 36px;
+  height: 36px;
+  padding-inline: 11px;
+  border-radius: 9px;
+}
+
+body .list-search input { font-size: var(--type-11); }
+body .list-search kbd { border: 0; background: transparent; color: var(--secondary); }
+body .task-list-pane .list-heading { padding: 15px 20px 17px; border: 0; gap: 6px; }
+body .list-heading h2 { min-width: 0; font-size: var(--type-13); gap: 9px; }
+body .list-heading .list-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body .list-heading h2 .count { flex-shrink: 0; color: var(--secondary); background: transparent; font-size: var(--type-11); }
+body .heading-list-actions { gap: 3px; flex-shrink: 0; }
+body .heading-list-actions :is(.scope-filter, .icon-button) {
+  min-height: 28px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--secondary);
+}
+
+body .heading-list-actions :is(.scope-filter, .icon-button):hover { background: var(--hover); color: var(--text); }
+body .task-list-pane .tasks-scroll { padding: 2px 12px 20px; }
+body .task-list-pane .task-item { height: 44px; min-height: 44px; margin: 4px 0; border-radius: 8px; gap: 7px; padding-inline: 9px; }
+body .task-item.selected::before { display: none; }
+body .task-list-pane .task-item.selected,
+body .task-list-pane .task-item.selected:hover { background: var(--selected); }
+body .task-item.selected .task-item-title { color: var(--text); }
+body .task-item-title { font-size: var(--type-12); }
+body .task-sequence-action { width: 20px; flex-basis: 20px; }
+body .task-sequence { font-size: var(--type-11); }
+body .task-item.selected .task-complete { color: var(--secondary); }
+body .list-filter { border: 0; padding-inline: 18px; }
+body .active-list-filters { margin: 0 16px 7px; color: var(--secondary); background: transparent; border: 0; padding-inline: 4px; }
+body .list-foot { min-height: 38px; padding-inline: 20px; border: 0; background: transparent; font-size: var(--type-11); }
+body .task-list-pane .empty { overflow-wrap: anywhere; }
+
+/* Keep the icon rail and all group names reachable when many groups exist. */
+body .nav-collapsed .navigation { padding-inline: 8px; }
+body .nav-collapsed .nav-groups .nav-button { padding-inline: 0; }
+@media (max-width: 1100px) {
+  body .shell-actions .preview-date { display: none; }
+}

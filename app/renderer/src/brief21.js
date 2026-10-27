@@ -12,6 +12,7 @@
 
 const BRIEF21_EXPANDED = new Map();   // taskId -> the user's own choice this session
 const BRIEF21_SESSIONS = new Map();   // "taskId:field" -> the value the session started from
+let brief21Rendering = false;
 
 /** The one history entry a changed editing session leaves behind. */
 const BRIEF21_HISTORY_LIMIT = 60;
@@ -155,8 +156,11 @@ render = function brief21Render() {
         direction: active.selectionDirection, top: active.scrollTop, briefTop: active.closest(".brief")?.scrollTop ?? 0 }
     : null;
   if (editing) brief21Retain(active);
-  [...BRIEF21_SESSIONS.keys()].forEach(brief21Flush);
-  brief21PriorRender();
+  const continuing = cursor?.key.split(":")[0] === state.activeTaskId && state.taskPane !== "notes"
+    && !state.settingsOpen && !state.calendarOpen && !state.reviewOpen ? cursor?.key : null;
+  [...BRIEF21_SESSIONS.keys()].filter(key => key !== continuing).forEach(brief21Flush);
+  brief21Rendering = true;
+  try { brief21PriorRender(); } finally { brief21Rendering = false; }
   brief21SetupFlowBrief();
   brief21ResizeAll();
   if (cursor) {
@@ -190,6 +194,7 @@ window.addEventListener("input", (event) => {
 window.addEventListener("focusout", (event) => {
   const el = event.target;
   if (!el.matches?.(".brief21-input")) return;
+  if (brief21Rendering) return;
   brief21Retain(el);
   brief21Flush(el.dataset.brief21Key);
 });

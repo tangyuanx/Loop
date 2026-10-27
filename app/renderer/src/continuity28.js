@@ -7,7 +7,7 @@
   let preferences = { continuous: true, follow: true }, available = false, epoch = 0, viewportEpoch = 0, intent = null;
   try { const saved = JSON.parse(localStorage.getItem(storageKey)); if (saved) preferences = { continuous: saved.continuous !== false, follow: saved.follow !== false }; } catch {}
   const memory = new Map(), animations = new Set();
-  const selectors = ['.flow-scroll', '.inspector-body', '.knowledge-body', '#knowledge-source', '.knowledge-pane .cm-scroller', '.article-pane'];
+  const selectors = ['.flow-scroll', '.inspector-body', '[data-shell-node-record]', '.knowledge-body', '#knowledge-source', '.knowledge-pane .cm-scroller', '.article-pane'];
   const rect = el => el?.getClientRects().length ? el.getBoundingClientRect() : null;
   const one = selector => { try { const matches = document.querySelectorAll(selector); return matches.length === 1 ? matches[0] : null; } catch { return null; } };
   function context() {
@@ -16,7 +16,7 @@
   function key(c, selector) {
     // The flow belongs to the task, regardless of the selected node. Only
     // the record viewport needs a separate reading position for each node.
-    return JSON.stringify([c.task, selector, selector === '.inspector-body' ? c.node : '']);
+    return JSON.stringify([c.task, selector, ['.inspector-body', '[data-shell-node-record]'].includes(selector) ? c.node : '']);
   }
   function remember(c) {
     if (!c.task) return;
@@ -34,7 +34,7 @@
       el.scrollLeft = Math.min(saved?.left || 0, Math.max(0, el.scrollWidth - el.clientWidth));
     }
   }
-  function cancelMotion() { epoch++; for (const a of animations) a.cancel(); animations.clear(); }
+  function cancelMotion() { epoch++; for (const a of animations) a.cancel(); animations.clear(); if (typeof shellCancelBranchMotion === 'function') shellCancelBranchMotion(); }
   function enabled() { return available && preferences.follow && preferences.continuous && !reduced.matches; }
   function applyPreferences() { bridge?.setEnabled(enabled()); }
   function setPreference(key, value) {
@@ -98,9 +98,11 @@
     const interaction = intent && performance.now() - intent.time < 500 ? intent : null;
     const anchorSelector = interaction?.action === 'toggle-node-collapse' && interaction.node ? `.collapse[data-node-id="${CSS.escape(interaction.node)}"]` : null;
     const anchor = anchorSelector && rect(one(anchorSelector));
+    const branches = typeof shellCaptureBranches === 'function' ? shellCaptureBranches(preferences.continuous && !reduced.matches) : null;
     remember(old);
-    if (!click?.claimed) cancelMotion();
+    if (!click?.claimed) { epoch++; for (const a of animations) a.cancel(); animations.clear(); }
     priorRender(); // Preserve all caches, drafts, recovery, save and file bindings.
+    if (branches) shellAnimateBranches(branches, preferences.continuous && !reduced.matches);
     decorate();
     const next = context(), renderEpoch = epoch;
     let scrollAdjustment = 0;

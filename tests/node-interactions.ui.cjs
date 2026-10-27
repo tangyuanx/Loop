@@ -1,43 +1,21 @@
-// Real pointer gestures: long-press hierarchy changes and double-click naming.
+// Real Electron regression using an isolated synthetic profile.
 const assert = require('node:assert/strict');
-const fs = require('node:fs/promises');
-const http = require('node:http');
-const path = require('node:path');
-const { chromium } = require('playwright-core');
+const { launchRepository } = require('./electron-ui-helpers.cjs');
 
 (async () => {
-  const repository = path.resolve(__dirname, '..');
-  const server = http.createServer(async (request, response) => {
-    const file = path.resolve(repository, '.' + new URL(request.url, 'http://localhost').pathname);
-    if (!file.startsWith(repository + path.sep)) { response.writeHead(403).end(); return; }
-    try {
-      response.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html');
-      response.end(await fs.readFile(file));
-    } catch { response.writeHead(404).end(); }
-  });
-  let browser;
+  let run;
   try {
-    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-    browser = await chromium.launch({ headless: true, executablePath: process.env.LOOP_TEST_CHROMIUM || undefined,
-      args: process.platform === 'linux' ? ['--no-sandbox', '--disable-dev-shm-usage'] : [] });
-    const page = await browser.newPage({ viewport: {
-      width: Number(process.env.LOOP_TEST_WIDTH) || 1000,
-      height: Number(process.env.LOOP_TEST_HEIGHT) || 720,
-    } });
-    const errors = []; page.on('pageerror', error => errors.push(error.message));
-    await page.addInitScript(() => {
-      if (localStorage.getItem('task-flow-sheet-prototype-v2')) return;
       const stamp = new Date().toISOString();
-      localStorage.setItem('task-flow-sheet-prototype-v2', JSON.stringify([{ id: 'task', title: '节点交互验证', status: 'active',
+      const tasks = [{ id: 'task', title: '节点交互验证', status: 'active',
         createdAt: stamp, updatedAt: stamp, nodes: [
           { id: 'a', title: '步骤 A', note: '保留父节点记录', order: 1, children: [{ id: 'ax', title: 'A 的子节点', note: '保留子节点记录', children: [] }] },
           { id: 'b', title: '步骤 B', order: 2, collapsed: true, children: [{ id: 'bx', title: 'B 的子节点', children: [] }] },
           { id: 'c', title: '步骤 C', order: 3, children: [] },
           { id: 'd', title: '步骤 D', order: 4, children: [] },
-        ] }]));
-      localStorage.setItem('task-track-task-filter', 'all');
-    });
-    await page.goto(`http://127.0.0.1:${server.address().port}/app/renderer/index.html`);
+        ] }];
+    run = await launchRepository({tasks}, 'node-interactions');
+    const {app,page,errors}=run;
+    await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(1280,820));
     await page.waitForSelector('.flow-scroll');
     const settle = () => page.evaluate(async () => {
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -161,10 +139,10 @@ const { chromium } = require('playwright-core');
     await title('d').click({ position: { x: 25, y: 20 } }); await settle(); assert.equal(await page.evaluate(() => state.selectedNodeId), 'd');
     assert.equal(await page.locator('#title-form').count(), 0);
 
-    await page.waitForFunction(() => JSON.parse(localStorage.getItem('task-flow-sheet-prototype-v2'))[0].nodes[0].title === '已改名步骤 A');
-    const saved = await tree(); await page.reload(); await page.waitForSelector('.flow-scroll');
+    await page.waitForFunction(async () => (await window.personalTaskTrack.storage.read()).tasks[0].nodes[0].title === '已改名步骤 A');
+    const saved = await tree(); await page.evaluate(()=>flushSave()); await page.reload(); await page.waitForSelector('.flow-scroll');
     assert.deepEqual(await tree(), saved, 'renamed nodes, moved hierarchy and all records survive restart');
     assert.deepEqual(errors, []);
     console.log('Node gestures passed: double-click naming/validation/cancel, long-press reparent/reorder/root, subtree records, cycle rejection, Esc/blur cancel, controls, release suppression and persistence.');
-  } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
+  } finally { await run?.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

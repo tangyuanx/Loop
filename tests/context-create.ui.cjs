@@ -1,44 +1,22 @@
 // Exercise the real shell containers: legacy menu markup alone is insufficient.
 const assert = require('node:assert/strict');
-const fs = require('node:fs/promises');
-const http = require('node:http');
-const path = require('node:path');
-const { chromium } = require('playwright-core');
+const { launchRepository, task } = require('./electron-ui-helpers.cjs');
 
 (async () => {
-  const repository = path.resolve(__dirname, '..');
-  const server = http.createServer(async (request, response) => {
-    const file = path.resolve(repository, '.' + new URL(request.url, 'http://localhost').pathname);
-    if (!file.startsWith(repository + path.sep)) { response.writeHead(403).end(); return; }
-    try {
-      response.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html');
-      response.end(await fs.readFile(file));
-    } catch { response.writeHead(404).end(); }
-  });
-  let browser;
+  const run = await launchRepository({ tasks: [task('task', { title: '右键新增验证', tags: { today: true }, nodes: Array.from({ length: 40 }, (_, i) => ({ id: `n${i}`, title: `步骤 ${i}`, status: 'todo', order: i + 1, children: [] })) })] }, 'context-create');
+  const { page, errors } = run;
   try {
-    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-    browser = await chromium.launch({ headless: true, executablePath: process.env.LOOP_TEST_CHROMIUM || undefined,
-      args: process.platform === 'linux' ? ['--no-sandbox', '--disable-dev-shm-usage'] : [] });
-    const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
-    const errors = []; page.on('pageerror', error => errors.push(error.message));
-    await page.addInitScript(() => {
-      if (localStorage.getItem('task-flow-sheet-prototype-v2')) return;
-      const stamp = new Date().toISOString();
-      localStorage.setItem('task-flow-sheet-prototype-v2', JSON.stringify([{ id: 'task', title: '右键新增验证',
-        createdAt: stamp, updatedAt: stamp, tags: { today: true }, nodes: Array.from({ length: 40 }, (_, i) => ({
-          id: `n${i}`, title: `步骤 ${i}`, status: 'todo', order: i + 1, children: [] })) }]));
-      localStorage.setItem('task-track-task-filter', 'all');
-    });
-    await page.goto(`http://127.0.0.1:${server.address().port}/app/renderer/index.html`);
     await page.waitForSelector('.flow-scroll');
     const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const blankMenu = async (selector, name) => {
       const target = page.locator(selector);
       const box = await target.boundingBox();
       // Left gutter is outside rows, inputs, and the inline add button.
-      await page.mouse.click(box.x + 12, box.y + box.height - 8, { button: 'right' });
-      await page.getByRole('menu', { name, exact: true }).waitFor();
+      const point = { x: box.x + 12, y: box.y + box.height - 8 };
+      const hit = await page.evaluate(({ x, y }) => ({ height: innerHeight, hit: document.elementFromPoint(x, y)?.outerHTML.slice(0, 500) }), point);
+      await page.mouse.click(point.x, point.y, { button: 'right' });
+      await page.getByRole('menu', { name, exact: true }).waitFor()
+        .catch(error => { throw new Error(`${error.message}; ${JSON.stringify({ selector, box, point, hit })}`); });
     };
     const addNode = async title => {
       await page.getByRole('menuitem', { name: '新增节点', exact: true }).click();
@@ -100,11 +78,11 @@ const { chromium } = require('playwright-core');
     await page.locator('#create-title').fill('空列表首个任务');
     await page.locator('#create-form button[type="submit"]').click();
     await page.waitForFunction(() => state.tasks.length === 1);
-    await page.waitForFunction(() => JSON.parse(localStorage.getItem('task-flow-sheet-prototype-v2'))?.[0]?.title === '空列表首个任务');
+    await page.evaluate(async () => { save(); await flushSave(); });
     await page.reload();
     await page.waitForSelector('.task-item');
     assert.equal(await page.locator('.task-item').count(), 1);
     assert.deepEqual(errors, []);
     console.log('Context creation passed: real blank areas, root/task creation, empty lists/flows, row-menu precedence, retained DOM/selection/scroll, repeated bindings, persistence.');
-  } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
+  } finally { await run.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

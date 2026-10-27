@@ -13,6 +13,8 @@ const TASK_FILTER_KEY = "task-track-task-filter";
 const PRIORITY_FILTER_KEY = "task-track-priority-filter";
 const CAPTURE_SOURCE_FILTER_KEY = "task-track-capture-source-filter";
 const NEW_TASK_PRIORITY_KEY = "task-track-new-task-priority";
+const KNOWLEDGE_WIDTH_KEY = "task-track-knowledge-width";
+const KNOWLEDGE_MODE_KEY = "task-track-knowledge-mode";
 const TASK_GROUPS_KEY = "task-track-groups";
 const ACTIVE_GROUP_KEY = "task-track-active-group";
 const SIDEBAR_WIDTH_KEY = "task-track-sidebar-width";
@@ -956,6 +958,14 @@ function normalizeFontScale(value) {
   return Object.hasOwn(fontScaleLabels, value) ? value : "larger";
 }
 
+function normalizeKnowledgeWidth(value) {
+  return ["default", "wide", "full"].includes(value) ? value : "default";
+}
+
+function normalizeKnowledgeMode(value) {
+  return ["edit", "source", "preview"].includes(value) ? value : "edit";
+}
+
 function migrateLegacyFont(value) {
   if (value === "songti") return { zhFont: "songti", enFont: "inter" };
   if (value === "heiti") return { zhFont: "heiti", enFont: "inter" };
@@ -1001,6 +1011,8 @@ function loadBrowserPreferences() {
     priorityFilter: normalizePriorityFilter(localStorage.getItem(PRIORITY_FILTER_KEY)),
     captureSourceFilter: normalizeCaptureSourceFilter(localStorage.getItem(CAPTURE_SOURCE_FILTER_KEY)),
     newTaskPriority: normalizePriority(localStorage.getItem(NEW_TASK_PRIORITY_KEY)),
+    knowledgeWidth: normalizeKnowledgeWidth(localStorage.getItem(KNOWLEDGE_WIDTH_KEY)),
+    markdownMode: normalizeKnowledgeMode(localStorage.getItem(KNOWLEDGE_MODE_KEY)),
   };
 }
 
@@ -1770,6 +1782,8 @@ async function loadAppData() {
       const priorityFilter = normalizePriorityFilter(stored?.priorityFilter);
       const captureSourceFilter = normalizeCaptureSourceFilter(stored?.captureSourceFilter);
       const newTaskPriority = normalizePriority(stored?.newTaskPriority);
+      const knowledgeWidth = normalizeKnowledgeWidth(stored?.knowledgeWidth);
+      const markdownMode = normalizeKnowledgeMode(stored?.markdownMode);
       const uiPreferences = stored?.uiPreferences ? normalizeUiPreferences(stored.uiPreferences) : loadBrowserUiPreferences();
       const sidebarWidth = normalizeSidebarWidth(stored?.sidebarWidth);
       const detailHeight = normalizeDetailHeight(stored?.detailHeight);
@@ -1779,7 +1793,7 @@ async function loadAppData() {
         groupIds: taskGroups.map((group) => group.id),
       });
       const recentlyDeleted = normalizeRecentlyDeleted(stored?.recentlyDeleted);
-      return { tasks, taskGroups, activeGroupId, flowWidths, sidebarWidth, detailHeight, attachments, theme, zhFont, enFont, fontScale, taskFilter, priorityFilter, captureSourceFilter, newTaskPriority, uiPreferences, installationId, workNavigation, recentlyDeleted };
+      return { tasks, taskGroups, activeGroupId, flowWidths, sidebarWidth, detailHeight, attachments, theme, zhFont, enFont, fontScale, taskFilter, priorityFilter, captureSourceFilter, newTaskPriority, knowledgeWidth, markdownMode, uiPreferences, installationId, workNavigation, recentlyDeleted };
     } catch (error) {
       console.error("Failed to read local task data.", error);
       // Electron only forwards the message of an error thrown inside an
@@ -1920,6 +1934,8 @@ function save() {
     priorityFilter: state.priorityFilter,
     captureSourceFilter: state.captureSourceFilter,
     newTaskPriority: state.newTaskPriority,
+    knowledgeWidth: normalizeKnowledgeWidth(state.knowledgeWidth),
+    markdownMode: normalizeKnowledgeMode(state.markdownMode),
     uiPreferences: normalizeUiPreferences(state.uiPreferences),
     installationId: state.installationId,
     workNavigation: state.workNavigation,
@@ -1945,6 +1961,8 @@ function save() {
       localStorage.setItem(PRIORITY_FILTER_KEY, state.priorityFilter);
       localStorage.setItem(CAPTURE_SOURCE_FILTER_KEY, state.captureSourceFilter);
       localStorage.setItem(NEW_TASK_PRIORITY_KEY, state.newTaskPriority);
+      localStorage.setItem(KNOWLEDGE_WIDTH_KEY, payload.knowledgeWidth);
+      localStorage.setItem(KNOWLEDGE_MODE_KEY, payload.markdownMode);
       localStorage.setItem("loop.interaction28", JSON.stringify({ continuous: state.uiPreferences.continuous, follow: state.uiPreferences.follow }));
       localStorage.setItem("loop-work-rhythm-v1:enabled", state.uiPreferences.workNavigationEnabled ? "1" : "0");
       localStorage.setItem(INSTALLATION_ID_KEY, state.installationId);
@@ -2320,6 +2338,7 @@ function canRetainRegion(name, markup) {
 function render() {
   const viewportRevision = ++renderViewportEpoch;
   clearFilteredTasksCache();
+  if (typeof shellBulkPrune === "function") shellBulkPrune();
   if (typeof shellBeforeRender === "function") shellBeforeRender();
   reconcileWorkNavigationRuntime();
   const task = activeTask();
@@ -2381,7 +2400,6 @@ function render() {
   destroyMilkdownEditors(preservedEditors);
   document.querySelector("#root").innerHTML = `
     <main class="app ${state.navCollapsed ? "nav-collapsed " : ""}${shellWide ? "app-wide" : ""}" style="--list-width:${normalizeSidebarWidth(state.sidebarWidth)}px">
-      ${state.searchOpen ? `<div class="global-search-layer" data-global-search-layer aria-hidden="true"></div>` : ""}
       <div data-region="navigation"></div>
       <div data-region="topbar"></div>
       ${shellWide ? "" : '<div data-region="task-list"></div>'}
@@ -2426,7 +2444,7 @@ function render() {
   if (typeof shellApplyCalendarConclusions === "function") shellApplyCalendarConclusions();
   // the feedback dialog lives in #overlay, which render() never touches; keep it in sync
   if (typeof shellHelpFeedbackDialog === "function" && typeof shellOverlayIsOpen === "function" && shellOverlayIsOpen() && document.querySelector("#help14-form")) shellHelpFeedbackDialog();
-  if (typeof shellBulkPrune === "function") shellBulkPrune();
+  if (typeof shellBindRepository === "function") shellBindRepository();
   if (typeof shellBindOverlay === "function") shellBindOverlay();
   if (typeof shellBindBulk === "function") shellBindBulk();
   settingsMotion = "none";
@@ -3942,14 +3960,14 @@ function computeFilteredTasks({ includeQuery = true, at = loopNow() } = {}) {
 }
 
 function taskListScopeTasks() {
-  return state.taskFilter === "today" || state.taskDeadlineFilter !== "all" || state.taskDateFilter
+  return state.taskFilter === "today"
     ? state.tasks
     : tasksInActiveGroup();
 }
 
 function taskListStatsTasks() {
   if (state.taskDeadlineFilter !== "all" || state.taskDateFilter) {
-    return state.tasks.filter((task) => matchesTaskDeadlineFilter(task));
+    return taskListScopeTasks().filter((task) => matchesTaskDeadlineFilter(task));
   }
   if (state.taskFilter !== "today") return tasksInActiveGroup();
   if (state.todayFilter === "done") return shellCompletedToday();
@@ -6479,11 +6497,16 @@ function bindTaskRepositoryRows(scope = document) {
     element.dataset.settingBound = "1";
     element.addEventListener("click", (event) => {
       event.stopPropagation();
-      if (event.currentTarget.closest(".app-navigation-rail")) {
+      if (event.currentTarget.closest(".app-navigation-rail, .navigation")) {
         state.searchOpen = false;
         state.focusSearch = false;
         state.searchCursor = 0;
         state.query = "";
+        state.activeGroupId = ALL_TASKS_GROUP_ID;
+        state.priorityFilter = "all";
+        state.captureSourceFilter = "all";
+        state.taskDeadlineFilter = "all";
+        state.taskDateFilter = "";
       }
       applySetting(event.currentTarget.dataset.settingButton, event.currentTarget.dataset.value);
       save();
@@ -6930,6 +6953,8 @@ function applySetting(key, value) {
   if (key === "zh-font") state.zhFont = normalizeZhFont(value);
   if (key === "en-font") state.enFont = normalizeEnFont(value);
   if (key === "font-scale") state.fontScale = normalizeFontScale(value);
+  if (key === "knowledge-width") state.knowledgeWidth = normalizeKnowledgeWidth(value);
+  if (key === "knowledge-mode") state.markdownMode = normalizeKnowledgeMode(value);
   if (key === "task-filter") {
     state.globalListReturn = null;
     state.taskFilter = normalizeTaskFilter(value);
@@ -10268,6 +10293,8 @@ async function bootstrap() {
   state.priorityFilter = data.priorityFilter;
   state.captureSourceFilter = normalizeCaptureSourceFilter(data.captureSourceFilter);
   state.newTaskPriority = data.newTaskPriority;
+  state.knowledgeWidth = normalizeKnowledgeWidth(data.knowledgeWidth);
+  state.markdownMode = normalizeKnowledgeMode(data.markdownMode);
   state.uiPreferences = normalizeUiPreferences(data.uiPreferences);
   globalThis.LoopContinuity28?.restorePreferences?.(state.uiPreferences);
   globalThis.LoopWork?.restorePreferences?.(state.uiPreferences);

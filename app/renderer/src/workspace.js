@@ -231,8 +231,9 @@ function renderShellFlowNode(task, node, depth = 0) {
       <span class="node-badge ${node.status}">${shellNodeStatusLabel(node.status)}</span>
       <button class="node-add" type="button" data-action="add-child-node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" title="添加子节点" aria-label="给 ${escAttr(node.title)} 添加子节点">${shellIcon("plus")}</button>
     </div>`;
-  const nested = hasChildren && !node.collapsed
-    ? `<ol class="flow-children">${children.map((child) => renderShellFlowNode(task, child, depth + 1)).join("")}${adding ? renderShellNodeDraft(task) : ""}</ol>`
+  const keepChildren = !node.collapsed || shellFlowClosing.has(node.id);
+  const nested = hasChildren
+    ? `<div class="flow-branch" data-branch-node="${escAttr(node.id)}" data-expanded="${!node.collapsed}" ${node.collapsed ? 'inert aria-hidden="true"' : ""}>${keepChildren ? `<ol class="flow-children">${children.map((child) => renderShellFlowNode(task, child, depth + 1)).join("")}</ol>` : ""}</div>`
     : "";
   return `<li class="flow-item" data-flow-id="${escAttr(node.id)}" data-flow-depth="${depth}">${body}${nested}</li>`;
 }
@@ -302,10 +303,14 @@ function renderShellRecord(note) {
 
 function renderShellInspector(task, node) {
   const head = `<header class="inspector-head">${shellIcon("note")}处理记录<div class="inspector-head-actions">
+    <button class="icon-button" type="button" data-action="open-node-operations" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" aria-label="${escAttr(node.title)}的节点操作" aria-haspopup="menu">${shellIcon("more")}</button>
+    <button class="icon-button" type="button" data-action="toggle-node-reading" aria-label="${state.nodeDetailFullscreen ? "退出阅读" : "展开阅读"}" aria-pressed="${state.nodeDetailFullscreen}">${shellIcon(state.nodeDetailFullscreen ? "panel" : "note")}</button>
     <button class="icon-button" type="button" data-action="close-node-detail" aria-label="关闭节点详情">${shellIcon("close")}</button>
   </div></header>`;
+  const record = nodeNoteDrafts.get(noteDraftKey(task.id, node.id))?.markdown ?? node.note ?? "";
   const body = `<div class="inspector-body">
-    <textarea class="record-editor" id="record-draft" data-shell-node-record="${escAttr(node.id)}" aria-label="处理记录" placeholder="记录处理过程、验证结果与下一步…">${esc(node.note || "")}</textarea>
+    <div class="record-context"><span title="${escAttr(shellNodePath(task, node.id).map(n => n.title).join(" / "))}">${esc(node.title || "未命名节点")}</span></div>
+    <textarea class="record-editor" id="record-draft" data-shell-node-record="${escAttr(node.id)}" aria-label="处理记录：${escAttr(node.title)}" placeholder="记录处理过程、验证结果与下一步…">${esc(record)}</textarea>
   </div>`;
   return `<aside class="inspector inspector-record-only" data-node-id="${escAttr(node.id)}" aria-label="节点详情">${head}${body}</aside>`;
 }
@@ -321,8 +326,73 @@ function renderShellInspector(task, node) {
 let shellFlowFocus = null;
 let shellLastFlowTaskId = null;
 let shellLastFlowNodeId = null;
+let shellRecordCursor = null;
+const shellRecordEditors = new Map();
+const shellRecordModels = new WeakMap();
+
+// Grid transitions share continuity28's render boundary. Closed trees are
+// pruned normally; only a small, outgoing branch lives for the 200ms exit.
+const shellFlowClosing = new Set();
+const shellBranchAnimations = new Set();
+const SHELL_BRANCH_ANIMATION_LIMIT = 160;
+
+function shellCancelBranchMotion() {
+  for (const animation of shellBranchAnimations) {
+    const branch = animation.effect?.target;
+    animation.cancel();
+    if (branch?.dataset.expanded === "false") branch.replaceChildren();
+  }
+  shellBranchAnimations.clear();
+  shellFlowClosing.clear();
+}
+
+function shellCaptureBranches(animate) {
+  const previous = new Map();
+  const task = shellActiveTask();
+  const sameTask = document.querySelector(".workspace")?.dataset.taskId === task?.id && state.taskPane === "flow";
+  const nodes = new Map(sameTask ? shellNodeList(task).map(node => [node.id, node]) : []);
+  for (const branch of document.querySelectorAll(".flow-branch")) {
+    const id = branch.dataset.branchNode, node = nodes.get(id);
+    if (!node) continue;
+    const expanded = branch.dataset.expanded === "true";
+    if (expanded === !node.collapsed && !branch.getAnimations().length) continue;
+    const rows = branch.querySelectorAll(".flow-row").length;
+    const fullHeight = branch.firstElementChild?.scrollHeight || 0;
+    const fraction = fullHeight ? Math.min(1, branch.getBoundingClientRect().height / fullHeight) : 0;
+    previous.set(id, { expanded, rows, fraction });
+    if (node.collapsed && branch.contains(document.activeElement)) {
+      document.querySelector(`.collapse[data-node-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+    }
+  }
+  shellCancelBranchMotion();
+  if (animate) for (const [id, before] of previous) {
+    if (nodes.get(id)?.collapsed && before.rows > 0 && before.rows <= SHELL_BRANCH_ANIMATION_LIMIT) shellFlowClosing.add(id);
+  }
+  return previous;
+}
+
+function shellAnimateBranches(previous, animate) {
+  shellFlowClosing.clear();
+  if (!animate || !previous.size) return;
+  for (const branch of document.querySelectorAll(".flow-branch")) {
+    const before = previous.get(branch.dataset.branchNode);
+    if (!before) continue;
+    const expanded = branch.dataset.expanded === "true";
+    const rows = branch.querySelectorAll(".flow-row").length;
+    if (Math.max(before.rows, rows) > SHELL_BRANCH_ANIMATION_LIMIT || !rows) continue;
+    const animation = branch.animate({ gridTemplateRows: [`${before.fraction}fr`, expanded ? "1fr" : "0fr"] },
+      { duration: 200, easing: "cubic-bezier(.215,.61,.355,1)" });
+    shellBranchAnimations.add(animation);
+    const clean = () => {
+      if (!shellBranchAnimations.delete(animation)) return;
+      if (branch.dataset.expanded === "false") branch.replaceChildren();
+    };
+    animation.finished.then(clean, clean);
+  }
+}
 
 const SHELL_FOCUS_KEYS = ["data-node-id", "data-action", "data-bulk-action", "data-field"];
+const SHELL_REPOSITORY_FOCUS_KEYS = [...SHELL_FOCUS_KEYS, "data-group-id", "data-task-id", "data-bulk-id", "data-value", "data-tag", "data-setting-button"];
 
 function shellBeforeRender() {
   const task = shellActiveTask();
@@ -341,31 +411,73 @@ function shellBeforeRender() {
   }
   shellFlowFocus = null;
   const active = document.activeElement;
+  const mountedRecord = document.querySelector("[data-shell-node-record]");
+  if (mountedRecord) {
+    const key = `${mountedRecord.closest(".workspace")?.dataset.taskId}:${mountedRecord.dataset.shellNodeRecord}`;
+    shellRecordEditors.delete(key);
+    shellRecordEditors.set(key, { editor: mountedRecord, node: shellRecordModels.get(mountedRecord) });
+    while (shellRecordEditors.size > 24) shellRecordEditors.delete(shellRecordEditors.keys().next().value);
+  }
+  shellRecordCursor = active?.matches?.("[data-shell-node-record]")
+    ? { node: active.dataset.shellNodeRecord, task: active.closest(".workspace")?.dataset.taskId,
+      start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection, top: active.scrollTop } : null;
   if (active && document.querySelector("#root")?.contains(active)) {
-    for (const key of SHELL_FOCUS_KEYS) {
-      if (!active.hasAttribute(key)) continue;
-      const value = active.getAttribute(key);
-      shellFlowFocus = `${active.tagName.toLowerCase()}[${key}="${CSS.escape(value)}"]`;
-      break;
-    }
+    const repository = Boolean(active.closest?.(".navigation, .task-list-pane"));
+    const keys = repository ? SHELL_REPOSITORY_FOCUS_KEYS : [...SHELL_FOCUS_KEYS, "data-pane", "data-task-id"];
+    const identity = keys.filter((key) => active.hasAttribute(key))
+      .map((key) => `[${key}="${CSS.escape(active.getAttribute(key))}"]`).join("");
+    // Repeated actions (group navigation, status tabs, bulk checkboxes) need
+    // their object/value identity as well as the shared action name.
+    if (identity) shellFlowFocus = `${active.tagName.toLowerCase()}${repository && active.classList.contains("task-select") ? ".task-select" : ""}${!repository && active.classList.contains("node-title") ? ".node-title" : ""}${identity}`;
   }
 }
 
-function shellAfterRender() {
-  const task = shellActiveTask();
+function shellLayoutInspector() {
   const reading = state.nodeDetailFullscreen === true;
   const panel = document.querySelector(".inspector");
   const content = document.querySelector(".tab-content");
   const pane = document.querySelector(".flow-pane");
+  if (pane) pane.inert = Boolean(panel && reading);
+  content?.classList?.toggle("flow-reading", Boolean(panel && reading));
+  if (panel) panel.classList?.toggle("flow-drawer", Boolean(window.matchMedia?.("(max-width:1100px)").matches) && !reading);
+}
+
+window.addEventListener("resize", shellLayoutInspector);
+
+function shellAfterRender() {
+  const task = shellActiveTask();
+  const panel = document.querySelector(".inspector");
+  shellLayoutInspector();
   if (panel) {
-    const narrow = typeof window.matchMedia === "function" && window.matchMedia("(max-width:1100px)").matches;
-    panel.classList.toggle("flow-drawer", narrow && !reading);
-    content?.classList.toggle("flow-reading", reading);
-    if (pane) pane.inert = reading;
+    let fresh = panel.querySelector("[data-shell-node-record]");
+    const cached = shellRecordEditors.get(`${task?.id}:${state.selectedNodeId}`);
+    const model = task && findNode(task.nodes, state.selectedNodeId);
+    if (fresh && shellRecordModels.has(fresh) && shellRecordModels.get(fresh) !== model) {
+      // Unchanged markup may retain the whole workspace across an import.
+      // Replace this control too, so its old bound journal cannot survive.
+      const replacement = fresh.cloneNode(true);
+      replacement.value = fresh.value;
+      fresh.replaceWith(replacement);
+      fresh = replacement;
+    }
+    const retained = cached?.node === model ? cached.editor : null;
+    // A restored/imported model starts a fresh journal, even if IDs/text match.
+    // Ordinary redraws and node switches keep the control's edit history.
+    if (fresh && retained && fresh !== retained && fresh.value === retained.value) fresh.replaceWith(retained);
+    const current = panel.querySelector("[data-shell-node-record]");
+    if (current) shellRecordModels.set(current, model);
   }
   if (shellFlowFocus) {
     const target = document.querySelector(shellFlowFocus);
-    if (target && !target.disabled) target.focus({ preventScroll: true });
+    if (target && !target.disabled && !target.closest("[inert]") && target.getClientRects().length) target.focus({ preventScroll: true });
+  }
+  if (shellRecordCursor && shellRecordCursor.task === task?.id && shellRecordCursor.node === state.selectedNodeId) {
+    const editor = panel?.querySelector("[data-shell-node-record]");
+    if (editor) {
+      editor.focus({ preventScroll: true });
+      editor.setSelectionRange(shellRecordCursor.start, shellRecordCursor.end, shellRecordCursor.direction);
+      editor.scrollTop = shellRecordCursor.top;
+    }
   }
   const changed = task?.id !== shellLastFlowTaskId || state.selectedNodeId !== shellLastFlowNodeId;
   if (changed && task && state.selectedNodeId && state.taskPane === "flow" && typeof document.querySelector === "function") {
@@ -392,7 +504,7 @@ function shellBindFlowKeyboard() {
     event.stopImmediatePropagation();
     const path = shellNodePath(task, title.dataset.nodeId);
     const node = path.at(-1);
-    const visible = [...document.querySelectorAll(".flow-scroll .node-title")];
+    const visible = [...document.querySelectorAll(".flow-scroll .node-title")].filter(el => !el.closest("[inert]") && el.getClientRects().length);
     const index = visible.indexOf(title);
     if (event.key === "ArrowDown") {
       visible[Math.min(index + 1, visible.length - 1)]?.focus();
@@ -403,7 +515,7 @@ function shellBindFlowKeyboard() {
         node.collapsed = false;
         render();
       } else {
-        document.querySelector(`.node-title[data-node-id="${CSS.escape(node.children[0].id)}"]`)?.focus();
+        title.closest(".flow-item")?.querySelector(".flow-branch .node-title")?.focus();
       }
     } else if (event.key === "ArrowLeft") {
       if (node?.children?.length && !node.collapsed) {

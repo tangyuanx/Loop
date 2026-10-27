@@ -125,8 +125,10 @@ export function createRenderer(options) {
   };
   const defaultFence=md.renderer.rules.fence;
   md.renderer.rules.fence=(tokens,i,o,env,self)=>{
-    const t=tokens[i], language=t.info.trim().split(/\s/)[0];
-    if(language==='mermaid') return `<div class="kn-mermaid"><pre><code>${escape(t.content)}</code></pre></div>`;
+    const t=tokens[i], language=t.info.trim().split(/\s+/)[0].toLowerCase();
+    // Mermaid is commonly written as `mermaid`; accept the short `mmd` alias
+    // as well so imported notes keep their diagram semantics.
+    if(language==='mermaid' || language==='mmd') return `<div class="kn-mermaid" role="img" aria-label="Mermaid 图表"><pre><code>${escape(t.content)}</code></pre></div>`;
     return `<div class="kn-code"><button type="button" class="kn-code-copy" aria-label="复制代码">复制</button>${defaultFence(tokens,i,o,env,self)}</div>`;
   };
   const defaultLink=md.renderer.rules.link_open || ((ts,i,o,_e,s)=>s.renderToken(ts,i,o));

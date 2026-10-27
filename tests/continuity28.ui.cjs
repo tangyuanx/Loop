@@ -45,14 +45,14 @@ const { _electron: electron } = require('playwright-core');
     const start = await geometry();
     await page.evaluate(() => { document.querySelector('.flow-scroll').scrollTop = 780; });
     const savedFlow = await page.locator('.flow-scroll').evaluate(el => el.scrollTop);
-    await choose('notes'); await page.waitForSelector('.ProseMirror');
-    await page.evaluate(() => { window.__continuityEditor = document.querySelector('.ProseMirror'); document.querySelector('.knowledge-body').scrollTop = 440; });
+    await choose('notes'); await page.waitForSelector('.cm-content');
+    await page.evaluate(() => { window.__continuityEditor = document.querySelector('.cm-content'); document.querySelector('.knowledge-body').scrollTop = 440; });
     const noteTop = await page.locator('.knowledge-body').evaluate(el => el.scrollTop);
     await choose('history'); await page.evaluate(() => { document.querySelector('.article-pane').scrollTop = 430; });
     const historyTop = await page.locator('.article-pane').evaluate(el => el.scrollTop);
     await choose('flow'); assert.equal(await page.locator('.flow-scroll').evaluate(el => el.scrollTop), savedFlow);
     assert.deepEqual(await geometry(), start, 'the same final layout must be retained');
-    await choose('notes'); assert.equal(await page.evaluate(() => document.querySelector('.ProseMirror') === window.__continuityEditor), true, 'retains the actual editor instance/DOM');
+    await choose('notes'); assert.equal(await page.evaluate(() => document.querySelector('.cm-content') === window.__continuityEditor), true, 'retains the actual editor instance/DOM');
     assert.equal(await page.locator('.knowledge-body').evaluate(el => el.scrollTop), noteTop);
     await choose('history'); assert.equal(await page.locator('.article-pane').evaluate(el => el.scrollTop), historyTop);
     await choose('notes'); await choose('flow'); await choose('history'); await choose('flow'); // Six directions through the real renderer.
@@ -91,48 +91,17 @@ const { _electron: electron } = require('playwright-core');
     assert.ok(identity.every(item => item.unique), JSON.stringify(identity));
     assert.equal((await page.evaluate(() => window.loopPointerContinuity.status())).last, null, 'synthetic/keyboard operations never move the system pointer');
     assert.deepEqual(errors, []);
-    // Compare the approved Demo and real app with the same task, fonts and
-    // viewport. The Demo-only 38px review strip is excluded from the viewport;
-    // no product controls, features or permanent stylesheet are changed.
-    const demoComparison = [];
-    const demoPath = path.join(repository, 'prototypes/demos/loop-plane-phase28-candidate.html');
-    // Local design assets are optional; the production regression above runs
-    // on a clean checkout without the user's untracked prototype workspace.
-    if (await fs.access(demoPath).then(() => true, () => false)) {
-    const fixture = await page.evaluate(() => ({ task: state.tasks.find(t => t.id === 'task1'), settings: { fontScale: state.fontScale, zhFont: state.zhFont, enFont: state.enFont }, theme: state.theme }));
-    await app.evaluate(async ({ BrowserWindow }, file) => {
-      const win = new BrowserWindow({ width: 1280, height: 820, frame: false, show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
-      await win.loadFile(file, { query: { phase: '28', view: 'workbench', platform: 'mac' } });
-    }, demoPath);
-    const demo = app.windows().find(p => p.url().includes('/prototypes/demos/loop-plane-phase28-candidate.html'));
-    await demo.waitForFunction(() => document.querySelector('.tabs-bar'));
-    await demo.evaluate(f => {
-      tasks.splice(0, tasks.length, { ...f.task, group: '连续性检验', kind: 'task', done: false, progress: f.task.hypothesis, today: false });
-      taskGroups.splice(0, taskGroups.length, '连续性检验');
-      Object.assign(state, { task: f.task.id, group: '连续性检验', route: 'tasks', pane: 'flow', node: null, filter: 'all', query: '', priority: 'all', navCollapsed: false });
-      Object.assign(state.settings, f.settings);
-      document.documentElement.dataset.theme = f.theme;
-      const style = document.createElement('style'); style.textContent = '.review-bar{display:none!important}.app{height:100dvh!important}'; document.head.appendChild(style);
-      render();
-    }, fixture);
-    const readGeometry = async target => {
-      await target.evaluate(async () => { await Promise.all(document.getAnimations().filter(a => a.effect?.getComputedTiming().endTime !== Infinity).map(a => a.finished.catch(() => {}))); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
-      return target.evaluate(() => Object.fromEntries(['.workspace', '.task-heading', '.tabs-bar', '.tab-content', '.flow-scroll', '.knowledge-body', '.article-pane'].map(selector => {
-        const el = document.querySelector(selector), r = el?.getBoundingClientRect(); return [selector, r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null];
-      })));
-    };
+    // Stage3 deliberately changes workspace geometry from the historical
+    // frozen Demo. Verify the current real layout returns exactly after each
+    // pane round trip, retaining the existing editor and viewport assertions.
+    const layoutRoundTrips = [];
     for (const pane of ['flow', 'notes', 'history']) {
-      await choose(pane); await demo.evaluate(value => { state.pane = value; state.node = null; render(); }, pane);
-      const actual = await readGeometry(page), reference = await readGeometry(demo);
-      const differences = [];
-      for (const [selector, a] of Object.entries(actual)) {
-        const b = reference[selector]; if (!a || !b) continue;
-        for (const key of ['x', 'y', 'width', 'height']) if (Math.abs(a[key] - b[key]) > 1) differences.push({ selector, dimension: key, actual: a[key], demo: b[key], delta: a[key] - b[key] });
-      }
-      demoComparison.push({ pane, differences });
-      assert.deepEqual(differences, [], `Demo geometry matches in ${pane}`);
+      await choose(pane); const before = await geometry();
+      await choose(pane === 'flow' ? 'history' : 'flow');
+      await choose(pane); const after = await geometry();
+      assert.deepEqual(after, before, `current ${pane} geometry survives a round trip`);
+      layoutRoundTrips.push({ pane, before, after });
     }
-    }
-    console.log(JSON.stringify({ passed: true, scenes: ['six pane directions', 'long-flow scroll', 'notes/history scroll', 'actual editor retained', 'detail Escape focus', 'group uniqueness', 'final geometry retained', 'no synthetic pointer arm'], identity, savedFlow, noteTop, historyTop, demoComparison }, null, 2));
+    console.log(JSON.stringify({ passed: true, scenes: ['six pane directions', 'long-flow scroll', 'notes/history scroll', 'actual editor retained', 'detail Escape focus', 'group uniqueness', 'final geometry retained', 'no synthetic pointer arm'], identity, savedFlow, noteTop, historyTop, layoutRoundTrips }, null, 2));
   } finally { await app?.close(); await fs.rm(profile, { recursive: true, force: true }); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

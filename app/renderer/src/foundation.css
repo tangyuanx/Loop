@@ -1,0 +1,457 @@
+/*
+ * Loop shared foundation · stage 1
+ *
+ * This is the last stylesheet in all three renderer documents.  It owns the
+ * semantic surface tokens, typography defaults, focus contract and the common
+ * control states.  Feature sheets keep their geometry and data-specific
+ * states; they do not add another global input or focus skin.
+ */
+
+:root {
+  color-scheme: light;
+  --surface-raised: #fff;
+  --surface-shadow: 0 12px 36px rgb(32 36 43 / 12%), 0 2px 8px rgb(32 36 43 / 6%);
+  --ui-body-weight: 400;
+  --ui-emphasis-weight: 500;
+  --input-surface: color-mix(in srgb, var(--list) 97%, var(--text));
+  --input-line: #d2d2d2;
+  --input-hover: #a8a8a8;
+  --input-focus: #a5a5a5;
+  --focus-line: var(--input-focus);
+  --focus-line-strong: #8e8e8e;
+  --input-selection: color-mix(in srgb, var(--text) 18%, transparent);
+  --field22-bg: var(--input-surface);
+  --field22-line: var(--input-line);
+  --field22-hover: var(--input-hover);
+  --field22-focus: var(--input-focus);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-raised: #232722;
+  --surface-shadow: 0 16px 44px rgb(0 0 0 / 30%), 0 2px 10px rgb(0 0 0 / 20%);
+  --ui-body-weight: 360;
+  --ui-emphasis-weight: 460;
+  --input-line: #4d4d4d;
+  --input-hover: #777;
+  --input-focus: #777;
+  --focus-line-strong: #909090;
+}
+
+/* Feature sheets are intentionally kept byte-identical to their frozen Demo
+ * sources.  This body-scoped hand-off makes their existing field variables
+ * resolve to the shared neutral contract without changing their source order. */
+body[data-foundation-enabled] {
+  --field22-bg: var(--input-surface);
+  --field22-line: var(--input-line);
+  --field22-hover: var(--input-hover);
+  --field22-focus: var(--input-focus);
+}
+
+html,
+body {
+  color-scheme: light;
+}
+
+html[data-theme="dark"],
+html[data-theme="dark"] body {
+  color-scheme: dark;
+}
+
+body {
+  font-weight: var(--ui-body-weight);
+  font-synthesis: none;
+  font-kerning: normal;
+}
+
+body :is(button, input, select, textarea) {
+  font-weight: var(--ui-body-weight);
+  -webkit-tap-highlight-color: transparent;
+}
+
+body :is(.task-title, .task-title .title-edit, .list-heading h2, .brand strong) {
+  font-weight: var(--ui-emphasis-weight);
+}
+
+body :is(.count, .task-sequence, .workspace-foot, .list-foot, .flow-toolbar,
+  .property, .tag, .node-badge, .rhythm, time) {
+  font-variant-numeric: tabular-nums;
+}
+
+body :is(.property, .text-button, .button, .pane-tab, .breadcrumb,
+  .workspace-foot) svg {
+  vertical-align: -0.125em;
+}
+
+::selection {
+  background: var(--input-selection);
+  color: var(--text);
+}
+
+/* Keyboard focus stays visible as a one-pixel inset line.  There is no outer
+ * ring here, so a parent focus-within cannot turn into a green halo. */
+body :is(button, [role="button"], a, summary):focus {
+  outline: none;
+  box-shadow: none;
+}
+
+body :is(button, [role="button"], a, summary):focus-visible {
+  outline: 1px solid var(--focus-line-strong);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+body :is(input, textarea, select, [contenteditable="true"], .cm-content, .cm-editor):focus {
+  outline: none;
+  box-shadow: none;
+}
+
+body :is(input, textarea, select, [contenteditable="true"], .cm-content, .cm-editor):focus-visible {
+  outline: 1px solid var(--focus-line-strong);
+  outline-offset: -1px;
+  box-shadow: none;
+}
+
+/* Ordinary fields keep a thin neutral boundary and a very quiet surface. */
+body :is(
+  input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"])),
+  textarea,
+  select,
+  .control22-field
+) {
+  border-color: var(--input-line);
+  background-color: var(--input-surface);
+  color: var(--text);
+  caret-color: var(--text);
+}
+
+body :is(
+  input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"])),
+  textarea,
+  select,
+  .control22-field
+):hover:not(:disabled):not([readonly]):not([aria-invalid="true"]) {
+  border-color: var(--input-hover);
+}
+
+body :is(
+  input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"])),
+  textarea,
+  select,
+  .control22-field
+):is(:focus, :focus-visible) {
+  border-color: var(--input-focus);
+  background-color: var(--input-surface);
+  outline: none;
+  box-shadow: inset 0 -1px 0 var(--focus-line);
+}
+
+body :is(
+  input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"])),
+  textarea,
+  select,
+  .control22-field
+)[aria-invalid="true"] {
+  border-color: var(--orange);
+}
+
+body :is(
+  input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"])),
+  textarea,
+  select,
+  .control22-field
+):disabled {
+  color: var(--secondary);
+  background-color: var(--nav);
+  border-color: var(--input-line);
+  cursor: default;
+}
+
+body :is(input, textarea, select)::placeholder {
+  color: var(--secondary);
+  opacity: 1;
+}
+
+/* Search fields are an inset surface.  The parent does not change fill when
+ * focused; the one-pixel bottom line is the only focus cue. */
+body :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search) {
+  outline: none;
+  box-shadow: none;
+}
+
+body .list-search {
+  border-color: var(--input-line);
+  background: var(--input-surface);
+}
+
+body .list-search:hover {
+  border-color: var(--input-hover);
+}
+
+body .list-search:focus-within {
+  border-color: var(--input-focus);
+  background: var(--input-surface);
+  outline: none;
+  box-shadow: inset 0 -1px 0 var(--focus-line);
+}
+
+body :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search) input {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  caret-color: var(--text);
+}
+
+body :is(.kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search):focus-within {
+  border-color: var(--input-focus);
+  background: var(--input-surface);
+  outline: none;
+  box-shadow: inset 0 -1px 0 var(--focus-line);
+}
+
+/* The widget capture is a document-plane textarea with a divider, not a
+ * second framed field. */
+body[data-foundation-enabled] .widget-capture {
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  outline: none;
+  box-shadow: none;
+}
+
+body[data-foundation-enabled] .widget-capture:focus-within {
+  border-top-color: var(--line);
+  outline: none;
+  box-shadow: none;
+}
+
+body .widget-capture textarea {
+  border: 0;
+  background: transparent;
+  caret-color: var(--text);
+}
+
+body .widget-capture textarea:focus-visible {
+  outline: none;
+  box-shadow: inset 0 -1px 0 var(--focus-line);
+}
+
+/* In-place names, briefs, records, rich text and table cells remain on their
+ * content plane.  A focused editor gets only an inset neutral underline. */
+body :is(
+  .manage24-title-input,
+  .manage24-row-title-input,
+  .node-title-input,
+  .node-title-rename,
+  .flow-title-input,
+  .nav-group-editor input,
+  #group-title,
+  .brief21-input,
+  .brief-value,
+  .title-edit,
+  .control22-inline,
+  .note-heading-select,
+  .widget-title-input,
+  .record-editor,
+  #knowledge-source,
+  .kn-table-cell-editor,
+  .cm-content,
+  .cm-editor,
+  .ProseMirror,
+  [contenteditable="true"]
+) {
+  background-color: transparent;
+  border-color: transparent;
+  outline: none;
+  box-shadow: none;
+  caret-color: var(--text);
+}
+
+body :is(
+  .manage24-title-input,
+  .manage24-row-title-input,
+  .node-title-input,
+  .node-title-rename,
+  .flow-title-input,
+  .nav-group-editor input,
+  #group-title,
+  .brief21-input,
+  .brief-value,
+  .title-edit,
+  .control22-inline,
+  .note-heading-select,
+  .widget-title-input,
+  .record-editor,
+  #knowledge-source,
+  .kn-table-cell-editor,
+  .cm-content,
+  .cm-editor,
+  .ProseMirror,
+  [contenteditable="true"]
+):is(:focus, :focus-visible) {
+  background-color: transparent;
+  border-color: transparent;
+  outline: none;
+  box-shadow: inset 0 -1px 0 var(--focus-line);
+}
+
+body :is(.brief-row, .flow-row, .inspector, .knowledge-rich-host):focus-within {
+  outline: none;
+}
+
+body .brief-row:focus-within label {
+  color: var(--secondary);
+}
+
+body .brief-row:has(.brief21-input:focus-visible) label {
+  text-decoration-color: var(--focus-line);
+}
+
+/* CodeMirror and Milkdown expose their own focus classes.  Keep the editor
+ * borderless and give the content plane the same neutral inset cue. */
+body .knowledge-pane :is(.cm-editor.cm-focused, .cm-content:focus-visible, .kn-reading:focus-visible) {
+  outline: none;
+  box-shadow: inset 0 -1px 0 var(--focus-line);
+}
+
+body .knowledge-rich-host .milkdown :is(input, textarea, [contenteditable="true"]):focus-visible {
+  outline: none;
+  border-color: transparent;
+  box-shadow: inset 0 -1px 0 var(--focus-line);
+  background: transparent;
+}
+
+/* Checkboxes/radios retain their semantic accent; their keyboard cue is
+ * neutral and never a green outline. */
+body :is(input[type="checkbox"], input[type="radio"], input[type="range"]) {
+  accent-color: var(--green);
+}
+
+body :is(input[type="checkbox"], input[type="radio"], input[type="range"]):focus-visible {
+  outline: 1px solid var(--focus-line-strong);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* Menus, listboxes and the workbench keep a neutral keyboard location cue. */
+body :is(.context-menu, .surface-popover[role="menu"], .popover[role="menu"], .control22-listbox, .wb-menu) :is(button, [role="option"]):focus-visible {
+  outline: 1px solid var(--focus-line-strong);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+body .wb-menu button:focus-visible {
+  background: var(--hover);
+  color: var(--text);
+  outline: 1px solid var(--focus-line-strong);
+  outline-offset: -2px;
+}
+
+body .flow-row:has(> .node-title:focus-visible) {
+  background: color-mix(in srgb, var(--selected) 70%, var(--canvas));
+  box-shadow: inset 2px 0 var(--focus-line);
+}
+
+body .node-title-rename:focus,
+body .node-title-rename:focus-visible {
+  border-color: var(--input-focus);
+  box-shadow: inset 0 -1px 0 var(--focus-line);
+}
+
+body :is(.knowledge-tool, .note-heading-select, .note-width-button, .note-width-option):focus-visible,
+body .help14-form :focus-visible,
+body .list-resizer:focus-visible {
+  outline: 1px solid var(--focus-line-strong);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+body .list-resizer:focus-visible::after {
+  background: var(--focus-line-strong);
+}
+
+/* High-specificity legacy feature selectors receive the same contract here.
+ * These are scoped exceptions for frozen sheets, rather than another global
+ * focus layer. */
+body[data-foundation-enabled] :is(.widget12 .widget-title-input, .nav-group-editor input) {
+  border-color: transparent;
+  background: transparent;
+  outline: none;
+  box-shadow: none;
+  caret-color: var(--text);
+}
+
+body[data-foundation-enabled] :is(.widget12 .widget-title-input, .nav-group-editor input):is(:focus, :focus-visible) {
+  border-color: transparent;
+  background: transparent;
+  outline: none;
+  box-shadow: inset 0 -1px 0 var(--focus-line);
+}
+
+body[data-foundation-enabled][data-controls22-enabled] :is(.list-search, .widget-capture):focus-within {
+  border-color: var(--input-focus);
+  background: var(--input-surface);
+  outline: none;
+  box-shadow: inset 0 -1px 0 var(--focus-line);
+}
+
+body[data-foundation-enabled][data-controls22-enabled] .widget-capture {
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+}
+
+body[data-foundation-enabled][data-brief21-enabled] .brief21-input:is(:focus, :focus-visible) {
+  background: transparent;
+  border: 0;
+  outline: none;
+  box-shadow: inset 0 -1px 0 var(--focus-line);
+}
+
+body[data-foundation-enabled] .window25-caption button:focus-visible,
+body[data-foundation-enabled] .widget13 .widget-header:focus-visible,
+body[data-foundation-enabled] .widget13 .widget13-resize:focus-visible,
+body[data-foundation-enabled] .work15-dialog :focus-visible,
+body[data-foundation-enabled] .manual27-shell :focus-visible,
+body[data-foundation-enabled] .knowledge-tool:focus-visible,
+body[data-foundation-enabled] .note-heading-select:focus-visible,
+body[data-foundation-enabled] .note-width-button:focus-visible,
+body[data-foundation-enabled] .note-width-option:focus-visible,
+body[data-foundation-enabled] .help14-form :focus-visible {
+  outline: 1px solid var(--focus-line-strong);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+body[data-foundation-enabled] .kn-find button:focus-visible,
+body[data-foundation-enabled] .knowledge-draft-actions button:focus-visible,
+body[data-foundation-enabled] .knowledge-rich-host.kn-editor-host .kn-rendered a.kn-wiki:focus-visible {
+  outline: 1px solid var(--focus-line-strong);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+body[data-foundation-enabled] .recovery26-search:focus-within {
+  outline: 1px solid var(--focus-line-strong);
+  outline-offset: -2px;
+  background: var(--input-surface);
+  box-shadow: inset 0 -1px 0 var(--focus-line);
+}
+
+/* Feedback keeps its semantic meaning.  Only confirmed, ordinary success
+ * notices may be timed out by their existing lifecycle; errors and actions
+ * remain visible until their owner resolves them. */
+body :is([role="alert"], .error, .range-error, .knowledge-inline-error, .knowledge-notice:not(.recovered)) {
+  color: var(--orange);
+}
+
+body :is(button[aria-busy="true"], button[data-loading="true"], [aria-busy="true"]) {
+  cursor: progress;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body :is(button, .task-item, .flow-row, .nav-button, .surface-branch) {
+    transition: none;
+  }
+}

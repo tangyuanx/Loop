@@ -40,6 +40,10 @@ function createKnowledgeFileWatcher({
       // The watcher may already be closed after a rename event.
     }
     entry.watcher = null;
+    if (entry.pollListener) {
+      fsApi.unwatchFile?.(entry.filePath, entry.pollListener);
+      entry.pollListener = null;
+    }
   }
 
   function unwatch(noteId) {
@@ -176,7 +180,18 @@ function createKnowledgeFileWatcher({
           if (entries.get(normalizedNoteId) === entry) emitUnavailable(entry, error);
         });
       }
+      // Directory notifications can be dropped by removable/network volumes
+      // and restricted macOS environments. Stat polling follows replacement
+      // inodes as well; it reads document contents only after metadata changes.
+      if (typeof fsApi.watchFile === "function" && typeof fsApi.unwatchFile === "function") {
+        entry.pollListener = (current, previous) => {
+          if (current.mtimeMs !== previous.mtimeMs || current.ctimeMs !== previous.ctimeMs
+            || current.size !== previous.size || current.ino !== previous.ino) schedule(entry);
+        };
+        fsApi.watchFile(normalizedPath, { persistent: false, interval: 1000 }, entry.pollListener);
+      }
     } catch (error) {
+      closeEntry(entry);
       entries.delete(normalizedNoteId);
       const missing = ["ENOENT", "ENOTDIR"].includes(error?.code);
       emit({

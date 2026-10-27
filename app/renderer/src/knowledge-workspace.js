@@ -10,6 +10,8 @@ const knowledgeBacklinkCache = new Map();
 const knowledgeDeferredFileEvents = new Map();
 let knowledgeIndexTimer = 0;
 
+// Global mode/page width preferences use the v0.1.246 task-data save path.
+
 function knowledgeNotes() { return state.tasks.filter(task => task.knowledgeNote && !task.knowledgeNote.isDeleted && (knowledgeText(task).length || task.knowledgeNote.filePath || (task.id===state.activeTaskId && state.taskPane==='notes'))); }
 function knowledgeText(task) { return nodeNoteDrafts.get(noteDraftKey(task.id, ''))?.markdown ?? task.notes ?? ''; }
 function knowledgeCurrentEntry(taskId = state.activeTaskId) { return milkdownEditors.get(noteDraftKey(taskId, ''))?.instance; }
@@ -55,8 +57,9 @@ function knowledgeEditorOptions(task) {
   };
 }
 function knowledgeSetMode(mode) {
+  if(!['edit','source','preview'].includes(mode))return;
   captureMountedMilkdownDrafts(); flushNodeNoteDrafts({persist:true});
-  state.markdownMode = mode; render();
+  applySetting('knowledge-mode', mode); save(); render();
 }
 function knowledgeReceipt(task) {
   return knowledgeSavePresentation(task);
@@ -78,11 +81,11 @@ function knowledgeReceiptState(task) {
   const status = knowledgeSaveStatus(task), note = task.knowledgeNote;
   if (knowledgeFileWriteBusy.has(task.id)) return {text:'保存中…', state:'saving'};
   if (status?.error) return {text:'保存失败 · 点击保存重试', state:'failed'};
-  if (note.filePath && state.knowledgeFileIssues?.[note.noteId]) return {text:'文件未同步 · 当前草稿保留',state:'failed'};
-  if (['EXTERNAL_CHANGED','FILE_MISSING','READ_ONLY'].includes(note.documentState)) return {text:SHELL_KNOWLEDGE_STATE_LABELS[note.documentState]+' · 当前草稿保留',state:'conflict'};
+  if (note.filePath && state.knowledgeFileIssues?.[note.noteId]) return {text:'文件未同步 · 当前内容仍保留',state:'failed'};
+  if (['EXTERNAL_CHANGED','FILE_MISSING','READ_ONLY'].includes(note.documentState)) return {text:SHELL_KNOWLEDGE_STATE_LABELS[note.documentState]+' · 当前内容仍保留',state:'conflict'};
   if (nodeNoteDrafts.has(noteDraftKey(task.id,'')) || knowledgeAutosaveTimers.has(task.id)) return {text:'等待保存…',state:'pending'};
-  if (localSaveOutcome === 'failed') return {text:'本地保存失败 · 草稿保留',state:'failed'};
-  if (note.filePath && note.dirty) return {text:'草稿已保留 · 文件尚未同步',state:'pending'};
+  if (localSaveOutcome === 'failed') return {text:'本地保存失败 · 当前内容仍在本页',state:'failed'};
+  if (note.filePath && note.dirty) return {text:pendingPayload||saveInFlight||knowledgeRecoveryTimers.has(note.noteId)?'文件未同步 · 正在保留草稿…':'草稿已保留 · 文件尚未同步',state:'pending'};
   if (!note.filePath && (pendingPayload || saveInFlight)) return {text:'正在保留草稿…',state:'pending'};
   return {text:note.filePath ? '已保存到文件' : '已保存到 Loop',state:'saved'};
 }
@@ -206,11 +209,12 @@ function knowledgeRefreshPanels(task) {
   if(!aside){aside=document.createElement('aside');aside.className='kn-side-panel';aside.id='kn-side-panel';aside.setAttribute('aria-label','大纲与关联笔记');body.append(aside);}
   const headings=LoopKnowledgeCore.headings(knowledgeText(task));
   const backlinks=[];
-  for(const note of knowledgeNotes()){
+  const notes=knowledgeNotes();
+  for(const note of notes){
     if(note.id===task.id)continue;
     const text=knowledgeText(note);let cached=knowledgeBacklinkCache.get(note.id);
     if(cached?.text!==text){cached={text,links:LoopKnowledgeCore.links(text)};knowledgeBacklinkCache.set(note.id,cached);}
-    if(cached.links.some(link=>LoopKnowledgeCore.resolve(link.target,knowledgeNotes(),note).note?.id===task.id))backlinks.push(note);
+    if(cached.links.some(link=>LoopKnowledgeCore.resolve(link.target,notes,note).note?.id===task.id))backlinks.push(note);
   }
   const base=Math.min(...headings.map(h=>h.level),6);
   const html=`<header><strong>大纲</strong><button type="button" class="icon-button" data-kn-action="panels" aria-label="关闭关联面板">${shellIcon('close')}</button></header><nav aria-label="笔记大纲">${headings.length?headings.map((h,i)=>`<button type="button" class="kn-outline-link" style="padding-left:${8+(h.level-base)*12}px" data-kn-heading="${i}" title="${escAttr(h.text)}">${esc(h.text)}</button>`).join(''):'<p>添加标题后会显示在这里</p>'}</nav><h4>反向链接 <small>${backlinks.length}</small></h4>${backlinks.map(note=>`<button type="button" class="kn-backlink" data-kn-note="${escAttr(note.id)}">${esc(LoopKnowledgeCore.noteTitle(note))}<small>${esc(knowledgeDetail(note))}</small></button>`).join('')||'<p>暂无笔记引用</p>'}`;
@@ -272,7 +276,11 @@ function knowledgeShowSwitcher(query='',candidates=null,anchor='') {
     const q=input.value.toLocaleLowerCase().trim();current=(candidates||knowledgeNotes()).filter(n=>(LoopKnowledgeCore.noteTitle(n)+'\n'+knowledgeDetail(n)+'\n'+knowledgeText(n)).toLocaleLowerCase().includes(q)).slice(0,80);selected=Math.min(selected,Math.max(0,current.length-1));
     list.innerHTML=current.map((n,i)=>`<button class="kn-switcher-row" type="button" role="option" aria-selected="${i===selected}" data-kn-switch="${escAttr(n.id)}"><strong>${esc(LoopKnowledgeCore.noteTitle(n))}</strong><small>${esc(knowledgeDetail(n))}</small></button>`).join('')||'<p>没有匹配的笔记。可用当前名称新建。</p>';
   };
-  input.addEventListener('input',()=>{selected=0;refresh();});input.addEventListener('keydown',event=>{
+  let composing=false;
+  input.addEventListener('compositionstart',()=>{composing=true;});
+  input.addEventListener('compositionend',()=>{composing=false;selected=0;refresh();});
+  input.addEventListener('input',()=>{if(!composing){selected=0;refresh();}});input.addEventListener('keydown',event=>{
+    if(composing||event.isComposing||event.keyCode===229)return;
     if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();selected=(selected+(event.key==='ArrowDown'?1:Math.max(0,current.length-1)))%Math.max(1,current.length);refresh();list.children[selected]?.scrollIntoView({block:'nearest'});}
     if(event.key==='Enter'){event.preventDefault();if(current[selected])knowledgeOpen(current[selected],anchor);else if(input.value.trim())void knowledgeCreate(input.value);}
   });
@@ -340,6 +348,7 @@ function knowledgeInsertMenu(trigger) {
     ${item('insert-format','knowledgeTable','表格','data-kn-format="table"')}
     ${item('table-tools','knowledgeTable','编辑表格行列…')}
     ${item('insert-format','knowledgeCode','代码块','data-kn-format="code"')}
+    ${item('insert-format','knowledgeDiagram','Mermaid 图表','data-kn-format="diagram"')}
     ${item('upload','knowledgeImage','图片…')}
     <div class="menu-divider"></div>
     ${item('insert-format','noteQuote','引用','data-kn-format="quote"')}

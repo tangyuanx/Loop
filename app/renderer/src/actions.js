@@ -92,7 +92,16 @@ function shellCloseOverlay({ restoreFocus = true } = {}) {
   if (!selector) return;
   const trigger = document.querySelector(selector);
   if (trigger?.hasAttribute("aria-haspopup") || trigger?.hasAttribute("aria-expanded")) trigger.setAttribute("aria-expanded", "false");
-  if (restoreFocus) trigger?.focus({ preventScroll: true });
+  if (restoreFocus) {
+    trigger?.focus({ preventScroll: true });
+    // The closing command can render immediately afterwards. Restore against
+    // its live markup without taking focus from an explicitly opened editor.
+    window.requestAnimationFrame(() => {
+      if (document.activeElement === document.body || !document.activeElement?.isConnected) {
+        document.querySelector(selector)?.focus({ preventScroll: true });
+      }
+    });
+  }
 }
 
 /**
@@ -633,16 +642,16 @@ function shellBindCreateDialog() {
 }
 
 function shellBindOverlayDelegation() {
-  document.querySelector("#overlay")?.addEventListener("click", (event) => {
+  const overlay = shellOverlay();
+  if (!overlay || overlay.dataset.shellDelegated === "1") return;
+  overlay.dataset.shellDelegated = "1";
+  overlay.addEventListener("click", (event) => {
     const preset = event.target.closest?.("[data-entry16-time]");
     if (!preset) return;
     event.preventDefault();
     event.stopPropagation();
     shellAction({ action: "set-deadline-time", value: preset.dataset.entry16Time }, preset);
   });
-  const overlay = shellOverlay();
-  if (!overlay || overlay.dataset.shellDelegated === "1") return;
-  overlay.dataset.shellDelegated = "1";
   const run = async (target, event) => {
     const bulk = target.closest("[data-bulk-action], [data-bulk-id]");
     if (bulk && !bulk.disabled) {
@@ -781,6 +790,11 @@ function shellNodeDelete(trigger, nodeId) {
   const task = shellActiveTask();
   const node = shellNodeList(task).find((item) => item.id === nodeId);
   if (!node) return;
+  if (typeof recovery26ReviewDeleteNode === "function") {
+    shellCloseOverlay({ restoreFocus: false });
+    recovery26ReviewDeleteNode(task.id, nodeId);
+    return;
+  }
   const children = flatten(node.children || []).length;
   shellMountSurface(
     `<form class="surface-popover" id="delete-node-form" role="dialog" aria-modal="true" aria-label="确认删除">${shellSurfaceHeader("删除节点")}
@@ -903,7 +917,6 @@ function shellCombinedFilter(trigger) {
     state.priorityFilter = normalizePriorityFilter(String(data.get("priority")));
     state.taskDeadlineFilter = Object.hasOwn(SHELL_DEADLINE_SCOPE_LABELS, String(data.get("deadline"))) ? String(data.get("deadline")) : "all";
     state.taskDateFilter = "";
-    if (state.taskDeadlineFilter !== "all") state.activeGroupId = ALL_TASKS_GROUP_ID;
     shellCloseOverlay();
     if (!filteredTasks().some((task) => task.id === state.activeTaskId)) state.activeTaskId = "";
     save();
@@ -1419,16 +1432,21 @@ async function shellAction(data, event) {
       shellCloseOverlay({ restoreFocus: false });
       return true;
     case "clear-list-filters":
-      const keepToday = shellRoute() === "today";
       state.query = "";
       state.searchOpen = false;
       state.priorityFilter = "all";
       state.captureSourceFilter = "all";
       state.taskDeadlineFilter = "all";
       state.taskDateFilter = "";
-      state.taskFilter = keepToday ? "today" : "all";
-      if (keepToday) state.todayFilter = "active";
+      // Completion tabs and Today are the current scope. Only the optional
+      // blocked/later predicates belong to the clearable filter summary.
+      if (["blocked", "later"].includes(state.taskFilter)) state.taskFilter = "all";
       shellCloseOverlay({ restoreFocus: false });
+      if (!filteredTasks().some((item) => item.id === state.activeTaskId)) state.activeTaskId = "";
+      save();
+      return true;
+    case "clear-list-date-filter":
+      state.taskDateFilter = "";
       if (!filteredTasks().some((item) => item.id === state.activeTaskId)) state.activeTaskId = "";
       return true;
     case "commit-group-edit": {
@@ -1578,13 +1596,13 @@ async function shellAction(data, event) {
       state.noteSummaryOpen = !state.noteSummaryOpen;
       return true;
     case "knowledge-mode":
-      state.markdownMode = ["edit", "source", "preview"].includes(data.mode) ? data.mode : "edit";
+      applySetting("knowledge-mode", data.mode);
       return true;
     case "knowledge-width-menu":
       shellNoteWidthMenu(trigger);
       return true;
     case "set-note-width":
-      state.knowledgeWidth = Object.hasOwn(SHELL_NOTE_WIDTH_NAMES, data.width) ? data.width : "default";
+      applySetting("knowledge-width", data.width);
       shellCloseOverlay({ restoreFocus: false });
       return true;
     case "knowledge-file-menu":
@@ -1631,8 +1649,18 @@ async function shellAction(data, event) {
       save();
       return true;
     }
+    case "open-knowledge-settings":
+      state.settingsOpen = true;
+      state.calendarOpen = false;
+      state.reviewOpen = false;
+      state.feedbackOpen = false;
+      state.globalListReturn = null;
+      activeSettingsPage = "knowledge";
+      settingsMotion = "page";
+      shellCloseOverlay({ restoreFocus: false });
+      return true;
     case "set-settings-page":
-      if (["appearance", "tasks", "data", "updates", "advanced", "help"].includes(data.page)) {
+      if (SHELL_SETTINGS_CATEGORIES.some(([page]) => page === data.page)) {
         activeSettingsPage = data.page;
         settingsMotion = "page";
       }
@@ -1913,15 +1941,55 @@ function shellBindBriefDrafts() {
 
 function shellBindNodeRecord() {
   const editor = document.querySelector("[data-shell-node-record]");
-  if (!editor) return;
+  if (!editor || !bindRenderElement(editor, "shell-node-record")) return;
+  // Chromium drops its document-wide native undo stack when a retained region
+  // is detached. Keep a bounded edit journal on this reused record control.
+  const history = { undo: [], redo: [], type: "", at: 0, after: null };
+  const snapshot = () => ({ value: editor.value, start: editor.selectionStart,
+    end: editor.selectionEnd, direction: editor.selectionDirection });
+  const push = (list, value) => {
+    list.push(value);
+    let size = list.reduce((sum, item) => sum + item.value.length, 0);
+    while (list.length > 1 && (list.length > 40 || size > 1000000)) size -= list.shift().value.length;
+  };
+  const restore = (redo) => {
+    const source = redo ? history.redo : history.undo, target = redo ? history.undo : history.redo;
+    const next = source.pop();
+    if (!next) return;
+    push(target, snapshot());
+    editor.value = next.value;
+    editor.setSelectionRange(next.start, next.end, next.direction);
+    history.at = 0;
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+  editor.addEventListener("beforeinput", (event) => {
+    if (["historyUndo", "historyRedo"].includes(event.inputType)) {
+      event.preventDefault(); restore(event.inputType === "historyRedo"); return;
+    }
+    const before = snapshot(), stamp = Date.now();
+    const continuous = ["insertText", "insertCompositionText", "deleteContentBackward"].includes(event.inputType)
+      && history.type === event.inputType && stamp - history.at < 750
+      && history.after?.start === before.start && history.after?.end === before.end;
+    if (!continuous) push(history.undo, before);
+    history.redo.length = 0; history.type = event.inputType; history.at = stamp;
+  });
   editor.addEventListener("input", () => {
     const task = shellActiveTask();
     const node = shellNodeList(task).find((item) => item.id === editor.dataset.shellNodeRecord);
     if (!node) return;
     updateNodeNoteDraft(task.id, node.id, editor.value);
+    history.after = snapshot();
   });
   editor.addEventListener("blur", () => {
     flushNodeNoteDrafts?.({ persist: true });
+  });
+  editor.addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
+    if (!(event.metaKey || event.ctrlKey)) return;
+    const key = event.key.toLowerCase();
+    if (key !== "z" && !(event.ctrlKey && key === "y")) return;
+    event.preventDefault();
+    restore(key === "y" || event.shiftKey);
   });
 }
 

@@ -42,7 +42,7 @@ function workbenchGroup(group) {
   if(group==='text')return fmt('加粗','bold',undefined,'⌘ B')+fmt('倾斜','italic',undefined,'⌘ I')+fmt('删除线','strike')+fmt('高亮','highlight')+WB_DIVIDER+fmt('行内代码','inline')+row('清除格式','data-wb-action="clear-format"');
   if(group==='paragraph')return fmt('正文','heading',0)+workbenchBranch('标题','headings')+WB_DIVIDER+fmt('无序列表','bullet')+fmt('有序列表','ordered')+fmt('任务列表','task')+WB_DIVIDER+fmt('引用','quote');
   if(group==='headings')return [1,2,3,4,5,6].map(n=>fmt(`标题 ${n}`,'heading',n)).join('');
-  if(group==='insert')return row('内部链接…','data-wb-action="wiki"')+row('外部链接…','data-wb-action="link"')+row('图片…','data-kn-action="upload"')+row('表格','data-wb-format="table"')+row('编辑表格行列…','data-kn-action="table-tools"')+WB_DIVIDER+fmt('代码块','code')+row('数学公式','data-wb-action="math"')+row('图表源码','data-wb-action="diagram"')+fmt('分隔线','rule');
+  if(group==='insert')return row('内部链接…','data-wb-action="wiki"')+row('外部链接…','data-wb-action="link"')+row('图片…','data-kn-action="upload"')+row('表格','data-wb-format="table"')+row('编辑表格行列…','data-kn-action="table-tools"')+WB_DIVIDER+fmt('代码块','code')+row('数学公式','data-wb-action="math"')+row('Mermaid 图表','data-wb-action="diagram"')+fmt('分隔线','rule');
   return '';
 }
 function workbenchSubmenu(trigger,focus=false) {

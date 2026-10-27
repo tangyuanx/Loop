@@ -1,36 +1,17 @@
-// Real renderer regression for node context menus and inline node creation.
+// Real Electron regression using an isolated synthetic profile.
 const assert = require('node:assert/strict');
-const fs = require('node:fs/promises');
-const http = require('node:http');
-const path = require('node:path');
-const { chromium } = require('playwright-core');
+const { launchRepository } = require('./electron-ui-helpers.cjs');
 
 (async () => {
-  const repository = path.resolve(__dirname, '..');
-  const server = http.createServer(async (request, response) => {
-    const file = path.resolve(repository, '.' + new URL(request.url, 'http://localhost').pathname);
-    if (!file.startsWith(repository + path.sep)) { response.writeHead(403).end(); return; }
-    try {
-      response.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html');
-      response.end(await fs.readFile(file));
-    } catch { response.writeHead(404).end(); }
-  });
-  let browser;
+  let run;
   try {
-    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-    browser = await chromium.launch({ headless: true, executablePath: process.env.LOOP_TEST_CHROMIUM || undefined,
-      args: process.platform === 'linux' ? ['--no-sandbox', '--disable-dev-shm-usage'] : [] });
-    const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
-    const errors = []; page.on('pageerror', error => errors.push(error.message));
-    await page.addInitScript(() => {
-      if (localStorage.getItem('task-flow-sheet-prototype-v2')) return;
       const stamp = new Date().toISOString();
-      localStorage.setItem('task-flow-sheet-prototype-v2', JSON.stringify([{ id: 'task', title: '节点菜单验证', status: 'active',
+      const tasks = [{ id: 'task', title: '节点菜单验证', status: 'active',
         createdAt: stamp, updatedAt: stamp, nodes: Array.from({ length: 45 }, (_, i) => ({ id: `n${i}`, title: `处理步骤 ${i}`,
-          status: 'todo', order: i + 1, children: i === 35 ? [{ id: 'child', title: '现有子节点', order: 1, children: [] }] : [] })) }]));
-      localStorage.setItem('task-track-task-filter', 'all');
-    });
-    await page.goto(`http://127.0.0.1:${server.address().port}/app/renderer/index.html`);
+          status: 'todo', order: i + 1, children: i === 35 ? [{ id: 'child', title: '现有子节点', order: 1, children: [] }] : [] })) }];
+    run = await launchRepository({tasks}, 'node-context-menu');
+    const {app,page,errors}=run;
+    await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(1280,820));
     await page.waitForSelector('.flow-scroll');
     const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const open = async id => {
@@ -149,7 +130,7 @@ const { chromium } = require('playwright-core');
     assert.equal(await page.evaluate(id => Boolean(findNode(shellActiveTask().nodes, id)), oldDraft), false);
     await page.locator('.flow-toolbar > span').click();
     await expectCancelled();
-    await page.waitForFunction(() => !JSON.parse(localStorage.getItem('task-flow-sheet-prototype-v2'))[0].nodes
+    await page.waitForFunction(async () => !(await window.personalTaskTrack.storage.read()).tasks[0].nodes
       .some(node => !node.title.trim()));
 
     // Existing hover plus uses the same task identity and inline naming path.
@@ -163,9 +144,9 @@ const { chromium } = require('playwright-core');
     await page.waitForFunction(() => !state.focusNodeTitleId);
     assert.ok((await tree())[35].children[0].children.some(node => node.title === '失焦保存标题'));
     const saved = await tree();
-    await page.waitForFunction(() => JSON.parse(localStorage.getItem('task-flow-sheet-prototype-v2'))[0].nodes
+    await page.waitForFunction(async () => (await window.personalTaskTrack.storage.read()).tasks[0].nodes
       .find(n => n.id === 'n35').children[0].children.some(n => n.title === '快捷添加'));
-    await page.reload(); await page.waitForSelector('.flow-scroll');
+    await page.evaluate(()=>flushSave()); await page.reload(); await page.waitForSelector('.flow-scroll');
     assert.deepEqual(await tree(), saved, 'names and hierarchy survive a reload');
 
     // Keyboard menu navigation, viewport clamping, and theme tokens.
@@ -184,11 +165,11 @@ const { chromium } = require('playwright-core');
       const box = await page.locator('.node-context-menu').boundingBox();
       assert.ok(box.x >= 12 && box.y >= 12 && box.x + box.width <= 1268 && box.y + box.height <= 770);
       assert.equal(await page.locator('.node-context-menu').evaluate(el => getComputedStyle(el).backgroundColor),
-        await page.locator('.workspace').evaluate(el => getComputedStyle(el).backgroundColor));
+        await page.locator('body').evaluate(el => getComputedStyle(el).backgroundColor));
       if (process.env.LOOP_TEST_SCREENSHOT_DIR) await page.screenshot({ path: path.join(process.env.LOOP_TEST_SCREENSHOT_DIR, `node-menu-${theme}.png`) });
       await page.keyboard.press('Escape');
     }
-    await page.setViewportSize({ width: 1000, height: 680 });
+    await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(1000,680));
     await open('n44');
     const narrowMenu = await page.locator('.node-context-menu').boundingBox();
     assert.ok(narrowMenu.x + narrowMenu.width <= 988 && narrowMenu.y + narrowMenu.height <= 630);
@@ -197,5 +178,5 @@ const { chromium } = require('playwright-core');
     assert.equal((await tree()).find(n => n.id === 'n44').children[0].title, '窄窗口子节点');
     assert.deepEqual(errors, []);
     console.log('Node context menu passed: sibling/child/nested creation, empty/whitespace outside cancellation, click/focus retention, fresh drafts, persistence, DOM/scroll retention, keyboard, light/dark, edge clamping.');
-  } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
+  } finally { await run?.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -1,41 +1,23 @@
+// Real Electron regression using an isolated synthetic profile.
 const assert = require('node:assert/strict');
-const fs = require('node:fs/promises');
-const http = require('node:http');
-const path = require('node:path');
-const { chromium } = require('playwright-core');
+const { launchRepository } = require('./electron-ui-helpers.cjs');
 
 (async () => {
-  const repository = path.resolve(__dirname, '..');
-  const server = http.createServer(async (request, response) => {
-    const file = path.resolve(repository, '.' + new URL(request.url, 'http://localhost').pathname);
-    if (!file.startsWith(repository + path.sep)) { response.writeHead(403).end(); return; }
-    try {
-      response.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html');
-      response.end(await fs.readFile(file));
-    } catch { response.writeHead(404).end(); }
-  });
-  let browser;
+  let run;
   try {
-    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-    browser = await chromium.launch({ headless: true, executablePath: process.env.LOOP_TEST_CHROMIUM || undefined,
-      args: ['--no-sandbox', '--disable-dev-shm-usage'] });
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-    const errors = []; page.on('pageerror', error => errors.push(error.message));
-    await page.addInitScript(() => {
-      if (localStorage.getItem('task-flow-sheet-prototype-v2')) return;
       const stamp = new Date().toISOString();
       const node = (id, status, children = [], collapsed = false) => ({ id, title: id, status, note: 'record ' + id, children, collapsed });
-      localStorage.setItem('task-flow-sheet-prototype-v2', JSON.stringify([
+      const tasks = [
         { id: 'task', title: '处理流筛选验证', status: 'active', createdAt: stamp, updatedAt: stamp, nodes: [
           node('done-parent', 'done', [node('done-child', 'done'), node('todo-child', 'todo', [node('blocked', 'blocked')])], true),
           node('todo-root', 'todo', [node('done-leaf', 'done')]), node('later', 'later'),
           ...Array.from({ length: 28 }, (_, i) => node('step-' + i, i % 2 ? 'todo' : 'done')),
         ] },
         { id: 'complete', title: '全部完成', status: 'active', createdAt: stamp, updatedAt: stamp, nodes: [node('only-done', 'done')] },
-      ]));
-      localStorage.setItem('task-track-task-filter', 'all');
-    });
-    await page.goto(`http://127.0.0.1:${server.address().port}/app/renderer/index.html`);
+      ];
+    run = await launchRepository({tasks}, 'flow-completed-filter');
+    const {app,page,errors}=run;
+    await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(1280,820));
     const row = id => page.locator(`.flow-row[data-node-id="${id}"]`);
     const toggle = page.locator('[data-action="toggle-completed-nodes"]');
     await toggle.waitFor();
@@ -65,7 +47,7 @@ const { chromium } = require('playwright-core');
     assert.equal(await page.evaluate(() => findNode(shellActiveTask().nodes, 'todo-root').note), '完成前自动保存的记录');
 
     // Refresh, show-all and switch-back retain both data and the global preference.
-    await page.reload(); await toggle.waitFor();
+    await page.evaluate(()=>flushSave()); await page.reload(); await toggle.waitFor();
     assert.equal(await toggle.getAttribute('aria-pressed'), 'true');
     assert.equal(await row('done-parent').count(), 0);
     await toggle.click();
@@ -91,11 +73,11 @@ const { chromium } = require('playwright-core');
     assert.equal(await page.locator('.flow-filter-empty').count(), 0);
     for (const theme of ['light', 'dark']) {
       await page.evaluate(theme => { state.theme = theme; render(); }, theme);
-      await page.setViewportSize({ width: 1024, height: 720 });
+      await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(1024,720));
       const box = await toggle.boundingBox();
       assert.ok(box && box.x >= 0 && box.x + box.width <= 1024, 'filter is reachable at the supported minimum width: ' + JSON.stringify(box));
     }
     assert.deepEqual(errors, []);
     console.log('Completed filter passed: mixed hierarchy, collapsed completed ancestors, status changes, record autosave, counts, locator, scroll continuity, restart, all-done, add node, minimum desktop width light/dark.');
-  } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
+  } finally { await run?.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

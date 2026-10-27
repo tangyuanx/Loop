@@ -11,7 +11,7 @@ const shellBulk = { active: false, ids: new Set(), anchor: null, scope: "", undo
 
 function shellBulkScopeKey() {
   return JSON.stringify([
-    state.taskFilter, state.activeGroupId, state.captureSourceFilter,
+    state.taskFilter, state.todayFilter, state.activeGroupId, state.captureSourceFilter,
     state.priorityFilter, state.taskDeadlineFilter, state.taskDateFilter, state.query,
   ]);
 }
@@ -70,7 +70,7 @@ function renderShellBulkRows(list) {
   return `<ol class="task-rows" aria-label="任务列表">${list.map((task) => `
     <li class="task-item bulk-row ${task.id === state.activeTaskId ? "selected " : ""}${shellBulk.ids.has(task.id) ? "bulk-selected " : ""}${task.status === "done" ? "done" : ""}" data-task-row="${escAttr(task.id)}" data-task-id="${escAttr(task.id)}" data-context="task">
       <button type="button" class="bulk-check" role="checkbox" aria-checked="${shellBulk.ids.has(task.id)}" aria-label="选择：${escAttr(task.title)}" data-bulk-id="${escAttr(task.id)}"><span class="bulk-check-box">${shellIcon("check")}</span></button>
-      <button class="task-select" type="button" data-task-id="${escAttr(task.id)}" aria-pressed="${task.id === state.activeTaskId}" title="查看：${escAttr(task.title)}"><span class="task-item-title">${esc(task.title)}</span></button>
+      <button class="task-select" type="button" data-task-id="${escAttr(task.id)}" aria-pressed="${task.id === state.activeTaskId}" title="查看：${escAttr(task.title || "未命名任务")}"><span class="task-item-title">${esc(task.title || "未命名任务")}</span></button>
     </li>`).join("")}</ol>`;
 }
 
@@ -410,21 +410,22 @@ function shellBulkSelect(id, range) {
 }
 
 function shellBindBulk() {
-  document.querySelectorAll("[data-bulk-action],[data-bulk-id]").forEach((element) => {
-    element.addEventListener("click", async (event) => {
-      if (element.disabled) return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (element.dataset.bulkId) {
-        shellBulkSelect(element.dataset.bulkId, event.shiftKey);
-        return;
-      }
-      await shellBulkActionRun(element.dataset.bulkAction, element, event);
-    });
-  });
   if (typeof document.addEventListener !== "function") return;
   if (window.__loopBulkKeysBound) return;
   window.__loopBulkKeysBound = true;
+  // One owner for retained rows and newly rendered receipts. The overlay has
+  // its own delegate and stops propagation before this listener.
+  document.addEventListener("click", async (event) => {
+    const element = event.target.closest?.("[data-bulk-action],[data-bulk-id]");
+    if (!element || element.disabled) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (element.dataset.bulkId) {
+      shellBulkSelect(element.dataset.bulkId, event.shiftKey);
+      return;
+    }
+    await shellBulkActionRun(element.dataset.bulkAction, element, event);
+  });
   document.addEventListener("keydown", (event) => {
     if (!shellBulk.active || event.isComposing) return;
     if (shellOverlayIsOpen()) return;

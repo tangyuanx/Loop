@@ -1,0 +1,626 @@
+{
+  "schemaVersion": 1,
+  "workflow": "frontend-remediation-20261026",
+  "workspaceRoot": "/Volumes/T7/work/personal-task-track",
+  "executionBranch": "codex/frontend-remediation",
+  "baselineCommit": "482912b76c8666af849bbbdfd2ea806ba87bbaa4",
+  "baselineVersion": "0.1.248",
+  "activeStage": null,
+  "stages": [
+    {
+      "id": 0,
+      "title": "基线与整改边界",
+      "script": "STAGE-00.md",
+      "status": "ready_for_review",
+      "session": "frontend-stage-00-20261026-root",
+      "handoff": "docs/frontend-remediation/handoffs/STAGE-00.md",
+      "review": {
+        "status": "pending",
+        "executionInstruction": "在 /Volumes/T7/work/personal-task-track 工作区，读取 docs/frontend-remediation/COMMON.md、state.json 及 STAGE-00.md，执行该阶段。沿用共享状态记录的同一工作区和整改分支，保留前阶段累计改动；只做本阶段，完成检查、真实本地预览和交接，不单独提交或发布。",
+        "acceptanceQuote": null,
+        "nextStageInstruction": null
+      },
+      "startedAt": "2026-10-26T14:52:12.609009+00:00",
+      "startHead": "4a16c1bad515bf39d24c76aa34a6d08b2b2eb059",
+      "completedAt": "2026-10-26T15:11:18.709225+00:00",
+      "endHead": "482912b76c8666af849bbbdfd2ea806ba87bbaa4",
+      "endVersion": "0.1.245",
+      "changedFiles": [
+        "docs/frontend-remediation/state.json",
+        "docs/frontend-remediation/DECISIONS.md",
+        "docs/frontend-remediation/BASELINE-STAGE-00.md",
+        "docs/frontend-remediation/handoffs/STAGE-00.md",
+        "tests/frontend-remediation.test.cjs",
+        "tests/knowledge-watcher-polling.test.cjs"
+      ],
+      "preservedExistingChanges": [
+        "app/main/knowledge-watcher.cjs",
+        "prototypes/README.md",
+        "historical prototypes, docs, tools and planning assets; see classification.json"
+      ],
+      "checks": {
+        "preflight": "passed",
+        "npmCheck": {
+          "passed": true,
+          "mainTests": 347,
+          "serviceTests": 12,
+          "skipped": 0
+        },
+        "stageTests": {
+          "passed": 6,
+          "failed": 0
+        },
+        "diffCheck": "passed",
+        "actualElectron": "light/dark 1280/1024 main, today widget, auxiliary surface, empty profile, collapse, keyboard input/Undo; no pageerror",
+        "candidateProtectedFilesUnchanged": 535,
+        "evidenceRoot": ".local-review/frontend-remediation/stage-00"
+      },
+      "preview": {
+        "profile": "/Volumes/T7/work/personal-task-track/.local-review/frontend-remediation/stage-00/review-profile",
+        "command": "LOOP_USER_DATA_DIR=<profile> npm run dev -- --remote-debugging-port=9490 --inspect=9491",
+        "windowTitle": "Loop · 阶段0基线（隔离数据）",
+        "leftRunningForReview": true
+      },
+      "backup": {
+        "path": ".local-review/frontend-remediation/stage-00/backup-original",
+        "manifest": "manifest.json",
+        "verifiedFiles": 1920,
+        "originalIndexAndPatches": true
+      },
+      "productFingerprint": "8c438e3e4f3baecf285f7b31efd96c03b83a16c04ebf803c5fb21e6f0367621b"
+    },
+    {
+      "id": 1,
+      "title": "全局基础与公共控件",
+      "script": "STAGE-01.md",
+      "status": "blocked",
+      "session": "frontend-stage-01-20261026-root",
+      "handoff": "docs/frontend-remediation/handoffs/STAGE-01.md",
+      "review": {
+        "status": "pending",
+        "executionInstruction": "在 /Volumes/T7/work/personal-task-track 工作区，读取 docs/frontend-remediation/COMMON.md、state.json 及 STAGE-01.md，执行该阶段。沿用共享状态记录的同一工作区和整改分支，保留前阶段累计改动；只做本阶段，完成检查、真实本地预览和交接，不单独提交或发布。",
+        "acceptanceQuote": null,
+        "nextStageInstruction": "在 /Volumes/T7/work/personal-task-track 工作区，读取 docs/frontend-remediation/COMMON.md、state.json 及 STAGE-02.md，执行该阶段。沿用共享状态记录的同一工作区和整改分支，保留前阶段累计改动；只做本阶段，完成检查、真实本地预览和交接，不单独提交或发布。"
+      },
+      "startedAt": "2026-10-26T15:25:55.261Z",
+      "startHead": "482912b76c8666af849bbbdfd2ea806ba87bbaa4",
+      "changedFiles": [
+        "app/renderer/index.html",
+        "app/renderer/today-widget.html",
+        "app/renderer/widget-surface.html",
+        "app/renderer/src/foundation.css",
+        "app/renderer/src/bridge.css",
+        "app/renderer/src/knowledge-editor.css",
+        "app/renderer/src/workbench.css",
+        "tests/frontend-foundation.test.cjs",
+        "tests/desktop.test.cjs",
+        "docs/frontend-remediation/DECISIONS.md",
+        "docs/frontend-remediation/handoffs/STAGE-01.md"
+      ],
+      "preservedExistingChanges": [
+        "app/main/knowledge-watcher.cjs",
+        "prototypes/README.md",
+        "阶段0文档/工具/测试、历史原型与归档资料"
+      ],
+      "checks": {
+        "preflight": "passed",
+        "stageTests": {
+          "passed": 9,
+          "failed": 0,
+          "skipped": 0
+        },
+        "cssParse": "passed",
+        "npmCheck": {
+          "passed": true,
+          "mainTests": 347,
+          "serviceTests": 12,
+          "skipped": 0
+        },
+        "diffCheck": "passed",
+        "frozenSources": "passed",
+        "actualElectron": "blocked: macOS lock screen caused Electron 42.7.0 SIGABRT during RegisterApplication/NSApplication initialization; rerun after unlock"
+      },
+      "preview": {
+        "profile": "/Volumes/T7/work/personal-task-track/.local-review/frontend-remediation/stage-01/review-profile",
+        "command": "LOOP_USER_DATA_DIR=<profile> npm run dev -- --remote-debugging-port=9590 --inspect=9591",
+        "script": ".local-review/frontend-remediation/stage-01/review-foundation.cjs",
+        "windowTitle": "Loop · 阶段1基线（隔离数据）",
+        "status": "blocked_until_mac_unlock",
+        "evidenceRoot": ".local-review/frontend-remediation/stage-01",
+        "lastAttemptAt": "2026-10-26T16:00:16.968Z",
+        "lastAttempt": "unlocked Mac / npm run dev without and with remote debugging, still SIGABRT during macOS RegisterApplication"
+      },
+      "blocker": {
+        "stage": 1,
+        "reason": "Mac 已解锁后重试仍失败：Electron 42.7.0 在 macOS RegisterApplication/NSApplication 初始化阶段 SIGABRT，默认 Electron 窗口随后残留并已关闭。",
+        "log": "/Users/xuetangyuan/Library/Logs/DiagnosticReports/Electron-2026-10-26-235712.ips",
+        "lastAttemptAt": "2026-10-26T16:00:16.968Z"
+      },
+      "followUp": {
+        "recordedAt": "2026-10-26T16:57:05.461Z",
+        "fromStage": 2,
+        "startupFailureReproduced": false,
+        "evidence": ".local-review/frontend-remediation/stage-02/electron-review.json",
+        "remaining": "阶段1完整三入口及全部输入类别预览仍未补齐，保留blocked/pending，不代表验收。",
+        "releaseStage04": {
+          "recordedAt": "2026-10-27T07:42:19.021971+00:00",
+          "threeWindowBasicPreview": "passed",
+          "evidence": ".local-review/frontend-remediation/release-stage-04-20261027/three-window-review.json",
+          "remaining": "保留历史全部输入类别/跨窗完整专项及用户审阅；不自动accepted"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "导航与任务仓库",
+      "script": "STAGE-02.md",
+      "status": "ready_for_review",
+      "session": "frontend-stage-02-20261027-root",
+      "handoff": "docs/frontend-remediation/handoffs/STAGE-02.md",
+      "review": {
+        "status": "pending",
+        "executionInstruction": "在 /Volumes/T7/work/personal-task-track 工作区，读取 docs/frontend-remediation/COMMON.md、state.json 及 STAGE-02.md，执行该阶段。沿用共享状态记录的同一工作区和整改分支，保留前阶段累计改动；只做本阶段，完成检查、真实本地预览和交接，不单独提交或发布。",
+        "acceptanceQuote": null,
+        "nextStageInstruction": "在 /Volumes/T7/work/personal-task-track 工作区，读取 docs/frontend-remediation/COMMON.md、state.json 及 STAGE-03.md，执行该阶段。沿用共享状态记录的同一工作区和整改分支，保留前阶段累计改动；只做本阶段，完成检查、真实本地预览和交接，不单独提交或发布。"
+      },
+      "startedAt": "2026-10-26T16:25:46.336Z",
+      "startHead": "482912b76c8666af849bbbdfd2ea806ba87bbaa4",
+      "completedAt": "2026-10-26T16:57:05.461Z",
+      "endHead": "482912b76c8666af849bbbdfd2ea806ba87bbaa4",
+      "endVersion": "0.1.245",
+      "changedFiles": [
+        "app/renderer/index.html",
+        "app/renderer/src/repository.css",
+        "app/renderer/src/shell.js",
+        "app/renderer/src/actions.js",
+        "app/renderer/src/app.js",
+        "app/renderer/src/bulk.js",
+        "app/renderer/src/workspace.js",
+        "tests/electron-ui-helpers.cjs",
+        "tests/product-experience.ui.cjs",
+        "tests/group-context-menu.ui.cjs",
+        "tests/context-create.ui.cjs",
+        "tests/desktop.test.cjs",
+        "docs/frontend-remediation/DECISIONS.md",
+        "docs/frontend-remediation/state.json",
+        "docs/frontend-remediation/handoffs/STAGE-02.md",
+        "task_plan.md",
+        "findings.md",
+        "progress.md"
+      ],
+      "preservedExistingChanges": [
+        "app/main/knowledge-watcher.cjs",
+        "app/renderer/src/foundation.css",
+        "app/renderer/src/bridge.css",
+        "app/renderer/src/knowledge-editor.css",
+        "app/renderer/src/workbench.css",
+        "app/renderer/today-widget.html",
+        "app/renderer/widget-surface.html",
+        "prototypes/README.md",
+        "阶段0/1文档工具测试、历史原型与归档资料"
+      ],
+      "checks": {
+        "preflight": {
+          "passed": false,
+          "reason": "阶段1仍blocked；当前用户明确要求执行阶段2，未修改保护工具或伪造阶段1验收。",
+          "log": ".local-review/frontend-remediation/stage-02/preflight.log"
+        },
+        "stageTests": {
+          "passed": 13,
+          "failed": 0,
+          "skipped": 0
+        },
+        "npmCheck": {
+          "passed": true,
+          "mainTests": 347,
+          "serviceTests": 12,
+          "skipped": 0
+        },
+        "realElectronSuites": [
+          "product-experience.ui.cjs: passed",
+          "group-context-menu.ui.cjs: passed",
+          "context-create.ui.cjs: passed"
+        ],
+        "cssParse": "passed",
+        "designDetector": {
+          "warnings": 0,
+          "log": ".local-review/frontend-remediation/stage-02/design-detect.json"
+        },
+        "diffCheck": "passed",
+        "actualElectron": "macOS real Electron; light/dark 1280/1024, collapsed navigation, normal/empty/30 groups/long titles, neutral stable search, transparent rename/error; no pageerror; native traffic lights verified",
+        "frozenSources": "passed",
+        "evidenceRoot": ".local-review/frontend-remediation/stage-02"
+      },
+      "preview": {
+        "profile": "/Volumes/T7/work/personal-task-track/.local-review/frontend-remediation/stage-02/review-profile",
+        "command": "LOOP_USER_DATA_DIR=/Volumes/T7/work/personal-task-track/.local-review/frontend-remediation/stage-02/review-profile npm run dev -- --remote-debugging-port=9690 --inspect=9691",
+        "script": ".local-review/frontend-remediation/stage-02/review-repository.cjs",
+        "windowTitle": "Loop · 阶段2导航与任务仓库（隔离数据）",
+        "leftRunningForReview": true,
+        "evidenceRoot": ".local-review/frontend-remediation/stage-02",
+        "nativeScreenshot": ".local-review/frontend-remediation/stage-02/native-mac-window.png",
+        "data": "synthetic only; production profile untouched"
+      },
+      "backup": {
+        "path": ".local-review/frontend-remediation/stage-02/backup-resume-20261027",
+        "verifiedFiles": 15,
+        "manifest": "manifest.json"
+      },
+      "limitations": [
+        "阶段1完整主/今日/辅助三入口预览仍待补，阶段1原启动故障本次未复现；没有改写为已验收。",
+        "原生Windows、多屏/DPI和其他macOS未实测；Windows仅窗口契约测试。",
+        "IME验证使用组合事件，未使用真人拼音输入法。"
+      ],
+      "productFingerprint": "bbeefc4bde9383ad25082642770b1ece2b9847daf3e27d11aa4afb252198d9c7"
+    },
+    {
+      "id": 3,
+      "title": "任务工作台与处理流",
+      "script": "STAGE-03.md",
+      "status": "ready_for_review",
+      "session": "frontend-stage-03-20261027-root",
+      "handoff": "docs/frontend-remediation/handoffs/STAGE-03.md",
+      "review": {
+        "status": "pending",
+        "executionInstruction": "在 /Volumes/T7/work/personal-task-track 工作区，读取 docs/frontend-remediation/COMMON.md、state.json 及 STAGE-03.md，执行该阶段。沿用共享状态记录的同一工作区和整改分支，保留前阶段累计改动；只做本阶段，完成检查、真实本地预览和交接，不单独提交或发布。",
+        "acceptanceQuote": null,
+        "nextStageInstruction": "在 /Volumes/T7/work/personal-task-track 工作区，读取 docs/frontend-remediation/COMMON.md、state.json 及 STAGE-04.md，执行该阶段。沿用共享状态记录的同一工作区和整改分支，保留前阶段累计改动；只做本阶段，完成检查、真实本地预览和交接，不单独提交或发布。"
+      },
+      "startedAt": "2026-10-26T17:14:37.042859+00:00",
+      "startHead": "482912b76c8666af849bbbdfd2ea806ba87bbaa4",
+      "completedAt": "2026-10-26T17:44:33.580496+00:00",
+      "endHead": "482912b76c8666af849bbbdfd2ea806ba87bbaa4",
+      "endVersion": "0.1.245",
+      "changedFiles": [
+        "app/renderer/index.html",
+        "app/renderer/src/task-workspace.css",
+        "app/renderer/src/workspace.js",
+        "app/renderer/src/actions.js",
+        "app/renderer/src/brief21.js",
+        "app/renderer/src/continuity28.js",
+        "tests/desktop.test.cjs",
+        "tests/node-interactions.ui.cjs",
+        "tests/node-context-menu.ui.cjs",
+        "tests/flow-completed-filter.ui.cjs",
+        "tests/continuity28.ui.cjs",
+        "tests/task-workspace.ui.cjs",
+        "docs/frontend-remediation/DECISIONS.md",
+        "docs/frontend-remediation/handoffs/STAGE-03.md",
+        "docs/frontend-remediation/state.json",
+        "task_plan.md",
+        "findings.md",
+        "progress.md"
+      ],
+      "preservedExistingChanges": [
+        "app/main/knowledge-watcher.cjs",
+        "app/renderer/src/app.js",
+        "app/renderer/src/foundation.css",
+        "app/renderer/src/repository.css",
+        "app/renderer/src/shell.js",
+        "app/renderer/src/bulk.js",
+        "app/renderer/src/bridge.css",
+        "app/renderer/src/workbench.css",
+        "app/renderer/src/knowledge-editor.css",
+        "app/renderer/today-widget.html",
+        "app/renderer/widget-surface.html",
+        "prototypes/README.md",
+        "阶段0–2文档/工具/测试、历史候选和原型资料"
+      ],
+      "checks": {
+        "preflight": {
+          "passed": false,
+          "reason": "阶段1仍blocked；按本轮用户明确执行阶段3的真实指令继续，未改变保护工具或伪造验收。",
+          "log": ".local-review/frontend-remediation/stage-03/preflight.log"
+        },
+        "npmCheck": {
+          "passed": true,
+          "mainTests": 347,
+          "serviceTests": 12,
+          "skipped": 0
+        },
+        "stageTests": {
+          "passed": 28,
+          "failed": 0,
+          "skipped": 0
+        },
+        "actualElectronSuites": [
+          "task-workspace",
+          "continuity28",
+          "node-interactions",
+          "node-context-menu",
+          "flow-completed-filter"
+        ],
+        "priorStageRegression": [
+          "product-experience",
+          "group-context-menu",
+          "context-create"
+        ],
+        "actualElectron": "passed: real workspace/profile, light/dark 1280/1024, 16 captures and 10 input states, no pageerror, keyboard/reduced-motion; native outer-window CUA screenshot unavailable because Mac locked",
+        "cssParse": "passed",
+        "designDetector": [],
+        "diffCheck": "passed",
+        "evidenceRoot": ".local-review/frontend-remediation/stage-03"
+      },
+      "preview": {
+        "profile": "/Volumes/T7/work/personal-task-track/.local-review/frontend-remediation/stage-03/review-profile",
+        "command": "LOOP_USER_DATA_DIR=<profile> npm run dev -- --remote-debugging-port=9790 --inspect=9791",
+        "windowTitle": "Loop · 阶段3任务工作台与处理流（隔离数据）",
+        "leftRunningForReview": true,
+        "status": "running; Mac locked at final native CUA verification",
+        "runtimeEvidence": ".local-review/frontend-remediation/stage-03/final-preview.json",
+        "evidenceRoot": ".local-review/frontend-remediation/stage-03"
+      },
+      "backup": {
+        "path": ".local-review/frontend-remediation/stage-03/backup-before",
+        "manifest": "manifest.json",
+        "verifiedFiles": 18
+      },
+      "performance": {
+        "summary": ".local-review/frontend-remediation/stage-03/performance-summary.json",
+        "baselineRenderMedianMs": 268.45,
+        "candidateRenderMedianMs": 276.8,
+        "tasks": 300,
+        "nodes": 3000,
+        "closedRows": 10,
+        "hiddenRows": 0,
+        "remaining": "全展开仍有全量重绘成本，阶段8用同机同数据复核；补测冷启动/展开输入没有同方法旧基线。"
+      },
+      "limitations": [
+        "阶段1完整三入口验证与审阅仍未完成；状态不自动转为accepted",
+        "原生Windows/多屏/DPI、人工输入法和物理指针手感未实测",
+        "Mac锁屏导致本阶段原生外框CUA截图未取得；真实Electron已运行，页面截图/交互和窗口元数据已核实",
+        "大树全展开仍有明显重绘成本，详见性能记录"
+      ],
+      "productFingerprint": "334b9c048d1669c436845a49712a1be32e37a465e62c3583b79a6b8ffb980664"
+    },
+    {
+      "id": 4,
+      "title": "知识工作区",
+      "script": "STAGE-04.md",
+      "status": "ready_for_review",
+      "session": "frontend-stage-04-20261027-root",
+      "handoff": "docs/frontend-remediation/handoffs/STAGE-04.md",
+      "review": {
+        "status": "pending",
+        "executionInstruction": "在 /Volumes/T7/work/personal-task-track 工作区，读取 docs/frontend-remediation/COMMON.md、state.json 及 STAGE-04.md，执行该阶段。沿用共享状态记录的同一工作区和整改分支，保留前阶段累计改动；只做本阶段，完成检查、真实本地预览和交接，不单独提交或发布。",
+        "acceptanceQuote": null,
+        "nextStageInstruction": null,
+        "previewFeedback": "稍后自行查看候选",
+        "continuationQuote": "继续"
+      },
+      "startedAt": "2026-10-27T00:09:03.651546+00:00",
+      "startHead": "482912b76c8666af849bbbdfd2ea806ba87bbaa4",
+      "completedAt": "2026-10-27T06:19:13.516662+00:00",
+      "endHead": "482912b76c8666af849bbbdfd2ea806ba87bbaa4",
+      "endVersion": "0.1.245",
+      "changedFiles": [
+        "app/renderer/index.html",
+        "app/renderer/src/knowledge-workspace.js",
+        "app/renderer/src/knowledge-workspace.css",
+        "app/renderer/src/workbench.css",
+        "app/renderer/src/actions.js",
+        "tests/desktop.test.cjs",
+        "tests/knowledge-workspace.ui.cjs",
+        "docs/frontend-remediation/DECISIONS.md",
+        "docs/frontend-remediation/handoffs/STAGE-04.md",
+        "docs/frontend-remediation/state.json",
+        "task_plan.md",
+        "findings.md",
+        "progress.md"
+      ],
+      "preservedExistingChanges": [
+        "app/main/knowledge-watcher.cjs",
+        "app/renderer/src/app.js",
+        "app/renderer/src/foundation.css",
+        "app/renderer/src/repository.css",
+        "app/renderer/src/task-workspace.css",
+        "app/renderer/src/shell.js",
+        "app/renderer/src/bulk.js",
+        "app/renderer/src/workspace.js",
+        "app/renderer/src/continuity28.js",
+        "app/renderer/src/brief21.js",
+        "app/renderer/src/knowledge-editor.css",
+        "app/renderer/today-widget.html",
+        "app/renderer/widget-surface.html",
+        "阶段0–3其他测试、资料与历史原型；没有reset/覆盖"
+      ],
+      "checks": {
+        "preflight": {
+          "passed": false,
+          "reason": "阶段1仍blocked；本轮真实用户明确执行阶段4，保留保护工具和历史验收状态。",
+          "log": ".local-review/frontend-remediation/stage-04/preflight.log"
+        },
+        "npmCheck": {
+          "passed": true,
+          "mainTests": 347,
+          "serviceTests": 12,
+          "skipped": 0
+        },
+        "knowledgeUnit": {
+          "passed": 21,
+          "failed": 0
+        },
+        "stageTests": {
+          "passed": 9,
+          "failed": 0,
+          "skipped": 0
+        },
+        "actualElectronSuites": {
+          "knowledge-workspace": "passed",
+          "knowledge-desktop": 11,
+          "knowledge-conflict": 10,
+          "knowledge-feedback": 8,
+          "knowledge-search": 7,
+          "knowledge-image": 6,
+          "knowledge-release-regressions": 13
+        },
+        "browserInjectedSuite": {
+          "knowledge-editor": "passed with installed Google Chrome; initial Playwright browser executable missing"
+        },
+        "priorStageRegression": [
+          "task-workspace",
+          "continuity28",
+          "product-experience"
+        ],
+        "actualLifecycle": "passed: actual app.quit, relaunch recovery, restored local draft versus actual external file conflict",
+        "inputs": "12 search default/hover/focus states and 38 supplementary states with parents; editor neutral focus and transparent live cell",
+        "actualPreview": "passed: real npm run dev; light/dark 1280/1024 three modes; native external frame unavailable because Mac locked",
+        "pdf": "5 rich-export pages rendered by Poppler and inspected; independent light print styling",
+        "cssParse": "passed",
+        "designDetector": [],
+        "diffCheck": "passed",
+        "evidenceRoot": ".local-review/frontend-remediation/stage-04"
+      },
+      "preview": {
+        "profile": "/Volumes/T7/work/personal-task-track/.local-review/frontend-remediation/stage-04/review-profile",
+        "command": "LOOP_USER_DATA_DIR=/Volumes/T7/work/personal-task-track/.local-review/frontend-remediation/stage-04/review-profile npm run dev -- --remote-debugging-port=9890 --inspect=9891",
+        "windowTitle": "Loop · 阶段4知识工作区（隔离数据）",
+        "leftRunningForReview": true,
+        "runtimeEvidence": ".local-review/frontend-remediation/stage-04/final-preview.json",
+        "evidenceRoot": ".local-review/frontend-remediation/stage-04",
+        "data": "synthetic only; SHA-verified task-data and Markdown seed copies; production profile untouched"
+      },
+      "backup": {
+        "path": ".local-review/frontend-remediation/stage-04/backup-before",
+        "manifest": "manifest.json",
+        "verifiedFiles": 17
+      },
+      "performance": {
+        "newSample": ".local-review/frontend-remediation/stage-04/workspace/results.json",
+        "characters": 21982,
+        "lines": 2399,
+        "openMs": 90.03,
+        "renderTwoFramesRangeMs": [
+          11.9,
+          15.5
+        ],
+        "stage0LongSample": ".local-review/frontend-remediation/stage-04/electron-review.json",
+        "stage0Characters": 52807,
+        "stage0Lines": 4803,
+        "stage0TransactionTwoFramesMs": 13.7,
+        "limitations": "current candidate observations; no same-method pre-change baseline; not physical display latency"
+      },
+      "limitations": [
+        "阶段1完整三入口/审阅仍未完成，不自动改为accepted",
+        "打包知识链路未运行→阶段8；release-regressions名称不代表打包验证",
+        "Mac锁屏，原生外框CUA未完成；用户答稍后自行查看候选",
+        "原生Windows/多屏/DPI/人工IME与物理输入手感未实测",
+        "仅验证成功退出的Recovery握手；没有穷尽OS强杀或存储介质失效等故障"
+      ],
+      "productFingerprint": "364c1f066d16f4f54fe4e9ea68e6345dccf1d35f463d43d57137bc1e7052780b"
+    },
+    {
+      "id": 5,
+      "title": "工作导航、日历与回顾",
+      "script": "STAGE-05.md",
+      "status": "not_started",
+      "session": null,
+      "handoff": null,
+      "review": null
+    },
+    {
+      "id": 6,
+      "title": "设置、恢复与系统反馈",
+      "script": "STAGE-06.md",
+      "status": "not_started",
+      "session": null,
+      "handoff": null,
+      "review": null
+    },
+    {
+      "id": 7,
+      "title": "今日浮窗与辅助窗口",
+      "script": "STAGE-07.md",
+      "status": "not_started",
+      "session": null,
+      "handoff": null,
+      "review": null
+    },
+    {
+      "id": 8,
+      "title": "整体收敛与最终验收",
+      "script": "STAGE-08.md",
+      "status": "not_started",
+      "session": null,
+      "handoff": null,
+      "review": null
+    }
+  ],
+  "release": {
+    "status": "interim_ready_to_push",
+    "remoteIntegratedCommit": "482912b76c8666af849bbbdfd2ea806ba87bbaa4",
+    "finalAcceptance": null,
+    "version": "0.1.248",
+    "commit": null,
+    "tag": "v0.1.248",
+    "url": null,
+    "isFinalRemediationRelease": false,
+    "scopeStages": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "integratedPublishedCommits": [
+      "fd9bc17c696656e98e879cab9dcbe7abfc8a24b8",
+      "4a2fa2e9fd4ed1459e85cbd60b008016bf577be7"
+    ],
+    "publishedCommitIntegration": "three-way content integration; original tags/commits preserved",
+    "authorization": {
+      "quote": "现在先把这几个阶段的工作发布一次新版本",
+      "recordedAt": "2026-10-27T07:39:13.691208+00:00",
+      "scope": "current stages 0–4 cumulative release; retain previously published v0.1.246/247 capabilities",
+      "overrides": "original wait-until-stage8 release schedule; does not mark unstarted stages complete",
+      "claimsManualTesting": false
+    },
+    "handoff": "docs/frontend-remediation/handoffs/RELEASE-0-4.md",
+    "evidenceRoot": ".local-review/frontend-remediation/release-stage-04-20261027",
+    "productFingerprint": "b457b18b12cd2bd20a39477bc5edd822631ea932a1494469564bbc9b99de3c57",
+    "localChecks": {
+      "npmCheck": {
+        "passed": true,
+        "mainTests": 351,
+        "serviceTests": 12
+      },
+      "stageTests": 9,
+      "realRegression": [
+        "knowledge-workspace",
+        "task-workspace",
+        "continuity28",
+        "product-experience"
+      ],
+      "browserInjected": "knowledge-editor via installed Google Chrome; global settings/Mermaid/editor passed",
+      "threeWindowPreview": "passed: real main light/dark 1280/1024 plus today widget and auxiliary settings",
+      "macBuild": [
+        "x64",
+        "arm64"
+      ],
+      "winBuild": "x64",
+      "packagedKnowledge": {
+        "desktop": 11,
+        "conflict": 10,
+        "feedback": 8,
+        "search": 7,
+        "failed": 0
+      },
+      "packagedSource": "3 archives; 96 source files identical; 16 runtime packages each",
+      "artifacts": "12 files; 2 metadata; 5 artifact digests passed; AppleDouble=0",
+      "dependencyRuntime": "625 exact-lock packages; real node_modules directory; original symlink and source preserved"
+    },
+    "plannedUrl": "https://github.com/tangyuanx/Loop/releases/tag/v0.1.248"
+  },
+  "blocker": {
+    "stage": 1,
+    "reason": "阶段1完整预览仍待补；阶段2真实Electron启动成功，原RegisterApplication/NSApplication故障本次未复现。阶段1状态和验收未被自动改写。",
+    "historicalLog": "/Users/xuetangyuan/Library/Logs/DiagnosticReports/Electron-2026-10-26-235712.ips",
+    "subsequentEvidence": ".local-review/frontend-remediation/stage-02/electron-review.json"
+  },
+  "baselineHistory": [
+    {
+      "version": "0.1.245",
+      "commit": "482912b76c8666af849bbbdfd2ea806ba87bbaa4",
+      "reason": "用户要求阶段0–4中途发布，原始基线保留；后续阶段使用0.1.248版本起点"
+    }
+  ]
+}

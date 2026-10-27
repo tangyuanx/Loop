@@ -1,5 +1,5 @@
 /* Scoped refinement of the existing desktop workbench. */
-.knowledge-pane .cm-editor,.knowledge-pane .cm-editor.cm-focused,.knowledge-pane .cm-content,.knowledge-pane .cm-content:focus,.knowledge-pane .cm-content:focus-visible,.knowledge-pane .kn-reading:focus,.knowledge-pane .kn-reading:focus-visible{outline:none!important;box-shadow:none!important}
+/* The final foundation layer owns the editor's neutral keyboard focus. */
 .wb-task-context [data-wb-action=details]{padding:2px 5px;color:var(--secondary)}
 .wb-task-context [data-wb-action=details][aria-expanded=true] svg{transform:rotate(180deg)}
 .wb-task-details{padding:0 28px 18px;flex-shrink:0;max-height:40vh;overflow:auto}
@@ -39,7 +39,7 @@ body .workspace .knowledge-header .tabs-bar{border:0;padding:0;gap:22px;min-heig
 .wb-menu button>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .wb-menu button>svg{margin-left:auto;width:12px;height:12px}
 .wb-menu kbd{border:0;padding:0;margin-left:auto;font-size:var(--type-11);white-space:nowrap}
-.wb-menu button:not(:disabled):hover,.wb-menu button:focus-visible,.wb-menu button.submenu-open{background:var(--green);color:var(--canvas);outline:none}
+.wb-menu button:not(:disabled):hover,.wb-menu button.submenu-open{background:var(--green);color:var(--canvas);outline:none}.wb-menu button:focus-visible{background:var(--hover);color:var(--text);outline:1px solid var(--focus-line-strong,var(--secondary));outline-offset:-2px}
 .wb-menu button:hover kbd,.wb-menu button:focus-visible kbd,.wb-menu button.submenu-open kbd{color:inherit}
 .wb-menu .menu-divider{margin:5px 7px}
 .wb-link-label{display:flex;flex-direction:column;gap:8px;font-size:var(--type-12)}

@@ -21,7 +21,7 @@ body .navigation .nav-button.active { box-shadow:inset 2px 0 var(--green); }
 body .navigation .group-nav-row .nav-button>span:first-of-type { padding-right:0; }
 body .group-mark { width:7px; height:7px; border-radius:2px; opacity:.75; }
 body .task-list-pane .list-search { border-radius:7px; min-height:34px; }
-body .list-search:focus-within { border-color:var(--green); box-shadow:0 0 0 2px var(--green-soft); }
+body .list-search:focus-within { border-color:var(--input-focus,var(--line)); box-shadow:inset 0 -1px 0 var(--focus-line,var(--line)); }
 body .list-search input:focus-visible { outline:none; }
 body .search-shortcut { flex-shrink:0; font-size:10px; white-space:nowrap; padding:0 3px; }
 body .list-search:has(input:not(:placeholder-shown)) .search-shortcut { display:none; }
@@ -98,7 +98,7 @@ body .flow-empty .flow-tree:has(.node-draft) { padding-top:20px; }
   box-shadow: none;
 }
 .flow-row:has(> .node-title:focus-visible) {
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--green) 45%, var(--canvas));
+  box-shadow: inset 2px 0 0 var(--focus-line, var(--secondary));
 }
 
 /* Context actions survived the shell migration, but their legacy stylesheet
@@ -161,7 +161,7 @@ body .flow-empty .flow-tree:has(.node-draft) { padding-top:20px; }
 /* Restore long-press feedback with the current flow's drop lines and tokens. */
 .flow-row.node-drag-pressing > .node-title { color: var(--green); }
 .flow-row > .node-title-rename { margin-block: 5px; cursor: text; }
-.node-title-rename:focus { outline: none; border-color: var(--green); box-shadow: 0 0 0 2px var(--selected); }
+.node-title-rename:focus { outline: none; border-color: var(--input-focus,var(--line)); box-shadow: inset 0 -1px 0 var(--focus-line,var(--line)); }
 .node-title-rename[aria-invalid="true"] { border-color: var(--danger, #b54a42); }
 .flow-row.node-dragging { opacity: .48; }
 .flow-node-reordering, .flow-node-reordering .node-title { cursor: grabbing; user-select: none; }
@@ -361,7 +361,7 @@ body .flow-empty .flow-tree:has(.node-draft) { padding-top:20px; }
   background: transparent;
 }
 .list-resizer:hover::after,
-.list-resizer:focus-visible::after { background: var(--green); opacity: .45; }
+.list-resizer:focus-visible::after { background: var(--focus-line-strong, var(--secondary)); opacity: .45; }
 .list-resizer:focus-visible { outline: none; }
 .task-list-pane { position: relative; }
 
@@ -403,8 +403,8 @@ body .flow-empty .flow-tree:has(.node-draft) { padding-top:20px; }
 }
 
 .brief-row .brief-value:focus-visible {
-  outline: 2px solid var(--green);
-  outline-offset: 2px;
+  outline: 1px solid var(--focus-line-strong, var(--secondary));
+  outline-offset: -2px;
 }
 
 /* Passive settings row value (e.g. 当前版本 in 软件更新): same rhythm as a control

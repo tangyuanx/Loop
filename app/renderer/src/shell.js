@@ -324,6 +324,7 @@ function renderShellTaskRow(task, displayOrder) {
 
 function shellActiveFilterLabels() {
   const labels = [];
+  if (state.query.trim()) labels.push(`搜索「${state.query.trim()}」`);
   if (state.priorityFilter !== "all") labels.push(`${priorityFilterLabels[state.priorityFilter]}优先`);
   if (state.captureSourceFilter !== "all") labels.push(captureSourceFilterLabels[state.captureSourceFilter]);
   if (["blocked", "later"].includes(state.taskFilter)) labels.push(taskFilterLabels[state.taskFilter]);
@@ -335,10 +336,11 @@ function renderShellTaskRows(list) {
   if (shellBulk.active && list.length) return renderShellBulkRows(list);
   if (!list.length) {
     // Phase18: the Today route gets its own minimal copy instead of "暂无任务".
-    if (shellRoute() === "today" && state.captureSourceFilter !== "quick") {
+    const hasFilters = shellActiveFilterLabels().length > 0 || Boolean(state.taskDateFilter);
+    if (shellRoute() === "today" && state.captureSourceFilter !== "quick" && !hasFilters) {
       return `<div class="empty time18-list-empty">${state.todayFilter === "done" ? "今天暂无完成任务" : "暂无待办"}</div>`;
     }
-    const filtered = taskListStatsTasks().length > 0;
+    const filtered = hasFilters;
     const noun = state.captureSourceFilter === "quick" ? "速记" : "任务";
     // Phase26: the Demo keeps a reachable recovery entrance in the empty list,
     // without adding a permanent navigation row that would change the height.
@@ -361,7 +363,7 @@ function renderShellScopeChip() {
   const date = state.taskDateFilter;
   if (!date) return "";
   const parsed = safeDate(date);
-  return `<div class="scope-chip">${shellIcon("calendar")}${parsed ? `${parsed.getMonth() + 1} 月 ${parsed.getDate()} 日` : esc(date)} 截止<button class="icon-button" type="button" data-action="clear-task-deadline" aria-label="清除截止日期筛选">${shellIcon("close")}</button></div>`;
+  return `<div class="scope-chip">${shellIcon("calendar")}${parsed ? `${parsed.getMonth() + 1} 月 ${parsed.getDate()} 日` : esc(date)} 截止<button class="icon-button" type="button" data-action="clear-list-date-filter" aria-label="清除截止日期筛选">${shellIcon("close")}</button></div>`;
 }
 
 function renderShellTaskList(list) {
@@ -372,12 +374,12 @@ function renderShellTaskList(list) {
       <span class="list-resizer" data-action="resize-list-column" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整任务列表宽度" aria-valuemin="230" aria-valuemax="460" aria-valuenow="${normalizeSidebarWidth(state.sidebarWidth)}" title="拖动调整任务列表宽度"></span>
       <div class="list-search" role="search">
         ${shellIcon("search")}
-        <input id="search" type="search" placeholder="搜索任务、节点、速记" aria-label="搜索全部任务、节点、速记" aria-controls="global-results" aria-expanded="${state.searchOpen}" autocomplete="off" value="${escAttr(state.query)}" />
+        <input id="search" type="search" placeholder="搜索任务、节点、速记" aria-label="搜索${escAttr(shellListTitle())}中的任务、节点、速记" aria-controls="task-results" autocomplete="off" value="${escAttr(state.query)}" />
         ${!state.query ? `<kbd class="search-shortcut" aria-hidden="true">${desktopPlatform === "darwin" ? "⌘" : "Ctrl"} K</kbd>` : ""}
         <button class="search-clear" type="button" data-action="clear-search" aria-label="清空搜索" title="清空搜索" ${state.query ? "" : "hidden"}>${shellIcon("close")}</button>
       </div>
       <div class="list-heading">
-        <h2>${esc(shellListTitle())}<span class="count">${list.length}</span></h2>
+        <h2 title="${escAttr(shellListTitle())}"><span class="list-title">${esc(shellListTitle())}</span><span class="count" role="status" aria-live="polite">${list.length}</span></h2>
         <div class="heading-list-actions">
           <button class="scope-filter ${filters.length ? "has-filters" : ""}" type="button" data-action="open-combined-filter" aria-label="筛选记录" aria-haspopup="dialog" title="${filters.length ? escAttr(filters.join(" · ")) : "筛选记录"}">筛选${filters.length ? `<span class="filter-count">${filters.length}</span>` : shellIcon("filter")}</button>
           <button class="icon-button" type="button" data-action="add-task" aria-label="新建${note ? "速记" : "任务"}" title="新建${note ? "速记" : "任务"}（${desktopPlatform === "darwin" ? "⌘" : "Ctrl"} + N）">${shellIcon("plus")}</button>
@@ -386,9 +388,56 @@ function renderShellTaskList(list) {
       ${renderShellListFilter()}
       ${filters.length ? `<div class="active-list-filters"><span title="${escAttr(filters.join(" · "))}">${esc(filters.join(" · "))}</span><button class="icon-button" type="button" data-action="clear-list-filters" aria-label="清除筛选" title="清除筛选">${shellIcon("close")}</button></div>` : ""}
       ${renderShellScopeChip()}
-      <div class="tasks-scroll" data-context="task-list">${renderShellTaskRows(list)}</div>
+      <div id="task-results" class="tasks-scroll" data-context="task-list">${renderShellTaskRows(list)}</div>
       ${shellBulk.active
         ? `<footer class="list-foot bulk-dock" aria-label="批量操作">${shellBulkFooter()}</footer>`
         : `<footer class="list-foot ${shellTodayCompletedFoot() ? "time18-footer" : ""}"><span>${esc(shellListFoot())}</span>${shellTodayCompletedFoot()}${shellBulkFooter()}</footer>`}
     </aside>`;
+}
+
+/** Bind each retained search node once. IME drafts are applied on commit. */
+function shellBindRepository() {
+  const input = document.querySelector(".list-search #search");
+  if (input && input.dataset.repositoryBound !== "1") {
+    input.dataset.repositoryBound = "1";
+    let composing = false;
+    const update = () => {
+      if (state.query === input.value) return;
+      state.query = input.value;
+      state.searchOpen = false;
+      state.searchCursor = input.selectionStart ?? input.value.length;
+      state.focusSearch = true;
+      render();
+    };
+    input.addEventListener("compositionstart", () => { composing = true; });
+    input.addEventListener("compositionend", () => { composing = false; update(); });
+    input.addEventListener("input", (event) => { if (!composing && !event.isComposing) update(); });
+    input.addEventListener("search", () => { if (!composing) update(); });
+    input.addEventListener("keydown", (event) => {
+      if (composing || event.isComposing || event.keyCode === 229) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (input.value) { input.value = ""; update(); }
+        else document.querySelector(".task-rows .task-select")?.focus();
+      } else if (["ArrowDown", "Enter"].includes(event.key)) {
+        event.preventDefault();
+        document.querySelector(".task-rows .task-select")?.focus();
+      }
+    });
+  }
+  if (typeof document.addEventListener !== "function" || window.__loopRepositoryKeysBound) return;
+  window.__loopRepositoryKeysBound = true;
+  document.addEventListener("keydown", (event) => {
+    if (event.isComposing || shellOverlayIsOpen()) return;
+    const row = event.target.closest?.(".task-rows .task-select");
+    if (!row || !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const rows = [...document.querySelectorAll(".task-rows .task-select")];
+    const index = rows.indexOf(row);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1
+      : Math.max(0, Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
+    event.preventDefault();
+    rows[next]?.focus({ preventScroll: true });
+    rows[next]?.scrollIntoView({ block: "nearest" });
+  });
 }

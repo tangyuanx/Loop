@@ -11,6 +11,7 @@
 const SHELL_SETTINGS_CATEGORIES = [
   ["appearance", "外观", "sun"],
   ["tasks", "任务与浮窗", "tasks"],
+  ["knowledge", "知识笔记", "note"],
   ["data", "数据", "folder"],
   ["updates", "软件更新", "arrow"],
   ["advanced", "高级功能", "settings"],
@@ -43,6 +44,8 @@ const SHELL_SETTINGS_CHOICE_LABELS = {
   "task-filter": "默认任务范围",
   "priority-filter": "默认优先级筛选",
   "new-task-priority": "新任务优先级",
+  "knowledge-width": "笔记页宽",
+  "knowledge-mode": "笔记视图",
 };
 
 const SHELL_SETTINGS_CHOICE_DESCRIPTIONS = {
@@ -61,6 +64,8 @@ function shellSettingsChoiceOptions(key) {
   if (key === "task-filter") return taskFilterLabels;
   if (key === "priority-filter") return priorityFilterLabels;
   if (key === "new-task-priority") return priorityLabels;
+  if (key === "knowledge-width") return SHELL_NOTE_WIDTH_NAMES;
+  if (key === "knowledge-mode") return SHELL_NOTE_MODE_NAMES;
   return {};
 }
 
@@ -71,6 +76,8 @@ function shellSettingsChoiceValue(key) {
   if (key === "task-filter") return state.taskFilter;
   if (key === "priority-filter") return state.priorityFilter;
   if (key === "new-task-priority") return state.newTaskPriority;
+  if (key === "knowledge-width") return shellNoteWidth();
+  if (key === "knowledge-mode") return shellKnowledgeMode();
   return "";
 }
 
@@ -111,6 +118,13 @@ function shellSettingsTasks() {
     <h3 class="prefs-subheading">桌面提醒</h3>
     ${typeof desktopReminderSettingsRow === "function" ? desktopReminderSettingsRow() : ""}
     <p class="prefs-native-caption">快捷键 <kbd>⌘ / Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>T</kbd> 可切换鼠标穿透。</p>`;
+}
+
+function shellSettingsKnowledge() {
+  return `<h2>知识笔记</h2><p>以下设置对所有笔记生效，修改后自动保存。</p>
+    ${shellSettingsChoice("knowledge-width", "默认适合阅读，较宽适合代码与表格。", shellSettingsChoiceOptions("knowledge-width"), shellNoteWidth())}
+    ${shellSettingsChoice("knowledge-mode", "笔记内切换视图时，也会同步此设置。", shellSettingsChoiceOptions("knowledge-mode"), shellKnowledgeMode())}
+    <p class="prefs-native-caption">笔记的字体与字号跟随「外观」设置。</p>`;
 }
 
 function shellSettingsData() {
@@ -337,6 +351,7 @@ function renderShellSettings() {
   const page = SHELL_SETTINGS_CATEGORIES.some(([value]) => value === activeSettingsPage) ? activeSettingsPage : "appearance";
   const body = page === "appearance" ? shellSettingsAppearance()
     : page === "tasks" ? shellSettingsTasks()
+      : page === "knowledge" ? shellSettingsKnowledge()
       : page === "data" ? shellSettingsData()
         : page === "updates" ? shellSettingsUpdates()
           : page === "advanced" ? shellSettingsAdvanced()
@@ -387,6 +402,7 @@ function shellSettingsSyncControls() {
   const page = activeSettingsPage;
   body.innerHTML = page === "appearance" ? shellSettingsAppearance()
     : page === "tasks" ? shellSettingsTasks()
+      : page === "knowledge" ? shellSettingsKnowledge()
       : page === "data" ? shellSettingsData()
         : page === "updates" ? shellSettingsUpdates()
           : page === "advanced" ? shellSettingsAdvanced()
