@@ -3,7 +3,7 @@
   "workflow": "frontend-remediation-20261026",
   "workspaceRoot": "/Volumes/T7/work/personal-task-track",
   "executionBranch": "codex/frontend-remediation",
-  "baselineCommit": "482912b76c8666af849bbbdfd2ea806ba87bbaa4",
+  "baselineCommit": "279a833c11a636c5ec2d5828105357bdfb810c87",
   "baselineVersion": "0.1.248",
   "activeStage": null,
   "stages": [
@@ -67,7 +67,8 @@
         "verifiedFiles": 1920,
         "originalIndexAndPatches": true
       },
-      "productFingerprint": "8c438e3e4f3baecf285f7b31efd96c03b83a16c04ebf803c5fb21e6f0367621b"
+      "productFingerprint": "8c438e3e4f3baecf285f7b31efd96c03b83a16c04ebf803c5fb21e6f0367621b",
+      "publishedIn": "v0.1.248"
     },
     {
       "id": 1,
@@ -148,7 +149,8 @@
           "evidence": ".local-review/frontend-remediation/release-stage-04-20261027/three-window-review.json",
           "remaining": "保留历史全部输入类别/跨窗完整专项及用户审阅；不自动accepted"
         }
-      }
+      },
+      "publishedIn": "v0.1.248"
     },
     {
       "id": 2,
@@ -251,7 +253,8 @@
         "原生Windows、多屏/DPI和其他macOS未实测；Windows仅窗口契约测试。",
         "IME验证使用组合事件，未使用真人拼音输入法。"
       ],
-      "productFingerprint": "bbeefc4bde9383ad25082642770b1ece2b9847daf3e27d11aa4afb252198d9c7"
+      "productFingerprint": "bbeefc4bde9383ad25082642770b1ece2b9847daf3e27d11aa4afb252198d9c7",
+      "publishedIn": "v0.1.248"
     },
     {
       "id": 3,
@@ -371,7 +374,8 @@
         "Mac锁屏导致本阶段原生外框CUA截图未取得；真实Electron已运行，页面截图/交互和窗口元数据已核实",
         "大树全展开仍有明显重绘成本，详见性能记录"
       ],
-      "productFingerprint": "334b9c048d1669c436845a49712a1be32e37a465e62c3583b79a6b8ffb980664"
+      "productFingerprint": "334b9c048d1669c436845a49712a1be32e37a465e62c3583b79a6b8ffb980664",
+      "publishedIn": "v0.1.248"
     },
     {
       "id": 4,
@@ -507,7 +511,14 @@
         "原生Windows/多屏/DPI/人工IME与物理输入手感未实测",
         "仅验证成功退出的Recovery握手；没有穷尽OS强杀或存储介质失效等故障"
       ],
-      "productFingerprint": "364c1f066d16f4f54fe4e9ea68e6345dccf1d35f463d43d57137bc1e7052780b"
+      "productFingerprint": "364c1f066d16f4f54fe4e9ea68e6345dccf1d35f463d43d57137bc1e7052780b",
+      "publishedIn": "v0.1.248",
+      "releaseFollowUp": {
+        "version": "0.1.248",
+        "globalPreferences": "published v0.1.246 global task-data storage replaces D29 local-only key; settings/view/width stay synchronized",
+        "packagedKnowledge": "local arm64 and native macOS/Windows CI passed export/conflict/feedback/search gates",
+        "handoff": "docs/frontend-remediation/handoffs/RELEASE-0-4.md"
+      }
     },
     {
       "id": 5,
@@ -547,13 +558,13 @@
     }
   ],
   "release": {
-    "status": "interim_ready_to_push",
-    "remoteIntegratedCommit": "482912b76c8666af849bbbdfd2ea806ba87bbaa4",
+    "status": "published",
+    "remoteIntegratedCommit": "279a833c11a636c5ec2d5828105357bdfb810c87",
     "finalAcceptance": null,
     "version": "0.1.248",
-    "commit": null,
+    "commit": "279a833c11a636c5ec2d5828105357bdfb810c87",
     "tag": "v0.1.248",
-    "url": null,
+    "url": "https://github.com/tangyuanx/Loop/releases/tag/v0.1.248",
     "isFinalRemediationRelease": false,
     "scopeStages": [
       0,
@@ -608,7 +619,119 @@
       "artifacts": "12 files; 2 metadata; 5 artifact digests passed; AppleDouble=0",
       "dependencyRuntime": "625 exact-lock packages; real node_modules directory; original symlink and source preserved"
     },
-    "plannedUrl": "https://github.com/tangyuanx/Loop/releases/tag/v0.1.248"
+    "plannedUrl": "https://github.com/tangyuanx/Loop/releases/tag/v0.1.248",
+    "pushedAt": "2026-10-27T07:44:08.722488+00:00",
+    "workflow": {
+      "id": 40468809214,
+      "url": "https://github.com/tangyuanx/Loop/actions/runs/40468809214",
+      "status": "completed",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "id": 122070634838,
+          "name": "Prepare unpublished release",
+          "conclusion": "success"
+        },
+        {
+          "id": 122070706121,
+          "name": "Release macOS",
+          "conclusion": "success"
+        },
+        {
+          "id": 122070706224,
+          "name": "Release Windows",
+          "conclusion": "success"
+        },
+        {
+          "id": 122072455043,
+          "name": "Publish complete verified release",
+          "conclusion": "success"
+        }
+      ]
+    },
+    "mainCheck": {
+      "id": 40468803481,
+      "url": "https://github.com/tangyuanx/Loop/actions/runs/40468803481",
+      "conclusion": "success"
+    },
+    "branchStrategy": "release commit on codex/frontend-remediation; clean existing main worktree fast-forwarded and used for normal main push; root remains on remediation branch",
+    "publishedAt": "2026-10-27T07:48:49Z",
+    "assetCount": 12,
+    "assets": [
+      {
+        "name": "latest-mac.yml",
+        "size": 796,
+        "state": "uploaded",
+        "digest": "sha256:a6f674f4c3b080f349c726a53a8d63c14eec06a83571c910117a93768512644f"
+      },
+      {
+        "name": "latest.yml",
+        "size": 351,
+        "state": "uploaded",
+        "digest": "sha256:0b01961e8145732f7a11d89d626cc3fa1c895b348a73f281639a00ecc086d842"
+      },
+      {
+        "name": "Loop-0.1.248-arm64.dmg",
+        "size": 157289611,
+        "state": "uploaded",
+        "digest": "sha256:adbf42f27062229fbf976ee56181dc532245201b1d45a7f55514f19c456118f0"
+      },
+      {
+        "name": "Loop-0.1.248-arm64.dmg.blockmap",
+        "size": 165331,
+        "state": "uploaded",
+        "digest": "sha256:982974b0bc7c4a740597418adce447feb8766f02a090f22d85a5f1ff28d21feb"
+      },
+      {
+        "name": "Loop-0.1.248-arm64.zip",
+        "size": 155959254,
+        "state": "uploaded",
+        "digest": "sha256:19b91c916e3531b204aa3e50937944824dd985b4ba39604428af67df3cbb9971"
+      },
+      {
+        "name": "Loop-0.1.248-arm64.zip.blockmap",
+        "size": 163414,
+        "state": "uploaded",
+        "digest": "sha256:f7171afdc256f45c76e625838528b6b81952802702390391e99cb6e1af189dac"
+      },
+      {
+        "name": "Loop-0.1.248-x64-setup.exe",
+        "size": 132450269,
+        "state": "uploaded",
+        "digest": "sha256:8a296ff7b6e86616316481235cf086e60960881ed40ee19677679180ed6e050d"
+      },
+      {
+        "name": "Loop-0.1.248-x64-setup.exe.blockmap",
+        "size": 139286,
+        "state": "uploaded",
+        "digest": "sha256:2e50f7b448df7a6f251e495dbda226058b8ba8056b573191bc801951c1a8ded8"
+      },
+      {
+        "name": "Loop-0.1.248-x64.dmg",
+        "size": 158981075,
+        "state": "uploaded",
+        "digest": "sha256:2ab59a2bf243426edf7efab58a05ac61e9b53875e16cbba29665d262d3f76c61"
+      },
+      {
+        "name": "Loop-0.1.248-x64.dmg.blockmap",
+        "size": 167337,
+        "state": "uploaded",
+        "digest": "sha256:123dfbe86a23a0f08149704467d99a3cdc08b379fbc788666503b0878dc3cb69"
+      },
+      {
+        "name": "Loop-0.1.248-x64.zip",
+        "size": 157703128,
+        "state": "uploaded",
+        "digest": "sha256:c41e865a3263c626cac9244b561c6eb09381c1d734e4a642c037e6fcce391b93"
+      },
+      {
+        "name": "Loop-0.1.248-x64.zip.blockmap",
+        "size": 165658,
+        "state": "uploaded",
+        "digest": "sha256:0aa9dca9b7b4a049f5299657467dd3267f92ca14443560591323ae4839a93713"
+      }
+    ],
+    "remainingWork": "阶段5–8未开始；原生Windows手感/多屏/DPI/人工IME与阶段1全控件累计审阅仍按交接继续。打包知识链路本次已在本地及远端macOS/Windows补齐。"
   },
   "blocker": {
     "stage": 1,
@@ -621,6 +744,31 @@
       "version": "0.1.245",
       "commit": "482912b76c8666af849bbbdfd2ea806ba87bbaa4",
       "reason": "用户要求阶段0–4中途发布，原始基线保留；后续阶段使用0.1.248版本起点"
+    }
+  ],
+  "interimReleases": [
+    {
+      "version": "0.1.248",
+      "tag": "v0.1.248",
+      "commit": "279a833c11a636c5ec2d5828105357bdfb810c87",
+      "url": "https://github.com/tangyuanx/Loop/releases/tag/v0.1.248",
+      "publishedAt": "2026-10-27T07:48:49Z",
+      "scopeStages": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "productFingerprint": "b457b18b12cd2bd20a39477bc5edd822631ea932a1494469564bbc9b99de3c57",
+      "authorization": {
+        "quote": "现在先把这几个阶段的工作发布一次新版本",
+        "recordedAt": "2026-10-27T07:39:13.691208+00:00",
+        "scope": "current stages 0–4 cumulative release; retain previously published v0.1.246/247 capabilities",
+        "overrides": "original wait-until-stage8 release schedule; does not mark unstarted stages complete",
+        "claimsManualTesting": false
+      },
+      "assetCount": 12
     }
   ]
 }

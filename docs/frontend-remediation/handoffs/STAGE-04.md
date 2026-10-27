@@ -96,3 +96,7 @@
 阶段4产品改动：`index.html`、`knowledge-workspace.js`、新增`knowledge-workspace.css`、`workbench.css`、`actions.js`。检查改动：`tests/desktop.test.cjs`样式加载顺序、新增`tests/knowledge-workspace.ui.cjs`。其余本阶段改动为交接/共享状态/决策/计划。
 
 前阶段所有累计改动保留，HEAD和版本不变，没有提交、标签、推送或远程构建。产品指纹见 `product-fingerprint.json`，仅用于候选识别，不代表用户批准。
+
+## v0.1.248发布补充
+
+用户随后明确要求先发布阶段0–4；已完成，详见[发布回执](RELEASE-0-4.md)。本阶段原候选记录保持历史事实；当前代码已保留正式版v0.1.246/247的全局知识设置和Mermaid增强，模式/页宽采用其全局任务数据链路，取代D29的单独localStorage键。打包知识链路已在本地实际包与远端macOS/Windows补齐通过，不再作为阶段8的未运行项；其他平台手感、人工IME与大树限制仍按原交接继续。

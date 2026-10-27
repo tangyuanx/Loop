@@ -36,6 +36,8 @@
 
 本地首次打包使用阶段0保留的node_modules符号链接，electron-builder只带入electron-updater/semver，遗漏间接运行依赖。实际包启动卡在原生错误对话框，Playwright启动超时，未将其记作通过。已保留失败日志、包内清单和只读进程采样；随后以同锁文件准备独立node_modules，保留原链接及其来源，重新构建并重跑安装包专项。此项是构建环境修复，不改应用业务代码。
 
+后续使用当前真实`node_modules/`目录；原链接移到证据目录`node_modules-original-link`，原依赖来源worktree未删除。`dependency-runtime.json`记录锁文件SHA、625项版本验证和原链接目标。不要把旧链接重新放回，否则可能再次出现本地打包缺依赖。
+
 ## 分支与后续
 
 main由另一干净worktree占用。发布提交在当前整改分支形成；只在确认该main工作区仍无改动后快进，再正常推送main与版本标签，不强推、不删除worktree。后续整改继续在固定目录的整改分支累积。
@@ -45,3 +47,12 @@ main由另一干净worktree占用。发布提交在当前整改分支形成；�
 ## 发布回执
 
 版本、提交、标签、Release链接、原生CI及最终资产状态写入`state.json`的`release`记录。本文件在推送前记录本地候选和发布范围，发布完成后补齐实际回执，不提前把推送或草稿称为已正式发布。
+
+### 实际结果（2026-10-27）
+
+- **已正式发布v0.1.248**，公开时间`2026-10-27T07:48:49Z`；[Release](https://github.com/tangyuanx/Loop/releases/tag/v0.1.248)。
+- 发布源提交/标签均为`279a833c11a636c5ec2d5828105357bdfb810c87` / `v0.1.248`；产品指纹`b457b18b12cd2bd20a39477bc5edd822631ea932a1494469564bbc9b99de3c57`。
+- [Release Desktop Apps #40468809214](https://github.com/tangyuanx/Loop/actions/runs/40468809214)的prepare、macOS、Windows、最终publish全部success；main检查#40468803481也success。Windows历史版本升级与两平台实际包知识门禁都已通过。
+- 12项远端资产全部uploaded，名称/大小/GitHub SHA-256完整核实。新版本没有替换已公开旧版本资产。
+- 为避免回执自引用提交哈希，发布完成后的状态/决策/交接形成一笔纯文档回执提交；它不修改产品，不新增版本标签。标签始终指向上述发布源提交。
+- 后续基线更新为上述源提交及0.1.248，仍沿同工作区和`codex/frontend-remediation`。原482912b/0.1.245基线及各阶段历史指纹保留；0–4的publishedIn不等于伪造accepted，阶段5–8仍not_started。
