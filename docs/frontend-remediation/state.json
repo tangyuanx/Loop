@@ -631,7 +631,8 @@
         "native Windows/multi-monitor/DPI/manual IME/physical pointer acceptance remains for stage8",
         "large-tree full redraw comparison remains for stage8 per stage3 handoff",
         "no release build or packaged candidate produced in stage5; previous stage0–4 packaged knowledge validation stays historical"
-      ]
+      ],
+      "publishedIn": "v0.1.249"
     },
     {
       "id": 6,
@@ -846,7 +847,8 @@
         "actual import relaunch intercepted in protected test process; no production workspace replaced",
         "large-tree full redraw comparison remains for stage8",
         "no new package or release build; version/lock retained"
-      ]
+      ],
+      "publishedIn": "v0.1.249"
     },
     {
       "id": 7,
@@ -998,7 +1000,8 @@
         "original main close quits whole app; actual quit/restart now verified, not redefined as background hiding",
         "stage6 actual permission/banner/update install, live feedback delivery, large-tree performance remain for stage8",
         "no new package/release build; version and lock retained"
-      ]
+      ],
+      "publishedIn": "v0.1.249"
     },
     {
       "id": 8,
@@ -1063,12 +1066,13 @@
         "command": "LOOP_USER_DATA_DIR=<profile> npm run dev -- --remote-debugging-port=10080 --inspect=10081",
         "runtime": ".local-review/frontend-remediation/stage-08/final-runtime.json",
         "leftRunningForReview": true
-      }
+      },
+      "publishedIn": "v0.1.249"
     }
   ],
   "release": {
-    "status": "validated_local",
-    "remoteIntegratedCommit": "3d70f475d42eb56b474f44effa06fceeb1d087dd",
+    "status": "published",
+    "remoteIntegratedCommit": "3f541bc3ad8470b33eeabcb9ed57a81220539490",
     "finalAcceptance": {
       "approved": true,
       "productFingerprint": "bc930560678f4f53c2dc29d300af374f01acd7d98ca96b557d9bed383c128767",
@@ -1093,7 +1097,7 @@
     "candidateVersion": "0.1.248",
     "version": "0.1.249",
     "tag": "v0.1.249",
-    "commit": null,
+    "commit": "3f541bc3ad8470b33eeabcb9ed57a81220539490",
     "handoff": "docs/frontend-remediation/handoffs/RELEASE.md",
     "previousRelease": {
       "status": "published",
@@ -1297,7 +1301,130 @@
       "packagedSource": "3 archives, 176 files SHA-identical per archive, 16 runtime packages each",
       "artifacts": "12 files; 2 update metadata, 5 digests; AppleDouble=0",
       "productFingerprintUnchanged": true
-    }
+    },
+    "url": "https://github.com/tangyuanx/Loop/releases/tag/v0.1.249",
+    "pushedAt": "2026-10-28T00:06:29.096528+00:00",
+    "workflow": {
+      "id": 40606513405,
+      "url": "https://github.com/tangyuanx/Loop/actions/runs/40606513405",
+      "status": "completed",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "id": 122547241442,
+          "name": "Prepare unpublished release",
+          "conclusion": "success"
+        },
+        {
+          "id": 122547319682,
+          "name": "Release macOS",
+          "conclusion": "success"
+        },
+        {
+          "id": 122547319709,
+          "name": "Release Windows",
+          "conclusion": "success"
+        },
+        {
+          "id": 122549193158,
+          "name": "Publish complete verified release",
+          "conclusion": "success"
+        }
+      ]
+    },
+    "mainCheck": {
+      "id": 40606507084,
+      "url": "https://github.com/tangyuanx/Loop/actions/runs/40606507084",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    "publishedAt": "2026-10-28T00:11:04Z",
+    "assetCount": 12,
+    "assets": [
+      {
+        "name": "latest-mac.yml",
+        "size": 796,
+        "state": "uploaded",
+        "digest": "sha256:80455e8c1e5a1f5f5fd8768d8c097cb2ccc3d845cfa30b8ffaaafd9d099c2d44"
+      },
+      {
+        "name": "latest.yml",
+        "size": 351,
+        "state": "uploaded",
+        "digest": "sha256:8320f28d456d0bab1fb0c5483e72ce9debe212b8e256115fdc6071c118b6e393"
+      },
+      {
+        "name": "Loop-0.1.249-arm64.dmg",
+        "size": 157286274,
+        "state": "uploaded",
+        "digest": "sha256:fad72731548baf42c884c00bd36ee9e92718316048da026496e9427e7532fc03"
+      },
+      {
+        "name": "Loop-0.1.249-arm64.dmg.blockmap",
+        "size": 166452,
+        "state": "uploaded",
+        "digest": "sha256:c5e6ed1610baeacfffdd31462b1c480753ad8466105314f2ee0d1ec1e9c5a96d"
+      },
+      {
+        "name": "Loop-0.1.249-arm64.zip",
+        "size": 155969806,
+        "state": "uploaded",
+        "digest": "sha256:7ddbe5395075e6fe8e9efdf7fe61c13d318a33dd0deaa054a5e6952dbd33e3de"
+      },
+      {
+        "name": "Loop-0.1.249-arm64.zip.blockmap",
+        "size": 163205,
+        "state": "uploaded",
+        "digest": "sha256:d8bf796f3594b43104f46b853c7cc77bc719bef11095a2d1ac937e77e0b558b0"
+      },
+      {
+        "name": "Loop-0.1.249-x64-setup.exe",
+        "size": 132459899,
+        "state": "uploaded",
+        "digest": "sha256:eba2017eaddb6bf1d7fdb5b2fe859b5a998e32833f7475ba504e2ee612fe8e44"
+      },
+      {
+        "name": "Loop-0.1.249-x64-setup.exe.blockmap",
+        "size": 138508,
+        "state": "uploaded",
+        "digest": "sha256:e92efdb9ad3b42409620c61b297fd326813ccee58501b08eb1bddd5ccdf38f9b"
+      },
+      {
+        "name": "Loop-0.1.249-x64.dmg",
+        "size": 158991889,
+        "state": "uploaded",
+        "digest": "sha256:73cb7b66844067bd517330aba21b43e4cf437d17c2f108190908b666e8d57b4f"
+      },
+      {
+        "name": "Loop-0.1.249-x64.dmg.blockmap",
+        "size": 166911,
+        "state": "uploaded",
+        "digest": "sha256:489e8ca334fae6f0734f93584abfe09e9c48269eddd823ec0e7229a94cd426a4"
+      },
+      {
+        "name": "Loop-0.1.249-x64.zip",
+        "size": 157713680,
+        "state": "uploaded",
+        "digest": "sha256:37e4e74a2a44ce7eeaf2f6fa703b5a0a89fca715480b0d9431e9c2b4ff4f99af"
+      },
+      {
+        "name": "Loop-0.1.249-x64.zip.blockmap",
+        "size": 165478,
+        "state": "uploaded",
+        "digest": "sha256:57e7b4262eacd122d9af7972d46dc4abc4311e2283b14f82515ddb1be2cf85c4"
+      }
+    ],
+    "isLatest": true,
+    "branchStrategy": "release commit on shared remediation branch; clean existing main worktree fast-forwarded and used for normal main/tag push; fixed root retains remediation branch and unrelated local work",
+    "remoteChecks": {
+      "macOS": "success",
+      "Windows": "success",
+      "windowsUpgradeMatrix": "success",
+      "packagedKnowledgeBothPlatforms": "success",
+      "completeAssetDigests": "success"
+    },
+    "remainingWork": "物理跨屏/DPI、人工IME、Mac Intel本机运行、屏幕阅读器语音、实际通知横幅和用户更新安装手感仍未人工验收；Windows安装升级矩阵与双平台实际包知识链路已由此次CI补齐。",
+    "receipt": "docs/frontend-remediation/handoffs/RELEASE.md"
   },
   "blocker": {
     "stage": 1,
