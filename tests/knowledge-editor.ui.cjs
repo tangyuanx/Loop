@@ -17,7 +17,7 @@ const PNG='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAA
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{
  const repository=path.resolve(__dirname,'..'),profile=await fs.mkdtemp(path.join(os.tmpdir(),'loop-knowledge-ui-'));
- let browser;const errors=[];let failFile=false,failStage=false,delayFile=0,delayUpload=0;
+ let browser;const errors=[];let failFile=false,failStage=false,delayFile=0,delayUpload=0,chosenPath=null;
  const server=http.createServer(async(req,res)=>{
   const pathname=new URL(req.url,'http://localhost').pathname;const file=path.resolve(repository,'.'+pathname);
   if(!file.startsWith(repository+path.sep))return res.writeHead(403).end();
@@ -46,6 +46,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
    if(method==='recoveryWrite')return writeKnowledgeRecovery(profile,payload);
    if(method==='recoveryDelete')return deleteKnowledgeRecovery(profile,payload);
    if(method==='stageAssets'){if(failStage)return {success:false,message:'模拟图片暂存失败'};if(delayUpload)await pause(delayUpload);return stageKnowledgeAssets(profile,payload);}
+   if(method==='fileChoose'){if(!chosenPath)return {canceled:true};gate.approve(chosenPath);return readKnowledgeDocument(chosenPath);}
    if(method==='fileRead'){if(!(await gate.isAllowed(payload.filePath)))return {success:false,code:'PATH_NOT_ALLOWED'};return readKnowledgeDocument(payload.filePath);}
    if(method==='fileSave'){
     if(!(await gate.isAllowed(payload.filePath)))return {success:false,code:'PATH_NOT_ALLOWED'};
@@ -60,12 +61,12 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
    window.personalTaskTrack={platform:'linux',appVersion:'0.1.232',
     storage:{read:()=>call('storageRead'),write:d=>call('storageWrite',d)},
     knowledgeRecovery:{read:()=>call('recoveryRead'),write:r=>call('recoveryWrite',r),delete:id=>call('recoveryDelete',id)},
-    knowledgeFile:{read:p=>call('fileRead',p),save:p=>call('fileSave',p),stageAssets:p=>call('stageAssets',p),watch:async p=>{const receipt=await call('fileRead',p);if(receipt.success)window.__fileChange?.({...receipt,noteId:p.noteId,type:'baseline'});return receipt;},onChange:callback=>{window.__fileChange=callback;return ()=>{};},unwatch:async()=>({success:true})}
+    knowledgeFile:{choose:p=>call('fileChoose',p),read:p=>call('fileRead',p),save:p=>call('fileSave',p),stageAssets:p=>call('stageAssets',p),watch:async p=>{const receipt=await call('fileRead',p);if(receipt.success)window.__fileChange?.({...receipt,noteId:p.noteId,type:'baseline'});return receipt;},onChange:callback=>{window.__fileChange=callback;return ()=>{};},unwatch:async()=>({success:true})}
    };
   });
   const url=`http://127.0.0.1:${server.address().port}/app/renderer/index.html`;
   await page.goto(url);await page.waitForFunction(()=>typeof state!=='undefined'&&state.tasks.some(t=>t.id==='a'));
-  async function choose(id){await page.evaluate(id=>knowledgeOpen(state.tasks.find(t=>t.id===id)),id);await page.waitForFunction(id=>knowledgeCurrentEntry(id)?.view && document.querySelector('.knowledge-pane')?.dataset.taskId===id,id,{timeout:5000}).catch(async error=>{console.log('CHOOSE DEBUG',await page.evaluate(()=>({active:state.activeTaskId,pane:state.taskPane,body:document.querySelector('.workspace')?.innerText.slice(0,1000),keys:[...milkdownEditors.keys()],errors:typeof dataProtectionMessage!=='undefined'?dataProtectionMessage:''})));throw error;});}
+  async function choose(id){await page.evaluate(id=>{knowledgeOpen(state.tasks.find(t=>t.id===id));knowledgeAttach(knowledgeFindDocument(id));},id);await page.waitForFunction(id=>knowledgeCurrentEntry(id)?.view && document.querySelector('.knowledge-pane')?.dataset.taskId===id,id,{timeout:5000}).catch(async error=>{console.log('CHOOSE DEBUG',await page.evaluate(()=>({active:state.activeTaskId,pane:state.taskPane,body:document.querySelector('.workspace')?.innerText.slice(0,1000),keys:[...milkdownEditors.keys()],errors:typeof dataProtectionMessage!=='undefined'?dataProtectionMessage:''})));throw error;});}
   const markdown=()=>page.evaluate(()=>knowledgeCurrentEntry().getMarkdown());
   const mode=async name=>{await wb.mode(page,name);await page.waitForFunction(name=>knowledgeCurrentEntry()?.mode===name,name);};
   const append=async text=>page.evaluate(text=>{const e=knowledgeCurrentEntry();e.view.dispatch({changes:{from:e.view.state.doc.length,insert:text},selection:{anchor:e.view.state.doc.length+text.length},userEvent:'input'});},text);
@@ -255,7 +256,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
     }
   }
   const header=page.locator('.kn-table-widget th').nth(1);await header.click();
-  const headerInput=header.locator('input');await headerInput.press('End');await page.keyboard.type('X');
+  const headerInput=header.locator('.kn-table-cell-editor');await headerInput.press('End');await page.keyboard.type('X');
   assert.equal(await markdown(),tableSource.replace('表头乙','表头乙X'));
   await headerInput.press(process.platform==='darwin'?'Meta+z':'Control+z');
   assert.equal(await markdown(),tableSource);assert.equal(await headerInput.inputValue(),'表头乙');
@@ -263,7 +264,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   await page.keyboard.press('Shift+Tab');assert.equal(await page.locator('.kn-table-cell-editor').inputValue(),'表头乙');
   await page.keyboard.press('Escape');assert.equal(await page.locator('.kn-table-cell-editor').count(),0);
   const bodyCell=page.locator('.kn-table-widget tbody tr').nth(4).locator('td').nth(2);
-  await bodyCell.click();const bodyInput=bodyCell.locator('input');
+  await bodyCell.click();const bodyInput=bodyCell.locator('.kn-table-cell-editor');
   await bodyInput.fill('修订 | 单元格');
   const editedTable=tableSource.replace('丙5','修订 \\| 单元格');assert.equal(await markdown(),editedTable);
   await page.evaluate(()=>saveKnowledgeTask('c'));await choose('b');await choose('c');await mode('edit');
@@ -344,23 +345,26 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   assert.equal(await page.evaluate(()=>state.tasks.find(t=>t.id==='b').title),'目标笔记');
   assert.equal(await page.evaluate(()=>LoopKnowledgeCore.resolve('目标笔记',knowledgeNotes()).note.id),'b');
   await wb.panels(page);assert.match(await page.locator('.kn-side-panel').innerText(),/原始笔记/);
-  console.log('UI check 12: Search and switch on Chinese text, create a real task-backed note.');
-  // Search and switch on Chinese text, create a real task-backed note.
-  await page.keyboard.press('Control+o');await page.locator('#kn-switcher-query').fill('知识笔记新建');await page.locator('#kn-create-note').click();
+  console.log('UI check 12: Search and switch on Chinese text, create an independent note without creating a task.');
+  // Search and switch on Chinese text, create an independent note without creating a task.
+  await page.evaluate(()=>knowledgeShowSwitcher());await page.locator('#kn-switcher-query').fill('知识笔记新建');await page.locator('#kn-create-note').click();
   await page.waitForFunction(()=>knowledgeCurrentEntry()?.getMarkdown().includes('# 知识笔记新建'));
-  const createdId=await page.evaluate(()=>state.activeTaskId);await page.waitForTimeout(1700);
-  const owner=await page.evaluate(()=>state.tasks.find(t=>t.id===state.activeTaskId).knowledgeNote.taskId);assert.equal(owner,createdId);
+  const createdId=await page.evaluate(()=>knowledgeActiveDocument().id);await page.waitForTimeout(1700);
+  const owner=await page.evaluate(()=>knowledgeActiveDocument().knowledgeNote.taskId);assert.equal(owner,createdId);
   console.log("UI check 13: Reuse Loop's real Recently Deleted transaction and restore operation.");
   // Reuse Loop's real Recently Deleted transaction and restore operation.
   const archive=await page.evaluate(async id=>{const r=await recovery26Transaction(()=>recovery26RemoveNote(id));render();return r;},createdId);
-  assert.ok(archive);assert.equal(await page.evaluate(id=>state.tasks.find(t=>t.id===id).notes,createdId),'');assert.equal(await page.evaluate(id=>knowledgeNotes().some(t=>t.id===id),createdId),false);
+  assert.ok(archive);assert.equal(await page.evaluate(id=>knowledgeFindDocument(id).notes,createdId),'');assert.equal(await page.evaluate(id=>knowledgeNotes().some(t=>t.id===id),createdId),false);
   const archiveId=(await readTaskData(profile)).recentlyDeleted.find(n=>n.kind==='note'&&n.ownerTaskId===createdId).id;
   await page.evaluate(async id=>{await recovery26RestoreMany([id],{restoreMoved:true});},archiveId);
-  assert.match((await readTaskData(profile)).tasks.find(t=>t.id===createdId).notes,/知识笔记新建/);
+  assert.match((await readTaskData(profile)).knowledgeDocuments.find(t=>t.id===createdId).notes,/知识笔记新建/);
   console.log('UI check 14: Recover an unbound draft from disk after reload, not browser localStorage.');
   // Recover an unbound draft from disk after reload, not browser localStorage.
   await choose('c');await append('\n重启恢复内容');await page.evaluate(async()=>{captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});await flushPendingKnowledgeRecoveries({strict:true});await flushSave();});
   await page.reload();await page.waitForFunction(()=>state.tasks?.some(t=>t.id==='c'));await choose('c');assert.match(await markdown(),/重启恢复内容/);
+  await require('./knowledge-tables-and-links.cjs')({page,profile,fs,readTaskData,choose,mode,markdown,append,pause,wb,setChosenPath:p=>chosenPath=p});
+
+  await require('./knowledge-table-design.cjs')({page,choose,mode,markdown});  await choose('c');
   console.log('UI check 15: Long document: no editor replacement, no input-triggered shell render.');
   // Long document: no editor replacement, no input-triggered shell render.
   await page.evaluate(()=>{const e=knowledgeCurrentEntry();window.__longDOM=e.view.contentDOM;window.__renderCount=0;const before=render;render=function(){window.__renderCount++;return before();};e.view.dispatch({changes:{from:0,to:e.view.state.doc.length,insert:('# 长文\n\n正文 **强调** 与 `代码`。\n\n').repeat(3000)}});});

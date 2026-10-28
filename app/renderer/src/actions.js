@@ -1639,13 +1639,13 @@ async function shellAction(data, event) {
       shellKnowledgeFileMenu(trigger);
       return true;
     case "knowledge-file-info":
-      shellKnowledgeFileInfo(shellActiveTask());
+      shellKnowledgeFileInfo(knowledgeActiveDocument());
       return true;
     case "export-knowledge-note":
-      shellKnowledgeExportNote(state.tasks.find((task) => task.id === data.taskId) || shellActiveTask());
+      shellKnowledgeExportNote(knowledgeFindDocument(data.taskId) || knowledgeActiveDocument());
       return true;
     case "knowledge-conflict":
-      shellKnowledgeConflict(shellActiveTask());
+      shellKnowledgeConflict(knowledgeActiveDocument());
       return true;
     case "note-format":
       if (data.format === "link") shellKnowledgeLink(trigger);

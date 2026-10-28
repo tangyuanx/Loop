@@ -39,6 +39,22 @@ export function createRenderer(options) {
     try { return language && hljs.getLanguage(language) ? hljs.highlight(code,{language,ignoreIllegals:true}).value : ''; }
     catch { return ''; }
   }}).use(footnote).use(mark).use(tasks,{enabled:true}).use(texmath,{engine:katex,delimiters:'dollars',katexOptions:{throwOnError:false,trust:false,strict:'warn',maxExpand:1000,maxSize:20}});
+  // Permit the single Markdown-table line-break convention without enabling
+  // arbitrary HTML. Escaped markup and code tokens remain literal text.
+  md.inline.ruler.before('html_inline','loop_table_break',(state,silent)=>{
+    const match=/^<br\s*\/?>/i.exec(state.src.slice(state.pos));if(!match)return false;
+    if(!silent){const token=state.push('loop_table_break','',0);token.content=match[0];}
+    state.pos+=match[0].length;return true;
+  });
+  md.renderer.rules.loop_table_break=(tokens,index)=>escape(tokens[index].content);
+  md.core.ruler.after('inline','loop_table_breaks',state=>{
+    let cell=false;
+    for(const token of state.tokens){
+      if(token.type==='td_open'||token.type==='th_open')cell=true;
+      if(token.type==='td_close'||token.type==='th_close')cell=false;
+      if(cell&&token.type==='inline')for(const child of token.children||[])if(child.type==='loop_table_break'){child.type='hardbreak';child.tag='br';}
+    }
+  });
   md.block.ruler.before('hr','frontmatter',(state,start,end,silent)=>{
     if(start!==0 || state.src.slice(state.bMarks[0],state.eMarks[0]).replace(/^\uFEFF/,'')!=='---') return false;
     let line=start+1;

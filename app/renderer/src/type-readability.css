@@ -30,7 +30,7 @@ body { font-size: var(--type-13); font-weight: 400; font-synthesis: none; }
 /* UI text uses the real regular face. Rich-document strong/emphasis, code,
    icons, and theme contrast keep their own semantics and styles. The explicit
    priority reconciles the opt-in Demo layers' more-specific active selectors. */
-body :is(button, input, select, textarea, .task-item-title, .nav-label,
+body :is(button, input:where(:not(.kn-table-cell-editor)), select, textarea:where(:not(.kn-table-cell-editor)), .task-item-title, .nav-label,
   .breadcrumb b, .brief-row label, .node-badge, .setting-label,
   .settings-document h2, .settings-document h3, .page-heading h1,
   .widget-header strong, .inspector-head) { font-weight: 400 !important; }

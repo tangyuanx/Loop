@@ -6,6 +6,55 @@ const {normalizeTaskData}=require('../app/main/storage.cjs');
 const fs=require('node:fs');
 const note=(id,title)=>({id:'task-'+id,title,knowledgeNote:{noteId:id,title,aliases:[]}});
 
+test('document workspace restores tabs and per-task last document without creating task notes',()=>{
+ const tasks=[{id:'empty'},{id:'legacy',notes:'旧正文'},{id:'linked',activeKnowledgeId:'d'}],docs=[{id:'d',notes:''},{id:'deleted',knowledgeNote:{isDeleted:true}}];
+ const migrated=metadata.normalizeWorkspace(null,tasks,docs);
+ assert.deepEqual(migrated.openIds,[]);assert.deepEqual(migrated.lastByTask,{legacy:'legacy',linked:'d'});
+ const input={openIds:['d','d','legacy','missing','deleted'],activeId:'d',recentIds:['legacy','d','deleted'],taskId:'linked',lastByTask:{empty:'d',legacy:'',linked:'missing'},visible:true};
+ const normalized=metadata.normalizeWorkspace(input,tasks,docs);
+ assert.deepEqual(normalized.openIds,['d','legacy']);assert.equal(normalized.activeId,'d');assert.equal(normalized.lastByTask.legacy,'');assert.equal(normalized.lastByTask.empty,'d');assert.equal(normalized.lastByTask.linked,'d');
+ assert.deepEqual(metadata.normalizeWorkspace(normalized,tasks,docs),normalized);
+ const persisted=normalizeTaskData({version:2,tasks,knowledgeDocuments:docs,knowledgeWorkspace:input});
+ assert.equal(persisted.knowledgeWorkspace.activeId,'d');assert.equal(persisted.tasks[0].notes,'');
+});
+
+test('open and relocate use the corresponding native file picker titles',async()=>{
+ const {chooseKnowledgeDocument}=require('../app/main/knowledge-file.cjs');const seen=[];
+ const dialog={showOpenDialog:async options=>{seen.push(options);return {canceled:true}}};
+ await chooseKnowledgeDocument({dialog});await chooseKnowledgeDocument({dialog,purpose:'relocate'});
+ assert.deepEqual(seen.map(options=>options.title),['打开知识笔记','重新定位知识笔记']);
+ assert.deepEqual(seen[0].properties,['openFile']);
+});
+
+test('independent documents and task associations survive desktop normalization without manufacturing tasks',()=>{
+ const stamp='2026-10-28T00:00:00.000Z';
+ const input={version:2,tasks:[{id:'t',title:'任务',knowledgeLinks:['d','d',null],activeKnowledgeId:'d'}],knowledgeDocuments:[{id:'d',title:'独立方案',creatorTaskId:'t',notes:'| A |\n| --- |\n| 数据 |',createdAt:stamp,knowledgeNote:{noteId:'stable-d',tableColumnWidths:[[240]]}}]};
+ const data=normalizeTaskData(input);assert.equal(data.tasks.length,1);assert.deepEqual(data.tasks[0].knowledgeLinks,['d']);assert.equal(data.tasks[0].activeKnowledgeId,'d');assert.equal(data.knowledgeDocuments[0].knowledgeNote.noteId,'stable-d');assert.deepEqual(data.knowledgeDocuments[0].knowledgeNote.tableColumnWidths,[[240]]);
+ assert.deepEqual(normalizeTaskData(data),data);
+ const {boundFilePaths}=require('../app/main/knowledge-access.cjs');data.knowledgeDocuments[0].knowledgeNote.filePath='/tmp/独立方案.md';assert.deepEqual(boundFilePaths(data),['/tmp/独立方案.md']);
+ assert.equal(metadata.normalizeDocuments([null,{id:'t'},input.knowledgeDocuments[0],input.knowledgeDocuments[0]],data.tasks).length,1);
+});
+
+test('table boundary edits keep valid Markdown and protect header and final column',()=>{
+ const source='前文\n\n| A |\n| :---: |\n| 值 |\n\n后文',pos=source.indexOf('值');
+ const apply=change=>source.slice(0,change.from)+change.insert+source.slice(change.to);
+ for(const operation of ['row-before','column-before','row-add','column-add']){const change=core.editTable(source,pos,operation,0);const result=apply(change);assert.match(result,/^前文/);assert.match(result,/后文$/);assert.ok(core.tableAt(result,change.from));}
+ const headerOnly=apply(core.editTable(source,pos,'row-delete'));assert.equal(core.tableAt(headerOnly,headerOnly.indexOf('| A')).rows.length,2);
+ assert.equal(core.editTable(source,source.indexOf('A'),'row-delete'),null);assert.equal(core.editTable(source,pos,'column-delete',0),null);
+ assert.equal(apply(core.editTable(source,pos,'delete')).replace(/\s/g,''),'前文后文');
+});
+
+test('table row and column actions preserve aligned data and protected header',()=>{
+ const source='正文\n\n| 项目 | 值 |\n| :--- | ---: |\n| A | 1 |\n| B | 2 |\n\n结尾',pos=source.indexOf('| A');
+ const run=(op,col,value)=>{const c=core.editTable(source,pos,op,col,value);assert.ok(c,op);return core.tableAt(c.insert,0).rows;};
+ assert.deepEqual(run('row-duplicate',0)[3],['A','1']);assert.deepEqual(run('row-clear',0)[2],['','']);
+ assert.deepEqual(run('row-move',0,3).slice(2),[['B','2'],['A','1']]);
+ assert.deepEqual(run('column-move',0,1),[['值','项目'],['---:',':---'],['1','A'],['2','B']]);
+ assert.deepEqual(run('column-duplicate',1)[2],['A','1','1']);assert.deepEqual(run('column-clear',1)[1],[':---','---:']);
+ assert.equal(core.editTable(source,source.indexOf('项目'),'row-move',0,3),null);
+ assert.equal(core.editTable(source,pos,'row-move',0,1),null);
+});
+
 test('wiki indexing excludes fenced/inline code, escapes, comments and frontmatter',()=>{
  const md=['---','title: "[[yaml]]"','---','[[有效#标题|显示]]','`[[code]]`','`` a ` [[code2]] ``','\\[[escaped]]','<!-- [[html-comment]] -->','%% [[comment]]','[[comment2]] %%','```js','[[fence]]','```','~~~','[[tilde]]','~~~','    [[indented-code]]','![[目标#^block]]'].join('\n');
  assert.deepEqual(core.links(md).map(l=>({target:l.target,anchor:l.anchor,label:l.label,embed:l.embed})),[

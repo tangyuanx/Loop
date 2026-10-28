@@ -8,11 +8,12 @@ import {syntaxTree,syntaxHighlighting,HighlightStyle,foldGutter,foldKeymap,inden
 import {closeBrackets,closeBracketsKeymap,autocompletion,completionKeymap} from '@codemirror/autocomplete';
 import {searchKeymap,highlightSelectionMatches,search} from '@codemirror/search';
 import {KnowledgeFind} from './knowledge-search.js';
+import {installTableControls} from './knowledge-table-controls.js';
 import {tags} from '@lezer/highlight';
 import {obsidianComments} from './knowledge-syntax.js';
 import {createRenderer,safeURL,escape} from './knowledge-renderer.js';
 const core=window.LoopKnowledgeCore;
-const viewportEffect=StateEffect.define(),refreshEffect=StateEffect.define();
+const viewportEffect=StateEffect.define(),refreshEffect=StateEffect.define(),tableWidthsEffect=StateEffect.define();
 const instances=new WeakMap();
 function mapLineEndings(format,changes) {
   const breaks=new Map();
@@ -49,7 +50,7 @@ class RenderWidget extends WidgetType {
       // An image inside a callout or embedded note must not unfold the entire
       // containing block and move the caret into unrelated reference syntax.
       if(event.target.closest('img')){event.preventDefault();event.stopPropagation();return;}
-      if(event.target.closest('button,a,input')) return;
+      if(event.target.closest('button,a,input,textarea')) return;
       event.preventDefault(); let pos=Number(el.dataset.sourcePos);
       const cell=event.target.closest('td,th');
       if(cell) {
@@ -94,8 +95,10 @@ class TableWidget extends RenderWidget {
   toDOM(view) {
     const el=document.createElement('div');el.className='kn-live-widget kn-rendered kn-table-widget';
     el.dataset.sourcePos=String(this.from);el.innerHTML=this.html;
+    installTableControls(this.owner,el);
+    requestAnimationFrame(()=>{if(el.isConnected)this.owner.applyTableWidths(el,this.from);});
     el.addEventListener('mousedown',event=>{
-      if(event.button!==0||event.target.closest('button,a,input'))return;
+      if(event.button!==0||event.target.closest('button,a,input,textarea'))return;
       const cell=event.target.closest('td,th');
       if(!cell||cell.closest('table')!==el.querySelector('table'))return;
       event.preventDefault();event.stopPropagation();this.owner.editTableCell(el,cell);
@@ -113,15 +116,16 @@ class TableWidget extends RenderWidget {
     for(let r=0;r<rows.length;r++)for(let c=0;c<rows[r].cells.length;c++){
       const cell=oldRows[r].cells[c],fresh=rows[r].cells[c],active=this.owner.activeTableCell;
       if(active?.cell===cell){
-        // Keep the focused native input connected, including during IME input.
-        for(const child of [...cell.childNodes])if(child!==active.input)child.remove();
-        while(fresh.firstChild)cell.insertBefore(fresh.firstChild,active.input);
+        // Keep the transparent editor as the only painted text. The hidden
+        // content sizes the row, while the rendered version returns on blur.
+        active.renderedHTML=fresh.innerHTML;
+        active.content.textContent=active.input.value||'\u200b';
       }else cell.innerHTML=fresh.innerHTML;
       cell.style.textAlign=fresh.style.textAlign;
     }
-    return true;
+    this.owner.applyTableWidths(el,this.from);el.tableControls?.refresh();return true;
   }
-  destroy(el){if(this.owner.activeTableCell?.widget===el)this.owner.finishTableCell();}
+  destroy(el){el.tableControls?.destroy();if(this.owner.activeTableCell?.widget===el)this.owner.finishTableCell();}
   ignoreEvent(){return true;}
 }
 class TaskWidget extends WidgetType {
@@ -152,6 +156,7 @@ class KnowledgeEditor {
       for(const effect of tr.effects)if(effect.is(restoreLineEndings))format=effect.value;
       return format;
     }});
+    this.tableWidths=StateField.define({create:()=>options.tableColumnWidths||[],update:(value,tr)=>{for(const effect of tr.effects)if(effect.is(tableWidthsEffect))value=effect.value;return value;}});
     this.options=options; this.root=options.root; this.mode=options.mode||'edit';this.destroyed=false;this.uploads=new Map();this.nextUpload=0;
     this.range={from:0,to:8000};this.renderCache=new Map();this.lineConfig=new Compartment();
     this.renderer=createRenderer(options); this.root.replaceChildren();this.root.classList.add('kn-editor-host');
@@ -166,6 +171,7 @@ class KnowledgeEditor {
       return decos.map(tr.changes);
     },provide:field=>EditorView.decorations.from(field)});
     this.view=new EditorView({parent:this.editHost,state:EditorState.create({doc:source.text,extensions:[
+      this.tableWidths,invertedEffects.of(tr=>tr.effects.some(e=>e.is(tableWidthsEffect))?[tableWidthsEffect.of(tr.startState.field(this.tableWidths))]:[]),
       this.lineEndings,invertedEffects.of(tr=>tr.docChanged||tr.effects.some(e=>e.is(restoreLineEndings))?[restoreLineEndings.of(tr.startState.field(this.lineEndings))]:[]),
       history(),drawSelection(),rectangularSelection(),crosshairCursor(),EditorView.lineWrapping,
       placeholder('开始记录，支持 Markdown…'),
@@ -317,11 +323,16 @@ class KnowledgeEditor {
     return Decoration.set(ranges.filter(r=>!replacements.includes(r)||outer.includes(r)).filter(r=>outer.includes(r)||!outer.some(o=>r.from>=o.from&&r.from<o.to&&r.to<=o.to)),true);
   }
   onUpdate(update) {
+    if(update.transactions.some(tr=>tr.effects.some(effect=>effect.is(tableWidthsEffect)))){
+      this.options.tableColumnWidths=update.state.field(this.tableWidths);this.options.onTableColumnWidthsChange?.(this.options.tableColumnWidths);
+      for(const widget of this.root.querySelectorAll('.kn-table-widget'))this.applyTableWidths(widget,Number(widget.dataset.sourcePos));
+      if(this.mode==='preview')this.renderReading();
+    }
     if(update.docChanged){
       const cell=this.activeTableCell;
       if(cell&&!cell.writing&&!cell.composing){
         const range=this.tableCellRange(cell.widget,cell.row,cell.column);
-        if(range){Object.assign(cell,range);cell.input.value=update.state.doc.sliceString(range.from,range.to);}
+        if(range){Object.assign(cell,range);cell.input.value=update.state.doc.sliceString(range.from,range.to).replace(/<br\s*\/?>/gi,'\n');cell.content.textContent=cell.input.value||'\u200b';}
       }
       // Pending upload anchors are mapped through every transaction, including undo.
       for(const upload of this.uploads.values())upload.pos=update.changes.mapPos(upload.pos,1);
@@ -356,25 +367,28 @@ class KnowledgeEditor {
   finishTableCell() {
     const active=this.activeTableCell;if(!active)return;
     this.activeTableCell=null;active.cell.classList.remove('kn-cell-editing');active.input.remove();
+    active.content.innerHTML=active.renderedHTML;active.content.replaceWith(...active.content.childNodes);
   }
-  editTableCell(widget,cell) {
+  editTableCell(widget,cell,reveal=false) {
     if(this.activeTableCell?.cell===cell)return;
     this.finishTableCell();
     const row=cell.parentElement.rowIndex,column=cell.cellIndex,range=this.tableCellRange(widget,row,column);
     if(!range)return;
     this.tableColumn=column;
     this.view.dispatch({selection:{anchor:range.from},scrollIntoView:false});
-    const input=document.createElement('input');input.type='text';input.className='kn-table-cell-editor';
+    const input=document.createElement('textarea');input.rows=1;input.className='kn-table-cell-editor';
     input.setAttribute('aria-label',`${row===0?'表头':'第'+row+'行'}，第${column+1}列`);
-    input.spellcheck=false;input.value=this.view.state.doc.sliceString(range.from,range.to);
-    const active={widget,cell,input,row,column,...range,composing:false,writing:false};this.activeTableCell=active;
-    cell.classList.add('kn-cell-editing');cell.append(input);
+    input.spellcheck=false;input.value=this.view.state.doc.sliceString(range.from,range.to).replace(/<br\s*\/?>/gi,'\n');
+    const content=document.createElement('span');content.className='kn-table-cell-content';content.setAttribute('aria-hidden','true');content.textContent=input.value||'\u200b';
+    const active={widget,cell,input,content,renderedHTML:cell.innerHTML,row,column,...range,composing:false,writing:false};this.activeTableCell=active;
+    cell.classList.add('kn-cell-editing');cell.replaceChildren(content,input);
     const commit=()=>{
       if(active.composing||this.activeTableCell!==active)return;
-      const raw=input.value.replace(/\r\n?|\n/g,'<br>'),caret=input.selectionStart??raw.length;let value='',before=caret;
-      for(let i=0;i<raw.length;i++){if(raw[i]==='|'&&!core.escaped(raw,i)){value+='\\';if(i<caret)before++;}value+=raw[i];}
+      const raw=input.value.replace(/\r\n?/g,'\n'),caret=input.selectionStart??raw.length;let value='',before=0;
+      for(let i=0;i<raw.length;i++){const part=raw[i]==='\n'?'<br>':raw[i]==='|'&&!core.escaped(raw,i)?'\\|':raw[i];value+=part;if(i<caret)before+=part.length;}
       const from=active.from,to=active.to,insert=active.prefix+value+active.suffix;
-      input.value=value;input.setSelectionRange(before,before);
+      input.value=value.replace(/<br\s*\/?>/gi,'\n');const displayCaret=value.slice(0,before).replace(/<br\s*\/?>/gi,'\n').length;input.setSelectionRange(displayCaret,displayCaret);
+      content.textContent=(input.value||'\u200b')+(input.value.endsWith('\n')?'\u200b':'');
       if(this.view.state.doc.sliceString(from,to)===insert)return;
       active.from=from+active.prefix.length;active.to=active.from+value.length;active.prefix='';active.suffix='';active.writing=true;
       try{this.view.dispatch({changes:{from,to,insert},selection:{anchor:active.from+before},userEvent:'input.table-cell'});}
@@ -382,7 +396,7 @@ class KnowledgeEditor {
         active.writing=false;
         // CodeMirror may move a reused widget DOM when its source length changes.
         // Native inputs blur on that move even though the cell is still active.
-        if(this.activeTableCell===active&&input.isConnected){input.focus({preventScroll:true});input.setSelectionRange(before,before);}
+        if(this.activeTableCell===active&&input.isConnected){input.focus({preventScroll:true});input.setSelectionRange(displayCaret,displayCaret);}
       }
     };
     input.addEventListener('paste',event=>{
@@ -397,15 +411,21 @@ class KnowledgeEditor {
         if(this.destroyed)return;
         const next=[...this.root.querySelectorAll('.kn-table-widget')].find(el=>Number(el.dataset.sourcePos)===change.from);
         const target=next?.querySelector('table')?.rows[row]?.cells[column];
-        if(target)this.editTableCell(next,target);else this.view.focus();
+        if(target)this.editTableCell(next,target,true);else this.view.focus();
       });
     });
-    input.addEventListener('input',commit);
+    input.addEventListener('input',()=>{content.textContent=input.value||'\u200b';commit();});
     input.addEventListener('compositionstart',()=>{active.composing=true;});
     input.addEventListener('compositionend',()=>{active.composing=false;commit();});
-    input.addEventListener('blur',()=>{if(this.activeTableCell===active&&!active.writing&&!active.reconciling){if(!active.composing)commit();this.finishTableCell();}});
+    input.addEventListener('blur',()=>{
+      // CodeMirror can temporarily blur a reused widget while applying undo.
+      // Wait until that transaction has reconciled the value before committing.
+      queueMicrotask(()=>{if(this.activeTableCell===active&&!active.writing&&!active.reconciling&&document.activeElement!==input){if(!active.composing)commit();this.finishTableCell();}});
+    });
     input.addEventListener('keydown',event=>{
       if(event.isComposing||active.composing||event.keyCode===229)return;
+      if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();event.stopPropagation();commit();this.table('row-add',column);return;}
+      if(event.shiftKey&&event.key==='Enter'){event.preventDefault();event.stopPropagation();input.setRangeText('\n',input.selectionStart,input.selectionEnd,'end');commit();return;}
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'){
         event.preventDefault();event.stopPropagation();commit();this.options.onSave?.();return;
       }
@@ -423,11 +443,13 @@ class KnowledgeEditor {
       event.preventDefault();event.stopPropagation();commit();
       const table=widget.querySelector('table'),cells=[...table.querySelectorAll('th,td')];
       const next=event.key==='Tab'?cells[cells.indexOf(cell)+(event.shiftKey?-1:1)]:event.key==='Enter'?table.rows[row+(event.shiftKey?-1:1)]?.cells[column]:null;
-      if(next){this.editTableCell(widget,next);return;}
+      if(next){this.editTableCell(widget,next,true);return;}
+      if(event.key==='Tab'&&!event.shiftKey){this.table('row-add',0);return;}
       const block=core.tableAt(this.getEditorText(),active.from);
       this.finishTableCell();this.view.dispatch({selection:{anchor:Math.min(this.view.state.doc.length,(event.shiftKey?block?.from-1:block?.to+1)||0)},scrollIntoView:false});this.view.focus();
     });
     input.focus({preventScroll:true});input.setSelectionRange(input.value.length,input.value.length);
+    if(reveal)cell.scrollIntoView({block:'nearest',inline:'nearest'});
   }
   complete(context) {
     const match=context.matchBefore(/\[\[[^\]\n]*$/);if(!match)return null;
@@ -473,6 +495,7 @@ class KnowledgeEditor {
   renderReading() {
     const scroll=this.readHost.scrollTop;
     this.readHost.innerHTML=this.renderer.render(this.getEditorText(),{noteId:this.options.noteId,stack:[this.options.noteId]});
+    this.readHost.querySelectorAll('table').forEach((table,index)=>this.applyTableWidths(table,0,index));
     this.readHost.scrollTop=scroll;Promise.resolve(this.renderer.enhance(this.readHost)).then(()=>{if(!this.destroyed)this.find?.update(true);});this.find?.update();
   }
   handleRenderedClick(event,base) {
@@ -571,7 +594,7 @@ class KnowledgeEditor {
         if(this.destroyed||this.mode!=='edit'||view.state.doc!==expected||view.state.selection.main.head!==anchor)return;
         const widget=[...this.root.querySelectorAll('.kn-table-widget')].find(el=>Number(el.dataset.sourcePos)===from+2);
         const cell=widget?.querySelector('tbody td');
-        if(cell)this.editTableCell(widget,cell);
+        if(cell)this.editTableCell(widget,cell,true);
         // CM materializes replacement widgets in its following layout pass.
         else if(++attempts<8){view.requestMeasure();requestAnimationFrame(enterCell);}
       };
@@ -587,7 +610,68 @@ class KnowledgeEditor {
   getFormatState(){const node=syntaxTree(this.view.state).resolveInner(this.view.state.selection.main.head,-1);const names=[];for(let n=node;n;n=n.parent)names.push(n.name);return {bold:names.includes('StrongEmphasis'),italic:names.includes('Emphasis'),strike:names.includes('Strikethrough'),inline:names.includes('InlineCode'),heading:names.find(n=>/^ATXHeading\d/.test(n))?.slice(-1)||'0',undo:true,redo:true};}
   openSearch(){this.find.open();}
   searchScrollEffect(pos){return EditorView.scrollIntoView(pos,{y:'center'});}
-  table(operation,index,value){for(let n=syntaxTree(this.view.state).resolveInner(this.view.state.selection.main.head,-1);n;n=n.parent)if(n.name==='FencedCode'||n.name==='IndentedCode')return false;const change=core.editTable(this.getEditorText(),this.view.state.selection.main.head,operation,index,value);if(!change)return false;this.view.dispatch({changes:change,userEvent:'input.table'});this.view.focus();return true;}
+  tableIndex(pos) {
+    let index=-1;syntaxTree(this.view.state).iterate({enter:node=>{if(node.name==='Table'&&node.from<=pos)index++;}});return index;
+  }
+  applyTableWidths(widget,pos,index=this.tableIndex(pos)) {
+    const table=widget.matches('table')?widget:widget.querySelector('table');if(!table||!this.view)return;
+    const widths=this.options.tableColumnWidths?.[index],cells=[...(table.rows[0]?.cells||[])];
+    const custom=widths?.length===cells.length;
+    table.style.width=custom?widths.reduce((a,b)=>a+b,0)+'px':'';
+    table.style.tableLayout=custom?'fixed':'';
+    for(const row of table.rows)for(let c=0;c<row.cells.length;c++)row.cells[c].style.width=custom?widths[c]+'px':'';
+  }
+  resizeTableColumn(column,width) {
+    const block=core.tableAt(this.getEditorText(),this.view.state.selection.main.head);width=Math.round(Number(width));
+    if(!block||!Number.isFinite(width)||width<80||width>1600||column<0||column>=block.rows[0].length)return false;
+    const index=this.tableIndex(block.from),tables=(this.options.tableColumnWidths||[]).map(row=>row.slice());
+    while(tables.length<=index)tables.push([]);
+    tables[index]=Array.from({length:block.rows[0].length},(_,c)=>tables[index][c]||120);tables[index][column]=width;
+    this.view.dispatch({annotations:isolateHistory.of('full'),effects:tableWidthsEffect.of(tables),userEvent:'input.table-width'});
+    return true;
+  }
+  fitTableWidth(width) {
+    const block=core.tableAt(this.getEditorText(),this.view.state.selection.main.head);if(!block)return false;
+    const tables=this.view.state.field(this.tableWidths).map(row=>row.slice()),idx=this.tableIndex(block.from);while(tables.length<=idx)tables.push([]);
+    tables[idx]=width?Array(block.rows[0].length).fill(Math.max(80,Math.min(1600,Math.floor(width/block.rows[0].length)))):[];
+    this.view.dispatch({annotations:isolateHistory.of('full'),effects:tableWidthsEffect.of(tables),userEvent:'input.table-width'});return true;
+  }
+  table(operation,index=0,value){
+    if(this.mode==='preview')return false;
+    const pos=this.activeTableCell?.from??this.view.state.selection.main.head;
+    for(let n=syntaxTree(this.view.state).resolveInner(pos,-1);n;n=n.parent)if(n.name==='FencedCode'||n.name==='IndentedCode')return false;
+    const block=core.tableAt(this.getEditorText(),pos),change=core.editTable(this.getEditorText(),pos,operation,index,value);if(!change)return false;
+    index=Math.max(0,Math.min(block.rows[0].length-1,index));
+    const active=this.activeTableCell,row=active?.row??Math.max(0,(block.row===0?0:block.row-1));
+    let targetRow=row,targetColumn=index;
+    if(operation==='row-add')targetRow=Math.max(1,row+1);
+    if(operation==='row-before')targetRow=Math.max(1,row);
+    if(operation==='row-delete')targetRow=Math.max(0,row-1);
+    if(operation==='column-add')targetColumn=index+1;
+    if(operation==='column-delete')targetColumn=Math.max(0,index-1);
+    const tables=this.view.state.field(this.tableWidths).map(row=>row.slice()),tableIndex=this.tableIndex(block.from);
+    const widths=tables[tableIndex];let changedWidths=false;
+    if(operation==='delete'){tables.splice(tableIndex,1);changedWidths=true;}
+    else if(widths?.length){
+      if(operation==='column-add'||operation==='column-before'){widths.splice(index+(operation==='column-add'?1:0),0,120);changedWidths=true;}
+      if(operation==='column-duplicate'){widths.splice(index+1,0,widths[index]);changedWidths=true;}
+      if(operation==='column-delete'){widths.splice(index,1);changedWidths=true;}
+      if(operation==='column-move'){widths.splice(Number(value),0,widths.splice(index,1)[0]);changedWidths=true;}
+    }
+    if(operation==='row-duplicate')targetRow=row+1;
+    if(operation==='row-move')targetRow=Number(value)-1;
+    if(operation==='column-move')targetColumn=Number(value);
+    if(operation==='column-duplicate')targetColumn=index+1;
+    this.finishTableCell();
+    this.view.dispatch({changes:change,selection:{anchor:change.from},annotations:isolateHistory.of('full'),effects:changedWidths?[tableWidthsEffect.of(tables)]:[],userEvent:'input.table'});
+    if(this.mode==='edit'&&operation!=='delete')requestAnimationFrame(()=>{
+      if(this.destroyed)return;
+      const widget=[...this.root.querySelectorAll('.kn-table-widget')].find(el=>Number(el.dataset.sourcePos)===change.from);
+      const cell=widget?.querySelector('table')?.rows[targetRow]?.cells[targetColumn];
+      if(cell)this.editTableCell(widget,cell,true);else this.view.focus();
+    });else this.view.focus();
+    return true;
+  }
   async upload(file,pos=this.view.state.selection.main.head) {
     const upload={id:++this.nextUpload,file,pos,status:'正在上传',retry:null};this.uploads.set(upload.id,upload);this.uploadStatus();
     const perform=async()=>{

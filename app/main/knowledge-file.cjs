@@ -138,10 +138,10 @@ async function readKnowledgeDocument(filePath, { fsOps: injectedFsOps } = {}) {
   }
 }
 
-async function chooseKnowledgeDocument({ dialog, parent = null, boundPaths = [], platform = process.platform } = {}) {
+async function chooseKnowledgeDocument({ dialog, parent = null, boundPaths = [], platform = process.platform, purpose = 'open' } = {}) {
   if (!dialog?.showOpenDialog) throw new Error("Open dialog is unavailable.");
   const options = {
-    title: "重新定位知识笔记",
+    title: purpose === 'relocate' ? "重新定位知识笔记" : "打开知识笔记",
     properties: ["openFile"],
     filters: [{ name: "Markdown", extensions: ["md"] }],
   };

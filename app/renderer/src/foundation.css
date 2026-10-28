@@ -301,10 +301,8 @@ body :is(
   .record-editor,
   #knowledge-source,
   .kn-table-cell-editor,
-  .cm-content,
-  .cm-editor,
   .ProseMirror,
-  [contenteditable="true"]
+  [contenteditable="true"]:not(.cm-content)
 ):is(:focus, :focus-visible) {
   background-color: transparent;
   border-color: transparent;
@@ -324,11 +322,21 @@ body .brief-row:has(.brief21-input:focus-visible) label {
   text-decoration-color: var(--focus-line);
 }
 
-/* CodeMirror and Milkdown expose their own focus classes.  Keep the editor
- * borderless and give the content plane the same neutral inset cue. */
-body .knowledge-pane :is(.cm-editor.cm-focused, .cm-content:focus-visible, .kn-reading:focus-visible) {
+/* A document is not a single-line field: an inset bottom shadow spans the
+ * editor's minimum height and looks like a rule inserted into the note.
+ * CodeMirror's focused caret identifies the editing location instead. */
+body .knowledge-pane :is(.cm-editor.cm-focused, .cm-content:focus, .cm-content:focus-visible) {
   outline: none;
-  box-shadow: inset 0 -1px 0 var(--focus-line);
+  box-shadow: none;
+}
+
+body .knowledge-pane .cm-editor.cm-focused .cm-cursor {
+  border-left: 2px solid var(--text);
+}
+
+body .knowledge-pane .kn-reading:focus-visible {
+  outline: none;
+  box-shadow: inset 2px 0 var(--focus-line);
 }
 
 body .knowledge-rich-host .milkdown :is(input, textarea, [contenteditable="true"]):focus-visible {

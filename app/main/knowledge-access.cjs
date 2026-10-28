@@ -30,7 +30,7 @@ function canonicalPath(value, platform = process.platform) {
 /** Collect the Markdown files the user has bound to notes in task-data.json. */
 function boundFilePaths(taskData) {
   const tasks = Array.isArray(taskData?.tasks) ? taskData.tasks : [];
-  return tasks
+  return [...tasks, ...(Array.isArray(taskData?.knowledgeDocuments) ? taskData.knowledgeDocuments : [])]
     .map((task) => task?.knowledgeNote?.filePath)
     .filter((filePath) => typeof filePath === "string" && filePath.trim().length > 0);
 }

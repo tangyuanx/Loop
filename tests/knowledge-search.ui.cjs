@@ -25,7 +25,7 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
   const input=page.locator('.kn-find [name=search]'),count=page.locator('.kn-find-count');
   const openFind=async()=>{if(!await input.isVisible())await page.locator('[data-kn-action=find]').click();};
   await test('S01-one-inline-entry-and-live-matches',async()=>{
-   assert.equal(await page.locator('[data-kn-action=find]').count(),1);assert.equal(await page.locator('[data-kn-action=switcher]').getAttribute('aria-label'),'切换笔记');
+   assert.equal(await page.locator('[data-kn-action=find]').count(),1);assert.equal(await page.locator('.knowledge-header [data-kn-action=open-file]').count(),1);assert.equal(await page.locator('[data-kn-action=recent]').getAttribute('aria-label'),'最近打开的笔记');
    assert.equal(await input.isVisible(),false);assert.equal(await page.locator('[data-kn-action=find]').getAttribute('aria-expanded'),'false');
    await mode('source');assert.equal(await input.isVisible(),false);await openFind();assert.equal(await page.locator('[data-kn-action=find]').getAttribute('aria-expanded'),'true');
    await input.fill('测试');assert.equal(await count.innerText(),'1/4');assert.ok(await page.locator('.cm-searchMatch').count()>=3);assert.equal(await page.locator('[role=dialog]').count(),0);

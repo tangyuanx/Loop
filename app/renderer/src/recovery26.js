@@ -175,6 +175,8 @@ async function recovery26Transaction(mutate) {
 function snapshotRecovery26State() {
   return {
     tasks: structuredClone(state.tasks),
+    knowledgeDocuments: structuredClone(state.knowledgeDocuments || []),
+    knowledgeWorkspace: structuredClone(state.knowledgeWorkspace),
     taskGroups: structuredClone(state.taskGroups),
     recentlyDeleted: structuredClone(state.recentlyDeleted || []),
     workNavigation: structuredClone(state.workNavigation),
@@ -189,6 +191,8 @@ function snapshotRecovery26State() {
 
 function restoreRecovery26State(before) {
   state.tasks = before.tasks;
+  state.knowledgeDocuments = before.knowledgeDocuments;
+  state.knowledgeWorkspace = before.knowledgeWorkspace;
   state.taskGroups = before.taskGroups;
   state.recentlyDeleted = before.recentlyDeleted;
   state.workNavigation = before.workNavigation;
@@ -335,6 +339,10 @@ function recovery26DeleteRecords(ids) {
 
 /** Release everything that points at a task that is leaving the live model. */
 function recovery26ReleaseTaskResources(task) {
+  if (typeof knowledgePreserveTaskNote === 'function' && knowledgePreserveTaskNote(task)) {
+    try { discardMountedKnowledgeEditor(task.id); } catch { /* no editor mounted */ }
+    return;
+  }
   const noteId = task.knowledgeNote?.noteId || task.id;
   try { discardMountedKnowledgeEditor(task.id); } catch (error) { /* no editor mounted */ }
   try { discardPendingKnowledgeRecovery?.(noteId); } catch (error) { /* nothing pending */ }
@@ -528,7 +536,7 @@ function recovery26DeleteGroup(groupId, { policy = "keep", targetGroupId = "", r
 
 function recovery26ReviewUnlinkNote(taskId) {
   recovery26Capture();
-  const task = r26Task(taskId);
+  const task = knowledgeFindDocument(taskId);
   const note = task?.knowledgeNote;
   if (!task || !note?.filePath) return false;
   recovery26Pending = {
@@ -550,7 +558,7 @@ function recovery26ReviewUnlinkNote(taskId) {
 }
 
 function recovery26UnlinkNote(taskId) {
-  const task = r26Task(taskId);
+  const task = knowledgeFindDocument(taskId);
   const note = task?.knowledgeNote;
   if (!task || !note?.filePath) return { ok: false, message: "文件关联已不存在" };
   const before = {
@@ -578,7 +586,7 @@ function recovery26UnlinkNote(taskId) {
 
 /** Give the association back, but never over a later edit or a new binding. */
 function recovery26UndoUnlink(payload) {
-  const task = r26Task(payload.taskId);
+  const task = knowledgeFindDocument(payload.taskId);
   if (!task) {
     recovery26Receipt("所属任务已不存在，无法恢复文件关联");
     return;
@@ -604,7 +612,7 @@ function recovery26UndoUnlink(payload) {
 
 function recovery26ReviewRemoveNote(taskId) {
   recovery26Capture();
-  const task = r26Task(taskId);
+  const task = knowledgeFindDocument(taskId);
   if (!task || !String(task.notes || "").trim()) return false;
   recovery26Pending = { mode: "note", ids: [task.id] };
   state.taskMenuOpen = false;
@@ -621,7 +629,7 @@ function recovery26ReviewRemoveNote(taskId) {
 
 function recovery26RemoveNote(taskId) {
   recovery26Capture();
-  const task = r26Task(taskId);
+  const task = knowledgeFindDocument(taskId);
   if (!task || !String(task.notes || "").trim()) return { ok: false, message: "这篇笔记没有正文" };
   const noteId = task.knowledgeNote?.noteId || task.id;
   discardMountedKnowledgeEditor(task.id);
@@ -875,6 +883,7 @@ function recovery26RestoreEntry(entry, { target = "", name = "", restoreMoved = 
   let message = "已恢复";
   if (entry.kind === "task" || entry.kind === "quick") {
     const record = normalizeTasks([structuredClone(entry.record)])[0];
+    if (typeof knowledgeRejoinTaskNote === 'function') knowledgeRejoinTaskNote(record);
     const resolved = (target && r26Group(target)) ? target : recovery26RestoreTarget(entry);
     record.groupId = resolved;
     record.updatedAt = now();
@@ -915,6 +924,7 @@ function recovery26RestoreEntry(entry, { target = "", name = "", restoreMoved = 
     for (const member of entry.members || []) {
       if (r26Task(member.record.id)) continue;
       const record = normalizeTasks([structuredClone(member.record)])[0];
+      if (typeof knowledgeRejoinTaskNote === 'function') knowledgeRejoinTaskNote(record);
       record.groupId = group.id;
       record.updatedAt = now();
       state.tasks.splice(Math.min(Math.max(0, (member.position || 1) - 1), state.tasks.length), 0, record);
@@ -938,7 +948,7 @@ function recovery26RestoreEntry(entry, { target = "", name = "", restoreMoved = 
         ? "分组已恢复，未再次变更的内容已放回"
         : "分组已恢复，保留的内容仍在当前分组";
   } else if (entry.kind === "note") {
-    const task = r26Task(entry.ownerTaskId);
+    const task = knowledgeFindDocument(entry.ownerTaskId);
     if (!task || String(task.notes || "").trim()) {
       const created = recovery26NewNoteTask(entry);
       message = `已恢复为新任务中的笔记副本：${created.title}`;
@@ -1350,15 +1360,15 @@ function recovery26OnClick(event) {
       recovery26Pending = null;
       shellCloseOverlay({ restoreFocus: false });
       render();
-      const target = r26Task(taskId);
+      const target = knowledgeFindDocument(taskId);
       const note = target?.knowledgeNote;
       if (!target || String(target.notes || "") !== body || note?.filePath) {
         recovery26Receipt("当前笔记已变更，请重新选择文件关联");
         return;
       }
       recovery26Receipt("文件关联已解除，正文保留", [], async () => {
-        const live = r26Task(taskId);
-        if (!live || String(live.notes || "") !== body || r26Task(taskId)?.knowledgeNote?.filePath) {
+        const live = knowledgeFindDocument(taskId);
+        if (!live || String(live.notes || "") !== body || knowledgeFindDocument(taskId)?.knowledgeNote?.filePath) {
           recovery26Receipt("当前笔记已变更，请重新选择文件关联");
           return;
         }

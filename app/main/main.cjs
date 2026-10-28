@@ -438,6 +438,7 @@ function registerStorageHandlers() {
       parent,
       boundPaths: payload?.boundPaths,
       platform: process.platform,
+      purpose: payload?.purpose,
     });
     if (result?.success && result.filePath) knowledgeGate.approve(result.filePath);
     return result;

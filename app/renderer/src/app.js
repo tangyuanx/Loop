@@ -31,7 +31,7 @@ const RECENTLY_DELETED_SCHEMA_VERSION = 1;
 const KNOWLEDGE_RECOVERY_DEBOUNCE_MS = 800;
 const KNOWLEDGE_RECOVERY_MAX_INTERVAL_MS = 5000;
 const DATA_VERSION = 2;
-const KNOWLEDGE_MIGRATION_VERSION = 1;
+const KNOWLEDGE_MIGRATION_VERSION = 2;
 const RECENTLY_DELETED_LIMIT = 500;
 /**
  * Calendar list column: remaining workspace height, internally scrolling tasks.
@@ -268,6 +268,8 @@ let state = {
 // STATE -- single source of truth
 // ============================================================
   tasks: [],
+  knowledgeDocuments: [],
+  knowledgeWorkspace: {openIds:[],activeId:'',recentIds:[],taskId:'',lastByTask:{},visible:false},
   taskGroups: [{ ...defaultTaskGroup }],
   activeGroupId: ALL_TASKS_GROUP_ID,
   editingGroupId: "",
@@ -665,6 +667,28 @@ function normalizeRecentlyDeletedOrder(value) {
   return Number.isFinite(order) && order > 0 ? order : 1;
 }
 
+function knowledgeAllDocuments() { return [...state.tasks,...(state.knowledgeDocuments||[])]; }
+function knowledgeHasDocument(note) { return knowledgeAllDocuments().includes(note); }
+function knowledgeFindDocument(noteId) { return knowledgeAllDocuments().find(note=>note.id===noteId); }
+function knowledgeActiveDocument(task=state.tasks.find(t=>t.id===state.activeTaskId)) {
+  if(!task)return null;
+  if(!state.tasks.includes(task)||task.id!==state.activeTaskId)return task;
+  const session=state.knowledgeWorkspace;
+  session.openIds=session.openIds.filter(id=>{const note=knowledgeFindDocument(id);return note&&!note.knowledgeNote?.isDeleted;});
+  if(session.activeId&&!session.openIds.includes(session.activeId))session.activeId=session.openIds.at(-1)||'';
+  if(session.taskId!==task.id){
+    const remembered=knowledgeFindDocument(session.lastByTask[task.id]);
+    const legacy=knowledgeFindDocument(task.activeKnowledgeId)||((task.notes?.trim()||task.knowledgeNote?.filePath)?task:null);
+    const target=remembered||(!Object.hasOwn(session.lastByTask,task.id)?legacy:null)||knowledgeFindDocument(session.activeId);
+    session.taskId=task.id;
+    session.activeId=target&&!target.knowledgeNote?.isDeleted?target.id:'';
+    if(session.activeId&&!session.openIds.includes(session.activeId))session.openIds.push(session.activeId);
+    session.lastByTask[task.id]=session.activeId;
+  }
+  const note=knowledgeFindDocument(session.activeId);
+  return note&&!note.knowledgeNote?.isDeleted?note:null;
+}
+
 function normalizeTasks(tasks) {
   const seenTaskIds = new Set();
   return (Array.isArray(tasks) ? tasks : [])
@@ -688,6 +712,8 @@ function normalizeTasks(tasks) {
         // group, so existing installations keep their previous grouping.
         groupId: Object.hasOwn(task, "groupId") ? normalizeIdentifier(task.groupId) : defaultTaskGroup.id,
         title: normalizeText(task.title),
+        knowledgeLinks: knowledgeDocument.normalizeNoteLinks(task.knowledgeLinks),
+        activeKnowledgeId: normalizeIdentifier(task.activeKnowledgeId),
         knowledgeNote: knowledgeDocument.normalizeKnowledgeNote(task.knowledgeNote, {
           taskId,
           title: normalizeText(task.title),
@@ -1005,8 +1031,16 @@ globalThis.LoopUiPreferences = {
   },
 };
 
+function loadBrowserKnowledgeDocuments() {
+  try { return knowledgeDocument.normalizeDocuments(JSON.parse(localStorage.getItem('loop-knowledge-documents-v1') || '[]')); }
+  catch { return []; }
+}
+
 function loadBrowserPreferences() {
+  let knowledgeWorkspace;try{knowledgeWorkspace=JSON.parse(localStorage.getItem('loop-knowledge-workspace-v1')||'null');}catch{}
   return {
+    knowledgeDocuments: loadBrowserKnowledgeDocuments(),
+    knowledgeWorkspace,
     taskFilter: normalizeTaskFilter(localStorage.getItem(TASK_FILTER_KEY)),
     priorityFilter: normalizePriorityFilter(localStorage.getItem(PRIORITY_FILTER_KEY)),
     captureSourceFilter: normalizeCaptureSourceFilter(localStorage.getItem(CAPTURE_SOURCE_FILTER_KEY)),
@@ -1184,7 +1218,7 @@ function flushKnowledgeRecovery(noteId, { strict = false } = {}) {
   window.clearTimeout(pending.debounceTimer);
   window.clearTimeout(pending.maxTimer);
   knowledgeRecoveryTimers.delete(noteId);
-  const task = state.tasks.find((item) => item.knowledgeNote?.noteId === noteId || item.id === noteId);
+  const task = knowledgeAllDocuments().find((item) => item.knowledgeNote?.noteId === noteId || item.id === noteId);
   if (!task) return Promise.resolve();
   return stageKnowledgeAssetsForTask(task, pending.content)
     .then((stagedAssets) => {
@@ -1222,7 +1256,7 @@ async function flushPendingKnowledgeRecoveries({ strict = false } = {}) {
 }
 
 function scheduleKnowledgeRecovery(taskId, content, timing = {}) {
-  const task = state.tasks.find((item) => item.id === taskId);
+  const task = knowledgeAllDocuments().find((item) => item.id === taskId);
   const noteId = task?.knowledgeNote?.noteId || taskId;
   if (!task || !noteId) return;
   const debounceMs = Number.isFinite(timing.debounceMs) ? timing.debounceMs : KNOWLEDGE_RECOVERY_DEBOUNCE_MS;
@@ -1261,7 +1295,7 @@ function applyKnowledgeRecoveryDraft(task, record) {
 
 async function restoreKnowledgeRecoveryDrafts() {
   for (const record of Object.values(state.knowledgeRecovery.records || {})) {
-    const task = state.tasks.find((item) => item.knowledgeNote?.noteId === record.noteId || item.id === record.noteId);
+    const task = knowledgeAllDocuments().find((item) => item.knowledgeNote?.noteId === record.noteId || item.id === record.noteId);
     if (!task || !knowledgeRecoveryModel.isRecoveryNewerThan(record, task.updatedAt)) continue;
 
     const filePath = task.knowledgeNote?.filePath;
@@ -1322,7 +1356,7 @@ async function clearKnowledgeRecoveryRecord(noteId) {
 }
 
 function boundKnowledgeFilePaths(excludeTaskId = "") {
-  return state.tasks
+  return knowledgeAllDocuments()
     .filter((task) => task.id !== excludeTaskId)
     .map((task) => task.knowledgeNote?.filePath)
     .filter(Boolean)
@@ -1369,7 +1403,7 @@ async function verifyKnowledgeFileBeforeSave(task, { saveAs = false, allowExtern
 
 async function startKnowledgeFileWatchers() {
   if (!desktopKnowledgeFile?.watch) return;
-  await Promise.all(state.tasks.filter((task) => task.knowledgeNote?.filePath).map((task) => syncKnowledgeFileWatcher(task)));
+  await Promise.all(knowledgeAllDocuments().filter((task) => task.knowledgeNote?.filePath).map((task) => syncKnowledgeFileWatcher(task)));
 }
 
 function knowledgeFileFailure(result, fallback = "文件不可用") {
@@ -1377,7 +1411,7 @@ function knowledgeFileFailure(result, fallback = "文件不可用") {
 }
 
 async function reloadKnowledgeTask(taskId) {
-  const task = state.tasks.find((item) => item.id === taskId);
+  const task = knowledgeAllDocuments().find((item) => item.id === taskId);
   const note = task?.knowledgeNote;
   if (!task || !note?.filePath || !desktopKnowledgeFile?.read) return { success: false, code: "READ_UNAVAILABLE" };
   if (note.dirty && !(await confirmDestructiveAction("将放弃当前未保存的修改，并读取磁盘上的最新内容。此操作不会删除笔记或文件。", "reload-knowledge"))) {
@@ -1412,7 +1446,7 @@ async function reloadKnowledgeTask(taskId) {
   }
 
   captureMountedMilkdownDrafts(); flushNodeNoteDraft(noteDraftKey(task.id, ""), { persist: true });
-  if (!state.tasks.includes(task) || task.notes !== contentAtRead || task.knowledgeNote.noteId !== note.noteId || task.knowledgeNote.filePath !== note.filePath) {
+  if (!knowledgeHasDocument(task) || task.notes !== contentAtRead || task.knowledgeNote.noteId !== note.noteId || task.knowledgeNote.filePath !== note.filePath) {
     return { success: false, code: "DRAFT_CHANGED_DURING_READ", message: "读取期间笔记发生修改，已保留当前输入，请重试。" };
   }
   const previousNotes = task.notes;
@@ -1455,7 +1489,7 @@ async function reloadKnowledgeTask(taskId) {
 }
 
 async function relocateKnowledgeTask(taskId) {
-  const task = state.tasks.find((item) => item.id === taskId);
+  const task = knowledgeAllDocuments().find((item) => item.id === taskId);
   const note = task?.knowledgeNote;
   if (!task || !desktopKnowledgeFile?.choose) return { success: false, code: "CHOOSE_UNAVAILABLE" };
   if (note.dirty && !(await confirmDestructiveAction("重新定位将使用新文件内容替换当前知识笔记，是否继续？"))) {
@@ -1463,7 +1497,7 @@ async function relocateKnowledgeTask(taskId) {
   }
   captureMountedMilkdownDrafts(); flushNodeNoteDraft(noteDraftKey(task.id, ""), { persist: true });
   const contentAtChoose = task.notes;
-  const result = await desktopKnowledgeFile.choose({ boundPaths: boundKnowledgeFilePaths(task.id) });
+  const result = await desktopKnowledgeFile.choose({ boundPaths: boundKnowledgeFilePaths(task.id), purpose:'relocate' });
   if (result?.canceled) return result;
   if (!result?.success) {
     showWorkspaceError(result?.code === "DUPLICATE_BINDING" ? "这篇知识笔记已绑定该文件路径，请选择其他文件。" : `重新定位失败：${knowledgeFileFailure(result)}`);
@@ -1471,7 +1505,7 @@ async function relocateKnowledgeTask(taskId) {
   }
 
   captureMountedMilkdownDrafts(); flushNodeNoteDraft(noteDraftKey(task.id, ""), { persist: true });
-  if (!state.tasks.includes(task) || task.notes !== contentAtChoose) return { success: false, code: "DRAFT_CHANGED_DURING_READ", message: "选择文件期间笔记发生修改，已保留当前输入。" };
+  if (!knowledgeHasDocument(task) || task.notes !== contentAtChoose) return { success: false, code: "DRAFT_CHANGED_DURING_READ", message: "选择文件期间笔记发生修改，已保留当前输入。" };
   discardMountedKnowledgeEditor(task.id);
   task.notes = result.content;
   rememberKnowledgeAssetFiles(result.assetFiles, task.knowledgeNote.noteId);
@@ -1489,7 +1523,7 @@ async function relocateKnowledgeTask(taskId) {
 }
 
 async function removeKnowledgeBinding(taskId) {
-  const task = state.tasks.find((item) => item.id === taskId);
+  const task = knowledgeAllDocuments().find((item) => item.id === taskId);
   const note = task?.knowledgeNote;
   if (!task || !note?.filePath) return { success: false, code: "NO_FILE_BINDING" };
   const confirmed = await confirmDestructiveAction("只从软件中移除这篇知识笔记的文件绑定？Markdown 文件和附件会保留在磁盘上。");
@@ -1513,7 +1547,7 @@ async function removeKnowledgeBinding(taskId) {
 }
 
 async function discardUnfiledKnowledgeDraft(taskId) {
-  const task = state.tasks.find((item) => item.id === taskId);
+  const task = knowledgeAllDocuments().find((item) => item.id === taskId);
   if (!task || task.knowledgeNote?.filePath) return { success: false, code: "FILE_BOUND" };
   await clearKnowledgeRecoveryRecord(task.knowledgeNote?.noteId || task.id);
   task.notes = "";
@@ -1532,8 +1566,9 @@ async function discardUnfiledKnowledgeDraft(taskId) {
 }
 
 async function closeKnowledgeEditor(taskId) {
-  const task = state.tasks.find((item) => item.id === taskId);
+  const task = knowledgeAllDocuments().find((item) => item.id === taskId);
   if (!task) return { success: false, code: "TASK_NOT_FOUND" };
+  if (knowledgeActiveDocument()?.id === task.id && typeof knowledgeDetach === "function") { knowledgeDetach(task.id); return { success: true }; }
   if (task.knowledgeNote?.documentState === "DRAFT" && String(task.notes || "").trim()) {
     knowledgeShowDraftPrompt(taskId, "close-editor");
     return { success: false, code: "DRAFT_REQUIRES_DECISION" };
@@ -1544,7 +1579,7 @@ async function closeKnowledgeEditor(taskId) {
 
 async function handleKnowledgeFileChange(event) {
   const noteId = String(event?.noteId || "").trim();
-  const task = state.tasks.find((item) => item.knowledgeNote?.noteId === noteId || item.id === noteId);
+  const task = knowledgeAllDocuments().find((item) => item.knowledgeNote?.noteId === noteId || item.id === noteId);
   if (!task || !event?.filePath) return;
   captureMountedMilkdownDrafts();
   flushNodeNoteDraft(noteDraftKey(task.id, ""), { persist: false });
@@ -1621,7 +1656,7 @@ async function handleKnowledgeFileChange(event) {
 }
 
 async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrite = false } = {}) {
-  const task = state.tasks.find((item) => item.id === taskId);
+  const task = knowledgeAllDocuments().find((item) => item.id === taskId);
   if (!task) return { canceled: true };
   if (!desktopKnowledgeFile?.save) {
     showWorkspaceError("当前环境不支持将知识笔记保存为本地文件，请在桌面应用中使用。");
@@ -1692,7 +1727,7 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
       return result || { success: false };
     }
 
-    if (!state.tasks.includes(task) || (typeof knowledgeGenerations !== "undefined" && (knowledgeGenerations.get(task.id) || 0) !== lifecycleBeforeSave) || task.knowledgeNote.noteId !== sessionBeforeSave.noteId ||
+    if (!knowledgeHasDocument(task) || (typeof knowledgeGenerations !== "undefined" && (knowledgeGenerations.get(task.id) || 0) !== lifecycleBeforeSave) || task.knowledgeNote.noteId !== sessionBeforeSave.noteId ||
         (task.knowledgeNote.filePath !== sessionBeforeSave.filePath && task.knowledgeNote.lastSavedHash !== sessionBeforeSave.lastSavedHash)) {
       return { success: false, code: "NOTE_CHANGED_DURING_SAVE", message: "文件已写入，但笔记已移除或重新关联；当前笔记未被覆盖。", markdownSaved: true };
     }
@@ -1723,6 +1758,10 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
     }
     rememberKnowledgeAssetFiles(result.assetFiles, task.knowledgeNote.noteId);
     task.knowledgeNote = knowledgeDocument.markDocumentSaved(task.knowledgeNote, result);
+    if(!sessionBeforeSave.filePath&&!state.tasks.includes(task)&&['未命名','未命名笔记'].includes(knowledgeDocument.normalizeKnowledgeNote(sessionBeforeSave).title)) {
+      const title=result.filePath?.replace(/\\/g,'/').split('/').at(-1)?.replace(/\.md$/i,'');
+      if(title){task.title=title;task.knowledgeNote=knowledgeDocument.updateDocumentTitle(task.knowledgeNote,title);}
+    }
     if (hasNewerDraft) task.knowledgeNote = knowledgeDocument.markDocumentEdited(task.knowledgeNote);
     task.knowledgeNote.updatedAt = now();
     task.updatedAt = now();
@@ -1793,7 +1832,9 @@ async function loadAppData() {
         groupIds: taskGroups.map((group) => group.id),
       });
       const recentlyDeleted = normalizeRecentlyDeleted(stored?.recentlyDeleted);
-      return { tasks, taskGroups, activeGroupId, flowWidths, sidebarWidth, detailHeight, attachments, theme, zhFont, enFont, fontScale, taskFilter, priorityFilter, captureSourceFilter, newTaskPriority, knowledgeWidth, markdownMode, uiPreferences, installationId, workNavigation, recentlyDeleted };
+      const knowledgeDocuments = knowledgeDocument.normalizeDocuments(stored?.knowledgeDocuments, tasks);
+      const knowledgeWorkspace = knowledgeDocument.normalizeWorkspace(stored?.knowledgeWorkspace,tasks,knowledgeDocuments);
+      return { tasks, knowledgeDocuments, knowledgeWorkspace, taskGroups, activeGroupId, flowWidths, sidebarWidth, detailHeight, attachments, theme, zhFont, enFont, fontScale, taskFilter, priorityFilter, captureSourceFilter, newTaskPriority, knowledgeWidth, markdownMode, uiPreferences, installationId, workNavigation, recentlyDeleted };
     } catch (error) {
       console.error("Failed to read local task data.", error);
       // Electron only forwards the message of an error thrown inside an
@@ -1917,10 +1958,13 @@ function updateLocalSaveReceipt() {
  */
 function save() {
   if (dataProtectionMessage || dataTransferInProgress) { updateLocalSaveReceipt(); return; }
+  state.knowledgeWorkspace.visible=state.taskPane==='notes';
   const payload = {
     version: DATA_VERSION,
     knowledgeSchemaVersion: KNOWLEDGE_MIGRATION_VERSION,
     tasks: state.tasks,
+    knowledgeDocuments: state.knowledgeDocuments,
+    knowledgeWorkspace: state.knowledgeWorkspace,
     taskGroups: state.taskGroups,
     activeGroupId: state.activeGroupId,
     flowWidths: state.flowWidths,
@@ -1948,6 +1992,8 @@ function save() {
   if (!desktopStorage?.write) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state.tasks));
+      localStorage.setItem('loop-knowledge-documents-v1', JSON.stringify(state.knowledgeDocuments));
+      localStorage.setItem('loop-knowledge-workspace-v1', JSON.stringify(state.knowledgeWorkspace));
       localStorage.setItem(TASK_GROUPS_KEY, JSON.stringify(state.taskGroups));
       localStorage.setItem(ACTIVE_GROUP_KEY, state.activeGroupId);
       localStorage.setItem(FLOW_WIDTH_KEY, JSON.stringify(state.flowWidths));
@@ -2161,7 +2207,7 @@ function nodeDetailViewKey(taskId, nodeId) {
 }
 
 function knowledgeViewKey(task = activeTask()) {
-  return JSON.stringify([task?.id || "", "notes"]);
+  return JSON.stringify([knowledgeActiveDocument(task)?.id || task?.id || "", "notes"]);
 }
 
 // Delayed stabilization must yield to a newer render or physical input. View
@@ -2343,6 +2389,12 @@ function render() {
   if (typeof shellBeforeRender === "function") shellBeforeRender();
   reconcileWorkNavigationRuntime();
   const task = activeTask();
+  if(task&&state.taskPane==='notes'){
+    const before=JSON.stringify(state.knowledgeWorkspace);
+    knowledgeActiveDocument(task);
+    state.knowledgeWorkspace.visible=true;
+    if(before!==JSON.stringify(state.knowledgeWorkspace))save();
+  }
   const previousGroupScrollLeft = document.querySelector("[data-sheet-tabs]");
   const groupScrollLeft = previousGroupScrollLeft ? Number(previousGroupScrollLeft.scrollLeft) || 0 : null;
   const repositoryViewport = captureScrollViewport(
@@ -7553,6 +7605,7 @@ function discardMountedKnowledgeEditor(taskId) {
 }
 
 function restoreCachedKnowledgePane(task) {
+  task = knowledgeActiveDocument(task);
   if (task) cachedKnowledgePane = cachedKnowledgePanes.get(task.id) || null;
   if (!cachedKnowledgePane || !task || state.taskPane !== "notes") return;
   if (cachedKnowledgePane.taskId !== task.id) return;
@@ -7573,7 +7626,7 @@ function captureMountedMilkdownDrafts() {
       // The editor preserves source text until its document actually changes.
       // Compare with the pending draft too: undo before the debounce fires must
       // replace that draft rather than leave an abandoned edit queued to save.
-      const task = state.tasks.find((item) => item.id === taskId);
+      const task = knowledgeAllDocuments().find((item) => item.id === taskId);
       const node = task && nodeId ? findNode(task.nodes, nodeId) : null;
       const draft = nodeNoteDrafts.get(noteDraftKey(taskId, nodeId));
       if (task && (draft?.markdown ?? (node ? node.note : task.notes)) === markdown) return;
@@ -7593,10 +7646,10 @@ function updateNodeNoteDraft(taskId, nodeId, markdown, host = null) {
   if (host) updateMarkdownStatsForMarkdown(host, markdown);
   if (!nodeId) {
     scheduleKnowledgeRecovery(taskId, markdown);
-    const editedTask = state.tasks.find((item) => item.id === taskId);
+    const editedTask = knowledgeAllDocuments().find((item) => item.id === taskId);
     if (editedTask) editedTask.knowledgeNote = knowledgeDocument.markDocumentEdited(editedTask.knowledgeNote);
     if (typeof knowledgeDidEdit === "function") knowledgeDidEdit(taskId);
-    const task = state.tasks.find((item) => item.id === taskId);
+    const task = knowledgeAllDocuments().find((item) => item.id === taskId);
     if (task && typeof note23EvaluateDraft === "function") note23EvaluateDraft(task, markdown);
   }
   scheduleNodeNoteSave(taskId, nodeId);
@@ -7620,7 +7673,7 @@ function flushNodeNoteDraft(key, { persist = true } = {}) {
   window.clearTimeout(nodeNoteSaveTimers.get(key));
   nodeNoteSaveTimers.delete(key);
 
-  const task = state.tasks.find((item) => item.id === draft.taskId);
+  const task = knowledgeAllDocuments().find((item) => item.id === draft.taskId);
   const node = task && draft.nodeId ? findNode(task.nodes, draft.nodeId) : null;
   nodeNoteDrafts.delete(key);
   if (!task) return false;
@@ -7670,9 +7723,15 @@ function mountMilkdownEditors() {
   hosts.forEach((host) => {
     const taskId = host.dataset.taskId;
     const nodeId = host.dataset.nodeId || "";
-    const task = state.tasks.find((item) => item.id === taskId);
+    const task = knowledgeAllDocuments().find((item) => item.id === taskId);
     const node = task && nodeId ? findNode(task.nodes, nodeId) : null;
     if (!task || (nodeId && !node)) return;
+    // Restored document sessions can render during bootstrap, before the
+    // workspace script has registered its editor/file integration callbacks.
+    if(!nodeId && window.LoopKnowledgeEditor && typeof knowledgeEditorOptions!=='function') {
+      window.requestAnimationFrame(mountMilkdownEditors);
+      return;
+    }
     const editorKey = noteDraftKey(taskId, nodeId);
     if (milkdownEditors.has(editorKey)) {
       const existing = milkdownEditors.get(editorKey).instance;
@@ -7705,7 +7764,7 @@ function mountMilkdownEditors() {
       onTableColumnWidthsChange: nodeId
         ? undefined
         : (tableColumnWidths) => {
-            const latestTask = state.tasks.find((item) => item.id === taskId);
+            const latestTask = knowledgeAllDocuments().find((item) => item.id === taskId);
             if (!latestTask) return;
             latestTask.knowledgeNote = knowledgeDocument.updateTableColumnWidths(
               latestTask.knowledgeNote,
@@ -7741,7 +7800,7 @@ function mountMilkdownEditors() {
 function mountFallbackMarkdownEditor(host) {
   const taskId = host.dataset.taskId;
   const nodeId = host.dataset.nodeId || "";
-  const task = state.tasks.find((item) => item.id === taskId);
+  const task = knowledgeAllDocuments().find((item) => item.id === taskId);
   const node = task && nodeId ? findNode(task.nodes, nodeId) : null;
   if (!task || (nodeId && !node)) return;
   const rawMarkdown = nodeNoteDrafts.get(noteDraftKey(taskId, nodeId))?.markdown ?? (node ? node.note : task.notes) ?? "";
@@ -10338,6 +10397,8 @@ async function bootstrap() {
     initializeDeadlineReminderBridge(),
   ]);
   state.tasks = data.tasks;
+  state.knowledgeDocuments = data.knowledgeDocuments || [];
+  state.knowledgeWorkspace = knowledgeDocument.normalizeWorkspace(data.knowledgeWorkspace,data.tasks,state.knowledgeDocuments);
   state.taskGroups = data.taskGroups;
   state.activeGroupId = data.activeGroupId;
   state.flowWidths = data.flowWidths;
@@ -10364,7 +10425,8 @@ async function bootstrap() {
   });
   state.recentlyDeleted = normalizeRecentlyDeleted(data.recentlyDeleted);
   await restoreKnowledgeRecoveryDrafts();
-  state.activeTaskId = tasksInActiveGroup()[0]?.id || "";
+  state.activeTaskId = state.knowledgeWorkspace.visible && state.knowledgeWorkspace.taskId || tasksInActiveGroup()[0]?.id || "";
+  if(state.knowledgeWorkspace.visible)state.taskPane='notes';
   syncRecurringTasks(loopNow());
   render();
   await startKnowledgeFileWatchers();

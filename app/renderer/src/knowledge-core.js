@@ -184,10 +184,18 @@
     let rows=table.rows.map(r=>r.slice()), count=rows[0].length;
     rows=rows.map(r=>Array.from({length:count},(_,i)=>r[i] || ''));
     const row=Math.max(0,Math.min(rows.length-1,table.row)); index=Math.max(0,Math.min(count-1,index));
-    if(operation==='row-add') rows.splice(Math.max(2,row+1),0,Array(count).fill(''));
-    else if(operation==='row-delete') { if(row<2 || rows.length<=3) return null; rows.splice(row,1); }
-    else if(operation==='column-add') rows.forEach((r,i)=>r.splice(index+1,0,i===1?'---':''));
+    if(operation==='delete')return {from:table.from,to:table.to,insert:''};
+    if(operation==='row-add'||operation==='row-before') rows.splice(Math.max(2,row+(operation==='row-add'?1:0)),0,Array(count).fill(''));
+    else if(operation==='row-delete') { if(row<2) return null; rows.splice(row,1); }
+    else if(operation==='column-add'||operation==='column-before') rows.forEach((r,i)=>r.splice(index+(operation==='column-add'?1:0),0,i===1?'---':''));
     else if(operation==='column-delete') { if(count<=1) return null; rows.forEach(r=>r.splice(index,1)); }
+    else if(operation==='row-duplicate') {if(row<2)return null;rows.splice(row+1,0,rows[row].slice());}
+    else if(operation==='row-clear') {if(row===1)return null;rows[row]=Array(count).fill('');}
+    else if(operation==='column-duplicate') rows.forEach(r=>r.splice(index+1,0,r[index]));
+    else if(operation==='column-clear') rows.forEach((r,i)=>{if(i!==1)r[index]='';});
+    else if(operation==='cell-clear') {if(row===1)return null;rows[row][index]='';}
+    else if(operation==='row-move') {const target=Number(value);if(row<2||!Number.isInteger(target)||target<2||target>=rows.length||row===target)return null;rows.splice(target,0,rows.splice(row,1)[0]);}
+    else if(operation==='column-move') {const target=Number(value);if(!Number.isInteger(target)||target<0||target>=count||target===index)return null;rows.forEach(r=>r.splice(target,0,r.splice(index,1)[0]));}
     else if(operation==='cell') { if(row===1) return null; rows[row][index]=String(value).replace(/\n/g,'<br>').replace(/(?<!\\)\|/g,'\\|'); }
     else if(operation==='align') rows[1][index]=value==='center'?':---:':value==='right'?'---:':':---';
     else return null;

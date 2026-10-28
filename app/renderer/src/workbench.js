@@ -98,6 +98,12 @@ document.addEventListener('contextmenu',event=>{
   const host=event.target.closest('.knowledge-pane .kn-editor-host');
   if(!host||event.target.closest('input,textarea,select,a,img')||event.isComposing)return;
   const entry=knowledgeCurrentEntry();if(!entry||entry.view.composing)return;
+  const widget=event.target.closest('.kn-table-widget'),cell=event.target.closest('td,th');
+  if(widget&&cell&&entry.mode!=='preview'){
+    event.preventDefault();event.stopPropagation();const row=cell.parentElement.rowIndex,column=cell.cellIndex,range=entry.tableCellRange(widget,row,column);if(!range)return;
+    entry.finishTableCell();entry.view.dispatch({selection:{anchor:range.from},scrollIntoView:false});entry.tableColumn=column;
+    knowledgeTableMenu({widget,row,column,scope:event.shiftKey?'row':'table',trigger:cell,point:{x:event.clientX,y:event.clientY}});return;
+  }
   event.preventDefault();event.stopPropagation();
   if(entry.mode!=='preview'){
     const pos=entry.view.posAtCoords({x:event.clientX,y:event.clientY}),range=entry.view.state.selection.main;

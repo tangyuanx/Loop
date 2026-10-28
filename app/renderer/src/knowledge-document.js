@@ -53,7 +53,7 @@
   function normalizeTableColumnWidths(value) {
     if (!Array.isArray(value)) return [];
     const tables = value.slice(0, 64).map((table) => {
-      if (!Array.isArray(table) || table.length < 2 || table.length > 32) return [];
+      if (!Array.isArray(table) || table.length < 1 || table.length > 128) return [];
       const widths = table.map((width) => Math.round(Number(width)));
       return widths.every((width) => Number.isFinite(width) && width >= 80 && width <= 1600) ? widths : [];
     });
@@ -214,7 +214,47 @@
     return next;
   }
 
+  // Additional notes live independently of tasks; old task.notes records keep
+  // their identity and continue through the same editor/file/recovery pipeline.
+  function normalizeDocuments(value, tasks = []) {
+    const seen = new Set(tasks.map(task => task.id));
+    return (Array.isArray(value) ? value : []).filter(record => {
+      if (!record || typeof record !== 'object' || typeof record.id !== 'string' || !record.id.trim() || seen.has(record.id)) return false;
+      seen.add(record.id); return true;
+    }).map(record => {
+      const createdAt = normalizeTimestamp(record.createdAt, new Date().toISOString());
+      const title = normalizeText(record.title) || '未命名笔记';
+      return { id: record.id, title, notes: normalizeText(record.notes), creatorTaskId: normalizeText(record.creatorTaskId),
+        createdAt, updatedAt: normalizeTimestamp(record.updatedAt, createdAt),
+        knowledgeNote: normalizeKnowledgeNote(record.knowledgeNote, {taskId:record.id,title,createdAt}) };
+    });
+  }
+
+  function normalizeNoteLinks(value) {
+    return [...new Set((Array.isArray(value) ? value : []).filter(id => typeof id === 'string' && id.trim()))];
+  }
+
+  function normalizeWorkspace(value, tasks = [], documents = []) {
+    const source = value && typeof value === 'object' ? value : {};
+    const live = new Set([...tasks.filter(note => note.notes?.trim() || note.knowledgeNote?.filePath), ...documents]
+      .filter(note => !note.knowledgeNote?.isDeleted).map(note => note.id));
+    const lastByTask = {};
+    for (const task of tasks) {
+      const remembered = source.lastByTask?.[task.id];
+      if (remembered === '' || live.has(remembered)) lastByTask[task.id] = remembered;
+      else if (live.has(task.activeKnowledgeId)) lastByTask[task.id] = task.activeKnowledgeId;
+      else if (live.has(task.id)) lastByTask[task.id] = task.id;
+    }
+    const openIds = normalizeNoteLinks(source.openIds).filter(id => live.has(id));
+    const activeId = live.has(source.activeId) && openIds.includes(source.activeId) ? source.activeId : openIds.at(-1) || '';
+    return {openIds, activeId, recentIds: normalizeNoteLinks(source.recentIds).filter(id => live.has(id)).slice(0, 40),
+      taskId: tasks.some(task => task.id === source.taskId) ? source.taskId : '', lastByTask, visible: source.visible === true};
+  }
+
   return Object.freeze({
+    normalizeDocuments,
+    normalizeNoteLinks,
+    normalizeWorkspace,
     DOCUMENT_STATES,
     imageReferences: typeof module === "object" && module.exports ? require("./knowledge-core.js").imageReferences : globalThis.LoopKnowledgeCore.imageReferences,
     canonicalFilePath,

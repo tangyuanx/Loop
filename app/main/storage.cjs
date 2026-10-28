@@ -19,7 +19,7 @@ const workNavigationModel = require("../renderer/src/work-navigation-model.js");
 
 const DATA_FILE = "task-data.json";
 const DATA_VERSION = 2;
-const KNOWLEDGE_MIGRATION_VERSION = 1;
+const KNOWLEDGE_MIGRATION_VERSION = 2;
 // Phase26 -- Recently Deleted.
 //
 // The archive is a first-class collection of `task-data.json` so that a delete
@@ -167,6 +167,8 @@ function normalizeTaskData(data) {
     recentlyDeletedSchemaVersion: RECENTLY_DELETED_SCHEMA_VERSION,
     recentlyDeleted: normalizeRecentlyDeleted(safeData.recentlyDeleted),
     tasks,
+    knowledgeDocuments: knowledgeDocument.normalizeDocuments(safeData.knowledgeDocuments, tasks),
+    knowledgeWorkspace: knowledgeDocument.normalizeWorkspace(safeData.knowledgeWorkspace, tasks, knowledgeDocument.normalizeDocuments(safeData.knowledgeDocuments, tasks)),
     taskGroups,
     activeGroupId: safeData.activeGroupId === ALL_TASKS_GROUP_ID || safeData.activeGroupId === UNGROUPED_TASKS_GROUP_ID || taskGroups.some((group) => group.id === safeData.activeGroupId)
       ? safeData.activeGroupId
@@ -344,6 +346,8 @@ function normalizeTasks(tasks) {
         todayQuickCaptureOrder: normalizeTodayWidgetOrder(task.todayQuickCaptureOrder),
         groupId: Object.hasOwn(task, "groupId") ? normalizeIdentifier(task.groupId) : DEFAULT_GROUP.id,
         title: normalizeText(task.title),
+        knowledgeLinks: knowledgeDocument.normalizeNoteLinks(task.knowledgeLinks),
+        activeKnowledgeId: normalizeIdentifier(task.activeKnowledgeId),
         knowledgeNote: knowledgeDocument.normalizeKnowledgeNote(task.knowledgeNote, {
           taskId,
           title: normalizeText(task.title),

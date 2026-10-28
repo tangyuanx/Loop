@@ -10,7 +10,7 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function until(fn,timeout=15000){const start=Date.now();while(Date.now()-start<timeout){if(await fn())return;await pause(80)}throw Error('Condition timed out')}
 async function shot(name){await page.screenshot({path:path.join(out,name+'.png')})}
 async function test(id,fn){try{results.push({id,status:'PASS',detail:await fn()})}catch(error){results.push({id,status:'FAIL',error:error.stack});await shot(id+'-failure').catch(()=>{})}await fs.writeFile(path.join(out,'results.json'),JSON.stringify({source,profile,files,results,errors},null,2));console.log(JSON.stringify(results.at(-1)))}
-async function choose(id){await page.keyboard.press('Escape');await page.locator(`[data-task-row="${id}"] .task-select`).click();await page.locator('[data-pane="notes"]').click();await page.waitForFunction(id=>knowledgeCurrentEntry(id)?.view&&document.querySelector('.knowledge-pane')?.dataset.taskId===id,id)}
+async function choose(id){await page.keyboard.press('Escape');await page.locator(`[data-task-row="${id}"] .task-select`).click();await page.locator('[data-pane="notes"]').click();await page.evaluate(id=>knowledgeAttach(knowledgeFindDocument(id)),id);await page.waitForFunction(id=>knowledgeCurrentEntry(id)?.view&&document.querySelector('.knowledge-pane')?.dataset.taskId===id,id)}
 async function rename(){await page.locator('[data-wb-action="more"]').click();await page.locator('.wb-more-menu [data-kn-action="rename"]').click();await page.locator('#kn-rename-title').waitFor()}
 async function commit(){await page.locator('#kn-rename-commit').click();await page.waitForFunction(()=>!document.querySelector('#kn-rename-commit')?.disabled)}
 async function snapshot(id){return page.evaluate(id=>{const t=state.tasks.find(t=>t.id===id);return {notes:t.notes,noteId:t.knowledgeNote.noteId,filePath:t.knowledgeNote.filePath,title:t.knowledgeNote.title,aliases:t.knowledgeNote.aliases,taskTitle:t.title}},id)}
@@ -47,7 +47,7 @@ async function release(){await app.evaluate(()=>{global.__s3Release?.();global._
    await page.evaluate(()=>{shellActiveTask().knowledgeNote.aliases.push('回执刷新样本');save();render()});
    await page.waitForFunction(()=>!pendingPayload&&!saveInFlight);
    await page.waitForFunction(()=>document.querySelector('[data-kn-receipt]')?.textContent===knowledgeReceipt(shellActiveTask()).text);
-   assert.equal((await presentation()).receipt,'已保存到 Loop');await shot('local-persistence-receipt');
+   assert.equal((await presentation()).receipt,'草稿已保留 · 尚未保存为文件');await shot('local-persistence-receipt');
   });
   await test('F06-blank-click-enter-correction',async()=>{
    await choose('rename');const before=await snapshot('rename');await rename();
@@ -82,37 +82,37 @@ async function release(){await app.evaluate(()=>{global.__s3Release?.();global._
    assert.equal(await page.evaluate(()=>document.querySelector('#kn-rename-title')===globalThis.__feedbackField),true);assert.equal(await page.locator('#kn-rename-title').inputValue(),'B 尚未提交');await page.keyboard.press('Escape');
   });
   await test('F07-unbound-bind-autosave-unlink',async()=>{
-   await choose('destination');await page.evaluate(()=>saveKnowledgeTask('destination'));let p=await presentation();assert.match(p.hint,/保存到 Loop/);assert.equal(p.receipt,'已保存到 Loop');assert.equal(await menuLabel(),'保存笔记');
-   const bound=path.join(files,'保存目的地.md');await app.evaluate((_e,bound)=>{global.__s3SavePath=bound},bound);await page.locator('[data-action="knowledge-file-menu"]').click();await page.locator('[role="menu"] [data-action="save-knowledge-as"]').click();
-   await page.waitForFunction(()=>state.tasks.find(t=>t.id==='destination').knowledgeNote.filePath&&!knowledgeFileWriteBusy.has('destination'));await page.keyboard.press('Escape');p=await presentation();assert.match(p.hint,/同步到文件/);assert.equal(p.receipt,'已保存到文件');assert.equal(await menuLabel(),'同步到文件');
+   await choose('destination');await page.evaluate(()=>saveKnowledgeTask('destination',{automatic:true}));let p=await presentation();assert.match(p.hint,/选择位置并保存/);assert.equal(p.receipt,'草稿已保留 · 尚未保存为文件');assert.equal(await menuLabel(),'保存…');
+   const bound=path.join(files,'保存目的地.md');await app.evaluate((_e,bound)=>{global.__s3SavePath=bound},bound);await page.locator('[data-action="knowledge-file-menu"]').click();await page.locator('[role="menu"] [data-action="save-knowledge"]').click();
+   await page.waitForFunction(()=>state.tasks.find(t=>t.id==='destination').knowledgeNote.filePath&&!knowledgeFileWriteBusy.has('destination'));await page.keyboard.press('Escape');p=await presentation();assert.match(p.hint,/保存到文件/);assert.equal(p.receipt,'已保存到文件');assert.equal(await menuLabel(),'保存到文件');
    await edit('\n自动同步的中文内容');await until(async()=> (await fs.readFile(bound,'utf8')).includes('自动同步的中文内容'));await page.waitForFunction(()=>document.querySelector('[data-kn-receipt]').textContent==='已保存到文件');
    await shot('bound-save-destination');
    // The same production unlink transaction is used by the file menu.
    await page.evaluate(async()=>{await recovery26Transaction(()=>recovery26UnlinkNote('destination'));render()});
-   await page.evaluate(()=>saveKnowledgeTask('destination'));p=await presentation();assert.match(p.hint,/保存到 Loop/);assert.equal(p.receipt,'已保存到 Loop');assert.equal(await menuLabel(),'保存笔记');await shot('unbound-save-destination');return {bound,p};
+   await page.evaluate(()=>saveKnowledgeTask('destination',{automatic:true}));p=await presentation();assert.match(p.hint,/选择位置并保存/);assert.equal(p.receipt,'草稿已保留 · 尚未保存为文件');assert.equal(await menuLabel(),'保存…');await shot('unbound-save-destination');return {bound,p};
   });
   await test('F07-save-pending-failed-and-AB',async()=>{
-   await choose('destination');await page.evaluate(async()=>{if(shellActiveTask().knowledgeNote.filePath){await recovery26Transaction(()=>recovery26UnlinkNote('destination'));render()}await saveKnowledgeTask('destination');await flushSave()});await fault({prefix:path.join(profile,'task-data.json.tmp-'),delay:true});
-   await edit('\n保存中状态的实际变更');await page.evaluate(()=>{globalThis.__feedbackSave=saveKnowledgeTask('destination')});await until(()=>app.evaluate(()=>global.__s3Blocked===true));assert.equal((await presentation()).state,'saving');assert.match((await presentation()).hint,/保存到 Loop/);
+   await choose('destination');await page.evaluate(async()=>{if(shellActiveTask().knowledgeNote.filePath){await recovery26Transaction(()=>recovery26UnlinkNote('destination'));render()}await saveKnowledgeTask('destination',{automatic:true});await flushSave()});await fault({prefix:path.join(profile,'task-data.json.tmp-'),delay:true});
+   await edit('\n保存中状态的实际变更');await page.evaluate(()=>{globalThis.__feedbackSave=saveKnowledgeTask('destination',{automatic:true})});await until(()=>app.evaluate(()=>global.__s3Blocked===true));assert.equal((await presentation()).state,'saving');assert.match((await presentation()).hint,/选择位置并保存/);
    await choose('other');assert.equal((await presentation()).model.destination,'loop');assert.notEqual((await presentation()).state,'saving');await release();await page.evaluate(()=>globalThis.__feedbackSave);
-   await choose('destination');await fault({prefix:path.join(profile,'task-data.json.tmp-'),fail:true});await edit('\n保存失败状态的实际变更');await page.evaluate(()=>saveKnowledgeTask('destination'));assert.equal((await presentation()).state,'failed');assert.match((await presentation()).hint,/保存到 Loop/);
-   await fault({});await page.evaluate(()=>saveKnowledgeTask('destination'));assert.equal((await presentation()).receipt,'已保存到 Loop');
-   for(let i=0;i<4;i++){await choose(i%2?'missing':'destination');assert.equal((await presentation()).model.destination,i%2?'file':'loop');assert.match((await presentation()).hint,i%2?/同步到文件/:/保存到 Loop/)}
+   await choose('destination');await fault({prefix:path.join(profile,'task-data.json.tmp-'),fail:true});await edit('\n保存失败状态的实际变更');await page.evaluate(()=>saveKnowledgeTask('destination',{automatic:true}));assert.equal((await presentation()).state,'failed');assert.match((await presentation()).hint,/选择位置并保存/);
+   await fault({});await page.evaluate(()=>saveKnowledgeTask('destination',{automatic:true}));assert.equal((await presentation()).receipt,'草稿已保留 · 尚未保存为文件');
+   for(let i=0;i<4;i++){await choose(i%2?'missing':'destination');assert.equal((await presentation()).model.destination,i%2?'file':'loop');assert.match((await presentation()).hint,i%2?/保存到文件/:/选择位置并保存/)}
   });
   await test('F07-missing-readonly-conflict',async()=>{
    await choose('missing');await fs.rename(path.join(files,'missing.md'),path.join(files,'missing.moved'));
-   await page.waitForFunction(()=>state.tasks.find(t=>t.id==='missing').knowledgeNote.documentState==='FILE_MISSING');let p=await presentation();assert.match(p.hint,/同步到文件/);assert.notEqual(p.state,'saved');assert.match(p.receipt,/文件已丢失|文件未同步/);
+   await page.waitForFunction(()=>state.tasks.find(t=>t.id==='missing').knowledgeNote.documentState==='FILE_MISSING');let p=await presentation();assert.match(p.hint,/保存到文件/);assert.notEqual(p.state,'saved');assert.match(p.receipt,/文件已丢失|文件未同步/);
    await choose('readonly');const readonly=path.join(files,'readonly.md');
    // The external test volume does not enforce POSIX chmod. Inject only the
    // W_OK access denial; production read + watcher still derive READ_ONLY.
    await app.evaluate((_e,readonly)=>{global.__s3ReadOnlyPath=readonly},readonly);
    await page.evaluate(()=>syncKnowledgeFileWatcher(state.tasks.find(t=>t.id==='readonly')));
    await page.waitForFunction(()=>state.tasks.find(t=>t.id==='readonly').knowledgeNote.documentState==='READ_ONLY');
-   p=await presentation();assert.match(p.hint,/同步到文件/);assert.equal(p.state,'conflict');assert.match(p.receipt,/不可写/);await app.evaluate(()=>{global.__s3ReadOnlyPath=''});
-   await choose('conflict');await edit('\n当前冲突草稿');await fs.writeFile(path.join(files,'conflict.md'),'# 新外部版本\n');await page.waitForFunction(()=>state.tasks.find(t=>t.id==='conflict').knowledgeNote.documentState==='EXTERNAL_CHANGED');p=await presentation();assert.match(p.hint,/同步到文件/);assert.equal(p.state,'conflict');assert.match(p.receipt,/外部修改/);
+   p=await presentation();assert.match(p.hint,/保存到文件/);assert.equal(p.state,'conflict');assert.match(p.receipt,/不可写/);await app.evaluate(()=>{global.__s3ReadOnlyPath=''});
+   await choose('conflict');await edit('\n当前冲突草稿');await fs.writeFile(path.join(files,'conflict.md'),'# 新外部版本\n');await page.waitForFunction(()=>state.tasks.find(t=>t.id==='conflict').knowledgeNote.documentState==='EXTERNAL_CHANGED');p=await presentation();assert.match(p.hint,/保存到文件/);assert.equal(p.state,'conflict');assert.match(p.receipt,/外部修改/);
    await shot('conflict-destination');
    await page.evaluate(async()=>{state.knowledgeFileIssues[shellActiveTask().knowledgeNote.noteId]={message:'旧文件读取错误'};knowledgeSaveResults.set('conflict',{error:'旧文件保存失败',filePath:shellActiveTask().knowledgeNote.filePath});await recovery26Transaction(()=>recovery26UnlinkNote('conflict'));render()});
-   const unlinked=await presentation();assert.match(unlinked.hint,/保存到 Loop/);assert.notEqual(unlinked.state,'conflict');assert.notEqual(unlinked.state,'failed');assert.ok(!(await menuLabel()).includes('同步'));
+   const unlinked=await presentation();assert.match(unlinked.hint,/选择位置并保存/);assert.notEqual(unlinked.state,'conflict');assert.notEqual(unlinked.state,'failed');assert.ok(!(await menuLabel()).includes('同步'));
    return {p,unlinked,readonlyAccessDenialInjected:true};
   });
  }finally{await release().catch(()=>{});await app.close()}

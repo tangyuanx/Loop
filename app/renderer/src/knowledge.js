@@ -96,7 +96,20 @@ function shellKnowledgeRecoveryText(task) {
 // Pane
 // ------------------------------------------------------------
 
+function renderKnowledgeTabs(task) {
+  const active=knowledgeActiveDocument(task),notes=state.knowledgeWorkspace.openIds.map(knowledgeFindDocument).filter(note=>note&&!note.knowledgeNote?.isDeleted);
+  if(notes.length<2)return '';
+  return `<div class="kn-document-bar"><div class="kn-document-tabs" role="tablist" aria-label="已打开的笔记">${notes.map(note=>`<div class="kn-document-tab"><button type="button" role="tab" tabindex="${active?.id===note.id?0:-1}" aria-selected="${active?.id===note.id}" data-kn-document="${escAttr(note.id)}" title="${escAttr(note.knowledgeNote.filePath||LoopKnowledgeCore.noteTitle(note))}"><span>${esc(LoopKnowledgeCore.noteTitle(note))}</span></button><button type="button" class="kn-document-close" data-kn-detach="${escAttr(note.id)}" aria-label="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}" title="关闭笔记，草稿仍保留">${shellIcon('close')}</button></div>`).join('')}</div></div>`;
+}
+
+function renderKnowledgeFileActions() {
+  return `<div class="kn-file-actions"><button type="button" class="text-button" data-kn-action="new-note" title="新建空白笔记">${shellIcon('plus')}新建</button><button type="button" class="text-button" data-kn-action="open-file" title="打开本地笔记（Ctrl/Cmd+O）">打开…</button><button type="button" class="icon-button" data-kn-action="recent" title="最近打开" aria-label="最近打开的笔记" aria-haspopup="dialog">${shellIcon('down')}</button></div>`;
+}
+
 function renderShellKnowledge(task) {
+  const owner = task;
+  task = knowledgeActiveDocument(task);
+  if(!task)return `<section class="knowledge-pane task-knowledge-pane" aria-label="知识笔记"><header class="knowledge-header"><div class="wb-tabs">${renderShellTabs(owner)}</div>${renderKnowledgeFileActions()}</header><div class="kn-empty-document"><p>打开一篇笔记，或从空白开始</p><div><button class="button" data-kn-action="new-note">新建笔记</button><button class="button" data-kn-action="open-file">打开本地笔记…</button><button class="text-button" data-kn-action="recent">最近打开</button></div></div></section>`;
   const noteState = shellKnowledgeState(task);
   const mode = shellKnowledgeMode();
   const width = shellNoteWidth();
@@ -105,15 +118,17 @@ function renderShellKnowledge(task) {
   return `
     <section class="knowledge-pane task-knowledge-pane" data-task-id="${escAttr(task.id)}" data-knowledge-state="${escAttr(noteState.key)}" aria-label="知识笔记">
       <header class="knowledge-header">
-        <div class="wb-tabs">${renderShellTabs(task)}</div>
+        <div class="wb-tabs">${renderShellTabs(owner)}</div>
         <div class="knowledge-header-actions">
-          <button class="text-button kn-switch-note" type="button" data-kn-action="switcher" aria-label="切换笔记" title="${escAttr(LoopKnowledgeCore.noteTitle(task))} · ${escAttr(noteState.label)} · ${escAttr(file.text)} · ${escAttr(file.title)} · 切换笔记（Ctrl/Cmd+O）"><span>${esc(LoopKnowledgeCore.noteTitle(task) === task.title ? "任务笔记" : LoopKnowledgeCore.noteTitle(task))}</span>${shellIcon("down")}</button>
+          <button class="text-button kn-switch-note kn-note-title" type="button" data-kn-action="rename" aria-label="重命名笔记" title="${escAttr(noteState.label)} · ${escAttr(file.text)} · ${escAttr(file.title)} · 重命名笔记"><span>${esc(LoopKnowledgeCore.noteTitle(task))}</span></button>
+          ${renderKnowledgeFileActions()}
           ${renderShellKnowledgeViewbar(mode)}
           <button class="icon-button" type="button" data-kn-action="find" aria-label="查找当前笔记" title="查找当前笔记（Ctrl/Cmd+F）" aria-expanded="false">${shellIcon("search")}</button>
           <button class="icon-button" type="button" data-wb-action="focus" aria-label="${Workbench.focus ? "退出" : "进入"}专注模式" title="专注模式" aria-pressed="${Workbench.focus}">${shellIcon(Workbench.focus ? "restoreRecord" : "expandRecord")}</button>
           <button class="icon-button" type="button" data-wb-action="more" data-action="knowledge-file-menu" data-knowledge-action="file-menu" aria-label="更多笔记操作" title="更多笔记操作" aria-haspopup="menu" aria-expanded="false">${shellIcon("more")}</button>
         </div>
       </header>
+      ${renderKnowledgeTabs(owner)}
       ${renderShellKnowledgeNotice(task, noteState)}
       ${renderShellKnowledgeTools(mode)}
       <div class="knowledge-body" data-knowledge-scroll data-knowledge-view="${escAttr(knowledgeViewKey(task))}">
@@ -192,7 +207,7 @@ function shellNoteWidthMenu(trigger) {
 }
 
 function shellKnowledgeFileMenu(trigger) {
-  const task = shellActiveTask();
+  const task = knowledgeActiveDocument();
   if (!task) return;
   const bound = Boolean(task.knowledgeNote?.filePath);
   const savePresentation=typeof knowledgeSavePresentation==='function'?knowledgeSavePresentation(task):{menuLabel:'保存笔记',state:'saved'};
@@ -211,7 +226,7 @@ function shellKnowledgeFileMenu(trigger) {
       <button class="button" type="button" role="menuitem" data-wb-action="properties">笔记属性（源码）</button>
       <div class="menu-divider"></div><div class="note23-menu-label">文件</div>
       <button class="button" type="button" role="menuitem" data-knowledge-save-label data-action="save-knowledge" data-task-id="${escAttr(task.id)}" ${savePresentation.state==='saving'?'disabled':''}>${esc(savePresentation.menuLabel)}</button>
-      <button class="button" type="button" role="menuitem" data-action="relocate-knowledge" data-task-id="${escAttr(task.id)}">打开 Markdown 文件…</button>
+      <button class="button" type="button" role="menuitem" data-kn-action="open-file">打开 Markdown 文件…</button>
       <button class="button" type="button" role="menuitem" data-action="save-knowledge-as" data-task-id="${escAttr(task.id)}">另存为…</button>
       <div class="menu-divider"></div>
       <div class="note23-menu-label">当前笔记</div>
@@ -221,7 +236,7 @@ function shellKnowledgeFileMenu(trigger) {
       <div class="menu-divider"></div>
       <div class="note23-menu-label">导出</div>
       <button class="button" type="button" role="menuitem" data-action="export-knowledge-note" data-task-id="${escAttr(task.id)}">导出笔记…</button>
-      <button class="button" type="button" role="menuitem" data-action="share-task" data-task-id="${escAttr(task.id)}">分享／导出任务…</button>
+      <button class="button" type="button" role="menuitem" data-action="share-task" data-task-id="${escAttr(state.activeTaskId)}">分享／导出任务…</button>
       ${removable}</div>`,
     trigger,
     232,
@@ -348,7 +363,7 @@ const shellKnowledgeConflictOperations = new Set();
 
 async function shellRunKnowledgeConflictAction(data, operation) {
   const surface = shellOverlay()?.querySelector("[data-knowledge-conflict]");
-  const task = state.tasks.find(item => item.id === data.taskId);
+  const task = knowledgeAllDocuments().find(item => item.id === data.taskId);
   const noteId = task?.knowledgeNote?.noteId;
   if (!surface || surface.dataset.taskId !== data.taskId || surface.dataset.noteId !== noteId) {
     const result = await operation();
@@ -379,8 +394,8 @@ async function shellRunKnowledgeConflictAction(data, operation) {
   // #overlay is independent of render(). A late receipt must never dismiss a
   // newer dialog, act on another note, or move focus away from that note.
   const ownsSurface = surface.isConnected && shellOverlay()?.querySelector("[data-knowledge-conflict]") === surface &&
-    state.activeTaskId === task.id && state.taskPane === "notes" &&
-    state.tasks.includes(task) && task.knowledgeNote.noteId === noteId;
+    knowledgeActiveDocument()?.id === task.id && state.taskPane === "notes" &&
+    knowledgeHasDocument(task) && task.knowledgeNote.noteId === noteId;
   let closed = false;
   if (ownsSurface && result?.success === true && task.knowledgeNote.documentState !== "EXTERNAL_CHANGED") {
     shellCloseOverlay({ restoreFocus: false });
@@ -394,7 +409,7 @@ async function shellRunKnowledgeConflictAction(data, operation) {
     previews[1].textContent = String(knowledgeExternalSnapshots.get(noteId)?.content || "文件暂时不可用，请重试读取。").slice(0, 600);
   }
   if (!result?.canceled) render();
-  if (closed && !shellOverlay()?.firstElementChild && state.activeTaskId === task.id && task.knowledgeNote.noteId === noteId) {
+  if (closed && !shellOverlay()?.firstElementChild && knowledgeActiveDocument()?.id === task.id && task.knowledgeNote.noteId === noteId) {
     const entry = typeof knowledgeCurrentEntry === "function" ? knowledgeCurrentEntry(task.id) : null;
     if (entry?.view?.dom?.isConnected && entry.mode !== "preview") entry.view.focus();
     else document.querySelector('[data-action="knowledge-file-menu"]')?.focus({ preventScroll: true });
@@ -459,7 +474,7 @@ function shellToast(message, record) {
 }
 
 function shellKnowledgeEditorEntry() {
-  const entry = typeof milkdownEditors !== "undefined" ? milkdownEditors.get(noteDraftKey(state.activeTaskId, "")) : null;
+  const entry = typeof milkdownEditors !== "undefined" ? milkdownEditors.get(noteDraftKey(knowledgeActiveDocument()?.id, "")) : null;
   return entry?.instance || null;
 }
 
@@ -603,12 +618,12 @@ function shellBindKnowledge() {
       if (shellOverlayIsOpen()) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      void saveKnowledgeTask(state.activeTaskId, { saveAs: event.shiftKey });
+      void saveKnowledgeTask(knowledgeActiveDocument()?.id, { saveAs: event.shiftKey });
     }, true);
   }
   const source = document.querySelector("#knowledge-source");
   if (source && bindRenderElement(source, "knowledge-source")) {
-    const task = state.tasks.find((item) => item.id === source.dataset.taskId);
+    const task = knowledgeAllDocuments().find((item) => item.id === source.dataset.taskId);
     if (task) {
       source.addEventListener("input", () => {
         updateNodeNoteDraft(task.id, "", source.value);
