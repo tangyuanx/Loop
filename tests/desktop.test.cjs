@@ -3924,6 +3924,21 @@ test("Today widget uses a portable floating topmost level outside macOS", () => 
   assert.deepEqual(calls, [[true, "floating", 0]]);
 });
 
+test("Today widget keeps an auxiliary panel above its parent without raising the parent over it", () => {
+  const calls = [];
+  const window = {
+    isDestroyed: () => false,
+    isVisible: () => true,
+    setVisibleOnAllWorkspaces() {},
+    setHiddenInMissionControl() {},
+    setAlwaysOnTop: (...args) => calls.push(args),
+    moveTop: () => calls.push("raise"),
+  };
+  applyTodayWidgetTopmost(window, true, "darwin", { raise: false });
+  applyTodayWidgetTopmost(window, true, "darwin", { relativeLevel: 2 });
+  assert.deepEqual(calls, [[true, "screen-saver", 1], [true, "screen-saver", 2], "raise"]);
+});
+
 test("Today widget restores topmost after app deactivation releases temporary editing state", async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "personal-task-track-widget-lifecycle-test-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
@@ -4236,7 +4251,8 @@ test("production Today widget uses its dedicated frontend and a sandboxed Electr
   assert.match(widgetMain, /const level = topmost \? \(platform === "darwin" \? "screen-saver" : "floating"\) : "normal"/);
   assert.match(widgetMain, /visibleOnFullScreen: topmost/);
   assert.match(widgetMain, /skipTransformProcessType: true/);
-  assert.match(widgetMain, /setAlwaysOnTop\(topmost, level, topmost && platform === "darwin" \? 1 : 0\)/);
+  assert.match(widgetMain, /relativeLevel = 1/);
+  assert.match(widgetMain, /setAlwaysOnTop\(topmost, level, topmost && platform === "darwin" \? relativeLevel : 0\)/);
   assert.match(widgetMain, /moveTop\(\)/);
   assert.match(widgetMain, /getDisplayMatching/);
   assert.match(widgetMain, /if \(preferences\.compact\)[\s\S]*size\?\.transient !== true[\s\S]*Math\.max\(254, Math\.min\(480/);
@@ -4995,7 +5011,7 @@ test("the frozen Demo baseline is the renderer stylesheet authority", async () =
   // follows those layers in main and floating windows without changing them.
   const linked = [...index.matchAll(/<link[^>]+href="\.\/src\/([^"?]+)/g)].map((match) => match[1]);
   const order = ["shell.css", "vendor/milkdown-editor.css", "knowledge.css", "fonts.css", "settings.css", "typography.css", "refinement.css", "selection.css", "flow.css", "shell-refinement.css", "help.css", "work.css", "task-entry.css", "journey.css", "time.css", "desktop.css", "scale.css", "brief21.css", "controls22.css", "notebook23.css", "management24.css", "window25.css", "bridge.css", "recovery26.css", "manual27.css"];
-  assert.deepEqual(linked, [...order, "vendor/knowledge-editor.css", "knowledge-editor.css", "type-readability.css", "workbench.css", "repository.css", "task-workspace.css", "knowledge-workspace.css", "foundation.css"], "preserve the frozen Demo order, then load feature geometry and the shared foundation last");
+  assert.deepEqual(linked, [...order, "vendor/knowledge-editor.css", "knowledge-editor.css", "type-readability.css", "workbench.css", "repository.css", "task-workspace.css", "knowledge-workspace.css", "temporal-workspace.css", "system-workspace.css", "foundation.css"], "preserve the frozen Demo order, then load feature geometry and the shared foundation last");
   assert.equal(await fs.readFile(path.join(rendererDir, "src", "manual27.css"), "utf8"), await fs.readFile(path.join(__dirname, "..", "prototypes", "baseline", "loop-plane-phase27-frozen", "loop-manual-phase27.css"), "utf8"), "the manual keeps the approved Demo CSS verbatim");
   const scripts = [...index.matchAll(/<script[^>]+src="\.\/src\/([^"?]+)/g)].map((match) => match[1]);
   const phase24Script = scripts.indexOf("management24.js");
@@ -7663,7 +7679,7 @@ test('complete task journey keeps grouped tasks, widget lanes, notes, attachment
   assert.equal(reopened.tasks.find(task=>task.id===captureId).captureSource,'today-widget');
 });
 
-test('workspace feedback resets its ten-second lifetime and restores current save status without rerendering editors', async () => {
+test('workspace feedback retains undo and errors, expires plain notices and preserves editors', async () => {
   const h = await rendererHarness();
   h.evaluate(`
     globalThis.feedbackTimers = new Map(); globalThis.feedbackTimerId = 0;
@@ -7675,11 +7691,12 @@ test('workspace feedback resets its ten-second lifetime and restores current sav
     render = () => { throw new Error('feedback must not rerender the editor'); };
     localSaveOutcome = 'saved'; globalThis.dismissed = [];
     showWorkspaceFeedback('已删除一项', '<button>撤销</button>', {source:'recovery', onDismiss:()=>dismissed.push('deleted')});
-    globalThis.staleExpiry = feedbackTimers.get(workspaceFeedbackTimer).callback;
   `);
   assert.match(h.evaluate('statusMarkup'), /已删除一项/);
-  assert.equal(h.evaluate('feedbackTimers.get(workspaceFeedbackTimer).delay'), 10000);
-  h.evaluate(`showWorkspaceFeedback('已更新任务安排', '', {source:'notice', onDismiss:()=>dismissed.push('updated')}); staleExpiry();`);
+  assert.equal(h.evaluate('feedbackTimers.size'), 0, 'undo never starts a dismissal timer');
+  h.evaluate(`showWorkspaceError('恢复失败，请重试');`);
+  assert.equal(h.evaluate('feedbackTimers.size'), 0, 'errors remain until dismissed');
+  h.evaluate(`showWorkspaceFeedback('已更新任务安排');`);
   assert.deepEqual(h.json('dismissed'), ['deleted']);
   assert.match(h.evaluate('statusMarkup'), /已更新任务安排/);
   assert.equal(h.evaluate('feedbackTimers.size'), 1);
@@ -7689,7 +7706,7 @@ test('workspace feedback resets its ten-second lifetime and restores current sav
   assert.match(h.evaluate('statusMarkup'), /已更新任务安排/, 'unrelated cleanup must not dismiss the current message');
   h.evaluate(`feedbackTimers.get(workspaceFeedbackTimer).callback();`);
   assert.match(h.evaluate('statusMarkup'), /正在保存到本机/);
-  assert.deepEqual(h.json('dismissed'), ['deleted', 'updated']);
+  assert.deepEqual(h.json('dismissed'), ['deleted']);
   assert.equal(h.evaluate('feedbackTimers.size'), 0);
   h.evaluate(`saveInFlight = false; localSaveOutcome = 'saved'; updateLocalSaveReceipt();`);
   assert.match(h.evaluate('statusMarkup'), /已保存到本机/);

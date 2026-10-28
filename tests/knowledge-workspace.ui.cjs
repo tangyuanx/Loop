@@ -62,9 +62,12 @@ function neutral(css,label) {
    await p.evaluate(t=>{state.theme=t;render()},theme);await wb.mode(p,'edit');
    await p.locator('[data-kn-action="find"]').click();await p.locator('.kn-find [name=toggleReplace]').click();
    for(const selector of ['.kn-find input[name=search]','.kn-find input[name=replace]']) {
-    const el=p.locator(selector);for(const interaction of ['default','hover','focus']) {
+    const el=p.locator(selector);let parentBackground;for(const interaction of ['default','hover','focus']) {
      if(interaction==='default')await el.evaluate(e=>e.blur());if(interaction==='hover')await el.hover();if(interaction==='focus')await el.focus();
      const css=await el.evaluate(readCSS),parent=await el.locator('..').evaluate(readCSS);neutral(css,selector);neutral(parent,selector+' parent');results.inputs.push({theme,selector,interaction,css,parent});
+     if(selector.includes('name=search'))assert.equal(css.backgroundColor,'rgba(0, 0, 0, 0)','search input stays transparent in every state');
+     if(interaction==='default')parentBackground=parent.backgroundColor;
+     assert.equal(parent.backgroundColor,parentBackground,'search parent keeps the same surface on hover/focus');
     }
    }
    await p.keyboard.press('Escape');await p.evaluate(()=>knowledgeCurrentEntry().view.focus());

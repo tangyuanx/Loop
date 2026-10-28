@@ -33,7 +33,7 @@ function shellSettingsChoice(key, description, choices, value) {
   return shellSettingsRow(
     SHELL_SETTINGS_CHOICE_LABELS[key] || key,
     description,
-    `<button class="prefs-choice" type="button" data-action="open-settings-choice" data-key="${escAttr(key)}" aria-haspopup="menu" aria-expanded="false" aria-label="${escAttr(`${SHELL_SETTINGS_CHOICE_LABELS[key] || key}：${label}`)}"><span>${esc(label)}</span>${shellIcon("chevron")}</button>`,
+    `<button class="button prefs-choice" type="button" data-action="open-settings-choice" data-key="${escAttr(key)}" aria-haspopup="menu" aria-expanded="false" aria-label="${escAttr(`${SHELL_SETTINGS_CHOICE_LABELS[key] || key}：${label}`)}"><span>${esc(label)}</span>${shellIcon("chevron")}</button>`,
   );
 }
 
@@ -308,39 +308,45 @@ function shellHelpFeedbackDialog() {
       ${shellHelpFeedbackField("title", "问题标题")}
       <div class="help14-field">
         <label for="help14-category">问题类型</label>
-        <select id="help14-category" data-feedback-field="category" aria-invalid="${Boolean(errors.category)}">
+        <select id="help14-category" data-feedback-field="category" aria-invalid="${Boolean(errors.category)}"${errors.category ? ' aria-describedby="help14-category-error"' : ""}>
           <option value="">请选择</option>
           ${Object.entries(bugCategoryLabels).map(([value, label]) => `<option value="${value}" ${draft.category === value ? "selected" : ""}>${esc(label)}</option>`).join("")}
         </select>
-        ${errors.category ? `<p class="help14-error" role="alert">${esc(errors.category)}</p>` : ""}
+        ${errors.category ? `<p id="help14-category-error" class="help14-error" role="alert">${esc(errors.category)}</p>` : ""}
       </div>
       ${shellHelpFeedbackField("description", "问题描述", false, true, 4)}
       ${shellHelpFeedbackField("reproductionSteps", "复现步骤", true, true, 3)}
       ${shellHelpFeedbackField("contact", "联系方式", true)}
       <div class="help14-privacy">
         <label><input type="checkbox" data-feedback-field="includeEnvironment" ${draft.includeEnvironment ? "checked" : ""} />附带基本环境信息</label>
-        ${draft.includeEnvironment ? `<p>${esc(feedbackEnvironmentSummary())}</p>` : ""}
-        <label><input type="checkbox" data-feedback-field="confirmed" ${draft.confirmed ? "checked" : ""} />我知道反馈将成为公开的 GitHub Issue，并已检查不含敏感信息。</label>
-        ${errors.confirmed ? `<p class="help14-error" role="alert">${esc(errors.confirmed)}</p>` : ""}
+        <p data-feedback-environment ${draft.includeEnvironment ? "" : "hidden"}>${esc(feedbackEnvironmentSummary())}</p>
+        <label><input id="help14-confirmed" type="checkbox" data-feedback-field="confirmed" ${draft.confirmed ? "checked" : ""} aria-invalid="${Boolean(errors.confirmed)}"${errors.confirmed ? ' aria-describedby="help14-confirmed-error"' : ""} />我知道反馈将成为公开的 GitHub Issue，并已检查不含敏感信息。</label>
+        ${errors.confirmed ? `<p id="help14-confirmed-error" class="help14-error" role="alert">${esc(errors.confirmed)}</p>` : ""}
       </div>
-      ${state.feedbackMessage ? `<p class="help14-error" role="alert">${esc(state.feedbackMessage)}</p>` : ""}
       <footer>
-        <small>${busy ? "正在提交…" : "提交后可继续处理任务"}</small>
-        <button class="button" type="button" data-action="close-help-feedback">取消</button>
+        ${state.feedbackMessage ? `<p class="help14-error" data-feedback-message role="alert">${esc(state.feedbackMessage)}</p>` : ""}
+        <small data-feedback-progress tabindex="-1" role="status">${busy ? "正在提交，请稍候…" : "提交后可继续处理任务"}</small>
+        <button class="button" type="button" data-action="close-help-feedback" ${busy ? "disabled" : ""}>取消</button>
         <button class="button primary" type="button" data-action="submit-feedback" ${busy ? "disabled" : ""}>${busy ? "正在提交…" : state.feedbackMessage ? "重试提交" : "提交反馈"}</button>
       </footer>`;
+  const previous = document.activeElement;
+  const previousId = previous?.closest?.("#help14-form") ? previous.id : "";
+  const selection = previousId && typeof previous.selectionStart === "number" ? [previous.selectionStart, previous.selectionEnd] : null;
   overlay.innerHTML = `<div class="dialog-backdrop" data-return-focus="[data-action='open-help-feedback']">
-    <form class="dialog help14-form" id="help14-form" role="dialog" aria-modal="true" aria-label="问题与建议" novalidate>
-      <div class="dialog-head"><h2>问题与建议</h2><button class="icon-button" type="button" data-action="close-help-feedback" aria-label="关闭">${shellIcon("close")}</button></div>
+    <form class="dialog help14-form" id="help14-form" role="dialog" aria-modal="true" aria-busy="${busy}" aria-label="问题与建议" novalidate>
+      <div class="dialog-head"><h2>问题与建议</h2><button class="icon-button" type="button" data-action="close-help-feedback" aria-label="关闭" ${busy ? "disabled" : ""}>${shellIcon("close")}</button></div>
       ${body}
     </form>
   </div>`;
   if (busy) overlay.querySelectorAll("input,select,textarea").forEach((element) => { element.disabled = true; });
-  if (!state.feedbackResult) {
-    requestAnimationFrame(() => document.querySelector("#help14-title")?.focus({ preventScroll: true }));
-  } else {
-    requestAnimationFrame(() => document.querySelector("[data-action='close-help-feedback']")?.focus({ preventScroll: true }));
-  }
+  requestAnimationFrame(() => {
+    if (!document.querySelector("#help14-form")) return;
+    const target = busy ? overlay.querySelector("[data-feedback-progress]") : state.feedbackResult
+      ? overlay.querySelector("[data-action='close-help-feedback']")
+      : overlay.querySelector('[aria-invalid="true"]') || (previousId && document.getElementById(previousId)) || document.querySelector("#help14-title");
+    target?.focus({ preventScroll: true });
+    if (selection && target?.id === previousId) target.setSelectionRange?.(...selection);
+  });
 }
 
 // ------------------------------------------------------------
@@ -372,8 +378,8 @@ function renderShellSettings() {
 function shellSettingsChoiceMenu(trigger, key) {
   const options = shellSettingsChoiceOptions(key);
   const value = shellSettingsChoiceValue(key);
-  const compact = ["task-filter", "priority-filter", "new-task-priority"].includes(key);
-  const width = compact ? Math.max(120, trigger.getBoundingClientRect().width) : 258;
+  const rect = trigger.getBoundingClientRect();
+  const width = rect.width;
   shellMountSurface(
     `<div class="surface-popover prefs-menu" role="menu" aria-label="${escAttr(SHELL_SETTINGS_CHOICE_LABELS[key] || key)}">
       ${Object.entries(options).map(([optionValue, label]) => `<button type="button" role="menuitemradio" aria-checked="${String(value) === optionValue}" data-action="set-settings-choice" data-key="${escAttr(key)}" data-value="${escAttr(optionValue)}"><span>${esc(label)}</span>${String(value) === optionValue ? shellIcon("check") : "<span></span>"}</button>`).join("")}
@@ -382,7 +388,15 @@ function shellSettingsChoiceMenu(trigger, key) {
     width,
   );
   const menu = document.querySelector(".prefs-menu");
-  if (menu) menu.dataset.returnFocus = `[data-action="open-settings-choice"][data-key="${CSS.escape(key)}"]`;
+  if (menu) {
+    menu.dataset.returnFocus = `[data-action="open-settings-choice"][data-key="${CSS.escape(key)}"]`;
+    menu.style.width = "max-content";
+    menu.style.minWidth = `${width}px`;
+    menu.style.maxWidth = `${Math.max(0, window.innerWidth - 24)}px`;
+    menu.style.left = `${rect.right - menu.offsetWidth}px`;
+    menu.style.top = `${Math.min(rect.bottom + 7, window.innerHeight - menu.offsetHeight - 12)}px`;
+    shellClampFloatingSurface(menu);
+  }
   menu?.querySelector('[aria-checked="true"]')?.focus({ preventScroll: true });
   menu?.addEventListener("keydown", (event) => {
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;

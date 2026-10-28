@@ -423,7 +423,7 @@ function shellBeforeRender() {
       start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection, top: active.scrollTop } : null;
   if (active && document.querySelector("#root")?.contains(active)) {
     const repository = Boolean(active.closest?.(".navigation, .task-list-pane"));
-    const keys = repository ? SHELL_REPOSITORY_FOCUS_KEYS : [...SHELL_FOCUS_KEYS, "data-pane", "data-task-id"];
+    const keys = repository ? SHELL_REPOSITORY_FOCUS_KEYS : [...SHELL_FOCUS_KEYS, "data-pane", "data-task-id", "data-key"];
     const identity = keys.filter((key) => active.hasAttribute(key))
       .map((key) => `[${key}="${CSS.escape(active.getAttribute(key))}"]`).join("");
     // Repeated actions (group navigation, status tabs, bulk checkboxes) need

@@ -2,16 +2,13 @@
    owned by foundation.css, loaded after this feature sheet. */
 :root {
   --repository-nav: #efeeeb;
-  --repository-list: #f5f4f1;
-  --repository-hover: #eae9e4;
-  --repository-selected: #e9e9e3;
+  --repository-list: var(--workspace-list);
+  --repository-hover: var(--workspace-hover);
+  --repository-selected: var(--workspace-selected);
 }
 
 :root[data-theme="dark"] {
   --repository-nav: #1d1f1d;
-  --repository-list: #212321;
-  --repository-hover: #30332e;
-  --repository-selected: #353931;
 }
 
 body .navigation {

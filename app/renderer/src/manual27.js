@@ -237,7 +237,7 @@
       heading?.scrollIntoView({ behavior: window.matchMedia?.('(prefers-reduced-motion:reduce)').matches ? 'instant' : 'smooth', block: 'start' });
       heading?.focus({ preventScroll: true });
     } else if (action === 'directory') {
-      const surface = shellMountSurface(`<div class="surface-popover manual27-directory-popup" role="dialog" aria-label="本页目录">${shellSurfaceHeader('本页目录')}${toc()}</div>`, button, 252);
+      const surface = shellMountSurface(`<div class="surface-popover manual27-directory-popup" role="dialog" aria-modal="true" aria-label="本页目录">${shellSurfaceHeader('本页目录')}${toc()}</div>`, button, 252);
       if (surface) surface.dataset.returnFocus = '[data-manual27="directory"]';
     } else if (action === 'go') gotoFunction(button.dataset.target);
   }, true);

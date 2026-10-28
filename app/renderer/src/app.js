@@ -1864,9 +1864,10 @@ function clearWorkspaceFeedback(source = "") {
 
 function showWorkspaceFeedback(message, actions = "", { source = "notice", onDismiss = null } = {}) {
   clearWorkspaceFeedback();
-  const feedback = { message: String(message), actions, source, onDismiss, expiresAt: Date.now() + WORKSPACE_FEEDBACK_MS };
+  const persistent = source === "error" || source === "recovery" || Boolean(actions) || Boolean(onDismiss);
+  const feedback = { message: String(message), actions, source, onDismiss, expiresAt: persistent ? Infinity : Date.now() + WORKSPACE_FEEDBACK_MS };
   workspaceFeedback = feedback;
-  workspaceFeedbackTimer = window.setTimeout(() => {
+  workspaceFeedbackTimer = persistent ? 0 : window.setTimeout(() => {
     if (workspaceFeedback === feedback) clearWorkspaceFeedback();
   }, WORKSPACE_FEEDBACK_MS);
   updateLocalSaveReceipt();
@@ -4091,6 +4092,7 @@ function applyTodayWidgetOrder(items, orderKey, taskFromItem = (item) => item) {
 
 function normalizeCurrentWorkNavigation() {
   state.workNavigation = workNavigationModel.normalizeWorkNavigation(state.workNavigation, {
+    now: loopNow(),
     groupIds: state.taskGroups.map((group) => group.id),
   });
   return state.workNavigation;
@@ -4100,6 +4102,7 @@ function workNavigationCandidates() {
   const navigation = normalizeCurrentWorkNavigation();
   const todayItems = todayFocusItems();
   const work = workNavigationModel.resolveWorkCandidates({
+    now: loopNow(),
     tasks: state.tasks,
     todayTaskIds: todayItems.map((item) => item.task.id),
     sourceGroupId: navigation.config.growth.sourceGroupId,
@@ -4183,6 +4186,7 @@ function setWorkNavigationRuntime(patch = {}) {
     dateKey: workNavigationModel.localDateKey(loopNow()),
   };
   state.workNavigation = workNavigationModel.normalizeWorkNavigation(navigation, {
+    now: loopNow(),
     groupIds: state.taskGroups.map((group) => group.id),
   });
 }
@@ -4193,6 +4197,7 @@ function updateWorkNavigationConfig(nextConfig) {
   if (nextConfig?.work?.autoAdvance) navigation.runtime.workAdvancePaused = false;
   if (nextConfig?.growth?.autoAdvance) navigation.runtime.growthAdvancePaused = false;
   state.workNavigation = workNavigationModel.normalizeWorkNavigation(navigation, {
+    now: loopNow(),
     groupIds: state.taskGroups.map((group) => group.id),
   });
   reconcileWorkNavigationRuntime();
@@ -4239,12 +4244,15 @@ function advanceNavigationAfterCompletion(taskId) {
     ? navigation.config.growth.autoAdvance
     : navigation.config.work.autoAdvance;
   const next = autoAdvance ? nextNavigationTask(kind) : null;
+  // Candidate queries normalize navigation into a new object. Write to the
+  // current runtime, rather than the pre-query object that is now detached.
+  const runtime = normalizeCurrentWorkNavigation().runtime;
   if (kind === "growth") {
-    navigation.runtime.activeGrowthTaskId = next?.id || "";
-    navigation.runtime.growthAdvancePaused = !autoAdvance;
+    runtime.activeGrowthTaskId = next?.id || "";
+    runtime.growthAdvancePaused = !autoAdvance;
   } else {
-    navigation.runtime.activeWorkTaskId = next?.id || "";
-    navigation.runtime.workAdvancePaused = !autoAdvance;
+    runtime.activeWorkTaskId = next?.id || "";
+    runtime.workAdvancePaused = !autoAdvance;
   }
   if (next) openTaskFromGlobalList(next.id);
   return { kind, nextTaskId: next?.id || "" };
@@ -4298,6 +4306,20 @@ function saveNavigationRecovery(taskId, value = {}) {
   save();
   render();
   return { success: true, code: "SAVED", taskId };
+}
+
+function recoverTaskFromNavigation(taskId) {
+  const task = state.tasks.find((item) => item.id === taskId && item.status !== "done");
+  const navigation = normalizeCurrentWorkNavigation();
+  if (!task || !navigation.runtime.blockedTaskIds.includes(taskId)) return { success: false, code: "TASK_NOT_FOUND" };
+  if (flatten(task.nodes).some((node) => node.status === "blocked")) return { success: false, code: "BLOCKED_NODES" };
+  task.tags = normalizeTaskTags({ ...task.tags, blocked: false });
+  task.updatedAt = now();
+  navigation.runtime.blockedTaskIds = navigation.runtime.blockedTaskIds.filter((id) => id !== taskId);
+  reconcileWorkNavigationRuntime();
+  save();
+  render();
+  return { success: true, code: "RECOVERED", taskId };
 }
 
 function openGrowthGroup() {
@@ -4374,6 +4396,9 @@ function importTaskBatch(value, options = {}) {
     estimateMinutes: Math.max(1, Math.min(720, Math.round(Number(estimateMinutesByKey[item.key]) || item.estimateMinutes || 60))),
   }, group.id, nextOrder++));
   state.tasks.push(...imported);
+  if (imported.length && preview.sourceKind === "learning-plan" && !normalizeCurrentWorkNavigation().config.growth.sourceGroupId) {
+    state.workNavigation.config.growth.sourceGroupId = group.id;
+  }
   reconcileWorkNavigationRuntime();
   save();
   render();
@@ -4428,6 +4453,16 @@ globalThis.LoopWorkNavigationBridge = Object.freeze({
   completeTask: completeTaskFromNavigation,
   blockTask: blockTaskFromNavigation,
   saveRecovery: saveNavigationRecovery,
+  recoverTask: recoverTaskFromNavigation,
+  updateEstimate(taskId, value) {
+    const task = state.tasks.find((item) => item.id === taskId);
+    if (!task || !Number.isInteger(value) || value < 1 || value > 720) return { success: false, code: "INVALID_ESTIMATE" };
+    task.estimateMinutes = value;
+    task.updatedAt = now();
+    save();
+    render();
+    return { success: true };
+  },
   openGrowthGroup,
   importTaskBatch,
   importLearningPlan,
@@ -5136,12 +5171,14 @@ function bindDataBackupControls() {
         console.error("Loop data backup operation failed.", error);
         const detail = String(error?.message || "").split("Error: ").pop().trim();
         const rollbackFailed = /IMPORT_ROLLBACK_FAILED|自动回滚未能完成/.test(`${error?.code} ${detail}`);
+        const rolledBack = /IMPORT_ROLLED_BACK|Import failed and the previous data was restored\./.test(`${error?.code} ${detail}`);
         if (rollbackFailed) {
           dataProtectionMessage = `恢复未完成，已暂停写入。${detail}`;
           dataTransferInProgress = true;
         }
         dataBackupOperation.message = rollbackFailed ? dataProtectionMessage
-          : `操作未完成。${detail && /回滚|备份/.test(detail) ? detail : "请检查文件、磁盘空间或目录权限后重试，当前工作空间已保留。"}`;
+          : rolledBack ? "导入未完成，已回滚到操作前的数据，任务与笔记恢复内容均保留。请检查磁盘空间或目录权限后重试。"
+            : `操作未完成。${detail && /回滚|备份/.test(detail) ? detail : "请检查文件、磁盘空间或目录权限后重试，当前工作空间已保留。"}`;
       } finally {
         dataBackupOperation.busy = false;
         syncDataBackupControls();
@@ -8244,6 +8281,9 @@ async function action(data, event = null) {
     const month = calendarMonthDate();
     month.setMonth(month.getMonth() + Number(data.direction || 0));
     state.calendarMonth = localDateKey(new Date(month.getFullYear(), month.getMonth(), 1));
+    const selected = parseDateInput(state.calendarSelectedDate);
+    const day = Math.min(selected?.getDate() || 1, new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate());
+    state.calendarSelectedDate = localDateKey(new Date(month.getFullYear(), month.getMonth(), day));
   }
   if (data.action === "calendar-today") {
     state.calendarSelectedDate = loopTodayKey();
@@ -10130,6 +10170,27 @@ function syncTodayWidgetRestoreButton() {
   root?.querySelector(".restore-widget")?.addEventListener("click", () => void desktopTodayWidget.show());
 }
 
+// The same request can be redelivered while a hidden main window initializes.
+// Share the in-flight result and replay it, rather than applying the mutation
+// twice. This cache is renderer-local; it is not a second task store.
+const todayWidgetRequests = new Map();
+async function respondToWidgetRequest(requestId, respond, mutate) {
+  if (!requestId) return;
+  let request = todayWidgetRequests.get(requestId);
+  if (!request) {
+    request = { settled: false, result: null };
+    todayWidgetRequests.set(requestId, request);
+    request.result = Promise.resolve().then(mutate).catch(() => ({ success: false, code: "SAVE_FAILED" })).finally(() => { request.settled = true; });
+    if (todayWidgetRequests.size > 256) {
+      for (const [key, value] of todayWidgetRequests) {
+        if (todayWidgetRequests.size <= 256) break;
+        if (value.settled) todayWidgetRequests.delete(key);
+      }
+    }
+  }
+  respond?.({ requestId, ...(await request.result) });
+}
+
 async function initializeTodayWidgetBridge() {
   if (!desktopTodayWidget) return;
   unsubscribeTodayWidgetState?.();
@@ -10153,58 +10214,56 @@ async function initializeTodayWidgetBridge() {
     render();
   });
   unsubscribeTodayWidgetCompletion = desktopTodayWidget.onCompleteRequest(({ requestId, taskId } = {}) => {
-    const task = state.tasks.find((item) => item.id === taskId);
-    if (!task) {
-      desktopTodayWidget.respondCompletion({ requestId, success: false, code: "TASK_NOT_FOUND" });
-      return;
-    }
-    const wasDone = task.status === "done";
-    let completion = null;
-    if (task.captureSource === "today-widget" && task.status !== "done" && !task.conclusion.trim()) {
-      task.status = "done";
-      task.resolvedAt = now();
-      task.updatedAt = now();
-      save();
-      completion = { success: true, code: "COMPLETED", taskId };
-    } else {
-      openTaskFromGlobalList(taskId);
-      completion = toggleTaskDone(taskId);
-    }
-    const success = task.status === "done";
-    if (!wasDone && success) advanceNavigationAfterCompletion(taskId);
-    render();
-    desktopTodayWidget.respondCompletion({
-      requestId,
-      success,
-      code: success ? "COMPLETED" : completion?.code || "CONCLUSION_REQUIRED",
+    void respondToWidgetRequest(requestId, desktopTodayWidget.respondCompletion, () => {
+      const task = state.tasks.find((item) => item.id === taskId);
+      if (!task) {
+        return { success: false, code: "TASK_NOT_FOUND" };
+      }
+      const wasDone = task.status === "done";
+      let completion = null;
+      if (task.captureSource === "today-widget" && task.status !== "done" && !task.conclusion.trim()) {
+        task.status = "done";
+        task.resolvedAt = now();
+        task.updatedAt = now();
+        save();
+        completion = { success: true, code: "COMPLETED", taskId };
+      } else {
+        openTaskFromGlobalList(taskId);
+        completion = toggleTaskDone(taskId);
+      }
+      const success = task.status === "done";
+      if (!wasDone && success) advanceNavigationAfterCompletion(taskId);
+      render();
+      return {
+        success,
+        code: success ? "COMPLETED" : completion?.code || "CONCLUSION_REQUIRED",
+      };
     });
   });
   unsubscribeTodayWidgetCreateTask = desktopTodayWidget.onCreateTaskRequest?.(({ requestId, title, description, addToToday } = {}) => {
-    const task = createQuickCapture(title, description, addToToday === true);
-    desktopTodayWidget.respondMutation?.({
-      requestId,
-      success: Boolean(task),
-      code: task ? "CREATED" : "INVALID_TITLE",
-      taskId: task?.id || "",
+    void respondToWidgetRequest(requestId, desktopTodayWidget.respondMutation, () => {
+      const task = createQuickCapture(title, description, addToToday === true);
+      return {
+        success: Boolean(task),
+        code: task ? "CREATED" : "INVALID_TITLE",
+        taskId: task?.id || "",
+      };
     });
   });
   unsubscribeTodayWidgetUpdateTitle = desktopTodayWidget.onUpdateTaskTitleRequest?.(({ requestId, taskId, title } = {}) => {
-    desktopTodayWidget.respondMutation?.({ requestId, ...updateTaskTitleFromWidget(taskId, title) });
+    void respondToWidgetRequest(requestId, desktopTodayWidget.respondMutation, () => updateTaskTitleFromWidget(taskId, title));
   });
   unsubscribeTodayWidgetPromote = desktopTodayWidget.onPromoteQuickCaptureRequest?.(({ requestId, taskId, groupId } = {}) => {
-    desktopTodayWidget.respondMutation?.({ requestId, ...promoteQuickCaptureFromWidget(taskId, groupId) });
+    void respondToWidgetRequest(requestId, desktopTodayWidget.respondMutation, () => promoteQuickCaptureFromWidget(taskId, groupId));
   });
-  unsubscribeTodayWidgetDeleteQuickCapture = desktopTodayWidget.onDeleteQuickCaptureRequest?.(async ({ requestId, taskId } = {}) => {
-    desktopTodayWidget.respondMutation?.({ requestId, ...(await deleteQuickCaptureFromWidget(taskId)) });
+  unsubscribeTodayWidgetDeleteQuickCapture = desktopTodayWidget.onDeleteQuickCaptureRequest?.(({ requestId, taskId } = {}) => {
+    void respondToWidgetRequest(requestId, desktopTodayWidget.respondMutation, () => deleteQuickCaptureFromWidget(taskId));
   });
   unsubscribeTodayWidgetMoveItem = desktopTodayWidget.onMoveItemRequest?.(({ requestId, taskId, sourceLane, targetLane, targetTaskId, position } = {}) => {
-    desktopTodayWidget.respondMutation?.({
-      requestId,
-      ...moveTodayWidgetItem(taskId, sourceLane, targetLane, targetTaskId, position),
-    });
+    void respondToWidgetRequest(requestId, desktopTodayWidget.respondMutation, () => moveTodayWidgetItem(taskId, sourceLane, targetLane, targetTaskId, position));
   });
   unsubscribeTodayWidgetReorder = desktopTodayWidget.onReorderRequest?.(({ requestId, taskId, lane, direction } = {}) => {
-    desktopTodayWidget.respondMutation?.({ requestId, ...reorderTodayWidgetItem(taskId, lane, direction) });
+    void respondToWidgetRequest(requestId, desktopTodayWidget.respondMutation, () => reorderTodayWidgetItem(taskId, lane, direction));
   });
   try {
     todayWidgetWindowState = await desktopTodayWidget.getState();

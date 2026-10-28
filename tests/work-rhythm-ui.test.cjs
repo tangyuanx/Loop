@@ -55,7 +55,7 @@ test("the unlock uses the desktop password gate rather than a demo constant", ()
 test("work navigation goes through the project bridge, not a private copy", () => {
   assert.match(js, /globalThis\.LoopWorkNavigationBridge/);
   assert.match(js, /globalThis\.LoopWorkNavigationModel/);
-  for (const call of ["snapshot()", "setRuntime(", "updateConfig(", "openTask(", "completeTask(", "blockTask(", "importTaskBatch(", "saveRecovery("]) {
+  for (const call of ["snapshot()", "setRuntime(", "updateConfig(", "openTask(", "completeTask(", "blockTask(", "importTaskBatch(", "recoverTask("]) {
     assert.ok(js.includes(call), `work.js must use bridge.${call}`);
   }
   assert.doesNotMatch(js, /state\.tasks\.push/);

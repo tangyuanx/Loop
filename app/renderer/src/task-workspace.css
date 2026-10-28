@@ -1,13 +1,9 @@
 /* Stage 3 owns the task workspace and the real processing tree. Shared input
  * and focus rules remain in foundation.css, loaded after this surface. */
 body .workspace:has(> .task-heading):not(.knowledge-workspace) {
-  --canvas: #fbfaf8; --list: #f5f4f1; --selected: #e9e9e3; --hover: #eae9e4;
-  --text: #303330; --secondary: #636660; --line: #e5e4df;
+  --canvas: var(--workspace-canvas); --list: var(--workspace-list); --selected: var(--workspace-selected); --hover: var(--workspace-hover);
+  --text: var(--workspace-text); --secondary: var(--workspace-secondary); --line: var(--workspace-line);
   background: var(--canvas); color: var(--text);
-}
-:root[data-theme="dark"] body .workspace:has(> .task-heading):not(.knowledge-workspace) {
-  --canvas: #242624; --list: #212321; --selected: #353931; --hover: #30332e;
-  --text: #dedfd9; --secondary: #a0a49b; --line: #333631;
 }
 body .workspace > .task-heading { padding: 27px 32px 16px; gap: 14px 20px; }
 body .workspace .task-title { font-size: calc(24px * var(--font-scale,1)); line-height: 1.45; letter-spacing: -.025em; }

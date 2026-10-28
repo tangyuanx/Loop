@@ -417,16 +417,6 @@ body .flow-empty .flow-tree:has(.node-draft) { padding-top:20px; }
   white-space: nowrap;
 }
 
-/* Short task defaults share a compact, right-aligned control column. Let the
-   intrinsic content width grow for larger type without changing font pickers. */
-.phase9 .prefs-choice:is([data-key="task-filter"], [data-key="priority-filter"], [data-key="new-task-priority"]) {
-  width: 96px;
-  min-width: max-content;
-  max-width: 100%;
-  gap: 12px;
-  white-space: nowrap;
-}
-
 /* One version comparison and one divider on the live Software Update page. */
 .phase9 .prefs-update-detail { margin-top:28px; padding:0; border:0; }
 .prefs-update-heading { display:flex; align-items:center; justify-content:space-between; gap:24px; }

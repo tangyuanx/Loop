@@ -33,6 +33,10 @@
   let payload = null;
   let fitFrame = 0;
   let ringInside = true;
+  let busy = false;
+  let message = "";
+  let renderedKind = "";
+  let settingsLayout = "";
 
   function esc(value) {
     return String(value == null ? "" : value)
@@ -105,7 +109,7 @@
     return '<section class="dialog" role="dialog" aria-modal="true" aria-label="删除速记确认">'
       + '<header class="dialog-head"><h2>删除速记？</h2>' + closeButton() + "</header>"
       + '<p class="widget13-delete-title">' + esc(task.title) + "</p>"
-      + '<p class="schedule-hint">速记内容与关联记录将一并删除。</p>'
+      + '<p class="schedule-hint">速记将移到最近删除，可在主窗口恢复。磁盘中的笔记文件保留。</p>'
       + '<footer><button class="button" type="button" data-action="close-dialog" autofocus>取消</button>'
       + '<button class="button danger-action" type="button" data-widget12="confirm-delete" data-widget-id="' + esc(task.id) + '">删除速记</button></footer>'
       + "</section>";
@@ -144,13 +148,66 @@
 
   function render() {
     applyAppearance();
+    if (busy) return;
+    // Settings broadcasts can arrive for every range step. Keep the actual
+    // slider and focused checkbox attached instead of interrupting the gesture.
+    const layout = payload?.kind === "settings" ? [payload.settings?.clickThrough, payload.settings?.customFrame, payload.settings?.position === "custom"].join("|") : "";
+    if (payload?.kind === "settings" && renderedKind === "settings" && settingsLayout === layout && host.querySelector(".widget12-settings")) {
+      const settings = payload.settings || {};
+      for (const [key, value] of Object.entries({ widgetPinned: settings.alwaysOnTop !== false, widgetThrough: settings.clickThrough === true, widgetLaunch: settings.launchWithApp !== false })) {
+        const input = host.querySelector('[data-widget12-preference="' + key + '"]');
+        if (input) input.checked = value;
+      }
+      host.querySelectorAll('[data-widget12="place"]').forEach(button => button.setAttribute("aria-pressed", String(button.dataset.value === settings.position)));
+      const range = host.querySelector("#widget12-opacity");
+      if (range && document.activeElement !== range) range.value = settings.opacity;
+      const output = host.querySelector("#widget12-opacity-value");
+      if (output) output.textContent = (range?.value || settings.opacity) + "%";
+      fit();
+      return;
+    }
+    const active = document.activeElement;
+    const identity = renderedKind === payload?.kind ? { id: active?.id, action: active?.dataset.widget12, group: active?.dataset.groupValue } : null;
     host.innerHTML = markup();
+    renderedKind = payload?.kind || "";
+    settingsLayout = layout;
     const surface = host.firstElementChild;
+    if (surface) surface.insertAdjacentHTML("beforeend", '<p class="widget-surface-feedback" role="status" aria-live="polite"></p>');
     const width = payload ? SURFACE_WIDTHS[payload.kind] : 0;
     if (surface && width) surface.style.width = width + "px";
     fit();
-    const focus = host.querySelector("[autofocus]") || host.querySelector("button, input, select");
+    const restored = identity?.id ? document.getElementById(identity.id) : identity?.action
+      ? [...host.querySelectorAll("button")].find(button => button.dataset.widget12 === identity.action && button.dataset.groupValue === identity.group) : null;
+    const focus = restored || host.querySelector("[autofocus]") || host.querySelector("button:not(:disabled), input, select");
     focus?.focus({ preventScroll: true });
+  }
+
+  function setBusy(value) {
+    busy = value;
+    const surface = host.firstElementChild;
+    surface?.setAttribute("aria-busy", String(value));
+    host.querySelectorAll("button, input, select").forEach(control => {
+      if (value) { control.dataset.wasDisabled = String(control.disabled); control.disabled = true; }
+      else { control.disabled = control.dataset.wasDisabled === "true"; delete control.dataset.wasDisabled; }
+    });
+    const feedback = host.querySelector(".widget-surface-feedback");
+    if (feedback) feedback.textContent = value ? "正在保存，请稍候…" : message;
+    fit();
+  }
+
+  async function act(value) {
+    if (busy) return;
+    const submittedPayload = payload;
+    const mutation = ["move-up", "move-down", "to-today", "to-quick", "promote-group", "confirm-delete"].includes(value.action);
+    if (mutation) { message = ""; setBusy(true); }
+    let result;
+    try { result = await bridge.act(value); }
+    catch { result = { success: false }; }
+    if (mutation) {
+      if (!result?.success) message = result?.code === "TASK_NOT_FOUND" ? "这条记录已变更，请关闭后重新打开。" : "未能保存，请重试；原内容仍保留。";
+      setBusy(false);
+      if (payload !== submittedPayload) render();
+    }
   }
 
   host.addEventListener("click", (event) => {
@@ -158,6 +215,7 @@
     if (!button) return;
     event.preventDefault();
     event.stopPropagation();
+    if (busy) return;
     if (button.dataset.action === "close-dialog") { void bridge.close({ reason: "close" }); return; }
     const action = button.dataset.widget12;
     if (!action) return;
@@ -165,7 +223,7 @@
     if (action === "place") { void bridge.act({ action: "place", value: button.dataset.value }); return; }
     if (action === "hide") { void bridge.act({ action: "hide" }); return; }
     if (action === "reset-frame") { void bridge.act({ action: "reset-frame" }); return; }
-    void bridge.act({ action, taskId, groupId: button.dataset.groupValue || "" });
+    void act({ action, taskId, groupId: button.dataset.groupValue || "" });
   });
 
   host.addEventListener("change", (event) => {
@@ -202,10 +260,24 @@
   });
 
   window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") { event.preventDefault(); void bridge.close({ reason: "escape" }); }
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === "Escape") { event.preventDefault(); if (!busy) void bridge.close({ reason: "escape" }); return; }
+    const controls = [...host.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled)')].filter(control => control.getClientRects().length);
+    if (!controls.length) return;
+    const index = controls.indexOf(document.activeElement);
+    if (event.key === "Tab") {
+      if (index < 0 || (!event.shiftKey && index === controls.length - 1) || (event.shiftKey && index === 0)) {
+        event.preventDefault(); controls[event.shiftKey ? controls.length - 1 : 0].focus();
+      }
+    } else if (payload?.kind === "row-menu" && ["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      const next = event.key === "Home" ? 0 : event.key === "End" ? controls.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + controls.length) % controls.length;
+      controls[next].focus();
+    }
   });
 
-  window.addEventListener("blur", () => { void bridge.close({ reason: "blur" }); });
+  // Native blur (including the opening grace period and in-flight writes) is
+  // owned by the main controller. A second renderer close races chained panels.
 
   bridge.onPayload?.((value) => {
     payload = value && typeof value === "object" ? value : null;

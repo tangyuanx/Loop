@@ -74,7 +74,7 @@
       "id": 1,
       "title": "全局基础与公共控件",
       "script": "STAGE-01.md",
-      "status": "blocked",
+      "status": "ready_for_review",
       "session": "frontend-stage-01-20261026-root",
       "handoff": "docs/frontend-remediation/handoffs/STAGE-01.md",
       "review": {
@@ -119,14 +119,14 @@
         },
         "diffCheck": "passed",
         "frozenSources": "passed",
-        "actualElectron": "blocked: macOS lock screen caused Electron 42.7.0 SIGABRT during RegisterApplication/NSApplication initialization; rerun after unlock"
+        "actualElectron": "completed by cumulative stage 8; see blockerResolution"
       },
       "preview": {
         "profile": "/Volumes/T7/work/personal-task-track/.local-review/frontend-remediation/stage-01/review-profile",
         "command": "LOOP_USER_DATA_DIR=<profile> npm run dev -- --remote-debugging-port=9590 --inspect=9591",
         "script": ".local-review/frontend-remediation/stage-01/review-foundation.cjs",
         "windowTitle": "Loop · 阶段1基线（隔离数据）",
-        "status": "blocked_until_mac_unlock",
+        "status": "superseded_by_stage08_final_candidate",
         "evidenceRoot": ".local-review/frontend-remediation/stage-01",
         "lastAttemptAt": "2026-10-26T16:00:16.968Z",
         "lastAttempt": "unlocked Mac / npm run dev without and with remote debugging, still SIGABRT during macOS RegisterApplication"
@@ -150,7 +150,15 @@
           "remaining": "保留历史全部输入类别/跨窗完整专项及用户审阅；不自动accepted"
         }
       },
-      "publishedIn": "v0.1.248"
+      "publishedIn": "v0.1.248",
+      "completedAt": "2026-10-28T00:01:59.080087+00:00",
+      "blockerResolution": {
+        "stage": 8,
+        "recordedAt": "2026-10-28T00:01:59.080087+00:00",
+        "evidenceRoot": ".local-review/frontend-remediation/stage-08",
+        "summary": "three real entry windows, all input categories and parents, neutral keyboard focus, light/dark, native Mac AX/menu/titlebar verified; prior startup failure retained as history",
+        "manualAcceptance": false
+      }
     },
     {
       "id": 2,
@@ -524,214 +532,772 @@
       "id": 5,
       "title": "工作导航、日历与回顾",
       "script": "STAGE-05.md",
-      "status": "not_started",
-      "session": null,
-      "handoff": null,
-      "review": null
+      "status": "ready_for_review",
+      "session": "frontend-stage-05-20261027-root",
+      "handoff": "docs/frontend-remediation/handoffs/STAGE-05.md",
+      "review": {
+        "status": "pending",
+        "executionAuthorization": "在 /Volumes/T7/work/personal-task-track 工作区，读取 docs/frontend-remediation/COMMON.md、state.json 及 STAGE-05.md，执行该阶段。沿用共享状态记录的同一工作区和整改分支，保留前阶段累计改动；只做本阶段，完成检查、真实本地预览和交接，不单独提交或发布。",
+        "doesNotImplyAcceptance": true,
+        "acceptanceQuote": null,
+        "nextStageInstruction": "在 /Volumes/T7/work/personal-task-track 工作区，读取 docs/frontend-remediation/COMMON.md、state.json 及 STAGE-06.md，执行该阶段。沿用共享状态记录的同一工作区和整改分支，保留前阶段累计改动；只做本阶段，完成检查、真实本地预览和交接，不单独提交或发布。"
+      },
+      "startedAt": "2026-10-27T08:12:00.003866+00:00",
+      "startHead": "3d70f475d42eb56b474f44effa06fceeb1d087dd",
+      "completedAt": "2026-10-27T08:39:33.343438+00:00",
+      "endHead": "3d70f475d42eb56b474f44effa06fceeb1d087dd",
+      "endVersion": "0.1.248",
+      "productFingerprint": "129c06b5006d5c06e608ba18b8a90b964e9f6654feeb85303eb6599f6279515c",
+      "changedFiles": [
+        "app/renderer/index.html",
+        "app/renderer/src/app.js",
+        "app/renderer/src/foundation.css",
+        "app/renderer/src/work.js",
+        "app/renderer/src/pages.js",
+        "app/renderer/src/temporal-workspace.css",
+        "tests/desktop.test.cjs",
+        "tests/work-rhythm-ui.test.cjs",
+        "tests/temporal-workspace.ui.cjs",
+        "docs/frontend-remediation/state.json",
+        "docs/frontend-remediation/DECISIONS.md",
+        "docs/frontend-remediation/handoffs/STAGE-05.md",
+        "task_plan.md",
+        "findings.md",
+        "progress.md"
+      ],
+      "checks": {
+        "preflight": "check 5 remains false only for stage1 historical blocked; explicit current user execution instruction recorded; no rule change",
+        "remote": "fetch origin main --tags; origin/main equals start/end HEAD",
+        "npmCheck": {
+          "passed": true,
+          "mainTests": 351,
+          "serviceTests": 12,
+          "skipped": 0
+        },
+        "stageTests": {
+          "passed": 31,
+          "failed": 0,
+          "skipped": 0
+        },
+        "temporalElectron": {
+          "passed": true,
+          "groups": 9,
+          "layouts": 28,
+          "inputRecords": 72,
+          "pageErrors": 0
+        },
+        "dateRegressions": {
+          "America/Los_Angeles": 5,
+          "Pacific/Auckland": 5
+        },
+        "priorStageRegression": [
+          "task-workspace",
+          "continuity28",
+          "product-experience",
+          "knowledge-workspace"
+        ],
+        "actualPreview": "npm run dev in the fixed workspace; actual appPath/profile verified; 12 theme/window/route layouts; registered timer advanced with Playwright clock retains pill and workspace DOM",
+        "supplementaryInputs": {
+          "records": 125,
+          "themes": [
+            "light",
+            "dark"
+          ],
+          "includes": "select, textarea, date/time/number/password and parents; weekday native Tab"
+        },
+        "cssParse": "passed",
+        "syntax": "passed",
+        "designDetector": [],
+        "diffCheck": "passed",
+        "evidenceRoot": ".local-review/frontend-remediation/stage-05"
+      },
+      "preview": {
+        "profile": "/Volumes/T7/work/personal-task-track/.local-review/frontend-remediation/stage-05/review-profile",
+        "command": "LOOP_USER_DATA_DIR=/Volumes/T7/work/personal-task-track/.local-review/frontend-remediation/stage-05/review-profile npm run dev -- --remote-debugging-port=10050 --inspect=10051",
+        "windowTitle": "Loop · 阶段5工作导航、日历与回顾（隔离数据）",
+        "pid": 59227,
+        "leftRunningForReview": true,
+        "runtimeEvidence": ".local-review/frontend-remediation/stage-05/final-preview.json",
+        "data": "6 normalized synthetic tasks; SHA-verified seed copy; production profile untouched",
+        "limitation": "Mac locked: native outer-frame screenshot and human acceptance not completed"
+      },
+      "backup": {
+        "path": ".local-review/frontend-remediation/stage-05/backup-before",
+        "manifest": "manifest.json",
+        "verifiedFiles": 12
+      },
+      "limitations": [
+        "stage1 full cumulative three-entry review remains for stage7/8; historical blocked unchanged",
+        "native Windows/multi-monitor/DPI/manual IME/physical pointer acceptance remains for stage8",
+        "large-tree full redraw comparison remains for stage8 per stage3 handoff",
+        "no release build or packaged candidate produced in stage5; previous stage0–4 packaged knowledge validation stays historical"
+      ]
     },
     {
       "id": 6,
       "title": "设置、恢复与系统反馈",
       "script": "STAGE-06.md",
-      "status": "not_started",
-      "session": null,
-      "handoff": null,
-      "review": null
+      "status": "ready_for_review",
+      "session": "frontend-stage-06-20261027-root",
+      "handoff": "docs/frontend-remediation/handoffs/STAGE-06.md",
+      "review": {
+        "status": "pending",
+        "executionAuthorization": "在 /Volumes/T7/work/personal-task-track 工作区，读取 docs/frontend-remediation/COMMON.md、state.json 及 STAGE-06.md，执行该阶段。沿用共享状态记录的同一工作区和整改分支，保留前阶段累计改动；只做本阶段，完成检查、真实本地预览和交接，不单独提交或发布。",
+        "doesNotImplyAcceptance": true,
+        "acceptanceQuote": null,
+        "nextStageInstruction": null,
+        "widthFeedback": "如图，这两个按钮的宽度还是很宽，与实际内容突兀,还有第二章图里的这几个也是相同问题。",
+        "widthFeedbackResolvedAt": "2026-10-27T12:53:11.855855+00:00",
+        "flatFeedback": "但是现在感觉这几个按钮又有点太凸起了，感觉有点不符合要求呢？",
+        "flatFeedbackResolvedAt": "2026-10-27T13:03:23.052634+00:00",
+        "buttonReferenceFeedback": "那这样和其他按钮又不协调了，如图所示这是其他按钮，你现在按照这个做",
+        "buttonReferenceFeedbackResolvedAt": "2026-10-27T13:12:04.537703+00:00"
+      },
+      "startedAt": "2026-10-27T12:02:30.999885+00:00",
+      "startHead": "3d70f475d42eb56b474f44effa06fceeb1d087dd",
+      "completedAt": "2026-10-27T13:12:04.537703+00:00",
+      "endHead": "3d70f475d42eb56b474f44effa06fceeb1d087dd",
+      "endVersion": "0.1.248",
+      "productFingerprint": "f274faaa7c956000449fa7b768c036febecd1aeb4dda9d990c7e39ada1621de8",
+      "changedFiles": [
+        "app/renderer/index.html",
+        "app/renderer/src/system-workspace.css",
+        "app/renderer/src/settings.js",
+        "app/renderer/src/actions.js",
+        "app/renderer/src/app.js",
+        "app/renderer/src/desktop.js",
+        "app/renderer/src/recovery26.js",
+        "app/renderer/src/manual27.js",
+        "tests/desktop.test.cjs",
+        "tests/system-settings.ui.cjs",
+        "docs/frontend-remediation/state.json",
+        "docs/frontend-remediation/DECISIONS.md",
+        "docs/frontend-remediation/handoffs/STAGE-06.md",
+        "task_plan.md",
+        "findings.md",
+        "progress.md",
+        "app/renderer/src/bridge.css",
+        "app/renderer/src/workspace.js",
+        "app/renderer/src/controls22.js"
+      ],
+      "checks": {
+        "preflight": "check 6 remains false solely for stage1 historical blocked; explicit user execution authorization; rules unchanged",
+        "remote": "fetched origin main --tags; origin/main equals HEAD",
+        "npmCheck": {
+          "passed": true,
+          "mainTests": 351,
+          "serviceTests": 12,
+          "skipped": 0
+        },
+        "stageTests": {
+          "passed": 57,
+          "failed": 0,
+          "skipped": 0
+        },
+        "systemElectron": {
+          "passed": true,
+          "groups": 9,
+          "settingsLayouts": 28,
+          "updatePresentationFixtures": 8,
+          "inputRecords": 48,
+          "pageErrors": 0,
+          "backup": "real export/import IPC, invalid source/cancel, failed migration write rolls back database and Recovery; success verifies content; actual restart intercepted in test process",
+          "feedback": "local IPC service responses; no external submission"
+        },
+        "priorStageRegression": [
+          "task-workspace",
+          "product-experience",
+          "knowledge-workspace",
+          "knowledge-feedback"
+        ],
+        "actualPreview": {
+          "command": "npm run dev",
+          "themeWidthRegionCombinations": 20,
+          "additionalInputRecords": 114,
+          "errors": 0,
+          "actualAppPathAndProfileVerified": true,
+          "finalReload": true
+        },
+        "syntax": "passed",
+        "cssParse": "passed",
+        "designDetector": [],
+        "diffCheck": "passed",
+        "evidenceRoot": ".local-review/frontend-remediation/stage-06",
+        "desktopVisibilityCorrection": {
+          "at": "2026-10-27T12:40:07.953610+00:00",
+          "priorLockClaimConfirmed": false,
+          "currentNativeEnumerationSucceeded": true,
+          "candidatePidVerified": 74334,
+          "evidence": ".local-review/frontend-remediation/stage-06/native-visibility.json"
+        },
+        "choiceWidthFollowup": {
+          "passed": true,
+          "realElectronCombinations": 64,
+          "settingsKinds": 8,
+          "themes": [
+            "light",
+            "dark"
+          ],
+          "widths": [
+            1280,
+            1024
+          ],
+          "fontScales": [
+            "larger",
+            "largest"
+          ],
+          "inputFocusContractRetained": true,
+          "keyboardMenuAndReturnVerified": true,
+          "npmCheck": {
+            "mainTests": 351,
+            "serviceTests": 12,
+            "failed": 0,
+            "skipped": 0
+          },
+          "designDetector": [],
+          "evidence": ".local-review/frontend-remediation/stage-06/choice-width",
+          "backupFiles": 5,
+          "actualProcess": 74334
+        },
+        "flatChoiceFollowup": {
+          "passed": true,
+          "realElectronCombinations": 64,
+          "states": [
+            "default",
+            "hover",
+            "keyboard focus",
+            "expanded"
+          ],
+          "default": "transparent fill and border; no shadow",
+          "hoverExpanded": "4% text-color neutral fill; transparent border; no shadow",
+          "keyboard": "neutral 1px outline at -2px inset",
+          "contentWidthRetained": true,
+          "npmCheck": {
+            "mainTests": 351,
+            "serviceTests": 12,
+            "failed": 0,
+            "skipped": 0
+          },
+          "cssParse": "passed",
+          "syntax": "passed",
+          "diffCheck": "passed",
+          "designDetector": [],
+          "evidence": ".local-review/frontend-remediation/stage-06/choice-flat",
+          "backupFiles": 3,
+          "appearanceSupersededBy": "referenceButtonFollowup, per latest user screenshot"
+        },
+        "referenceButtonFollowup": {
+          "passed": true,
+          "actualReference": "data settings / recently deleted Manage button",
+          "sharedClass": "button",
+          "realElectronCombinations": 64,
+          "statesCompared": [
+            "default",
+            "hover",
+            "keyboard focus"
+          ],
+          "propertiesMatched": [
+            "background",
+            "border color/width/style",
+            "radius",
+            "padding",
+            "height",
+            "font size/weight",
+            "shadow",
+            "focus outline/offset"
+          ],
+          "expandedMenuChecked": true,
+          "contentWidthAndArrowRetained": true,
+          "npmCheck": {
+            "mainTests": 351,
+            "serviceTests": 12,
+            "failed": 0,
+            "skipped": 0
+          },
+          "cssParse": "passed",
+          "syntax": "passed",
+          "diffCheck": "passed",
+          "designDetector": [],
+          "evidence": ".local-review/frontend-remediation/stage-06/choice-reference",
+          "backupFiles": 3
+        }
+      },
+      "preview": {
+        "profile": "/Volumes/T7/work/personal-task-track/.local-review/frontend-remediation/stage-06/review-profile",
+        "command": "LOOP_USER_DATA_DIR=/Volumes/T7/work/personal-task-track/.local-review/frontend-remediation/stage-06/review-profile npm run dev -- --remote-debugging-port=10060 --inspect=10061",
+        "windowTitle": "Loop · 阶段6设置、恢复与系统反馈（隔离数据）",
+        "pid": 74334,
+        "leftRunningForReview": true,
+        "runtimeEvidence": ".local-review/frontend-remediation/stage-06/choice-reference/results.json",
+        "data": "3 normalized synthetic tasks; SHA-verified seed; one archived via production transaction; production profile untouched",
+        "limitation": "Earlier desktop API reported locked, which did not establish actual OS lock. A later reread enumerated native apps normally and PID74334 is alive. Native outer-frame match and human acceptance remain unverified.",
+        "currentPage": "knowledge"
+      },
+      "backup": {
+        "path": ".local-review/frontend-remediation/stage-06/backup-before",
+        "manifest": "manifest.json",
+        "verifiedFiles": 13
+      },
+      "limitations": [
+        "stage1 cumulative three-entry review remains for stage7/8; historical blocked unchanged",
+        "native Windows/multi-monitor/DPI/manual IME and physical pointer acceptance remain for stage8",
+        "actual OS permission changes/notification banners/update download and installation not exercised",
+        "feedback fixture success does not verify live external service delivery; no Issue created",
+        "actual import relaunch intercepted in protected test process; no production workspace replaced",
+        "large-tree full redraw comparison remains for stage8",
+        "no new package or release build; version/lock retained"
+      ]
     },
     {
       "id": 7,
       "title": "今日浮窗与辅助窗口",
       "script": "STAGE-07.md",
-      "status": "not_started",
-      "session": null,
-      "handoff": null,
-      "review": null
+      "status": "ready_for_review",
+      "session": "frontend-stage-07-20261027-root",
+      "handoff": "docs/frontend-remediation/handoffs/STAGE-07.md",
+      "review": {
+        "status": "pending",
+        "executionAuthorization": "在 /Volumes/T7/work/personal-task-track 工作区，读取 docs/frontend-remediation/COMMON.md、state.json 及 STAGE-07.md，执行该阶段。沿用共享状态记录的同一工作区和整改分支，保留前阶段累计改动；只做本阶段，完成检查、真实本地预览和交接，不单独提交或发布。",
+        "menuFeedback": "任务设置被盖在下面；点击任务右侧设置后，点其他位置要多次才有效；任务设置图标改成竖向三点",
+        "menuFeedbackResolvedAt": "2026-10-27T14:23:23.347739+00:00"
+      },
+      "startedAt": "2026-10-27T13:28:56.709753+00:00",
+      "startHead": "3d70f475d42eb56b474f44effa06fceeb1d087dd",
+      "completedAt": "2026-10-27T14:23:23.347739+00:00",
+      "endHead": "3d70f475d42eb56b474f44effa06fceeb1d087dd",
+      "endVersion": "0.1.248",
+      "productFingerprint": "de78ca468e203139130ff94d5a8aee4d2faa77f0e1120a535f0c5306c09443cb",
+      "changedFiles": [
+        "app/main/today-widget.cjs",
+        "app/renderer/today-widget.html",
+        "app/renderer/widget-surface.html",
+        "app/renderer/src/widget-workspace.css",
+        "app/renderer/src/today-widget-runtime.js",
+        "app/renderer/src/widget-surface-runtime.js",
+        "app/renderer/src/foundation.css",
+        "app/renderer/src/app.js",
+        "tests/widget-workspace.ui.cjs",
+        "tests/widget-lifecycle.ui.cjs",
+        "docs/frontend-remediation/handoffs/STAGE-07.md",
+        "docs/frontend-remediation/state.json",
+        "docs/frontend-remediation/DECISIONS.md",
+        "task_plan.md",
+        "findings.md",
+        "progress.md",
+        "tests/desktop.test.cjs"
+      ],
+      "backup": {
+        "path": ".local-review/frontend-remediation/stage-07/backup-before",
+        "manifest": "manifest.json",
+        "verifiedFiles": 13
+      },
+      "checks": {
+        "preflight": "check 7 remains false only for stage1 historical blocked; explicit user instruction to execute7; no rule/status weakening",
+        "remote": "fetched origin main --tags; origin/main equals HEAD",
+        "npmCheck": {
+          "passed": true,
+          "mainTests": 351,
+          "serviceTests": 12,
+          "failed": 0,
+          "skipped": 0,
+          "log": ".local-review/frontend-remediation/stage-07/npm-check-complete.log"
+        },
+        "stageTests": {
+          "passed": 33,
+          "failed": 0,
+          "skipped": 0
+        },
+        "widgetElectron": {
+          "passed": true,
+          "groups": 10,
+          "layouts": 8,
+          "inputStateRecords": 24,
+          "pageErrors": 0,
+          "nativeCornerPlacements": 4,
+          "deleteFailureFixture": "controlled renderer failure response; not a claim of disk fault"
+        },
+        "lifecycle": {
+          "passed": true,
+          "actualMainCloseExits": true,
+          "actualRestart": true,
+          "captureAndRenameRestored": true
+        },
+        "priorStageRegression": [
+          "today-widget-draft",
+          "context-create",
+          "product-experience"
+        ],
+        "actualPreview": {
+          "command": "npm run dev",
+          "mainThemeWidthCombinations": 4,
+          "threeWindowAppearanceCombinations": 2,
+          "inputStateRecords": 18,
+          "pageErrors": 0,
+          "finalSourceReloaded": true,
+          "pid": 84482
+        },
+        "preservation": {
+          "unaffectedProductFiles": 171,
+          "backupFiles": 13,
+          "unexpected": [],
+          "versionAndLockUnchanged": true
+        },
+        "syntax": "passed",
+        "cssParse": "passed",
+        "designDetector": [],
+        "diffCheck": "passed",
+        "evidenceRoot": ".local-review/frontend-remediation/stage-07",
+        "menuFollowup": {
+          "passed": true,
+          "npmCheck": {
+            "mainTests": 352,
+            "serviceTests": 12,
+            "failed": 0,
+            "skipped": 0
+          },
+          "realElectronGroups": 11,
+          "themes": [
+            "light",
+            "dark"
+          ],
+          "nativeParentAndLevelVerified": true,
+          "oneClickDestinations": [
+            "task/quick tab",
+            "capture input",
+            "main window"
+          ],
+          "duplicateClosePreservesFocus": true,
+          "verticalDots": true,
+          "syntax": "passed",
+          "diffCheck": "passed",
+          "designDetector": [],
+          "candidateTaskRecordsAndGroupsUnchanged": true,
+          "unaffectedProductFiles": 175,
+          "backupFiles": 10,
+          "evidenceRoot": ".local-review/frontend-remediation/stage-07/menu-followup",
+          "permissionTimeout": "one preflight review command timed out before process creation; single retry succeeded, no remaining approval block"
+        }
+      },
+      "preview": {
+        "profile": "/Volumes/T7/work/personal-task-track/.local-review/frontend-remediation/stage-07/review-profile",
+        "command": "LOOP_USER_DATA_DIR=/Volumes/T7/work/personal-task-track/.local-review/frontend-remediation/stage-07/review-profile npm run dev -- --remote-debugging-port=10070 --inspect=10071",
+        "windowTitle": "Loop · 阶段7菜单修复（隔离数据）",
+        "widgetTitle": "今日 · 阶段7菜单修复",
+        "pid": 86684,
+        "leftRunningForReview": true,
+        "runtimeEvidence": ".local-review/frontend-remediation/stage-07/menu-followup/review.json",
+        "data": "3 normalized synthetic tasks; SHA-verified seed; production profile untouched",
+        "nativeVisibilityLimitation": "Live BrowserWindow parent and levels verified; native desktop tool selected a separate default Electron app, so no composed OS screenshot or physical-pointer acceptance claim.",
+        "refreshBackup": ".local-review/frontend-remediation/stage-07/menu-followup/profile-before-restart/manifest.json"
+      },
+      "limitations": [
+        "stage1 historical blocked and cumulative human review unchanged; stage7 automatic three-window evidence supplements but does not accept it",
+        "native Windows, physical cross-monitor/DPI, OS titlebar/IME and pointer drag/snap/shadow-ring passthrough feel remain for stage8",
+        "actual API topmost/passthrough/geometry verified; not a claim of OS-level clicks reaching another application",
+        "local draft cache is per Electron profile and UI-only; not added to task schema or backup format",
+        "original main close quits whole app; actual quit/restart now verified, not redefined as background hiding",
+        "stage6 actual permission/banner/update install, live feedback delivery, large-tree performance remain for stage8",
+        "no new package/release build; version and lock retained"
+      ]
     },
     {
       "id": 8,
       "title": "整体收敛与最终验收",
       "script": "STAGE-08.md",
-      "status": "not_started",
-      "session": null,
-      "handoff": null,
-      "review": null
+      "status": "ready_for_review",
+      "session": "frontend-stage-08-20261027-root",
+      "handoff": "docs/frontend-remediation/handoffs/STAGE-08.md",
+      "review": {
+        "status": "pending",
+        "executionInstruction": "在 /Volumes/T7/work/personal-task-track 工作区，读取 docs/frontend-remediation/COMMON.md、state.json 及 STAGE-08.md，执行该阶段。沿用共享状态记录的同一工作区和整改分支，保留前阶段累计改动；只做本阶段，完成检查、真实本地预览和交接，不单独提交或发布。",
+        "acceptanceQuote": null,
+        "publicationInstruction": "继续，全部完成后发布新版本",
+        "claimsManualTesting": false
+      },
+      "startedAt": "2026-10-27T14:31:24.314859+00:00",
+      "startHead": "3d70f475d42eb56b474f44effa06fceeb1d087dd",
+      "completedAt": "2026-10-28T00:01:59.080087+00:00",
+      "endHead": "3d70f475d42eb56b474f44effa06fceeb1d087dd",
+      "endVersion": "0.1.248",
+      "productFingerprint": "bc930560678f4f53c2dc29d300af374f01acd7d98ca96b557d9bed383c128767",
+      "coverage": "docs/frontend-remediation/STAGE-08-COVERAGE.md",
+      "changedFiles": [
+        "app/renderer/src/foundation.css",
+        "app/renderer/src/repository.css",
+        "app/renderer/src/task-workspace.css",
+        "app/renderer/src/knowledge-workspace.css",
+        "app/renderer/src/temporal-workspace.css",
+        "app/renderer/src/system-workspace.css",
+        "app/renderer/src/widget-workspace.css",
+        "tests/knowledge-search.ui.cjs",
+        "tests/knowledge-workspace.ui.cjs",
+        "tests/system-settings.ui.cjs",
+        "docs/frontend-remediation/handoffs/STAGE-08.md",
+        "docs/frontend-remediation/STAGE-08-COVERAGE.md",
+        "docs/frontend-remediation/DECISIONS.md",
+        "docs/frontend-remediation/state.json"
+      ],
+      "checks": {
+        "npmCheck": {
+          "mainTests": 352,
+          "serviceTests": 12,
+          "passed": true
+        },
+        "stageTests": 14,
+        "cumulativeUISuites": 17,
+        "packagedKnowledge": {
+          "passed": 36,
+          "failed": 0
+        },
+        "localBuilds": [
+          "mac-x64",
+          "mac-arm64",
+          "win-x64"
+        ],
+        "packagedSource": "176 matching files and 16 runtime packages per archive",
+        "diffCheck": "passed",
+        "evidenceRoot": ".local-review/frontend-remediation/stage-08"
+      },
+      "preview": {
+        "profile": "/Volumes/T7/work/personal-task-track/.local-review/frontend-remediation/stage-08/review-profile",
+        "command": "LOOP_USER_DATA_DIR=<profile> npm run dev -- --remote-debugging-port=10080 --inspect=10081",
+        "runtime": ".local-review/frontend-remediation/stage-08/final-runtime.json",
+        "leftRunningForReview": true
+      }
     }
   ],
   "release": {
-    "status": "published",
-    "remoteIntegratedCommit": "279a833c11a636c5ec2d5828105357bdfb810c87",
-    "finalAcceptance": null,
-    "version": "0.1.248",
-    "commit": "279a833c11a636c5ec2d5828105357bdfb810c87",
-    "tag": "v0.1.248",
-    "url": "https://github.com/tangyuanx/Loop/releases/tag/v0.1.248",
-    "isFinalRemediationRelease": false,
+    "status": "validated_local",
+    "remoteIntegratedCommit": "3d70f475d42eb56b474f44effa06fceeb1d087dd",
+    "finalAcceptance": {
+      "approved": true,
+      "productFingerprint": "bc930560678f4f53c2dc29d300af374f01acd7d98ca96b557d9bed383c128767",
+      "approvalQuote": "继续，全部完成后发布新版本",
+      "recordedAt": "2026-10-28T00:01:59.080087+00:00",
+      "kind": "explicit instruction to finish all work then publish",
+      "claimsManualTesting": false,
+      "overrides": "earlier stop-after-stage8/no-release instruction; authorization does not assert manual testing"
+    },
     "scopeStages": [
       0,
       1,
       2,
       3,
-      4
+      4,
+      5,
+      6,
+      7,
+      8
     ],
-    "integratedPublishedCommits": [
-      "fd9bc17c696656e98e879cab9dcbe7abfc8a24b8",
-      "4a2fa2e9fd4ed1459e85cbd60b008016bf577be7"
-    ],
-    "publishedCommitIntegration": "three-way content integration; original tags/commits preserved",
+    "isFinalRemediationRelease": true,
+    "candidateVersion": "0.1.248",
+    "version": "0.1.249",
+    "tag": "v0.1.249",
+    "commit": null,
+    "handoff": "docs/frontend-remediation/handoffs/RELEASE.md",
+    "previousRelease": {
+      "status": "published",
+      "remoteIntegratedCommit": "3d70f475d42eb56b474f44effa06fceeb1d087dd",
+      "finalAcceptance": null,
+      "version": "0.1.248",
+      "commit": "279a833c11a636c5ec2d5828105357bdfb810c87",
+      "tag": "v0.1.248",
+      "url": "https://github.com/tangyuanx/Loop/releases/tag/v0.1.248",
+      "isFinalRemediationRelease": false,
+      "scopeStages": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "integratedPublishedCommits": [
+        "fd9bc17c696656e98e879cab9dcbe7abfc8a24b8",
+        "4a2fa2e9fd4ed1459e85cbd60b008016bf577be7"
+      ],
+      "publishedCommitIntegration": "three-way content integration; original tags/commits preserved",
+      "authorization": {
+        "quote": "现在先把这几个阶段的工作发布一次新版本",
+        "recordedAt": "2026-10-27T07:39:13.691208+00:00",
+        "scope": "current stages 0–4 cumulative release; retain previously published v0.1.246/247 capabilities",
+        "overrides": "original wait-until-stage8 release schedule; does not mark unstarted stages complete",
+        "claimsManualTesting": false
+      },
+      "handoff": "docs/frontend-remediation/handoffs/RELEASE-0-4.md",
+      "evidenceRoot": ".local-review/frontend-remediation/release-stage-04-20261027",
+      "productFingerprint": "b457b18b12cd2bd20a39477bc5edd822631ea932a1494469564bbc9b99de3c57",
+      "localChecks": {
+        "npmCheck": {
+          "passed": true,
+          "mainTests": 351,
+          "serviceTests": 12
+        },
+        "stageTests": 9,
+        "realRegression": [
+          "knowledge-workspace",
+          "task-workspace",
+          "continuity28",
+          "product-experience"
+        ],
+        "browserInjected": "knowledge-editor via installed Google Chrome; global settings/Mermaid/editor passed",
+        "threeWindowPreview": "passed: real main light/dark 1280/1024 plus today widget and auxiliary settings",
+        "macBuild": [
+          "x64",
+          "arm64"
+        ],
+        "winBuild": "x64",
+        "packagedKnowledge": {
+          "desktop": 11,
+          "conflict": 10,
+          "feedback": 8,
+          "search": 7,
+          "failed": 0
+        },
+        "packagedSource": "3 archives; 96 source files identical; 16 runtime packages each",
+        "artifacts": "12 files; 2 metadata; 5 artifact digests passed; AppleDouble=0",
+        "dependencyRuntime": "625 exact-lock packages; real node_modules directory; original symlink and source preserved"
+      },
+      "plannedUrl": "https://github.com/tangyuanx/Loop/releases/tag/v0.1.248",
+      "pushedAt": "2026-10-27T07:44:08.722488+00:00",
+      "workflow": {
+        "id": 40468809214,
+        "url": "https://github.com/tangyuanx/Loop/actions/runs/40468809214",
+        "status": "completed",
+        "conclusion": "success",
+        "jobs": [
+          {
+            "id": 122070634838,
+            "name": "Prepare unpublished release",
+            "conclusion": "success"
+          },
+          {
+            "id": 122070706121,
+            "name": "Release macOS",
+            "conclusion": "success"
+          },
+          {
+            "id": 122070706224,
+            "name": "Release Windows",
+            "conclusion": "success"
+          },
+          {
+            "id": 122072455043,
+            "name": "Publish complete verified release",
+            "conclusion": "success"
+          }
+        ]
+      },
+      "mainCheck": {
+        "id": 40468803481,
+        "url": "https://github.com/tangyuanx/Loop/actions/runs/40468803481",
+        "conclusion": "success"
+      },
+      "branchStrategy": "release commit on codex/frontend-remediation; clean existing main worktree fast-forwarded and used for normal main push; root remains on remediation branch",
+      "publishedAt": "2026-10-27T07:48:49Z",
+      "assetCount": 12,
+      "assets": [
+        {
+          "name": "latest-mac.yml",
+          "size": 796,
+          "state": "uploaded",
+          "digest": "sha256:a6f674f4c3b080f349c726a53a8d63c14eec06a83571c910117a93768512644f"
+        },
+        {
+          "name": "latest.yml",
+          "size": 351,
+          "state": "uploaded",
+          "digest": "sha256:0b01961e8145732f7a11d89d626cc3fa1c895b348a73f281639a00ecc086d842"
+        },
+        {
+          "name": "Loop-0.1.248-arm64.dmg",
+          "size": 157289611,
+          "state": "uploaded",
+          "digest": "sha256:adbf42f27062229fbf976ee56181dc532245201b1d45a7f55514f19c456118f0"
+        },
+        {
+          "name": "Loop-0.1.248-arm64.dmg.blockmap",
+          "size": 165331,
+          "state": "uploaded",
+          "digest": "sha256:982974b0bc7c4a740597418adce447feb8766f02a090f22d85a5f1ff28d21feb"
+        },
+        {
+          "name": "Loop-0.1.248-arm64.zip",
+          "size": 155959254,
+          "state": "uploaded",
+          "digest": "sha256:19b91c916e3531b204aa3e50937944824dd985b4ba39604428af67df3cbb9971"
+        },
+        {
+          "name": "Loop-0.1.248-arm64.zip.blockmap",
+          "size": 163414,
+          "state": "uploaded",
+          "digest": "sha256:f7171afdc256f45c76e625838528b6b81952802702390391e99cb6e1af189dac"
+        },
+        {
+          "name": "Loop-0.1.248-x64-setup.exe",
+          "size": 132450269,
+          "state": "uploaded",
+          "digest": "sha256:8a296ff7b6e86616316481235cf086e60960881ed40ee19677679180ed6e050d"
+        },
+        {
+          "name": "Loop-0.1.248-x64-setup.exe.blockmap",
+          "size": 139286,
+          "state": "uploaded",
+          "digest": "sha256:2e50f7b448df7a6f251e495dbda226058b8ba8056b573191bc801951c1a8ded8"
+        },
+        {
+          "name": "Loop-0.1.248-x64.dmg",
+          "size": 158981075,
+          "state": "uploaded",
+          "digest": "sha256:2ab59a2bf243426edf7efab58a05ac61e9b53875e16cbba29665d262d3f76c61"
+        },
+        {
+          "name": "Loop-0.1.248-x64.dmg.blockmap",
+          "size": 167337,
+          "state": "uploaded",
+          "digest": "sha256:123dfbe86a23a0f08149704467d99a3cdc08b379fbc788666503b0878dc3cb69"
+        },
+        {
+          "name": "Loop-0.1.248-x64.zip",
+          "size": 157703128,
+          "state": "uploaded",
+          "digest": "sha256:c41e865a3263c626cac9244b561c6eb09381c1d734e4a642c037e6fcce391b93"
+        },
+        {
+          "name": "Loop-0.1.248-x64.zip.blockmap",
+          "size": 165658,
+          "state": "uploaded",
+          "digest": "sha256:0aa9dca9b7b4a049f5299657467dd3267f92ca14443560591323ae4839a93713"
+        }
+      ],
+      "remainingWork": "阶段5–8未开始；原生Windows手感/多屏/DPI/人工IME与阶段1全控件累计审阅仍按交接继续。打包知识链路本次已在本地及远端macOS/Windows补齐。"
+    },
+    "productFingerprint": "bc930560678f4f53c2dc29d300af374f01acd7d98ca96b557d9bed383c128767",
+    "evidenceRoot": ".local-review/frontend-remediation/release-stage-08-20261028",
+    "plannedUrl": "https://github.com/tangyuanx/Loop/releases/tag/v0.1.249",
     "authorization": {
-      "quote": "现在先把这几个阶段的工作发布一次新版本",
-      "recordedAt": "2026-10-27T07:39:13.691208+00:00",
-      "scope": "current stages 0–4 cumulative release; retain previously published v0.1.246/247 capabilities",
-      "overrides": "original wait-until-stage8 release schedule; does not mark unstarted stages complete",
+      "quote": "继续，全部完成后发布新版本",
+      "recordedAt": "2026-10-28T00:04:39.481901+00:00",
+      "scope": "complete cumulative frontend remediation then publish one new version",
       "claimsManualTesting": false
     },
-    "handoff": "docs/frontend-remediation/handoffs/RELEASE-0-4.md",
-    "evidenceRoot": ".local-review/frontend-remediation/release-stage-04-20261027",
-    "productFingerprint": "b457b18b12cd2bd20a39477bc5edd822631ea932a1494469564bbc9b99de3c57",
     "localChecks": {
       "npmCheck": {
         "passed": true,
-        "mainTests": 351,
+        "mainTests": 352,
         "serviceTests": 12
       },
-      "stageTests": 9,
-      "realRegression": [
-        "knowledge-workspace",
-        "task-workspace",
-        "continuity28",
-        "product-experience"
+      "stageTests": 14,
+      "cumulativeUISuites": 17,
+      "packagedKnowledge": 36,
+      "localBuilds": [
+        "mac-x64",
+        "mac-arm64",
+        "win-x64"
       ],
-      "browserInjected": "knowledge-editor via installed Google Chrome; global settings/Mermaid/editor passed",
-      "threeWindowPreview": "passed: real main light/dark 1280/1024 plus today widget and auxiliary settings",
-      "macBuild": [
-        "x64",
-        "arm64"
-      ],
-      "winBuild": "x64",
-      "packagedKnowledge": {
-        "desktop": 11,
-        "conflict": 10,
-        "feedback": 8,
-        "search": 7,
-        "failed": 0
-      },
-      "packagedSource": "3 archives; 96 source files identical; 16 runtime packages each",
-      "artifacts": "12 files; 2 metadata; 5 artifact digests passed; AppleDouble=0",
-      "dependencyRuntime": "625 exact-lock packages; real node_modules directory; original symlink and source preserved"
-    },
-    "plannedUrl": "https://github.com/tangyuanx/Loop/releases/tag/v0.1.248",
-    "pushedAt": "2026-10-27T07:44:08.722488+00:00",
-    "workflow": {
-      "id": 40468809214,
-      "url": "https://github.com/tangyuanx/Loop/actions/runs/40468809214",
-      "status": "completed",
-      "conclusion": "success",
-      "jobs": [
-        {
-          "id": 122070634838,
-          "name": "Prepare unpublished release",
-          "conclusion": "success"
-        },
-        {
-          "id": 122070706121,
-          "name": "Release macOS",
-          "conclusion": "success"
-        },
-        {
-          "id": 122070706224,
-          "name": "Release Windows",
-          "conclusion": "success"
-        },
-        {
-          "id": 122072455043,
-          "name": "Publish complete verified release",
-          "conclusion": "success"
-        }
-      ]
-    },
-    "mainCheck": {
-      "id": 40468803481,
-      "url": "https://github.com/tangyuanx/Loop/actions/runs/40468803481",
-      "conclusion": "success"
-    },
-    "branchStrategy": "release commit on codex/frontend-remediation; clean existing main worktree fast-forwarded and used for normal main push; root remains on remediation branch",
-    "publishedAt": "2026-10-27T07:48:49Z",
-    "assetCount": 12,
-    "assets": [
-      {
-        "name": "latest-mac.yml",
-        "size": 796,
-        "state": "uploaded",
-        "digest": "sha256:a6f674f4c3b080f349c726a53a8d63c14eec06a83571c910117a93768512644f"
-      },
-      {
-        "name": "latest.yml",
-        "size": 351,
-        "state": "uploaded",
-        "digest": "sha256:0b01961e8145732f7a11d89d626cc3fa1c895b348a73f281639a00ecc086d842"
-      },
-      {
-        "name": "Loop-0.1.248-arm64.dmg",
-        "size": 157289611,
-        "state": "uploaded",
-        "digest": "sha256:adbf42f27062229fbf976ee56181dc532245201b1d45a7f55514f19c456118f0"
-      },
-      {
-        "name": "Loop-0.1.248-arm64.dmg.blockmap",
-        "size": 165331,
-        "state": "uploaded",
-        "digest": "sha256:982974b0bc7c4a740597418adce447feb8766f02a090f22d85a5f1ff28d21feb"
-      },
-      {
-        "name": "Loop-0.1.248-arm64.zip",
-        "size": 155959254,
-        "state": "uploaded",
-        "digest": "sha256:19b91c916e3531b204aa3e50937944824dd985b4ba39604428af67df3cbb9971"
-      },
-      {
-        "name": "Loop-0.1.248-arm64.zip.blockmap",
-        "size": 163414,
-        "state": "uploaded",
-        "digest": "sha256:f7171afdc256f45c76e625838528b6b81952802702390391e99cb6e1af189dac"
-      },
-      {
-        "name": "Loop-0.1.248-x64-setup.exe",
-        "size": 132450269,
-        "state": "uploaded",
-        "digest": "sha256:8a296ff7b6e86616316481235cf086e60960881ed40ee19677679180ed6e050d"
-      },
-      {
-        "name": "Loop-0.1.248-x64-setup.exe.blockmap",
-        "size": 139286,
-        "state": "uploaded",
-        "digest": "sha256:2e50f7b448df7a6f251e495dbda226058b8ba8056b573191bc801951c1a8ded8"
-      },
-      {
-        "name": "Loop-0.1.248-x64.dmg",
-        "size": 158981075,
-        "state": "uploaded",
-        "digest": "sha256:2ab59a2bf243426edf7efab58a05ac61e9b53875e16cbba29665d262d3f76c61"
-      },
-      {
-        "name": "Loop-0.1.248-x64.dmg.blockmap",
-        "size": 167337,
-        "state": "uploaded",
-        "digest": "sha256:123dfbe86a23a0f08149704467d99a3cdc08b379fbc788666503b0878dc3cb69"
-      },
-      {
-        "name": "Loop-0.1.248-x64.zip",
-        "size": 157703128,
-        "state": "uploaded",
-        "digest": "sha256:c41e865a3263c626cac9244b561c6eb09381c1d734e4a642c037e6fcce391b93"
-      },
-      {
-        "name": "Loop-0.1.248-x64.zip.blockmap",
-        "size": 165658,
-        "state": "uploaded",
-        "digest": "sha256:0aa9dca9b7b4a049f5299657467dd3267f92ca14443560591323ae4839a93713"
-      }
-    ],
-    "remainingWork": "阶段5–8未开始；原生Windows手感/多屏/DPI/人工IME与阶段1全控件累计审阅仍按交接继续。打包知识链路本次已在本地及远端macOS/Windows补齐。"
+      "packagedSource": "3 archives, 176 files SHA-identical per archive, 16 runtime packages each",
+      "artifacts": "12 files; 2 update metadata, 5 digests; AppleDouble=0",
+      "productFingerprintUnchanged": true
+    }
   },
   "blocker": {
     "stage": 1,

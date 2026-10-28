@@ -1,0 +1,79 @@
+/* Stage 6: settings, recovery, help and system feedback. Shared input and
+ * keyboard-focus rules remain in foundation, loaded immediately after this. */
+body .workspace:has(> .settings-layout),
+body .manual27-workspace,
+body :is(.recovery26-manager, .recovery26-confirm, .help14-form, .desk19-panel, .prefs-menu, .manual27-directory-popup) {
+  --canvas: var(--workspace-canvas); --list: var(--workspace-list); --selected: var(--workspace-selected); --hover: var(--workspace-hover);
+  --text: var(--workspace-text); --secondary: var(--workspace-secondary); --line: var(--workspace-line);
+  --input-surface: color-mix(in srgb, var(--list) 97%, var(--text));
+  --field22-bg: var(--input-surface);
+  background: var(--canvas); color: var(--text);
+}
+body .settings-layout.phase9 { --prefs-measure: 780px; }
+body .phase9 .settings-nav { width: 168px; padding: 22px 12px; }
+body .phase9 .settings-nav button { color: var(--secondary); font-weight: var(--ui-body-weight); }
+body .phase9 .settings-nav button.active { color: var(--text); background: var(--selected); }
+body .phase9 .settings-content { padding: 28px 36px 40px; scrollbar-gutter: stable; }
+body .phase9 .settings-document > h2 { font-size: calc(18px * var(--font-scale, 1)); font-weight: var(--ui-emphasis-weight); }
+body .phase9 .settings-document > p { color: var(--secondary); line-height: 1.8; }
+body .phase9 .setting-row { padding: 18px 0; gap: 24px; }
+body .phase9 .setting-label { font-weight: var(--ui-emphasis-weight); }
+body .phase9 .setting-row p { max-width: 48ch; line-height: 1.8; }
+body .phase9 .prefs-subheading { font-weight: var(--ui-emphasis-weight) !important; margin-top: 28px !important; }
+body .phase9 .font-preview { padding: 20px; }
+body .phase9 .font-preview b { font-weight: var(--ui-emphasis-weight); }
+/* Share the action-button surface; replace only frozen choice-field geometry. */
+body[data-controls22-enabled] button.prefs-choice { width: max-content; min-width: 0; max-width: 230px; height: 32px; min-height: 32px; padding: 0 11px; border-radius: 5px; gap: 12px; white-space: nowrap; }
+body .prefs-choice > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+body .prefs-menu [role="menuitemradio"] > :last-child { flex: 0 0 14px; }
+body .prefs-menu [role="menuitemradio"][aria-checked="true"] { color: var(--text); background: var(--selected); }
+body .prefs-inline-note { border-radius: 5px; line-height: 1.85; }
+body .prefs-transfer-status { overflow-wrap: anywhere; }
+body .prefs-transfer-status:empty { display: none; }
+body .recovery26-data-entry { gap: 24px; padding: 18px 0; }
+body .recovery26-data-entry small { line-height: 1.8; }
+body :is(.help14-form, .recovery26-confirm).dialog { max-height: calc(100dvh - 48px); overflow-y: auto; }
+body :is(.help14-form, .recovery26-confirm, .recovery26-manager) .dialog-head h2 { font-weight: var(--ui-emphasis-weight); }
+body .help14-form { width: min(580px, calc(100vw - 48px)); }
+body .help14-field { margin-top: 16px; }
+body .help14-field label { font-weight: var(--ui-emphasis-weight); }
+body .help14-form footer { flex-wrap: wrap; position: sticky; bottom: -24px; padding-block: 12px; background: var(--canvas); border-top: 1px solid var(--line); z-index: 1; }
+body .help14-form footer small { font-size: var(--type-11); }
+body .help14-form footer [data-feedback-message] { flex-basis: 100%; margin: 0; }
+body .help14-error { color: var(--orange); line-height: 1.8; }
+body .help14-field :is(input, textarea, select)[aria-invalid="true"] { border-color: var(--input-line); }
+body .help14-form[aria-busy="true"] { cursor: progress; }
+body .help14-form [hidden] { display: none; }
+body .recovery26-confirm .recovery26-error:empty { display: none; }
+body .recovery26-error { color: var(--orange); line-height: 1.8; }
+body .recovery26-actions .recovery26-action-feedback { flex-basis: 100%; }
+body .recovery26-action-feedback :is(.recovery26-notice, .recovery26-error) { margin: 0; min-height: 0; }
+body .recovery26-action-feedback:has(> :only-child:empty) { display: none; }
+body :is(.recovery26-confirm, .recovery26-manager)[aria-busy="true"] { cursor: progress; }
+body :is(.recovery26-confirm, .recovery26-manager)[aria-busy="true"]::after {
+  content: "正在保存，请稍候…"; display: block; padding: 10px 22px; color: var(--secondary); font-size: var(--type-12);
+}
+body .recovery26-record strong { font-weight: var(--ui-emphasis-weight); }
+body .recovery26-item[data-selected="true"] { background: var(--selected); }
+body .recovery26-detail h3 { font-weight: var(--ui-emphasis-weight); line-height: 1.6; }
+body .recovery26-record small { overflow-wrap: anywhere; }
+body .recovery26-detailbody { padding-top: 22px; }
+body[data-foundation-enabled] .recovery26-manager .recovery26-search { --input-surface: color-mix(in srgb, var(--list) 97%, var(--text)); background: var(--input-surface); }
+body .manual27-head strong { font-weight: var(--ui-emphasis-weight); }
+body .manual27-layout { grid-template-columns: 210px minmax(0, 1fr) 150px; }
+body .manual27-reader { scrollbar-gutter: stable; }
+body .manual27-article { max-width: 72ch; }
+body .manual27-article :is(h1, h2, h3, strong) { font-weight: var(--ui-emphasis-weight); }
+body .manual27-topic[aria-current="page"], body .manual27-result[aria-current="page"] { color: var(--text); font-weight: var(--ui-emphasis-weight); }
+body .manual27-article p { line-height: 1.9; }
+body .desk19-panel .desk19-status { background: var(--list); }
+body .desk19-panel .desk19-status strong { font-weight: var(--ui-emphasis-weight); }
+body .desk19-result { overflow-wrap: anywhere; }
+@media (max-width: 1150px) {
+  body .phase9 .settings-nav { width: 150px; }
+  body .phase9 .settings-content { padding: 24px; }
+  body .manual27-layout { grid-template-columns: 190px minmax(0, 1fr); }
+  body .manual27-toc { display: none; }
+  body .manual27-head .manual27-directory { display: flex; }
+  body .manual27-directory-popup .manual27-toc { display: block; }
+}

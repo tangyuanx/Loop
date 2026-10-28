@@ -1,15 +1,11 @@
 /* Stage 4: knowledge workspace chrome and reading surface. CodeMirror owns
  * editing; foundation remains last and owns all input/focus treatments. */
 body .workspace.knowledge-workspace {
-  --canvas: #fbfaf8; --list: #f5f4f1; --selected: #e9e9e3; --hover: #eae9e4;
-  --text: #303330; --secondary: #636660; --line: #e5e4df;
+  --canvas: var(--workspace-canvas); --list: var(--workspace-list); --selected: var(--workspace-selected); --hover: var(--workspace-hover);
+  --text: var(--workspace-text); --secondary: var(--workspace-secondary); --line: var(--workspace-line);
   --input-surface: color-mix(in srgb,var(--list) 97%,var(--text));
   --field22-bg: var(--input-surface);
   background: var(--canvas); color: var(--text);
-}
-:root[data-theme="dark"] body .workspace.knowledge-workspace {
-  --canvas: #242624; --list: #212321; --selected: #353931; --hover: #30332e;
-  --text: #dedfd9; --secondary: #a0a49b; --line: #333631;
 }
 body[data-notebook23-enabled] .knowledge-header { padding-inline: 32px; gap: 8px 16px; }
 body .workspace .knowledge-header .tabs-bar { gap: 26px; }

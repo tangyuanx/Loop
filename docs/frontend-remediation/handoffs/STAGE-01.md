@@ -73,3 +73,9 @@
 ## Git与版本
 
 本阶段未提交、不升版本、不打标签、不推送、不发布。当前 HEAD 保持阶段0基线，工作区保留前阶段累计 dirty 改动以及本阶段待审阅修改。
+
+## 2026-10-28 阶段8累计补验
+
+上文保留阶段1当时的原始失败事实；其中“锁屏”确定性判断按D46限定为当时工具/启动返回，不能作为实际系统锁屏证明。阶段8已完成主/今日/独立辅助窗口的明暗、两主窗宽度、所有输入类别与父容器、中性键盘焦点、透明原位编辑、搜索稳定性及原生Mac外框/菜单AX验证。实际证据位于`.local-review/frontend-remediation/stage-08/`的`electron-review.json`、`workspace-review.json`、`inputs-supplement.json`、`search-confirm.json`及各区域results；原生截图`native-main.png`、`native-menu.png`。
+
+历史预览阻塞已闭环，state更新为`ready_for_review`，不代表用户人工accepted。最终候选、完整覆盖与平台限制见[阶段8交接](STAGE-08.md)。用户随后“继续，全部完成后发布新版本”是最新发布授权，未声称人工测试各平台。

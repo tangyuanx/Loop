@@ -134,9 +134,9 @@ function control22Stop(event) {
   event.stopImmediatePropagation();
 }
 
-/** Every shared field gets the skin; documents, the brief and the capture bar opt out. */
+/** Input fields share the skin; settings choice buttons keep their own surface. */
 function control22Decorate() {
-  document.querySelectorAll("input,textarea,select,button.prefs-choice").forEach((el) => {
+  document.querySelectorAll("input,textarea,select").forEach((el) => {
     if (el.matches(CONTROL22_SKIP) || el.closest(".list-search,.widget-capture")) return;
     el.classList.add("control22-field");
     if (CONTROL22_INLINE.some((selector) => el.matches(selector))) el.classList.add("control22-inline");

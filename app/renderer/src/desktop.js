@@ -20,9 +20,12 @@ let desktopReminderPreviewEntries = [];
 // delivered since the user last looked instead of claiming nothing is new.
 let desktopReminderSeenAt = "";
 let desktopReminderSubscribed = false;
+let desktopReminderReadFailed = false;
+let desktopReminderChecking = false;
 
 function desktopReminderCapability() {
   if (desktopReminderUnavailable()) return "unsupported";
+  if (desktopReminderReadFailed) return "unknown";
   // The main process probes the platform (Windows toast setting / macOS
   // ncprefs), so "blocked" is a reported fact, never an assumption.
   if (desktopReminderState.capability === "blocked") return "blocked";
@@ -36,6 +39,7 @@ function desktopReminderUnavailable() {
 }
 
 function desktopReminderCopy(capability = desktopReminderCapability()) {
+  if (capability === "unknown") return { label: "提醒状态暂时无法读取", hint: "请重新检查。当前尚未确认系统通知能力，截止安排与处理记录保留。" };
   if (capability === "blocked") {
     return { label: "系统通知关闭", hint: "截止安排与处理记录保留，可在系统设置中检查 Loop 的通知权限。" };
   }
@@ -55,11 +59,13 @@ async function desktopRefreshReminderState() {
   }
   try {
     const state = await desktopDeadlineReminders.getState();
+    desktopReminderReadFailed = false;
     desktopReminderState = { ...desktopReminderDefaultState, ...(state && typeof state === "object" ? state : {}) };
   } catch (error) {
     console.error("Failed to read the deadline reminder state.", error);
-    desktopReminderState = { ...desktopReminderDefaultState, supported: false, capability: "unsupported" };
+    desktopReminderReadFailed = true;
   }
+  desktopSyncReminderLabels();
   return desktopReminderState;
 }
 
@@ -68,8 +74,18 @@ function desktopBindReminderState() {
   if (desktopReminderSubscribed || !desktopDeadlineReminders?.onState) return;
   desktopReminderSubscribed = true;
   desktopDeadlineReminders.onState((state) => {
-    if (state && typeof state === "object") desktopReminderState = { ...desktopReminderDefaultState, ...state };
+    if (state && typeof state === "object") {
+      desktopReminderReadFailed = false;
+      desktopReminderState = { ...desktopReminderDefaultState, ...state };
+      desktopSyncReminderLabels();
+    }
   });
+}
+
+function desktopSyncReminderLabels() {
+  const copy = desktopReminderCopy();
+  document.querySelectorAll('[data-desktop-reminder-settings] .setting-label, .desk19-deadline-status>span').forEach(node => { node.textContent = copy.label; });
+  document.querySelectorAll('[data-desktop-reminder-settings] .setting-row p').forEach(node => { node.textContent = copy.hint; });
 }
 
 /** The scoped row inside the deadline panel (Demo desk19-deadline-status). */
@@ -84,9 +100,10 @@ function desktopReminderSettingsRow() {
   // under the 桌面提醒 heading that settings.js already renders.
   const copy = desktopReminderCopy();
   const control = `<button class="button" type="button" data-action="desk19-status">查看状态</button>`;
-  return typeof shellSettingsRow === "function"
+  const row = typeof shellSettingsRow === "function"
     ? shellSettingsRow(copy.label, copy.hint, control)
     : `<div class="setting-row"><div><span class="setting-label">${esc(copy.label)}</span><p>${esc(copy.hint)}</p></div>${control}</div>`;
+  return `<div data-desktop-reminder-settings>${row}</div>`;
 }
 
 function desktopReminderMount(markup, trigger, width = 370) {
@@ -102,7 +119,7 @@ function desktopReminderStatusPanel(trigger) {
       <div class="desk19-status ${capability === "supported" ? "" : "warning"}">${shellIcon(capability === "supported" ? "bell" : "blocked")}<div><strong>${esc(copy.label)}</strong><p>${esc(copy.hint)}</p></div></div>
       <p class="schedule-hint">Loop 运行时检查截止提醒。关闭主窗口会退出软件并停止提醒。</p>
       <div class="desk19-status-actions">
-        <button class="button" type="button" data-action="desk19-check">${retry ? "重试提醒" : "检查提醒"}</button>
+        <button class="button" type="button" data-action="desk19-check" ${desktopReminderChecking ? "disabled" : ""}>${desktopReminderChecking ? "检查中…" : retry ? "重试提醒" : "检查提醒"}</button>
         <button class="button" type="button" data-action="desk19-calendar">查看日历</button>
         <button class="text-button" type="button" data-action="desk19-help">检查设置</button>
       </div>
@@ -124,7 +141,7 @@ function desktopReminderPermissionDetail() {
   };
   const label = labels[permission.source] || permission.source;
   const detail = permission.detail && permission.detail !== "not-registered" ? ` · ${permission.detail}` : "";
-  const stateText = permission.state === "blocked" ? "已关闭" : permission.state === "allowed" ? "已允许" : "未注册";
+  const stateText = permission.state === "blocked" ? "已关闭" : permission.state === "allowed" ? "已允许" : permission.detail === "not-registered" ? "未注册" : "未能确认";
   return `<p class="schedule-hint" style="margin-top:14px">读取自${esc(label)}：${esc(stateText)}${esc(detail)}</p>`;
 }
 
@@ -171,43 +188,55 @@ function desktopReminderPreviewPanel(trigger, entries) {
 
 /** 检查提醒 / 重试提醒 — the only path that asks the main process to scan. */
 async function desktopReminderCheck(trigger) {
-  await desktopRefreshReminderState();
-  const capability = desktopReminderCapability();
-  if (capability === "unsupported") {
-    desktopReminderMessage = "当前环境无法发送系统通知，仍可在今日和日历查看任务。";
-    desktopReminderStatusPanel(trigger);
-    return;
-  }
-  let response = null;
+  if (desktopReminderChecking) return;
+  desktopReminderChecking = true;
+  const returnSelector = document.querySelector(".desk19-panel")?.dataset.returnFocus || '[data-action="desk19-status"]';
+  const anchor = () => document.querySelector(returnSelector) || trigger;
+  desktopReminderMessage = "正在读取系统能力并检查截止提醒…";
+  desktopReminderStatusPanel(anchor());
   try {
-    response = await desktopDeadlineReminders.check();
-  } catch (error) {
-    console.error("Failed to check deadline reminders.", error);
-    desktopReminderMessage = "本次检查未能完成，截止安排与处理记录保留。";
-    desktopReminderStatusPanel(trigger);
-    return;
+    await desktopRefreshReminderState();
+    const capability = desktopReminderCapability();
+    if (capability === "unknown") {
+      desktopReminderMessage = "提醒状态读取失败，请重新检查；未将任何任务标记为已提醒。";
+      return;
+    }
+    if (capability === "unsupported") {
+      desktopReminderMessage = "当前环境无法发送系统通知，仍可在今日和日历查看任务。";
+      return;
+    }
+    let response = null;
+    try {
+      response = await desktopDeadlineReminders.check();
+    } catch (error) {
+      console.error("Failed to check deadline reminders.", error);
+      desktopReminderMessage = "本次检查未能完成，截止安排与处理记录保留。";
+      return;
+    }
+    const outcome = response?.outcome || {};
+    desktopReminderState = { ...desktopReminderDefaultState, ...(response?.state || {}) };
+    desktopSyncReminderLabels();
+    if (outcome.error) {
+      desktopReminderMessage = "提醒未能发送；本次未记为已提醒，可重试。";
+      return;
+    }
+    const delivered = Array.isArray(outcome.delivered) && outcome.delivered.length
+      ? outcome.delivered
+      : (desktopReminderState.delivered || []).filter((entry) => String(entry.at || "") > desktopReminderSeenAt);
+    if (!delivered.length) {
+      desktopReminderPreviewEntries = [];
+      desktopReminderSeenAt = (desktopReminderState.delivered || []).reduce((latest, entry) => (String(entry.at || "") > latest ? String(entry.at) : latest), desktopReminderSeenAt);
+      desktopReminderMessage = "暂无新的提醒；已提醒、已完成和不提醒的任务会跳过。";
+      return;
+    }
+    desktopReminderPreviewEntries = delivered;
+    desktopReminderSeenAt = delivered.reduce((latest, entry) => (String(entry.at || "") > latest ? String(entry.at) : latest), desktopReminderSeenAt);
+    desktopReminderMessage = `已发送 ${delivered.length} 条提醒；再次检查不会重复。`;
+    if (document.querySelector('.desk19-panel')) desktopReminderPreviewPanel(anchor(), delivered);
+  } finally {
+    desktopReminderChecking = false;
+    if (document.querySelector('.desk19-panel [data-action="desk19-check"]')) desktopReminderStatusPanel(anchor());
   }
-  const outcome = response?.outcome || {};
-  desktopReminderState = { ...desktopReminderDefaultState, ...(response?.state || {}) };
-  if (outcome.error) {
-    desktopReminderMessage = "提醒未能发送；本次未记为已提醒，可重试。";
-    desktopReminderStatusPanel(trigger);
-    return;
-  }
-  const delivered = Array.isArray(outcome.delivered) && outcome.delivered.length
-    ? outcome.delivered
-    : (desktopReminderState.delivered || []).filter((entry) => String(entry.at || "") > desktopReminderSeenAt);
-  if (!delivered.length) {
-    desktopReminderPreviewEntries = [];
-    desktopReminderSeenAt = (desktopReminderState.delivered || []).reduce((latest, entry) => (String(entry.at || "") > latest ? String(entry.at) : latest), desktopReminderSeenAt);
-    desktopReminderMessage = "暂无新的提醒；已提醒、已完成和不提醒的任务会跳过。";
-    desktopReminderStatusPanel(trigger);
-    return;
-  }
-  desktopReminderPreviewEntries = delivered;
-  desktopReminderSeenAt = delivered.reduce((latest, entry) => (String(entry.at || "") > latest ? String(entry.at) : latest), desktopReminderSeenAt);
-  desktopReminderMessage = `已发送 ${delivered.length} 条提醒；再次检查不会重复。`;
-  desktopReminderPreviewPanel(trigger, delivered);
 }
 
 /** Opening a reminder: one task, or the calendar when it was merged. */

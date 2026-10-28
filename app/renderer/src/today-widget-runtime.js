@@ -5,8 +5,8 @@
 // ported from the frozen Demo baseline
 // (prototypes/demos/loop-widget-phase13.js + loop-shell-refinement.js);
 // only the data source and the side effects are wired to the desktop app
-// (window.personalTaskTrack.todayWidget). Keep the two in step: this file may
-// not invent markup the Demo does not have.
+// (window.personalTaskTrack.todayWidget). Production lifecycle and accessibility
+// continue here; the frozen Demo remains a historical reference.
 // ============================================================
 (() => {
   const bridge = window.personalTaskTrack?.todayWidget;
@@ -19,7 +19,7 @@
     circle: "M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0",
     blocked: "M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0M8 12h8",
     arrow: "M5 12h14m-6-6 6 6-6 6",
-    more: "M5 12h.01M12 12h.01M19 12h.01",
+    more: "M12 5h.01M12 12h.01M12 19h.01",
     close: "m6 6 12 12M6 18 18 6",
     note: "M5 3h14v18H5zM8 8h8M8 12h8M8 16h5",
     minus: "M5 12h14",
@@ -68,6 +68,18 @@
   let recentTitleClick = null;
   let editTimer = 0;
   let switchingToEdit = false;
+  let submitting = false;
+  let renaming = false;
+  let composing = false;
+  let pendingRenameDraft = null;
+  let restoringCapture = null;
+  const DRAFT_KEY = "loop-widget-input-drafts";
+  function readDrafts() {
+    try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "{}") || {}; } catch { return {}; }
+  }
+  function cacheDrafts(patch) {
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...readDrafts(), ...patch })); } catch { /* Native preferences still carry the capture draft. */ }
+  }
 
   function esc(value) {
     return String(value == null ? "" : value)
@@ -78,10 +90,10 @@
       .replaceAll("'", "&#039;");
   }
 
-  function showToast(message) {
+  function showToast(message, persistent = false) {
     window.clearTimeout(toastTimer);
     toastHost.innerHTML = `<div class="toast">${esc(message)}</div>`;
-    toastTimer = window.setTimeout(() => { toastHost.innerHTML = ""; }, 2800);
+    if (!persistent) toastTimer = window.setTimeout(() => { toastHost.innerHTML = ""; }, 2500);
   }
 
   // ---------- data projections (the Demo's listItems/state) ----------
@@ -176,20 +188,22 @@
   function applyCaptureDraft(value) {
     const next = String(value || "");
     const input = host.querySelector("#widget-capture");
-    if (!input) { snapshot.captureDraft = next; return; }
+    if (!input) { snapshot.captureDraft = next; cacheDrafts({ capture: next }); return; }
     const current = input.value;
     if (next === current) { snapshot.captureDraft = next; return; }
     // The main process echoes the last published draft on every state broadcast
     // (dragging, resizing, opacity ...). Those echoes must never replace newer
     // text the user is still typing.
-    if (next === lastPublishedDraft) { snapshot.captureDraft = next; return; }
-    if (current !== lastPublishedDraft && document.activeElement === input) { snapshot.captureDraft = current; return; }
+    if (next === lastPublishedDraft) { snapshot.captureDraft = current; return; }
+    if (current !== lastPublishedDraft) { snapshot.captureDraft = current; return; }
     input.value = next;
     snapshot.captureDraft = next;
+    cacheDrafts({ capture: next });
     resizeCapture();
   }
   function publishCaptureDraft(value) {
     lastPublishedDraft = String(value || "");
+    cacheDrafts({ capture: lastPublishedDraft });
     void bridge.setPreferences({ quickCaptureDraft: lastPublishedDraft });
   }
   function persistCaptureDraft() {
@@ -248,6 +262,11 @@
     root.style.setProperty("--sans", appearance.sans || '"TaskTrack English Times","TaskTrack Chinese Heiti",-apple-system,BlinkMacSystemFont,sans-serif');
     root.style.setProperty("--font-scale", String(appearance.fontScale || "1"));
     root.style.setProperty("--widget-opacity", String(Math.max(70, Math.min(100, Number(prefs.opacity) || 100)) / 100));
+    const panel = host.querySelector(".today-widget");
+    if (panel) {
+      panel.classList.toggle("widget13-sized", !prefs.compact && !prefs.autoHeight);
+      panel.style.height = !prefs.compact && !prefs.autoHeight ? prefs.height + "px" : "";
+    }
   }
 
   // The window is sized to the panel plus the ring that carries the Demo's
@@ -278,7 +297,6 @@
       height: Number.isFinite(Number(next.height)) ? Number(next.height) : 0,
       customBounds: next.customBounds || null,
     };
-    if (Object.prototype.hasOwnProperty.call(next, "quickCaptureDraft")) snapshot.captureDraft = String(next.quickCaptureDraft || "");
   }
 
   // ---------- render ----------
@@ -298,14 +316,34 @@
     if (editId && host.querySelector("#widget-title-input")) editDraft = host.querySelector("#widget-title-input").value;
     if (editId && !findItem(editId)) editId = "";
     pendingBlurRender = false;
-    host.innerHTML = renderTodayWidget();
+    // Keep the live composer attached. A main-window snapshot must not break
+    // IME, native undo, selection, or a draft even while this window is blurred.
+    const currentWidget = host.querySelector(".today-widget");
+    const composer = currentWidget?.querySelector(".widget-compose");
+    if (composer && lane === "quick" && !prefs.compact) {
+      const template = document.createElement("template");
+      template.innerHTML = renderTodayWidget();
+      const nextWidget = template.content.querySelector(".today-widget");
+      currentWidget.className = nextWidget.className;
+      currentWidget.dataset.position = prefs.position;
+      for (const selector of [".widget-header", ".widget-tabs", ".widget-body"]) {
+        currentWidget.querySelector(selector)?.replaceWith(nextWidget.querySelector(selector));
+      }
+      host.querySelector("[data-surface-barrier]")?.remove();
+      const barrier = template.content.querySelector("[data-surface-barrier]");
+      if (barrier) host.append(barrier);
+      syncSubmitState();
+      const status = host.querySelector("#widget-feedback");
+      if (status) { status.textContent = feedback || "Enter 保存 · Shift+Enter 换行"; status.className = "widget-input-status " + feedbackType; }
+    } else host.innerHTML = renderTodayWidget();
     applyAppearance();
     resizeCapture();
+    syncSubmitState();
     fit();
     const focus = inputId === "widget-capture" || inputId === "widget-title-input"
       ? host.querySelector("#" + inputId)
       : action ? host.querySelector('[data-widget12="' + action + '"]') : null;
-    if (focus && !focus.disabled) {
+    if (focus && !focus.disabled && !surfaceKind && document.hasFocus() && document.activeElement !== focus) {
       focus.focus({ preventScroll: true });
       if (selection && focus.setSelectionRange) focus.setSelectionRange(selection[0], selection[1]);
     }
@@ -314,31 +352,43 @@
   }
 
   // ---------- inline rename ----------
-  function finishRename(save = true, draw = true) {
+  async function finishRename(save = true, draw = true) {
     const input = host.querySelector("#widget-title-input");
-    if (!editId) return;
+    if (!editId || renaming || composing) return;
     const id = editId;
     const item = findItem(id);
     const title = String((input ? input.value : editDraft) || "").trim();
-    editId = "";
-    if (save && item && title && title !== item.title) {
-      void bridge.updateTaskTitle({ taskId: String(id), title }).then((result) => {
-        if (result?.success) { feedback = "标题已同步"; feedbackType = "saved"; showToast("已同步修改"); }
-        else if (result?.code === "INVALID_TITLE") showToast("标题不能为空");
-        else showToast("标题保存失败");
-      });
+    if (save && !title) { showToast("标题不能为空，请修改后重试", true); input?.focus(); return; }
+    if (save && item && title !== item.title) {
+      renaming = true;
+      if (input) input.readOnly = true;
+      let result;
+      try { result = await bridge.updateTaskTitle({ taskId: String(id), title }); }
+      catch { result = { success: false }; }
+      renaming = false;
+      if (!result?.success) {
+        if (input) input.readOnly = false;
+        showToast("标题保存失败，修改仍在，可重试", true);
+        input?.focus({ preventScroll: true });
+        return;
+      }
+      showToast("已同步修改");
     }
+    editId = "";
+    cacheDrafts({ rename: null });
+    if (queuedSnapshot) { const next = queuedSnapshot; queuedSnapshot = null; applySnapshot(next); }
     if (draw) {
       render();
       host.querySelector('[data-widget12="edit"][data-widget-id="' + CSS.escape(String(id)) + '"]')?.focus({ preventScroll: true });
     }
   }
 
-  function edit(item) {
+  async function edit(item) {
     if (!item) return;
     switchingToEdit = true;
     try {
-      finishRename(true, false);
+      await finishRename(true, false);
+      if (editId || renaming) return;
       editId = item.taskId;
       editDraft = item.title;
       render();
@@ -356,7 +406,7 @@
   }
 
   async function submit(forceToday = false) {
-    if (!bridge || prefs.compact || !isQuickLane()) return;
+    if (!bridge || prefs.compact || !isQuickLane() || submitting || composing) return;
     const input = host.querySelector("#widget-capture");
     const text = input ? input.value : captureDraft();
     const lines = String(text).replaceAll("\r", "").split("\n");
@@ -370,7 +420,17 @@
     }
     const description = lines.join("\n").trim();
     finishRename(true, false);
-    const result = await bridge.createTask({ title, description, addToToday: forceToday === true });
+    submitting = true;
+    feedback = "正在保存…"; feedbackType = "";
+    syncSubmitState();
+    host.querySelector("#widget-capture")?.setAttribute("readonly", "");
+    const status = host.querySelector("#widget-feedback");
+    if (status) status.textContent = feedback;
+    let result;
+    try { result = await bridge.createTask({ title, description, addToToday: forceToday === true }); }
+    catch { result = { success: false }; }
+    submitting = false;
+    host.querySelector("#widget-capture")?.removeAttribute("readonly");
     if (!result?.success) {
       feedback = result?.code === "INVALID_TITLE" ? "请输入第一行标题" : "速记保存失败，请稍后重试";
       feedbackType = "error";
@@ -531,23 +591,25 @@
   function syncSubmitState() {
     const input = host.querySelector("#widget-capture");
     const button = host.querySelector('[data-widget12="submit"]');
-    if (button && input) button.disabled = !input.value.trim();
+    if (button && input) button.disabled = submitting || !input.value.trim();
+    if (input) input.readOnly = submitting;
+    host.querySelector(".widget-capture")?.setAttribute("aria-busy", String(submitting));
   }
 
   // ---------- events ----------
   window.addEventListener("pointerdown", (event) => {
     pointerHeld = true;
     if (event.button !== 0) return;
-    // A surface lives in its own window: the first click anywhere in the widget
-    // dismisses it and is swallowed, exactly like loop-popup-dismiss.js.
+    // Menus are non-modal: the same pointer gesture dismisses the native panel
+    // and operates the chosen widget control. Only deletion keeps a barrier.
     if (surfaceKind) {
-      const barrier = event.target.closest("[data-surface-barrier]");
-      if (!barrier) {
+      if (surfaceKind === "delete") {
         event.preventDefault();
         event.stopImmediatePropagation();
+        void bridge.closeSurface({ reason: "outside" });
+        return;
       }
       void bridge.closeSurface({ reason: "outside" });
-      return;
     }
     const handle = event.target.closest("[data-widget-drag]");
     const resize = event.target.closest("[data-widget-resize]");
@@ -617,7 +679,13 @@
   }, true);
 
   window.addEventListener("pointercancel", () => { pointerHeld = false; endGesture(true); });
-  window.addEventListener("blur", () => { endGesture(true); finishRename(true, false); });
+  window.addEventListener("blur", () => { endGesture(true); flushCaptureDraft(); });
+  window.addEventListener("beforeunload", () => {
+    flushCaptureDraft();
+    if (editId) cacheDrafts({ rename: { id: editId, value: host.querySelector("#widget-title-input")?.value || editDraft, lane } });
+  });
+  document.addEventListener("compositionstart", () => { composing = true; });
+  document.addEventListener("compositionend", () => { composing = false; });
   window.addEventListener("resize", () => { endGesture(true); applyAppearance(); fit(); });
 
   window.addEventListener("contextmenu", (event) => {
@@ -808,6 +876,7 @@
   document.addEventListener("input", (event) => {
     if (event.target.id === "widget-capture") {
       snapshot.captureDraft = event.target.value;
+      cacheDrafts({ capture: event.target.value });
       feedback = "";
       feedbackType = "";
       resizeCapture();
@@ -817,12 +886,17 @@
       if (status) { status.textContent = "Enter 保存 · Shift+Enter 换行"; status.className = "widget-input-status"; }
       fit();
     }
-    if (event.target.id === "widget-title-input") editDraft = event.target.value;
+    if (event.target.id === "widget-title-input") {
+      editDraft = event.target.value;
+      cacheDrafts({ rename: { id: editId, value: editDraft, lane } });
+    }
   });
 
-  document.addEventListener("focusout", (event) => {
+  document.addEventListener("focusout", async (event) => {
     if (event.target.id !== "widget-title-input" || !editId) return;
-    finishRename(true, false);
+    if (!document.hasFocus() || composing || renaming) return;
+    await finishRename(true, false);
+    if (editId) return;
     if (pointerHeld) pendingBlurRender = true;
     else render();
   });
@@ -882,39 +956,58 @@
     };
     applyAppearance();
     applyCaptureDraft(snapshot.captureDraft);
+    // The widget can boot before the main renderer publishes its first rows.
+    // Restore the name once its real record arrives, rather than discarding it
+    // against the transient empty startup snapshot.
+    if (pendingRenameDraft && findItem(pendingRenameDraft.id)) {
+      editId = String(pendingRenameDraft.id);
+      editDraft = String(pendingRenameDraft.value || "").slice(0, 240);
+      lane = pendingRenameDraft.lane === "quick" ? "quick" : "task";
+      pendingRenameDraft = null;
+    }
     render();
   }
 
   bridge.onSnapshot?.((value) => {
-    if (completingTaskId || editId) { queuedSnapshot = value; return; }
+    if (completingTaskId || editId) {
+      queuedSnapshot = value;
+      if (value?.appearance) { snapshot.appearance = value.appearance; applyAppearance(); }
+      return;
+    }
     applySnapshot(value);
   });
 
   function visualSignature() {
-    const appearance = snapshot.appearance || {};
-    return [prefs.compact, prefs.position, prefs.opacity, appearance.theme, appearance.fontScale, appearance.sans, appearance.zhFont, appearance.enFont].join("|");
+    return [prefs.compact].join("|");
   }
 
   bridge.onState?.((value) => {
     const before = visualSignature();
     applyWindowState(value);
     if (value && Object.prototype.hasOwnProperty.call(value, "quickCaptureDraft")) {
-      snapshot.captureDraft = String(value.quickCaptureDraft || "");
-      applyCaptureDraft(snapshot.captureDraft);
+      const draft = String(value.quickCaptureDraft || "");
+      if (restoringCapture === null || draft === restoringCapture) {
+        restoringCapture = null;
+        applyCaptureDraft(draft);
+      }
     }
     // A state broadcast also carries echoes of what this window just published
     // (draft, size, position). Only a real appearance change may rebuild the
     // DOM: rebuilding while the user types would drop the caret and break IME.
     if (before !== visualSignature() || !host.querySelector(".today-widget")) render();
-    else applyAppearance();
+    else { applyAppearance(); fit(); }
   });
 
   bridge.onSurface?.((value) => {
     const kind = value && value.open === true ? String(value.kind || "") : "";
     if (kind === surfaceKind) return;
     surfaceKind = kind;
-    render();
-    if (!kind && value?.returnFocus) {
+    // A delayed close notification may arrive after the next rename began.
+    // Updating the surface state must not detach or blur that newer editor.
+    host.querySelector('[data-action="widget-preferences"]')?.setAttribute("aria-expanded", String(kind === "settings"));
+    host.querySelector("[data-surface-barrier]")?.remove();
+    if (kind === "delete") host.insertAdjacentHTML("beforeend", '<div class="dialog-backdrop" data-surface-barrier></div>');
+    if (!kind && value?.returnFocus && !editId && document.hasFocus()) {
       const selector = String(value.returnFocus || "");
       const target = selector ? host.querySelector(selector) : null;
       target?.focus({ preventScroll: true });
@@ -934,6 +1027,7 @@
   });
 
   bridge.onFocusReturn?.((value) => {
+    if (editId) return;
     const selector = String(value?.selector || "");
     const target = selector ? host.querySelector(selector) : null;
     (target || host.querySelector(".widget13"))?.focus?.({ preventScroll: true });
@@ -945,6 +1039,15 @@
     if (state && Object.prototype.hasOwnProperty.call(state, "quickCaptureDraft")) snapshot.captureDraft = String(state.quickCaptureDraft || "");
     const initial = state?.snapshot && typeof state.snapshot === "object" ? state.snapshot : {};
     lane = state?.snapshot?.lane === "quick" ? "quick" : "task";
+    const drafts = readDrafts();
+    if (typeof drafts.capture === "string") {
+      snapshot.captureDraft = drafts.capture.slice(0, 4000);
+      if (snapshot.captureDraft !== String(state?.quickCaptureDraft || "")) {
+        restoringCapture = snapshot.captureDraft;
+        publishCaptureDraft(snapshot.captureDraft);
+      }
+    }
+    pendingRenameDraft = drafts.rename || null;
     applySnapshot(initial);
   });
 })();

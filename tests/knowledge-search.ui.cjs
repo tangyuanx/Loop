@@ -9,13 +9,13 @@ let app,page,out;
 async function mode(name){await wb.mode(page,name);await page.waitForFunction(name=>knowledgeCurrentEntry()?.mode===name,name);}
 async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catch(e){results.push({id,status:'FAIL',error:e.stack});await page.screenshot({path:path.join(out,id+'-failure.png')});}console.log(JSON.stringify(results.at(-1)));}
 (async()=>{
- const run=process.env.LOOP_SEARCH_QA_DIR||await fs.mkdtemp(path.join(os.tmpdir(),'loop-search-'));out=path.join(run,'evidence');await fs.mkdir(out,{recursive:true});
+ const run=path.resolve(process.env.LOOP_SEARCH_QA_DIR||await fs.mkdtemp(path.join(os.tmpdir(),'loop-search-')));out=path.join(run,'evidence');await fs.mkdir(out,{recursive:true});
  const profile=path.join(run,'user-data'),stamp=new Date().toISOString();await fs.access(path.join(profile,'task-data.json')).then(()=>{throw Error('Refusing existing data')},()=>{});
  await writeTaskData(profile,{version:2,taskFilter:'all',activeTaskId:'a',tasks:[['a','行内查找与跳转',original],['b','第二篇笔记','# 第二篇\n\n独立内容与独立查找。\n']].map(([id,title,notes])=>({id,title,notes,nodes:[],createdAt:stamp,updatedAt:stamp,knowledgeNote:{noteId:'search-'+id,title,documentState:'DRAFT'}}))});
  const env={...process.env,LOOP_USER_DATA_DIR:profile};delete env.ELECTRON_RUN_AS_NODE;
  app=await _electron.launch({executablePath:process.env.LOOP_APP_EXECUTABLE||require('electron'),args:process.env.LOOP_APP_EXECUTABLE?[]:[source],cwd:source,env});
  try{
-  const runtime=await app.evaluate(({app})=>({version:app.getVersion(),appPath:app.getAppPath(),userData:app.getPath('userData')}));
+  const runtime=await app.evaluate(async({app})=>{await app.whenReady();return {version:app.getVersion(),appPath:app.getAppPath(),userData:app.getPath('userData')};});
   assert.equal(runtime.version,require('../package.json').version);assert.equal(path.resolve(runtime.userData),profile);
   if(process.env.LOOP_APP_EXECUTABLE)assert.ok(runtime.appPath.endsWith('app.asar'));else assert.equal(runtime.appPath,source);
   await fs.writeFile(path.join(out,'runtime.json'),JSON.stringify(runtime,null,2));

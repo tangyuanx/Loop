@@ -64,6 +64,7 @@ function shellMountSurface(markup, trigger, width = 320) {
   surface.style.top = `${Math.max(12, Math.min(rect.bottom + 7, window.innerHeight - 50 - surface.offsetHeight))}px`;
   if (selector) surface.dataset.returnFocus = selector;
   trigger?.setAttribute?.("aria-expanded", "true");
+  shellClampFloatingSurface(surface);
   (surface.querySelector("[autofocus]") || surface.querySelector("button, input, select"))?.focus({ preventScroll: true });
   return surface;
 }
@@ -82,6 +83,7 @@ function shellClampFloatingSurface(surface) {
 }
 
 function shellCloseOverlay({ restoreFocus = true } = {}) {
+  if (shellOverlayDismissBlocked()) return;
   // Demo phase 16: dismissing keeps the creation draft for this session.
   if (document.querySelector("#create-form") && state.createDraft) shellCaptureCreateDraft();
   const overlay = shellOverlay();
@@ -102,6 +104,11 @@ function shellCloseOverlay({ restoreFocus = true } = {}) {
       }
     });
   }
+}
+
+function shellOverlayDismissBlocked() {
+  return Boolean((state.feedbackSubmitting && document.querySelector("#help14-form"))
+    || (typeof recovery26Busy !== "undefined" && recovery26Busy && document.querySelector("#overlay .recovery26-manager, #overlay .recovery26-confirm")));
 }
 
 /**
@@ -645,6 +652,29 @@ function shellBindOverlayDelegation() {
   const overlay = shellOverlay();
   if (!overlay || overlay.dataset.shellDelegated === "1") return;
   overlay.dataset.shellDelegated = "1";
+  const updateFeedback = (event) => {
+    const field = event.target.closest?.("#help14-form [data-feedback-field]");
+    if (!field || state.feedbackSubmitting) return;
+    const key = field.dataset.feedbackField;
+    state.feedbackDraft[key] = field.type === "checkbox" ? field.checked : field.value;
+    delete state.feedbackErrors[key];
+    state.feedbackMessage = "";
+    field.setAttribute("aria-invalid", "false");
+    field.removeAttribute("aria-describedby");
+    overlay.querySelector(`#help14-${CSS.escape(key)}-error`)?.remove();
+    overlay.querySelector("[data-feedback-message]")?.remove();
+    if (key === "includeEnvironment") {
+      const caption = overlay.querySelector("[data-feedback-environment]");
+      if (caption) caption.hidden = !field.checked;
+    }
+  };
+  overlay.addEventListener("input", updateFeedback);
+  overlay.addEventListener("change", updateFeedback);
+  overlay.addEventListener("submit", (event) => {
+    if (event.target.id !== "help14-form") return;
+    event.preventDefault();
+    void submitBugReport();
+  });
   overlay.addEventListener("click", (event) => {
     const preset = event.target.closest?.("[data-entry16-time]");
     if (!preset) return;
@@ -1698,7 +1728,8 @@ async function shellAction(data, event) {
       shellHelpFeedbackDialog();
       return true;
     case "close-help-feedback":
-      shellCloseOverlay({ restoreFocus: false });
+      if (state.feedbackSubmitting) return true;
+      shellCloseOverlay();
       state.feedbackErrors = {};
       state.feedbackMessage = "";
       state.feedbackResult = null;
@@ -2017,6 +2048,21 @@ function shellBindOverlayDismissal() {
   });
   let consumeOutsideClick = false;
   document.addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === "Tab" && shellOverlayIsOpen()) {
+      const dialog = shellOverlay().querySelector('[role="dialog"][aria-modal="true"]');
+      if (dialog) {
+        const items = [...dialog.querySelectorAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]')]
+          .filter(element => element.getClientRects().length && !element.closest('[inert], [hidden]'));
+        const target = event.shiftKey ? items.at(-1) : items[0];
+        if (!items.length || !dialog.contains(document.activeElement) || document.activeElement === (event.shiftKey ? items[0] : items.at(-1))) {
+          event.preventDefault();
+          (target || dialog.querySelector('[tabindex="-1"]') || dialog).focus({ preventScroll: true });
+        }
+        event.stopImmediatePropagation();
+      }
+      return;
+    }
     if (event.key !== "Escape") return;
     if (!shellOverlayIsOpen()) {
       if (!state.taskMenuOpen) return;
@@ -2029,6 +2075,7 @@ function shellBindOverlayDismissal() {
     // The overlay owns this Escape: stopImmediatePropagation keeps the
     // multi-select shortcuts from also reacting to the same key press.
     event.stopImmediatePropagation();
+    if (shellOverlayDismissBlocked()) return;
     shellCloseOverlay();
     state.taskMenuOpen = false;
     state.contextMenu = null;
@@ -2050,6 +2097,7 @@ function shellBindOverlayDismissal() {
     if (event.target.closest?.("#overlay .wb-submenu")) return;
     if (event.target.closest(SHELL_OVERLAY_TRIGGERS)) return;
     consumeOutsideClick = event.button === 0;
+    if (shellOverlayDismissBlocked()) { event.preventDefault(); return; }
     shellCloseOverlay({ restoreFocus: false });
     state.taskMenuOpen = false;
     state.contextMenu = null;

@@ -1,0 +1,51 @@
+/* Today and its independent BrowserWindow panels. Foundation owns fields,
+ * selection and keyboard focus; frozen widget sheets remain historical truth. */
+body :is(.today-widget, #surface-host) {
+  --canvas: var(--workspace-canvas); --list: var(--workspace-list); --selected: var(--workspace-selected); --hover: var(--workspace-hover);
+  --text: var(--workspace-text); --secondary: var(--workspace-secondary); --line: var(--workspace-line);
+  color: var(--text);
+}
+body .today-widget { background: var(--canvas); border-color: var(--line); box-shadow: var(--surface-shadow); }
+body .widget12 .widget-header { padding: 11px 14px 9px; }
+body .widget12 .widget-tabs { gap: 20px; }
+body .widget12 .widget-tabs button.active { border-bottom-color: var(--text); color: var(--text); font-weight: var(--ui-emphasis-weight); }
+body .widget12 .widget-body { padding: 6px 8px; }
+body .widget13.widget13-sized .widget-body { min-height: 0; flex: 1 1 0; }
+body .widget13 .widget-row { padding-block: 7px; border-radius: 6px; }
+body .widget12 :is(.widget-title, .widget-title-input, .widget-header strong) { font-weight: var(--ui-emphasis-weight); }
+/* Reconcile the historical readability sheet's explicit 400 weight with the
+ * same foundation roles used by the current main workspace. */
+body :is(.today-widget, #surface-host) :is(button, input, select, textarea) { font-weight: var(--ui-body-weight) !important; }
+body .widget12 :is(.widget-title, .widget-title-input, .widget-header strong, .widget-tabs button.active) { font-weight: var(--ui-emphasis-weight) !important; }
+body .widget12 .widget-title-input { padding-inline: 0; }
+body .widget12 .widget-row-copy > small { margin-top: 2px; }
+body .widget12 :is(.widget-check, .widget-open, .widget13-more) { border-radius: 5px; }
+body .widget12 .widget-compose { padding: 9px 14px 11px; }
+body .widget12 .widget-compose-foot { align-items: flex-start; }
+body .widget12 :is(.widget-date, .widget-count, .widget-tabs small, .widget-shortcut),
+body .widget12-setting-row output { font-variant-numeric: tabular-nums; }
+body .widget12 .widget-header { overflow: hidden; }
+body .widget12 .widget-header > :is(strong, button, img) { flex-shrink: 0; }
+body .widget12 :is(.widget-date, .widget-count) { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body .widget12 .widget-capture[aria-busy="true"] { opacity: .7; }
+body .widget12 .widget-input-status.error { color: var(--orange); }
+
+body #surface-host :is(.surface-popover, .dialog) { background: var(--canvas); color: var(--text); border-color: var(--line); box-shadow: var(--surface-shadow); }
+body #surface-host > .dialog { width: 360px; max-width: 100%; }
+body #surface-host > .surface-popover { max-width: 100%; }
+body #surface-host .dialog-head { gap: 16px; }
+body #surface-host .dialog-head h2 { font-weight: var(--ui-emphasis-weight); }
+body .widget12-positions button[aria-pressed="true"] { background: var(--selected); color: var(--text); border-color: var(--input-focus); }
+body :is(.widget13-menu, .widget13-promote) button span { min-width: 0; overflow-wrap: anywhere; }
+body .widget13-menu button small { white-space: nowrap; }
+body #surface-host .widget13-promote [role="menu"] { overscroll-behavior: contain; scrollbar-width: thin; }
+body #surface-host .widget13-delete-title { max-height: 130px; overflow-y: auto; line-height: 1.7; }
+body #surface-host .schedule-hint { color: var(--secondary); line-height: 1.7; }
+body #surface-host .dialog footer { gap: 8px; flex-wrap: wrap; }
+body .widget-surface-feedback { margin: 10px 12px; color: var(--orange); font-size: calc(12px * var(--font-scale, 1)); line-height: 1.7; overflow-wrap: anywhere; }
+body .widget-surface-feedback:empty { display: none; }
+body #surface-host .dialog .widget-surface-feedback { margin: 12px 0; }
+body #surface-host [aria-busy="true"] { cursor: progress; }
+@media (prefers-reduced-motion: reduce) {
+  body .widget13 :is(.widget-row, .widget-check, .widget-title) { transition: none; animation: none; }
+}

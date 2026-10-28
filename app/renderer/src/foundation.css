@@ -9,6 +9,15 @@
 
 :root {
   color-scheme: light;
+  /* Shared palette for migrated surfaces. Local aliases keep the legacy
+   * sheets scoped without repeating theme values in every workspace. */
+  --workspace-canvas: #fbfaf8;
+  --workspace-list: #f5f4f1;
+  --workspace-selected: #e9e9e3;
+  --workspace-hover: #eae9e4;
+  --workspace-text: #303330;
+  --workspace-secondary: #636660;
+  --workspace-line: #e5e4df;
   --surface-raised: #fff;
   --surface-shadow: 0 12px 36px rgb(32 36 43 / 12%), 0 2px 8px rgb(32 36 43 / 6%);
   --ui-body-weight: 400;
@@ -28,6 +37,13 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
+  --workspace-canvas: #242624;
+  --workspace-list: #212321;
+  --workspace-selected: #353931;
+  --workspace-hover: #30332e;
+  --workspace-text: #dedfd9;
+  --workspace-secondary: #a0a49b;
+  --workspace-line: #333631;
   --surface-raised: #232722;
   --surface-shadow: 0 16px 44px rgb(0 0 0 / 30%), 0 2px 10px rgb(0 0 0 / 20%);
   --ui-body-weight: 360;
@@ -175,6 +191,7 @@ body :is(input, textarea, select)::placeholder {
 /* Search fields are an inset surface.  The parent does not change fill when
  * focused; the one-pixel bottom line is the only focus cue. */
 body :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search) {
+  background: var(--input-surface);
   outline: none;
   box-shadow: none;
 }
@@ -195,7 +212,8 @@ body .list-search:focus-within {
   box-shadow: inset 0 -1px 0 var(--focus-line);
 }
 
-body :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search) input {
+body[data-foundation-enabled] :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search) input,
+body[data-foundation-enabled] :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search) input:is(:hover, :focus, :focus-visible) {
   border: 0;
   outline: none;
   box-shadow: none;
@@ -210,11 +228,9 @@ body :is(.kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, 
   box-shadow: inset 0 -1px 0 var(--focus-line);
 }
 
-/* The widget capture is a document-plane textarea with a divider, not a
- * second framed field. */
+/* The composer already owns its divider; capture stays on that content plane. */
 body[data-foundation-enabled] .widget-capture {
   border: 0;
-  border-top: 1px solid var(--line);
   background: transparent;
   outline: none;
   box-shadow: none;
@@ -330,7 +346,7 @@ body :is(input[type="checkbox"], input[type="radio"], input[type="range"]) {
 
 body :is(input[type="checkbox"], input[type="radio"], input[type="range"]):focus-visible {
   outline: 1px solid var(--focus-line-strong);
-  outline-offset: 2px;
+  outline-offset: -2px;
   box-shadow: none;
 }
 
@@ -389,7 +405,7 @@ body[data-foundation-enabled] :is(.widget12 .widget-title-input, .nav-group-edit
   box-shadow: inset 0 -1px 0 var(--focus-line);
 }
 
-body[data-foundation-enabled][data-controls22-enabled] :is(.list-search, .widget-capture):focus-within {
+body[data-foundation-enabled][data-controls22-enabled] .list-search:focus-within {
   border-color: var(--input-focus);
   background: var(--input-surface);
   outline: none;
@@ -398,8 +414,14 @@ body[data-foundation-enabled][data-controls22-enabled] :is(.list-search, .widget
 
 body[data-foundation-enabled][data-controls22-enabled] .widget-capture {
   border: 0;
-  border-top: 1px solid var(--line);
   background: transparent;
+}
+
+body[data-foundation-enabled][data-controls22-enabled] .widget-capture:focus-within {
+  border-top-color: var(--line);
+  background: transparent;
+  outline: none;
+  box-shadow: none;
 }
 
 body[data-foundation-enabled][data-brief21-enabled] .brief21-input:is(:focus, :focus-visible) {
@@ -413,6 +435,7 @@ body[data-foundation-enabled] .window25-caption button:focus-visible,
 body[data-foundation-enabled] .widget13 .widget-header:focus-visible,
 body[data-foundation-enabled] .widget13 .widget13-resize:focus-visible,
 body[data-foundation-enabled] .work15-dialog :focus-visible,
+body[data-foundation-enabled] .work15-weekdays input:focus-visible + span,
 body[data-foundation-enabled] .manual27-shell :focus-visible,
 body[data-foundation-enabled] .knowledge-tool:focus-visible,
 body[data-foundation-enabled] .note-heading-select:focus-visible,

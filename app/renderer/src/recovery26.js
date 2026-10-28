@@ -33,6 +33,8 @@ let recovery26Picked = new Set();
 let recovery26Pending = null;
 let recovery26Undo = null;
 let recovery26ReturnFocus = null;
+let recovery26ReturnSelector = "";
+let recovery26ConfirmReturnToManager = false;
 let recovery26Busy = false;
 let recovery26LastGroupChoice = "";
 let recovery26LastSourceChoice = "";
@@ -116,10 +118,16 @@ async function recovery26Persist() {
   save();
   if (typeof flushSave !== "function") return true;
   Recovery26Persisting = true;
+  const dialog = r26("#overlay .recovery26-manager, #overlay .recovery26-confirm");
+  const controls = [...(dialog?.querySelectorAll?.("button, input, select, textarea") || [])].map(control => [control, control.disabled]);
+  dialog?.setAttribute?.("aria-busy", "true");
+  controls.forEach(([control]) => { control.disabled = true; });
   try {
     return (await flushSave()) !== false;
   } finally {
     Recovery26Persisting = false;
+    dialog?.setAttribute?.("aria-busy", "false");
+    controls.forEach(([control, disabled]) => { control.disabled = disabled; });
   }
 }
 
@@ -232,16 +240,26 @@ function recovery26Receipt(message, entries = [], action = null) {
 // ------------------------------------------------------------
 
 function recovery26OpenConfirm(title, body, footer, { form = false } = {}) {
+  recovery26RememberReturnFocus();
+  recovery26ConfirmReturnToManager = Boolean(r26("#overlay .recovery26-manager"));
   if (typeof shellCloseOverlay === "function") shellCloseOverlay({ restoreFocus: false });
   state.taskMenuOpen = false;
   state.contextMenu = null;
-  recovery26ReturnFocus = document.activeElement;
   const tag = form ? "form" : "section";
   const overlay = r26("#overlay");
   if (!overlay) return;
-  overlay.innerHTML = `<div class="dialog-backdrop"><${tag} class="dialog recovery26-confirm" ${form ? 'id="recovery26-delete-form"' : ""} role="dialog" aria-modal="true" aria-label="${r26Escape(title)}">${shellSurfaceHeader(title)}${body}<footer>${footer}</footer></${tag}></div>`;
+  overlay.innerHTML = `<div class="dialog-backdrop"><${tag} class="dialog recovery26-confirm" ${form ? 'id="recovery26-delete-form"' : ""} role="dialog" aria-modal="true" aria-label="${r26Escape(title)}">${shellSurfaceHeader(title)}${body}<p id="recovery26-confirm-error" class="recovery26-error" role="alert"></p><footer>${footer}</footer></${tag}></div>`;
   const focus = r26("#overlay .recovery26-confirm [autofocus]") || r26("#overlay .recovery26-confirm button, #overlay .recovery26-confirm input, #overlay .recovery26-confirm select");
   focus?.focus({ preventScroll: true });
+}
+
+function recovery26RememberReturnFocus() {
+  const active = document.activeElement;
+  if (!active || active === document.body || active.closest?.("#overlay")) return;
+  recovery26ReturnFocus = active;
+  const names = ["data-action", "data-recovery26", "data-task-id", "data-node-id", "data-group-id"];
+  recovery26ReturnSelector = names.filter(name => active.hasAttribute?.(name))
+    .map(name => `[${name}="${CSS.escape(active.getAttribute(name))}"]`).join("");
 }
 
 // ------------------------------------------------------------
@@ -718,12 +736,12 @@ async function recovery26CommitDelete() {
 }
 
 function recovery26ShowConfirmError(message) {
-  const host = r26("#recovery26-error");
+  const host = r26("#recovery26-error") || r26("#recovery26-confirm-error");
   if (host) {
     host.textContent = message || "操作未完成";
     return;
   }
-  recovery26Receipt(message || "操作未完成");
+  showWorkspaceError(message || "操作未完成");
 }
 
 /** Close the confirmation, resync the workspace, then report the result. */
@@ -736,9 +754,7 @@ function recovery26AfterRemoval(entries, message) {
     state.selectedNodeId = "";
   }
   render();
-  // The receipt keeps the Demo's 12-second 撤销, backed by the same validated
-  // restore the manager uses. The archive itself never expires, so losing the
-  // receipt only loses the shortcut, never the record.
+  // Undo stays available until dismissed or superseded by another operation.
   recovery26Receipt(message, entries, () => recovery26UndoEntries(entries));
 }
 
@@ -995,10 +1011,10 @@ function recovery26ManagerMarkup() {
 
 function recovery26Manager() {
   recovery26Capture();
+  recovery26RememberReturnFocus();
   if (typeof shellCloseOverlay === "function") shellCloseOverlay({ restoreFocus: false });
   state.taskMenuOpen = false;
   state.contextMenu = null;
-  recovery26ReturnFocus = document.activeElement;
   const overlay = r26("#overlay");
   if (!overlay) return;
   overlay.innerHTML = recovery26ManagerMarkup();
@@ -1046,10 +1062,8 @@ function recovery26DetailsMarkup(entry) {
     <dl class="recovery26-meta"><dt>删除时间</dt><dd>${r26Escape(r26Stamp(entry.deletedAt))}</dd><dt>${entry.ownerTaskId ? "所属任务" : "原分组"}</dt><dd>${r26Escape(entry.ownerTaskTitle || entry.groupTitle || "未分组")}</dd><dt>包含内容</dt><dd>${r26Escape(summary)}</dd>${entry.sourcePath ? `<dt>原文件</dt><dd>${r26Escape(entry.sourcePath)}</dd>` : ""}</dl>
     ${excerpt ? `<div class="recovery26-excerpt">${r26Escape(String(excerpt).slice(0, 1200))}</div>` : ""}
     ${recovery}
-    ${error ? `<p class="recovery26-notice">${r26Escape(error)}</p>` : ""}
-    <p class="recovery26-error" id="recovery26-restore-error" role="alert"></p>
   </div>
-  <div class="recovery26-actions">${r26Button("restore", restoreLabel, "button primary", error ? "disabled" : "")}${ownerEntry ? r26Button("owner", "先查看所属任务", "text-button", `data-id="${ownerEntry.id}"`) : ""}${r26Button("purge", "永久移除…", "text-button danger-action")}</div>`;
+  <div class="recovery26-actions"><div class="recovery26-action-feedback">${error ? `<p class="recovery26-notice" role="status">${r26Escape(error)}</p>` : ""}<p class="recovery26-error" id="recovery26-restore-error" role="alert"></p></div>${r26Button("restore", restoreLabel, "button primary", error ? "disabled" : "")}${ownerEntry ? r26Button("owner", "先查看所属任务", "text-button", `data-id="${ownerEntry.id}"`) : ""}${r26Button("purge", "永久移除…", "text-button danger-action")}</div>`;
 }
 
 function recovery26DrawList() {
@@ -1155,11 +1169,11 @@ async function recovery26PurgeConfirm() {
     return { ok: true };
   });
   recovery26Busy = false;
-  recovery26Pending = null;
   if (!outcome.ok) {
     recovery26ShowConfirmError(outcome.message);
     return;
   }
+  recovery26Pending = null;
   recovery26Undo = null;
   recovery26Manager();
   recovery26Receipt(ids.size === 1 ? "所选归档已永久移除" : `已永久移除 ${ids.size} 项归档`);
@@ -1220,6 +1234,7 @@ function recovery26OnClick(event) {
   }
   const button = event.target.closest?.("[data-recovery26]");
   if (!button || button.disabled) return;
+  if (recovery26Busy) { event.preventDefault(); event.stopImmediatePropagation(); return; }
   const action = button.dataset.recovery26;
   if (action === "owner") {
     event.preventDefault();
@@ -1256,11 +1271,9 @@ function recovery26OnClick(event) {
     return;
   }
   if (action === "cancel") {
-    if (typeof shellCloseOverlay === "function") shellCloseOverlay({ restoreFocus: false });
     recovery26Pending = null;
-    recovery26ReturnFocus?.isConnected && recovery26ReturnFocus.focus({ preventScroll: true });
-    if (r26Archive().length && r26(".recovery26-manager")) recovery26Manager();
-    else render();
+    if (typeof shellCloseOverlay === "function") shellCloseOverlay();
+    render();
     return;
   }
   if (action === "clear-search") {
@@ -1327,12 +1340,15 @@ function recovery26OnClick(event) {
     const taskId = pending.ids[0];
     const body = pending.body;
     const before = pending.before;
-    recovery26Pending = null;
+    recovery26Busy = true;
     recovery26Transaction(() => recovery26UnlinkNote(taskId)).then((outcome) => {
+      recovery26Busy = false;
       if (!outcome.ok) {
         recovery26ShowConfirmError(outcome.message);
         return;
       }
+      recovery26Pending = null;
+      shellCloseOverlay({ restoreFocus: false });
       render();
       const target = r26Task(taskId);
       const note = target?.knowledgeNote;
@@ -1340,17 +1356,20 @@ function recovery26OnClick(event) {
         recovery26Receipt("当前笔记已变更，请重新选择文件关联");
         return;
       }
-      recovery26Receipt("文件关联已解除，正文保留", [], () => {
+      recovery26Receipt("文件关联已解除，正文保留", [], async () => {
         const live = r26Task(taskId);
         if (!live || String(live.notes || "") !== body || r26Task(taskId)?.knowledgeNote?.filePath) {
           recovery26Receipt("当前笔记已变更，请重新选择文件关联");
           return;
         }
-        live.knowledgeNote = knowledgeDocument.normalizeKnowledgeNote(before, { taskId: live.id, title: live.title });
-        live.updatedAt = now();
+        const restored = await recovery26Transaction(() => {
+          live.knowledgeNote = knowledgeDocument.normalizeKnowledgeNote(before, { taskId: live.id, title: live.title });
+          live.updatedAt = now();
+          return { ok: true };
+        });
         render();
-        void recovery26Persist();
-        recovery26Receipt("文件关联已恢复");
+        if (restored.ok) recovery26Receipt("文件关联已恢复");
+        else showWorkspaceError(restored.message);
       });
     });
   }
@@ -1415,7 +1434,24 @@ recovery26Bind();
 const recovery26PreviousCloseOverlay = shellCloseOverlay;
 shellCloseOverlay = function recovery26CloseOverlay(options = {}) {
   const isRecovery = Boolean(r26("#overlay .recovery26-manager, #overlay .recovery26-confirm"));
+  if (isRecovery && recovery26Busy) return;
+  const returnToManager = recovery26ConfirmReturnToManager && Boolean(r26("#overlay .recovery26-confirm")) && options.restoreFocus !== false;
   const trigger = recovery26ReturnFocus;
   recovery26PreviousCloseOverlay(options);
-  if (isRecovery && options.restoreFocus !== false && trigger?.isConnected) trigger.focus({ preventScroll: true });
+  if (returnToManager) {
+    recovery26ConfirmReturnToManager = false;
+    recovery26Pending = null;
+    recovery26Manager();
+    return;
+  }
+  if (isRecovery && options.restoreFocus !== false) {
+    const target = trigger?.isConnected ? trigger : recovery26ReturnSelector ? r26(recovery26ReturnSelector) : null;
+    target?.focus({ preventScroll: true });
+    if (recovery26ReturnSelector) {
+      const selector = recovery26ReturnSelector;
+      window.requestAnimationFrame(() => {
+        if (document.activeElement === document.body || !document.activeElement?.isConnected) r26(selector)?.focus({ preventScroll: true });
+      });
+    }
+  }
 };

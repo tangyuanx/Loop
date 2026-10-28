@@ -1,0 +1,102 @@
+/* Stage 5 owns work navigation and the deadline/review surfaces. Frozen work,
+ * time and journey sheets stay intact; foundation remains the input owner. */
+body .workspace:has(> .calendar-layout),
+body .workspace:has(> .review-content),
+body .work15-dialog {
+  --canvas: var(--workspace-canvas); --list: var(--workspace-list); --selected: var(--workspace-selected); --hover: var(--workspace-hover);
+  --text: var(--workspace-text); --secondary: var(--workspace-secondary); --line: var(--workspace-line);
+  --input-surface: color-mix(in srgb,var(--list) 97%,var(--text));
+  --field22-bg: var(--input-surface);
+  background: var(--canvas); color: var(--text);
+}
+body .work15-pill { margin-right: 10px; background: transparent; color: var(--secondary); }
+body .work15-pill:hover { background: var(--hover); }
+body .work15-pill strong { font-weight: var(--ui-body-weight); color: var(--secondary); }
+body .work15-pill i { width: 4px; height: 4px; background: var(--secondary); }
+body .work15-pill[data-phase-type="work"] i,
+body .work15-pill[data-phase-type="growth"] i { background: var(--green); }
+body .work15-pill[data-phase-type="meeting"] i { background: var(--orange); }
+body .work15-dialog .dialog-head { padding: 20px 24px 16px; }
+body .work15-dialog .dialog-head h2 { font-weight: var(--ui-emphasis-weight); }
+body .work15-tabbar { gap: 24px; }
+body .work15-tabbar button { font-size: var(--type-12); }
+body .work15-tabbar button.active { color: var(--text); border-bottom: 1px solid var(--text); }
+body .work15-tabbar .text-button { color: var(--secondary); }
+body .work15-body { padding: 24px; scrollbar-gutter: stable; }
+body .work15-current-top { gap: 12px; flex-wrap: wrap; font-size: var(--type-11); }
+body .work15-current h3 { font-size: calc(21px * var(--font-scale,1)); line-height: 1.55; font-weight: var(--ui-emphasis-weight); overflow-wrap: anywhere; margin-block: 20px 12px; }
+body .work15-current p { font-size: var(--type-12); line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
+body .work15-dialog > footer { flex-wrap: wrap; gap: 8px; }
+body .work15-phase { gap: 16px; padding: 14px 10px; font-size: var(--type-12); }
+body .work15-phase.active { color: var(--text); background: var(--selected); }
+body .work15-phase time { flex-shrink: 0; }
+body .work15-phase span { overflow-wrap: anywhere; }
+body .work15-note { font-size: var(--type-11); }
+body .work15-queue-head { align-items: flex-start; flex-wrap: wrap; gap: 10px 16px; }
+body .work15-queue-head .segmented { flex-shrink: 0; }
+body .work15-queue-actions { flex-wrap: wrap; }
+body .work15-task { align-items: flex-start; gap: 12px; padding-block: 16px; }
+body .work15-rank { line-height: 1.8; }
+body .work15-task-copy button { white-space: normal; overflow-wrap: anywhere; line-height: 1.7; font-size: var(--type-12); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+body .work15-task-copy p { white-space: normal; overflow-wrap: anywhere; line-height: 1.75; font-size: var(--type-11); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+body .work15-queue-current { flex-shrink: 0; color: var(--secondary); font-size: var(--type-11); line-height: 2; min-width: 48px; text-align: center; }
+body .work15-task .text-button { min-height: 28px; }
+body .work15-preview li { align-items: flex-start; padding-block: 14px; line-height: 1.75; }
+body .work15-dialog .work15-preview input[type="checkbox"] { margin-top: 5px; }
+body .work15-preview-summary { flex-wrap: wrap; gap: 8px 16px; }
+body .work15-import-fields { flex-wrap: wrap; gap: 12px; }
+body .work15-import-fields label { min-width: 140px; }
+body .work15-file { flex-wrap: wrap; gap: 8px; }
+body .work15-file input { max-width: 100%; }
+body .work15-weekdays input:checked + span { background: var(--selected); color: var(--text); border-color: var(--input-line); }
+
+body .workspace:has(> .calendar-layout) > .page-heading,
+body .workspace:has(> .review-content) > .page-heading { padding: 27px 32px 24px; }
+body .workspace > .page-heading h1 { font-weight: var(--ui-emphasis-weight); }
+body .calendar-layout { grid-template-columns: minmax(0,1fr) minmax(235px,28%); align-items: start; }
+body .calendar-main { padding: 0 24px 0 0; }
+body .month-controls { flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+body .month-controls h2 { font-size: calc(16px * var(--font-scale,1)); font-weight: var(--ui-emphasis-weight); font-family: var(--sans); margin-right: auto; }
+body .calendar-weekdays { color: var(--secondary); }
+body .calendar-grid { grid-template-rows: repeat(var(--calendar-weeks,5),minmax(64px,auto)); background: var(--line); border-color: var(--line); }
+body .calendar-day { background: var(--canvas); gap: 5px; min-width: 0; font-family: var(--sans); font-variant-numeric: tabular-nums; }
+body .calendar-day.outside { background: var(--list); color: var(--secondary); }
+body .calendar-day.selected { background: var(--selected); }
+body .calendar-day:hover { background: var(--hover); }
+body .calendar-day.selected .day-number { color: var(--text); }
+body .calendar-day.today .day-number { color: var(--green); background: transparent; text-decoration: underline; text-underline-offset: 5px; }
+body .calendar-day.today.selected .day-number { color: var(--green); background: transparent; }
+body .calendar-day .day-count { color: var(--secondary); white-space: normal; font-size: var(--type-11); }
+body .calendar-legend { color: var(--secondary); line-height: 1.8; font-size: var(--type-11); }
+body .agenda { padding: 4px 0 0 24px; background: transparent; overflow: visible; }
+body .agenda-head h2 { font-family: var(--sans); font-weight: var(--ui-emphasis-weight); font-size: calc(16px * var(--font-scale,1)); }
+body .agenda-items { margin-top: 20px; }
+body .agenda-item { padding-block: 16px; }
+body .agenda-meta { flex-wrap: wrap; gap: 5px; font-variant-numeric: tabular-nums; line-height: 1.6; }
+body .agenda-meta > span:last-child { overflow-wrap: anywhere; }
+body .agenda-cycle { font-size: var(--type-11); line-height: 1.75; color: var(--secondary); margin-top: 7px; }
+body .agenda-item .summary, body .agenda-empty { overflow-wrap: anywhere; line-height: 1.85; }
+body .review-controls-row { gap: 12px; }
+body .review-range { flex-wrap: wrap; gap: 8px; }
+body .review-range .range-error { flex-basis: 100%; margin: 0; }
+body .review-caption { flex-wrap: wrap; gap: 8px 16px; line-height: 1.8; }
+body .review-caption b { font-weight: var(--ui-emphasis-weight); }
+body .review-table td { padding-block: 18px; overflow-wrap: anywhere; }
+body .review-table td > .muted { display: block; margin-top: 6px; font-variant-numeric: tabular-nums; font-size: var(--type-11); }
+body .review-table td.date { font-family: var(--sans); }
+body .temporal-summary { margin-top: 8px; font-size: var(--type-12); color: var(--secondary); line-height: 1.85; overflow-wrap: anywhere; }
+body .temporal-summary > summary { cursor: pointer; }
+body .temporal-summary-label { margin-left: 8px; white-space: nowrap; text-decoration: underline; text-underline-offset: 3px; }
+body .temporal-summary[open] .temporal-summary-preview { display: none; }
+body .temporal-summary .summary { white-space: pre-wrap; max-width: 70ch; }
+body .temporal-table-caption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+body :is(.work15-body,.review-content,.workspace:has(> .calendar-layout)) { scrollbar-color: color-mix(in srgb,var(--text) 20%,transparent) transparent; }
+
+@media (max-width: 1100px) {
+  body .workspace:has(> .calendar-layout) > .page-heading,
+  body .workspace:has(> .review-content) > .page-heading { padding-inline: 24px; }
+  body .calendar-main { padding-right: 18px; }
+  body .agenda { padding-left: 18px; }
+  body .calendar-day { padding: 7px 4px; }
+  body .calendar-legend { max-width: 48ch; }
+}

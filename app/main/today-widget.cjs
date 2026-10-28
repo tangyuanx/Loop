@@ -151,7 +151,7 @@ function resizedWidgetBounds(bounds, workArea, requestedHeight, edge = "bottom")
   };
 }
 
-function applyTodayWidgetTopmost(window, enabled, platform = process.platform) {
+function applyTodayWidgetTopmost(window, enabled, platform = process.platform, { relativeLevel = 1, raise = true } = {}) {
   if (!window || window.isDestroyed()) return;
   const topmost = enabled === true;
   if (platform === "darwin") {
@@ -164,8 +164,8 @@ function applyTodayWidgetTopmost(window, enabled, platform = process.platform) {
     window.setHiddenInMissionControl(topmost);
   }
   const level = topmost ? (platform === "darwin" ? "screen-saver" : "floating") : "normal";
-  window.setAlwaysOnTop(topmost, level, topmost && platform === "darwin" ? 1 : 0);
-  if (topmost && window.isVisible()) window.moveTop();
+  window.setAlwaysOnTop(topmost, level, topmost && platform === "darwin" ? relativeLevel : 0);
+  if (raise && topmost && window.isVisible()) window.moveTop();
 }
 
 async function readTodayWidgetPreferences(userDataPath) {
@@ -196,7 +196,7 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
   let surfaceAnchor = null;
   let surfaceContent = { width: 286, height: 425 };
   let surfacePanel = null;
-  let surfaceOpenedAt = 0;
+  let openingSurface = false;
   // True while the pointer sits in the transparent shadow ring rather than on
   // the panel; the window then forwards mouse events to whatever is behind it.
   let widgetRingOutside = false;
@@ -212,6 +212,9 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
   let resizeSaveTimer = null;
   let suppressMoveUntil = 0;
   let editingText = false;
+  let preferenceWrite = Promise.resolve();
+  let surfaceBusy = false;
+  let surfaceGeneration = 0;
   const pendingCompletions = new Map();
   const pendingMutations = new Map();
 
@@ -236,9 +239,11 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
   }
 
   function persistPreferences() {
-    return writeTodayWidgetPreferences(app.getPath("userData"), preferences).catch((error) => {
+    const value = { ...preferences };
+    preferenceWrite = preferenceWrite.then(() => writeTodayWidgetPreferences(app.getPath("userData"), value)).catch((error) => {
       console.error("Failed to persist Today widget preferences.", error);
     });
+    return preferenceWrite;
   }
 
   function activeDisplay() {
@@ -266,7 +271,8 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
   // same way, growing away from the anchored edge).
   function applyContentSize(content, options = {}) {
     if (!widgetWindow || widgetWindow.isDestroyed()) return;
-    const height = Math.max(40, Math.min(900, Math.round(Number(content?.height) || currentContent.height)));
+    const measured = !preferences.compact && !preferences.autoHeight ? preferences.height : Number(content?.height) || currentContent.height;
+    const height = Math.max(40, Math.min(900, Math.round(measured)));
     // Width follows the mode, never the measurement: the panel is `width:100%`
     // of the window, so echoing its measured width back would freeze the window
     // at whatever width it currently has.
@@ -313,7 +319,11 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
     // A topmost or NSPanel-level widget can cover native IME candidates. While
     // text is being edited, keep this focused window at the normal OS level;
     // the system input-method panel can then render above it.
-    applyTodayWidgetTopmost(widgetWindow, preferences.alwaysOnTop && !editingText, process.platform);
+    const hasSurface = Boolean(surfacePayload && surfaceWindow && !surfaceWindow.isDestroyed());
+    applyTodayWidgetTopmost(widgetWindow, preferences.alwaysOnTop && !editingText, process.platform, { raise: !hasSurface });
+    if (hasSurface) {
+      applyTodayWidgetTopmost(surfaceWindow, preferences.alwaysOnTop, process.platform, { relativeLevel: 2 });
+    }
   }
 
   function restoreAlwaysOnTopAfterAppDeactivation() {
@@ -476,6 +486,7 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
   }
 
   async function hideWidget() {
+    closeSurface("hide");
     preferences = { ...preferences, visible: false };
     widgetRingOutside = false;
     editingText = false;
@@ -502,6 +513,10 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
     if (raw.position || Object.hasOwn(raw, "compact") || resetFrame) positionWidget();
     await persistPreferences();
     broadcastState();
+    if (surfacePayload?.kind === "settings") {
+      const next = surfacePayloadFor("settings", "");
+      if (JSON.stringify(next) !== JSON.stringify(surfacePayload)) { surfacePayload = next; sendSurfacePayload(); }
+    }
     return widgetState();
   }
 
@@ -547,10 +562,10 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
     preferences = { ...preferences, frameAnchor: { x: anchor.x, y: edge === "top" ? "bottom" : "top" } };
     suppressMoveUntil = Date.now() + 350;
     widgetWindow.setBounds(nextBounds, false);
+    broadcastState();
     clearTimeout(resizeSaveTimer);
     resizeSaveTimer = setTimeout(() => {
       void persistPreferences();
-      broadcastState();
     }, 180);
     return widgetState();
   }
@@ -558,6 +573,12 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
   function publishSnapshot(value) {
     snapshot = normalizeSnapshot(value);
     if (widgetWindow && !widgetWindow.isDestroyed()) widgetWindow.webContents.send("today-widget:snapshot", snapshot);
+    if (surfacePayload) {
+      const { kind, task } = surfacePayload;
+      const next = surfacePayloadFor(kind, task?.id);
+      if (kind !== "settings" && next.task.index < 0 && !surfaceBusy) closeSurface("removed");
+      else { surfacePayload = next; sendSurfacePayload(); }
+    }
   }
 
   async function requestMainMutation(channel, payload) {
@@ -582,7 +603,7 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
     pendingMutations.delete(requestId);
     pending.resolve({
       success: value?.success === true,
-      code: ["CREATED", "UPDATED", "PROMOTED", "DELETED", "DELETE_CANCELLED", "MOVED", "BOUNDARY", "INVALID_LANE", "INVALID_DIRECTION", "INVALID_POSITION", "TASK_NOT_FOUND", "GROUP_NOT_FOUND", "INVALID_TITLE", "TIMEOUT"].includes(value?.code)
+      code: ["CREATED", "UPDATED", "PROMOTED", "DELETED", "DELETE_CANCELLED", "DELETE_FAILED", "MOVED", "BOUNDARY", "INVALID_LANE", "INVALID_DIRECTION", "INVALID_POSITION", "TASK_NOT_FOUND", "GROUP_NOT_FOUND", "INVALID_TITLE", "TIMEOUT", "SAVE_FAILED"].includes(value?.code)
         ? value.code
         : "TASK_NOT_FOUND",
       taskId: normalizeTaskId(value?.taskId),
@@ -761,6 +782,7 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
   function createSurfaceWindow() {
     if (surfaceWindow && !surfaceWindow.isDestroyed()) return surfaceWindow;
     surfaceWindow = new BrowserWindow({
+      parent: widgetWindow,
       width: 320,
       height: 240,
       frame: false,
@@ -794,9 +816,9 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
       applySurfacePassthrough();
     });
     surfaceWindow.on("blur", () => {
-      // Opening the window itself fires blur on some platforms; only a real
-      // outside click should dismiss the surface.
-      if (Date.now() - surfaceOpenedAt < 260) return;
+      // Ignore only the synchronous opening transition. A timed grace period
+      // also swallowed a user's first outside click immediately after opening.
+      if (openingSurface || !surfacePayload || surfaceWindow.isFocused()) return;
       closeSurface("blur");
     });
     surfaceWindow.on("closed", () => {
@@ -814,8 +836,10 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
   }
 
   function openSurface(kind, taskId, anchor, panel) {
+    if (surfaceBusy) return { success: false, code: "BUSY" };
     if (!SURFACE_KINDS.has(kind)) return { success: false, code: "INVALID_SURFACE" };
     if (!widgetWindow || widgetWindow.isDestroyed()) return { success: false, code: "NO_WIDGET" };
+    const generation = ++surfaceGeneration;
     if (anchor && typeof anchor === "object") {
       const bounds = widgetWindow.getBounds();
       surfaceAnchor = {
@@ -838,41 +862,50 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
     seedSurfaceContent(kind);
     const window = createSurfaceWindow();
     const bounds = surfaceBounds(kind, surfaceContent);
-    surfaceOpenedAt = Date.now();
     window.setBounds(bounds, false);
-    applyTodayWidgetTopmost(window, preferences.alwaysOnTop, process.platform);
+    applyAlwaysOnTop();
+    const reveal = () => {
+      openingSurface = true;
+      try { window.show(); window.focus(); applyAlwaysOnTop(); }
+      finally { openingSurface = false; }
+    };
     const before = window.webContents.isLoadingMainFrame() || !window.webContents.getURL();
     if (before) {
       window.webContents.once("did-finish-load", () => {
+        if (generation !== surfaceGeneration || !surfacePayload) return;
         sendSurfacePayload();
         window.setBounds(surfaceBounds(kind, surfaceContent), false);
-        window.show();
-        window.focus();
+        reveal();
       });
     } else {
       sendSurfacePayload();
-      window.show();
-      window.focus();
+      reveal();
     }
     notifyWidgetSurface(kind, { taskId: String(taskId || "") });
     return { success: true };
   }
 
   function closeSurface(reason = "") {
+    if (surfaceBusy) return { success: false, code: "BUSY" };
     const payload = surfacePayload;
+    // Native blur and the widget's pointerdown may close the same panel. A
+    // second close must never steal focus from the clicked destination.
+    if (!payload) return { success: true };
+    const generation = ++surfaceGeneration;
     if (!surfaceWindow || surfaceWindow.isDestroyed()) {
       surfacePayload = null;
       notifyWidgetSurface("", payload ? { returnFocus: surfaceReturnFocusSelector(payload.kind, payload.task?.id) } : undefined);
       return { success: true };
     }
-    const returnFocus = payload ? surfaceReturnFocusSelector(payload.kind, payload.task?.id) : "";
+    const restoreFocus = !["blur", "outside", "hide", "removed"].includes(reason);
+    const returnFocus = restoreFocus ? surfaceReturnFocusSelector(payload.kind, payload.task?.id) : "";
     surfacePayload = null;
     surfaceWindow.hide();
     // Hiding the panel hands activation back to the widget window; the focus
     // target is only meaningful once that window is key again.
-    if (widgetWindow && !widgetWindow.isDestroyed() && preferences.visible) {
+    if (restoreFocus && widgetWindow && !widgetWindow.isDestroyed() && preferences.visible) {
       widgetWindow.focus();
-      setTimeout(() => notifyWidgetSurface("", { returnFocus, reason }), 30);
+      setTimeout(() => { if (generation === surfaceGeneration) notifyWidgetSurface("", { returnFocus, reason }); }, 30);
     } else {
       notifyWidgetSurface("", { returnFocus, reason });
     }
@@ -970,7 +1003,7 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
     }
     if (action === "confirm-delete") {
       const result = await requestMainMutation("today-widget:delete-quick-capture", { taskId });
-      if (result?.code !== "DELETE_CANCELLED") {
+      if (result?.success) {
         closeSurface("action");
         if (result?.success) widgetToast("速记已删除");
       }
@@ -1128,9 +1161,18 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
       surfaceWindow.setBounds(surfaceBounds(surfacePayload.kind, surfaceContent), false);
       return { success: true };
     });
-    ipcMain.handle("widget-surface:act", (event, payload) => {
+    ipcMain.handle("widget-surface:act", async (event, payload) => {
       if (!isSurfaceSender(event)) return rejectUnknownSender("widget-surface:act");
-      return handleSurfaceAction(payload);
+      if (surfaceBusy) return { success: false, code: "BUSY" };
+      const mutation = ["move-up", "move-down", "to-today", "to-quick", "promote-group", "confirm-delete"].includes(payload?.action);
+      if (!mutation) return handleSurfaceAction(payload);
+      surfaceBusy = true;
+      try {
+        const result = await handleSurfaceAction(payload);
+        surfaceBusy = false;
+        if (result?.success) closeSurface("action");
+        return result;
+      } finally { surfaceBusy = false; }
     });
     ipcMain.handle("widget-surface:close", (event, payload) => {
       if (!isSurfaceSender(event)) return rejectUnknownSender("widget-surface:close");
