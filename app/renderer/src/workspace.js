@@ -435,7 +435,12 @@ function shellLayoutRecordWindow(position = state.nodeDetailPosition) {
   const flow = document.querySelector(".flow-pane")?.getBoundingClientRect();
   const margin = 16;
   const left = position?.x ?? (workspace ? workspace.right - panel.offsetWidth - 24 : (innerWidth - panel.offsetWidth) / 2);
-  const top = position?.y ?? (flow ? flow.top + 54 : (innerHeight - panel.offsetHeight) / 2);
+  // Prefer the space above the flow when the full float fits there, so the
+  // completed filter and node locator remain reachable without moving it.
+  const defaultTop = flow
+    ? (flow.top >= panel.offsetHeight + margin + 12 ? flow.top - panel.offsetHeight - 12 : flow.top + 54)
+    : (innerHeight - panel.offsetHeight) / 2;
+  const top = position?.y ?? defaultTop;
   const x = Math.max(margin, Math.min(innerWidth - panel.offsetWidth - margin, left));
   const y = Math.max(margin, Math.min(innerHeight - panel.offsetHeight - margin, top));
   panel.style.left = `${x}px`;
