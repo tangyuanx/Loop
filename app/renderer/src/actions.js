@@ -2013,6 +2013,8 @@ function shellBindNodeRecord() {
     history.after = snapshot();
   });
   editor.addEventListener("blur", () => {
+    history.at = 0;
+    history.after = null;
     flushNodeNoteDrafts?.({ persist: true });
   });
   editor.addEventListener("keydown", (event) => {
