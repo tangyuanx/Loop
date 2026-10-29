@@ -29,3 +29,25 @@ jobs:
             services/bug-report/package-lock.json
       - run: npm ci
       - run: npm run check
+
+  node-records:
+    name: Node records (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:milkdown
+      - run: npm run build:knowledge
+      - name: Verify inline records and existing node interactions
+        run: |
+          node tests/node-inline-record.ui.cjs
+          npm run test:ui:node-interactions
+          npm run test:ui:flow-filter

@@ -235,7 +235,7 @@ function renderShellFlowNode(task, node, depth = 0) {
   const nested = hasChildren
     ? `<div class="flow-branch" data-branch-node="${escAttr(node.id)}" data-expanded="${!node.collapsed}" ${node.collapsed ? 'inert aria-hidden="true"' : ""}>${keepChildren ? `<ol class="flow-children">${children.map((child) => renderShellFlowNode(task, child, depth + 1)).join("")}</ol>` : ""}</div>`
     : "";
-  return `<li class="flow-item" data-flow-id="${escAttr(node.id)}" data-flow-depth="${depth}">${body}${nested}</li>`;
+  return `<li class="flow-item" data-flow-id="${escAttr(node.id)}" data-flow-depth="${depth}">${body}${selected ? renderShellNodeRecord(task, node) : ""}${nested}</li>`;
 }
 
 function shellFlowDepth(nodes) {
@@ -248,7 +248,6 @@ function renderShellFlow(task) {
   // it so cancelling a blank draft in place can reveal the same entry again.
   const empty = !list.length || (list.length === 1 && list[0].id === state.focusNodeTitleId);
   const pending = list.filter((node) => node.status === "todo" || node.status === "blocked");
-  const selected = list.find((node) => node.id === state.selectedNodeId);
   const roots = sort(task.nodes || []);
   const addButton = `<button class="add-node" type="button" data-action="add-root-node" data-task-id="${escAttr(task.id)}">${shellIcon("plus")}添加节点</button>`;
   return `<section class="flow-pane${empty ? " flow-empty" : ""}" aria-label="层级处理流">
@@ -268,8 +267,7 @@ function renderShellFlow(task) {
       ${shellHideCompletedNodes && list.length && list.every((node) => !shellFlowNodeVisible(node)) ? '<p class="flow-filter-empty" role="status">所有节点均已完成，已隐藏</p>' : ""}
       ${empty ? "" : addButton}
     </div>
-    </section>
-    ${selected ? renderShellInspector(task, selected) : ""}`;
+    </section>`;
 }
 
 // ------------------------------------------------------------
@@ -301,18 +299,14 @@ function renderShellRecord(note) {
   }).join("");
 }
 
-function renderShellInspector(task, node) {
-  const head = `<header class="inspector-head">${shellIcon("note")}处理记录<div class="inspector-head-actions">
-    <button class="icon-button" type="button" data-action="open-node-operations" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" aria-label="${escAttr(node.title)}的节点操作" aria-haspopup="menu">${shellIcon("more")}</button>
-    <button class="icon-button" type="button" data-action="toggle-node-reading" aria-label="${state.nodeDetailFullscreen ? "退出阅读" : "展开阅读"}" aria-pressed="${state.nodeDetailFullscreen}">${shellIcon(state.nodeDetailFullscreen ? "panel" : "note")}</button>
-    <button class="icon-button" type="button" data-action="close-node-detail" aria-label="关闭节点详情">${shellIcon("close")}</button>
-  </div></header>`;
+function renderShellNodeRecord(task, node) {
   const record = nodeNoteDrafts.get(noteDraftKey(task.id, node.id))?.markdown ?? node.note ?? "";
-  const body = `<div class="inspector-body">
-    <div class="record-context"><span title="${escAttr(shellNodePath(task, node.id).map(n => n.title).join(" / "))}">${esc(node.title || "未命名节点")}</span></div>
+  return `<section class="node-inline-record" data-node-id="${escAttr(node.id)}" aria-label="处理记录：${escAttr(node.title)}">
+    <div class="node-inline-record-head"><label for="record-draft">处理记录</label>
+      <button class="icon-button" type="button" data-action="close-node-detail" aria-label="收起处理记录">${shellIcon("close")}</button>
+    </div>
     <textarea class="record-editor" id="record-draft" data-shell-node-record="${escAttr(node.id)}" aria-label="处理记录：${escAttr(node.title)}" placeholder="记录处理过程、验证结果与下一步…">${esc(record)}</textarea>
-  </div>`;
-  return `<aside class="inspector inspector-record-only" data-node-id="${escAttr(node.id)}" aria-label="节点详情">${head}${body}</aside>`;
+  </section>`;
 }
 
 // ------------------------------------------------------------
@@ -432,22 +426,9 @@ function shellBeforeRender() {
   }
 }
 
-function shellLayoutInspector() {
-  const reading = state.nodeDetailFullscreen === true;
-  const panel = document.querySelector(".inspector");
-  const content = document.querySelector(".tab-content");
-  const pane = document.querySelector(".flow-pane");
-  if (pane) pane.inert = Boolean(panel && reading);
-  content?.classList?.toggle("flow-reading", Boolean(panel && reading));
-  if (panel) panel.classList?.toggle("flow-drawer", Boolean(window.matchMedia?.("(max-width:1100px)").matches) && !reading);
-}
-
-window.addEventListener("resize", shellLayoutInspector);
-
 function shellAfterRender() {
   const task = shellActiveTask();
-  const panel = document.querySelector(".inspector");
-  shellLayoutInspector();
+  const panel = document.querySelector(".node-inline-record");
   if (panel) {
     let fresh = panel.querySelector("[data-shell-node-record]");
     const cached = shellRecordEditors.get(`${task?.id}:${state.selectedNodeId}`);
@@ -541,8 +522,6 @@ function renderShellHistory(task) {
 
 function renderShellWorkspace(task) {
   if (!task) return renderShellEmptyWorkspace();
-  const reading = state.nodeDetailFullscreen === true;
-  const selected = shellNodeList(task).find((node) => node.id === state.selectedNodeId);
   const pane = state.taskPane === "notes" ? "notes" : state.taskPane === "history" ? "history" : "flow";
   return `<div class="task-heading">
       <div class="task-heading-main">${renderShellTaskTitle(task)}${pane === "notes" ? renderWorkbenchContext(task) : renderShellTaskProperties(task)}</div>
@@ -553,7 +532,7 @@ function renderShellWorkspace(task) {
     </div>
     ${pane === "notes" ? renderWorkbenchDetails(task) : renderShellBrief(task)}
     ${pane === "notes" ? "" : renderShellTabs(task)}
-    <div class="tab-content ${reading ? "flow-reading" : ""}">
+    <div class="tab-content">
       ${pane === "flow" ? renderShellFlow(task) : pane === "notes" ? renderShellNotes(task) : renderShellHistory(task)}
     </div>
     ${pane === "notes" ? "" : renderShellWorkspaceFooter(pane)}
@@ -566,7 +545,7 @@ function renderShellWorkspaceFooter(pane = "") {
     ? knowledgeSavePresentation(task).shortcut : '⌘ / Ctrl + S 保存笔记';
   return `<footer class="workspace-foot">
     <div data-workspace-status>${renderWorkspaceStatus()}</div>
-    ${pane ? `<span class="foot-shortcut">${pane === "notes" ? shortcut : "拖动节点调整层级 · Esc 关闭详情"}</span>` : ""}
+    ${pane ? `<span class="foot-shortcut">${pane === "notes" ? shortcut : "拖动节点调整层级 · Esc 收起记录"}</span>` : ""}
   </footer>`;
 }
 

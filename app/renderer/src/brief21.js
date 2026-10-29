@@ -104,7 +104,7 @@ function brief21SetupFlowBrief() {
     return;
   }
   const drawer = Boolean(document.querySelector(".inspector.flow-drawer"));
-  const expanded = !drawer && (BRIEF21_EXPANDED.get(state.activeTaskId) ?? !state.selectedNodeId);
+  const expanded = !drawer && (BRIEF21_EXPANDED.get(state.activeTaskId) ?? true);
   brief.id = `brief21-task-${state.activeTaskId}`;
   brief.hidden = !expanded;
   let toggle = document.querySelector(".brief21-toggle");
