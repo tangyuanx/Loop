@@ -2037,6 +2037,7 @@ function shellBindNodeRecord() {
     const node = shellNodeList(task).find((item) => item.id === editor.dataset.shellNodeRecord);
     if (!node) return;
     updateNodeNoteDraft(task.id, node.id, editor.value);
+    shellSyncNodeRecordMeta(editor, now());
     history.after = snapshot();
   });
   editor.addEventListener("blur", () => {

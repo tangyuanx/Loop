@@ -302,13 +302,34 @@ function renderShellRecord(note) {
 
 function renderShellNodeRecord(task, node) {
   const record = nodeNoteDrafts.get(noteDraftKey(task.id, node.id))?.markdown ?? node.note ?? "";
+  const updatedAt = node.updatedAt || node.createdAt;
+  const status = Object.hasOwn(SHELL_NODE_STATUS_LABELS, node.status) ? node.status : "todo";
   return `<section class="node-record-window" role="dialog" aria-modal="false" aria-labelledby="node-record-window-title" data-node-id="${escAttr(node.id)}">
     <header class="node-record-window-head" data-record-window-handle>
-      <div><span>处理记录</span><h2 id="node-record-window-title">${esc(node.title || "未命名节点")}</h2></div>
-      <button class="icon-button" type="button" data-action="close-node-detail" aria-label="关闭节点详情">${shellIcon("close")}</button>
+      <h2 id="node-record-window-title" title="${escAttr(node.title || "未命名节点")}">${esc(node.title || "未命名节点")}</h2>
     </header>
-    <textarea class="record-editor" id="record-draft" data-shell-node-record="${escAttr(node.id)}" aria-label="处理记录：${escAttr(node.title)}" placeholder="记录处理过程、验证结果与下一步…">${esc(record)}</textarea>
+    <textarea class="record-editor" id="record-draft" data-shell-node-record="${escAttr(node.id)}" aria-label="处理记录：${escAttr(node.title)}">${esc(record)}</textarea>
+    <footer class="node-record-window-foot">
+      <div class="node-record-window-meta"><span class="node-record-window-status ${status}"><i aria-hidden="true"></i>${esc(shellNodeStatusLabel(status))}</span><span aria-hidden="true">·</span><time data-record-updated-at datetime="${escAttr(updatedAt || "")}">${esc(shellNodeRecordTime(updatedAt))}</time></div>
+      <span data-record-count>${Array.from(record).length} 字</span>
+    </footer>
   </section>`;
+}
+
+function shellNodeRecordTime(value) {
+  if (!safeDate(value)) return "";
+  return `${isToday(value) ? "今天" : shellDisplayDate(value)} ${shellTimeLabel(value)}`;
+}
+
+function shellSyncNodeRecordMeta(editor, updatedAt) {
+  const panel = editor.closest(".node-record-window");
+  const count = panel?.querySelector("[data-record-count]");
+  if (count) count.textContent = `${Array.from(editor.value).length} 字`;
+  const time = panel?.querySelector("[data-record-updated-at]");
+  if (time && updatedAt) {
+    time.dateTime = updatedAt;
+    time.textContent = shellNodeRecordTime(updatedAt);
+  }
 }
 
 // ------------------------------------------------------------
