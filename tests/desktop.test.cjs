@@ -4631,13 +4631,20 @@ test("shell node record input persists through autosave and blur after switching
     state.activeTaskId = "shell-record-task";
     state.selectedNodeId = "first";
     globalThis.recordHandlers = {};
+    globalThis.recordMetaCount = { textContent: "" };
+    globalThis.recordMetaTime = { textContent: "", dateTime: "" };
+    globalThis.recordPanel = { querySelector: selector => selector === "[data-record-count]" ? recordMetaCount : selector === "[data-record-updated-at]" ? recordMetaTime : null };
     globalThis.recordEditor = { dataset: { shellNodeRecord: "first" }, value: "自动保存内容",
+      closest: selector => selector === ".node-record-window" ? recordPanel : null,
       addEventListener: (event, callback) => { recordHandlers[event] = callback; } };
     document.querySelector = selector => selector === "[data-shell-node-record]" ? recordEditor : null;
     render = () => { throw new Error("Record input must not rebuild the editor"); };
     shellBindNodeRecord();
     recordHandlers.input();
   `);
+  assert.equal(harness.evaluate(`recordMetaCount.textContent`), "6 字");
+  assert.match(harness.evaluate(`recordMetaTime.textContent`), /\d{2}:\d{2}$/);
+  assert.ok(Number.isFinite(harness.evaluate(`Date.parse(recordMetaTime.dateTime)`)));
   assert.equal(harness.evaluate(`state.tasks[0].nodes[0].note`), "原记录", "the draft must differ from saved content until flushed");
   assert.equal(harness.evaluate(`flushNodeNoteDraft(noteDraftKey("shell-record-task", "first"), { persist: true })`), true);
   assert.equal(JSON.parse(harness.storageValue("task-flow-sheet-prototype-v2"))[0].nodes[0].note, "自动保存内容");
