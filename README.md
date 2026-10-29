@@ -95,16 +95,9 @@ Windows:
 npm run dist:win
 ```
 
-仓库内置 GitHub Actions。推送到 `main`、创建 `v*` 标签，或手动触发 workflow 后，会分别在 macOS 和 Windows runner 上构建桌面安装包，并上传为 workflow artifacts。
+版本发布统一遵循 [`RELEASE.md`](RELEASE.md)：本地针对性测试与真实应用验收，更新版本并推送 main 和 `v*` 标签，再由云端完成完整检查、双平台打包、实际包测试和发布文件校验。常规发布不重复本地双平台打包。
 
-创建正式下载版本：
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-标签推送后，`Release Desktop Apps` workflow 会自动构建 macOS 和 Windows 安装包，并上传到 GitHub Release。Windows 安装包允许选择安装目录；为保持旧版原位升级兼容，内部安装目录继续使用 `Personal Task Track`，可见的软件名、快捷方式、程序文件和图标均为 Loop。
+`main`、PR 和手动触发的 `Check Desktop Apps` 负责应用检查；纯 Markdown / `docs/` 提交自动跳过。标签触发的 `Release Desktop Apps` 在所有门禁通过后公开 GitHub Release。Windows 安装包允许选择安装目录；为保持旧版原位升级兼容，内部安装目录继续使用 `Personal Task Track`，可见的软件名、快捷方式、程序文件和图标均为 Loop。
 
 ## 数据说明
 

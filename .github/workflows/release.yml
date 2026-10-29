@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   prepare:
-    name: Prepare unpublished release
+    name: Check source and prepare unpublished release
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -25,6 +25,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            services/bug-report/package-lock.json
+      - run: npm ci
+      - name: Check source once before platform builds
+        run: npm run check
       - run: node tools/release-draft.cjs prepare
         id: draft
         env:
@@ -70,12 +77,14 @@ jobs:
           restore-keys: packaging-${{ runner.os }}-
       - name: Install dependencies
         run: npm ci
-      - name: Check JavaScript
-        run: npm run check
       - name: Build app
         run: ${{ matrix.script }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Check native desktop behavior
+        # Keep OS-dependent storage and window checks without repeating the
+        # complete editor builds, service checks and source suite per platform.
+        run: node --test tests/desktop.test.cjs
       - name: Cache historical Windows upgrade installers
         if: matrix.platform == 'Windows'
         uses: actions/cache@v4
