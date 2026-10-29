@@ -35,6 +35,10 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
       assert.equal(await page.locator('.flow-node-drop-guide').count(), 1);
     };
     const target = async (id, placement) => {
+      // Inline records add vertical space. Aim at a visible row, away from
+      // the auto-scroll edge, rather than using coordinates below the viewport.
+      await row(id).evaluate(el => el.scrollIntoView({ block: 'center' }));
+      await settle();
       const box = await row(id).boundingBox();
       const ratio = placement === 'before' ? .18 : placement === 'after' ? .82 : .5;
       await page.mouse.move(box.x + Math.min(90, box.width / 2), box.y + box.height * ratio, { steps: 3 });
@@ -111,6 +115,7 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
     // Descendant cycles and cancelled gestures cannot mutate the tree.
     const unchanged = await tree();
     await begin('a');
+    await row('ax').evaluate(el => el.scrollIntoView({ block: 'center' })); await settle();
     const descendant = await row('ax').boundingBox();
     await page.mouse.move(descendant.x + 80, descendant.y + descendant.height / 2);
     assert.match(await page.locator('.flow-node-drop-guide').innerText(), /不能移动到自身或自己的子节点/);
@@ -123,6 +128,7 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
 
     // Empty flow space promotes a subtree to the root end.
     await begin('c');
+    await page.locator('.add-node').scrollIntoViewIfNeeded(); await settle();
     const end = await page.locator('.add-node').boundingBox();
     await page.mouse.move(end.x + 30, end.y + end.height / 2);
     await page.waitForFunction(() => flowNodeDragState?.root);
