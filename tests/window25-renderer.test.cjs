@@ -55,7 +55,8 @@ function header(platform = 'darwin', delayedState = false) {
     brand.append(new Node('icon-button nav-toggle', { 'data-action': 'toggle-nav' }));
     const slot = new Node('brand-update-slot', { 'data-brand-update-slot': '' });
     slot.append(new Node('brand-update', { 'data-action': 'open-update-panel' }));
-    brand.append(slot); next.append(brand); return next;
+    const footer = new Node('nav-bottom'); footer.append(slot);
+    next.append(brand); next.append(footer); return next;
   };
   const createBar = () => { const next = new Node('topbar'); next.append(new Node('breadcrumb')); return next; };
   const controls = {
@@ -85,8 +86,8 @@ function assertIdentity(h, platform, collapsed = false) {
   for (const selector of ['.brand', '.nav-toggle', '[data-brand-update-slot]', '.brand-update']) assert.equal(h.all(selector).length, 1, `${selector} exists exactly once`);
   const brand = h.get('.brand'), bar = h.get('.topbar'), toggle = h.get('.nav-toggle'), slot = h.get('[data-brand-update-slot]');
   assert.equal(brand.parentElement, bar);
-  assert.equal(toggle.parentElement, platform === 'darwin' || collapsed ? bar : brand);
-  assert.equal(slot.parentElement, platform !== 'darwin' && collapsed ? bar : brand);
+  assert.equal(toggle.parentElement, brand, 'navigation toggle stays at the right of the brand');
+  assert.equal(slot.parentElement, h.get('.nav-bottom'), 'update stays next to settings in the footer');
 }
 test('title identity survives independently replaced navigation and topbar regions on both platforms', async () => {
   for (const platform of ['darwin', 'win32']) {

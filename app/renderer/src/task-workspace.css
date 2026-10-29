@@ -1,29 +1,63 @@
 /* Stage 3 owns the task workspace and the real processing tree. Shared input
  * and focus rules remain in foundation.css, loaded after this surface. */
-body .workspace:has(> .task-heading):not(.knowledge-workspace) {
+body .workspace:has(.task-work-area):not(.knowledge-workspace) {
   --canvas: var(--workspace-canvas); --list: var(--workspace-list); --selected: var(--workspace-selected); --hover: var(--workspace-hover);
   --text: var(--workspace-text); --secondary: var(--workspace-secondary); --line: var(--workspace-line);
   background: var(--canvas); color: var(--text);
 }
-body .workspace > .task-heading { padding: 27px 32px 16px; gap: 14px 20px; }
+body .task-work-area { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
+body .task-work-main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+body .task-work-main > .tab-content { flex: 1; min-height: 0; }
+body .task-work-main > .tabs-bar { padding-inline: 24px; border-top: 0; border-bottom: 1px solid var(--line); box-shadow: none; min-height: 43px; flex-shrink: 0; }
+body .task-info-card { position: absolute; top: 16px; right: 16px; z-index: 12; width: 244px; max-width: calc(100% - 32px); min-width: 0; min-height: 0; max-height: calc(100% - 32px); margin: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-raised); box-shadow: var(--surface-shadow); display: flex; flex-direction: column; overflow: hidden; }
+body .task-info-head { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; min-height: 42px; padding: 6px 10px 6px 14px; gap: 6px; color: var(--text); font-size: var(--type-12); }
+body .task-info-head .icon-button { width: 26px; height: 26px; padding: 6px; color: var(--secondary); border-radius: 5px; }
+body .task-info-head .icon-button:hover { background: var(--hover); color: var(--text); }
+body .task-info-head svg { width: 14px; height: 14px; }
+body .task-info-body { padding: 0 14px 14px; overflow: auto; scrollbar-width: thin; }
+body .task-info-body[hidden] { display: none; }
+body[data-scale20-enabled] .task-info-card .task-properties { flex-wrap: wrap; gap: 8px; overflow: visible; padding: 0 0 8px; }
+body .task-info-card .task-properties .property { font-size: var(--type-11); min-height: 28px; }
+body .task-info-card .task-info-group { display: flex; align-items: center; max-width: 100%; gap: 6px; font-size: var(--type-11); color: var(--secondary); }
+body .task-info-group svg { width: 13px; height: 13px; flex-shrink: 0; }
+body[data-brief21-enabled] .task-work-main > .brief { margin: 0 24px 10px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; max-height: min(180px,24dvh); overflow: auto; flex-shrink: 0; }
+body[data-brief21-enabled] .task-work-main > .brief21-toggle { margin: 16px 24px 4px; min-height: 24px; }
+body[data-brief21-enabled] .task-work-main > .brief21-toggle[aria-expanded="false"] { margin-bottom: 8px; }
+body .task-info-collapsed .task-info-card { width: 30px; height: 30px; border: 0; background: transparent; box-shadow: none; border-radius: 6px; }
+body .task-info-collapsed .task-info-head { min-height: 30px; height: 30px; padding: 0; }
+body .task-info-collapsed .task-info-head .icon-button { width: 30px; height: 30px; padding: 6px; color: var(--text); }
+body .task-info-collapsed .task-info-head svg { width: 18px; height: 18px; }
+body .task-info-collapsed .task-info-head > span { display: none; }
+@media (max-width: 1100px) {
+  body .task-info-card { right: 12px; }
+  body .task-work-main > .tabs-bar { padding-inline: 18px; gap: 16px; }
+}
+body .workspace > .task-heading { padding: 18px 32px 10px; gap: 10px 16px; }
 body .workspace .task-title { font-size: calc(24px * var(--font-scale,1)); line-height: 1.45; letter-spacing: -.025em; }
 body .workspace .title-edit { color: var(--text); }
 body .workspace .title-edit svg { opacity: 0; flex-shrink: 0; }
 body .workspace .title-edit:is(:hover,:focus-visible) svg { opacity: .65; }
-body .task-heading .task-properties { gap: 10px 14px; color: var(--secondary); }
+body .task-heading .task-properties { margin-top: 6px; gap: 6px 12px; color: var(--secondary); }
 body .task-properties .property { font-size: var(--type-11); max-width: 100%; }
-body .task-heading-actions { gap: 6px; padding-top: 3px; flex-shrink: 0; }
+body .task-heading-actions { gap: 6px; padding-top: 0; flex-shrink: 0; }
 body .task-heading-actions .button {
-  border: 0; background: var(--green-soft); color: var(--green);
+  border: 1px solid var(--workspace-line); background: var(--workspace-canvas); color: var(--workspace-text);
   min-height: 32px; border-radius: 7px; box-shadow: none;
-  padding-inline: 12px; font-size: var(--type-11);
+  padding-inline: 9px; font-size: var(--type-11);
 }
-body .task-heading-actions .button:hover { background: color-mix(in srgb,var(--green) 15%,var(--canvas)); }
-body .task-heading-actions .icon-button { border: 0; background: transparent; color: var(--secondary); }
-body[data-brief21-enabled] .workspace > .brief { margin: 2px 32px 24px; }
-body[data-brief21-enabled] .workspace .brief-row { grid-template-columns: 36px minmax(0,1fr); gap: 17px; padding: 3px 0; }
+body .task-heading-actions .button:hover { background: var(--workspace-hover); color: var(--workspace-text); }
+body .task-heading-actions .task-share-action { border-color: transparent; background: transparent; }
+body .task-heading-actions .icon-button { border: 0; background: transparent; color: var(--workspace-text); width: 32px; height: 32px; border-radius: 7px; }
+body .task-heading-actions .icon-button:is(:hover,[aria-expanded="true"]) { background: var(--workspace-selected); }
+body .task-menu-action svg { transform: rotate(90deg); stroke-width: 2.2; }
+body .app > [data-task-menu] { position: fixed; z-index: 90; top: 52px; right: auto; width: 230px; max-width: calc(100vw - 24px); max-height: calc(100dvh - 64px); overflow-y: auto; background: var(--workspace-canvas); color: var(--workspace-text); border: 1px solid var(--workspace-line); border-radius: 10px; box-shadow: var(--surface-shadow); }
+body[data-brief21-enabled] .workspace > .brief { margin: 0 32px 10px; max-height: min(180px,24dvh); }
+body[data-brief21-enabled] .workspace > .brief21-toggle { margin: 0 32px 4px; min-height: 24px; }
+body[data-brief21-enabled] .workspace > .brief21-toggle[aria-expanded="false"] { margin-bottom: 8px; }
+body[data-brief21-enabled] .workspace .brief-row { grid-template-columns: 36px minmax(0,1fr); gap: 12px; padding: 1px 0; }
+body[data-brief21-enabled] .workspace .brief-row label { padding-top: 3px; }
 body .workspace .brief-row label { color: var(--secondary); font-size: var(--type-11); }
-body .workspace .brief21-input { font-size: var(--type-12); line-height: 1.85; }
+body .workspace .brief21-input { min-height: 26px; padding-block: 3px; font-size: var(--type-12); line-height: 1.6; }
 body .workspace > .tabs-bar { padding-inline: 32px; gap: 26px; border-top: 0; border-bottom: 1px solid var(--line); min-height: 43px; }
 body .workspace .pane-tab { color: var(--secondary); height: 43px; font-size: var(--type-12); }
 body .workspace .pane-tab.active { color: var(--text); }
@@ -31,7 +65,7 @@ body .workspace .pane-tab.active::after { height: 1px; bottom: -1px; background:
 body .workspace .pane-count { background: transparent; color: var(--secondary); padding: 0; margin-left: 6px; font-variant-numeric: tabular-nums; }
 body .workspace .tabs-actions { color: var(--secondary); }
 
-body .flow-toolbar { padding-inline: 32px; min-height: 53px; height: auto; color: var(--secondary); flex-wrap: wrap; padding-block: 8px; }
+body .flow-toolbar { padding-inline: 32px; min-height: 43px; height: auto; color: var(--secondary); flex-wrap: wrap; padding-block: 5px; }
 body .flow-toolbar .text-button { color: var(--secondary); font-size: var(--type-11); }
 body .flow-toolbar .text-button:hover { color: var(--text); background: var(--hover); }
 body .flow-scroll { padding: 0 24px 24px; }
@@ -100,6 +134,7 @@ body :is(.flow-scroll,.node-record-window .record-editor,.article-pane) { scroll
   body .task-heading-actions .button { padding-inline: 8px; }
   body .workspace > .tabs-bar, body .flow-toolbar, body .workspace-foot, body .article-pane { padding-inline: 24px; }
   body[data-brief21-enabled] .workspace > .brief { margin-inline: 24px; }
+  body[data-brief21-enabled] .workspace > .brief21-toggle { margin-inline: 24px; }
   body .flow-scroll { padding-inline: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {

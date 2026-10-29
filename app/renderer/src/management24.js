@@ -190,16 +190,16 @@
       const active = shellRoute() === "tasks" && state.activeGroupId === group.id;
       return `
         <div class="group-nav-row">
-          <button class="nav-button ${active ? "active" : ""}" type="button" data-action="select-nav-group" data-group-id="${manage24Attr(group.id)}" title="${manage24Attr(group.title)}" aria-haspopup="menu" aria-current="${active ? "page" : "false"}">
-            <i class="group-mark"></i><span>${manage24Esc(group.title)}</span><span class="count">${shellGroupOpenCount(group.id)}</span>
+          <button class="nav-button ${active ? "active" : ""}" type="button" data-action="select-nav-group" data-group-id="${manage24Attr(group.id)}" title="${manage24Attr(group.title)}" aria-label="分组：${manage24Attr(group.title)}" aria-haspopup="menu" aria-current="${active ? "page" : "false"}">
+            ${state.navCollapsed ? shellIcon("folder") : '<i class="group-mark"></i>'}<span>${manage24Esc(group.title)}</span><span class="count">${shellGroupOpenCount(group.id)}</span>
           </button>
         </div>`;
     }).join("");
     const ungroupedActive = shellRoute() === "tasks" && state.activeGroupId === UNGROUPED_TASKS_GROUP_ID;
     const ungrouped = `
       <div class="group-nav-row">
-        <button class="nav-button ${ungroupedActive ? "active" : ""}" type="button" data-action="select-nav-group" data-group-id="${manage24Attr(UNGROUPED_TASKS_GROUP_ID)}" title="未分组" aria-current="${ungroupedActive ? "page" : "false"}">
-          <i class="group-mark"></i><span>未分组</span><span class="count">${shellGroupOpenCount(UNGROUPED_TASKS_GROUP_ID)}</span>
+        <button class="nav-button ${ungroupedActive ? "active" : ""}" type="button" data-action="select-nav-group" data-group-id="${manage24Attr(UNGROUPED_TASKS_GROUP_ID)}" title="未分组" aria-label="未分组" aria-current="${ungroupedActive ? "page" : "false"}">
+          ${state.navCollapsed ? shellIcon("folder") : '<i class="group-mark"></i>'}<span>未分组</span><span class="count">${shellGroupOpenCount(UNGROUPED_TASKS_GROUP_ID)}</span>
         </button>
       </div>`;
     return `
@@ -314,23 +314,24 @@
   // ---- workspace title -----------------------------------------------------
 
   function manage24TitleHeading(task) {
-    return `<h1 class="task-title"><button class="title-edit" type="button" data-action="edit-task-title" aria-label="编辑${shellTaskIsNote(task) ? "速记" : "任务"}标题">${manage24Esc(task.title)}${shellIcon("edit")}</button></h1>`;
+    return `<h1 class="task-title"><button class="title-edit" type="button" data-action="edit-task-title" aria-label="编辑${shellTaskIsNote(task) ? "速记" : "任务"}标题" title="${escAttr(task.title)}"><span>${manage24Esc(task.title)}</span>${shellIcon("edit")}</button></h1>`;
   }
 
   function manage24RepaintTitleHeading(task) {
-    const heading = document.querySelector(".workspace .task-title");
+    const heading = document.querySelector(".topbar .task-title");
     if (heading) heading.outerHTML = manage24TitleHeading(task);
   }
 
   function manage24ResizeTitle() {
     const el = document.getElementById("manage24-title");
     if (!el) return;
+    if (el.tagName === "INPUT") return;
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
   }
 
   function manage24TitleEditorMarkup(task) {
-    return `<h1 class="task-title"><textarea id="manage24-title" class="manage24-title-input" rows="1" maxlength="160" aria-label="${shellTaskIsNote(task) ? "速记" : "任务"}标题" aria-describedby="manage24-title-error">${manage24Esc(manage24TitleSession.value)}</textarea><p id="manage24-title-error" class="manage24-inline-error" role="status">${manage24Esc(manage24TitleSession.error || "")}</p></h1>`;
+    return `<h1 class="task-title"${manage24TitleSession.width ? ` style="width:${manage24TitleSession.width}px"` : ""}><input id="manage24-title" class="manage24-title-input" type="text" maxlength="160" aria-label="${shellTaskIsNote(task) ? "速记" : "任务"}标题" aria-describedby="manage24-title-error" value="${escAttr(manage24TitleSession.value)}" /><p id="manage24-title-error" class="manage24-inline-error" role="status">${manage24Esc(manage24TitleSession.error || "")}</p></h1>`;
   }
 
   function manage24BeginTitle(task = shellActiveTask()) {
@@ -342,8 +343,8 @@
       if (typeof syncContextMenuRoot === "function") syncContextMenuRoot();
     }
     const draft = manage24TitleDrafts.get(task.id);
-    manage24TitleSession = { id: task.id, value: draft !== undefined ? draft : task.title, before: task.title, error: "" };
-    const heading = document.querySelector(".workspace .task-title");
+    const heading = document.querySelector(".topbar .task-title");
+    manage24TitleSession = { id: task.id, value: draft !== undefined ? draft : task.title, before: task.title, error: "", width: heading?.getBoundingClientRect().width };
     if (heading) heading.outerHTML = manage24TitleEditorMarkup(task);
     const input = document.getElementById("manage24-title");
     input?.focus({ preventScroll: true });
@@ -404,6 +405,11 @@
 
   function manage24StartGroupEdit(groupId) {
     if (!manage24Group(groupId)) return;
+    // A collapsed rail must not squeeze the existing inline name editor.
+    if (state.navCollapsed) {
+      state.navCollapsed = false;
+      try { localStorage.setItem(NAV_COLLAPSED_KEY, "0"); } catch {}
+    }
     state.editingGroupId = groupId;
     state.focusGroupTitleId = "";
     manage24CloseSurface();
@@ -759,6 +765,8 @@
 
   function manage24ShowMove(trigger, task = shellActiveTask()) {
     if (!task) return;
+    const returnFocus = trigger?.matches?.(".shell-group-context")
+      ? ".shell-group-context" : '[data-action="open-task-menu"]';
     state.taskMenuOpen = false;
     state.contextMenu = null;
     if (manage24MoveDraft?.id !== task.id) {
@@ -767,7 +775,7 @@
     render();
     manage24Mount(
       `<form class="surface-popover manage24-panel" id="manage24-move-form" role="dialog" aria-modal="true" aria-label="移动到分组">${shellSurfaceHeader("移动到分组")}<p class="manage24-move-note">${manage24Esc(task.title)}</p><input class="manage24-search" id="manage24-move-search" aria-label="搜索目标分组" placeholder="搜索分组" value="${manage24Attr(manage24MoveDraft.query)}"><div class="manage24-destinations" role="radiogroup" aria-label="目标分组"></div><p class="schedule-hint">只改变归属，今日安排与处理记录保持。</p><p class="manage24-error" role="status" id="manage24-move-error"></p><footer><button type="button" class="button" data-manage24="cancel-move">取消</button><button type="submit" class="button primary">移动</button></footer></form>`,
-      { trigger: trigger || manage24Node('[data-action="open-task-menu"]'), width: 330, returnFocus: '[data-action="open-task-menu"]' },
+      { trigger: manage24Node(returnFocus) || trigger, width: 330, returnFocus },
     );
     manage24DrawDestinations();
     manage24Node("#manage24-move-search")?.focus({ preventScroll: true });

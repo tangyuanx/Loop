@@ -92,7 +92,7 @@
     if (!click) bridge?.cancel(); // Background/later redraws cannot reuse a press.
     const oldTabsElement = document.querySelector('.tabs-bar');
     const oldContentElement = document.querySelector('.tab-content');
-    const oldBriefElement = document.querySelector('.workspace > .brief');
+    const oldBriefElement = document.querySelector('.workspace > .brief, .task-work-main > .brief');
     const oldGroup = click && one(click.selector);
     const oldTabs = rect(oldTabsElement), oldContent = rect(document.querySelector('.tab-content'));
     const interaction = intent && performance.now() - intent.time < 500 ? intent : null;
@@ -135,7 +135,7 @@
           const target = a.effect?.target;
           if (target?.isConnected) continue;
           const replacement = target === oldContentElement ? document.querySelector('.tab-content')
-            : target === oldBriefElement ? document.querySelector('.workspace > .brief') : null;
+            : target === oldBriefElement ? document.querySelector('.workspace > .brief, .task-work-main > .brief') : null;
           if (replacement) {
             const carried = animate(replacement, a.effect.getKeyframes(), a.playState === 'paused', a.effect.getTiming());
             if (carried) { carried.currentTime = a.currentTime; if (a.playState === 'running') carried.startTime = a.startTime; }
@@ -159,7 +159,7 @@
     if (moved && (old.pane !== next.pane || click || interaction)) {
       animate(tabs, [{ transform: `translate(${oldTabs.x-nextTabs.x}px,${oldTabs.y-nextTabs.y}px)` }, { transform: 'translate(0,0)' }], !!operation);
       if (oldContent && nextContent) animate(content, [{ transform: `translate(${oldContent.x-nextContent.x}px,${oldContent.y-nextContent.y}px)` }, { transform: 'translate(0,0)' }], !!operation);
-      const brief = document.querySelector('.workspace > .brief');
+      const brief = document.querySelector('.workspace > .brief, .task-work-main > .brief');
       if (brief && !brief.hidden) animate(brief, [{ opacity: 0 }, { opacity: 1 }], !!operation, { duration: 150, delay: 70 });
     }
     if (operation) {
@@ -195,8 +195,8 @@
       cancelMotion(); applyPreferences();
     },
     settings() {
-      return shellSettingsRow('切换方式', '在布局变化时保持操作位置的连续性。', `<div role="group" aria-label="切换方式"><button class="text-button" type="button" data-continuity28="continuous" aria-pressed="${preferences.continuous}">连续切换</button><button class="text-button" type="button" data-continuity28="original" aria-pressed="${!preferences.continuous}">原有切换</button></div>`) +
-        shellSettingsToggle('操作组移动时跟随鼠标', available ? '仅跟随本次点击造成的位移，主动移动鼠标即可接管。' : '当前平台的原生鼠标接口不可用。', preferences.follow && available, `data-continuity28="follow" ${available ? '' : 'disabled'}`);
+      return shellSettingsRow('切换方式', '', `<div role="group" aria-label="切换方式"><button class="text-button" type="button" data-continuity28="continuous" aria-pressed="${preferences.continuous}">连续切换</button><button class="text-button" type="button" data-continuity28="original" aria-pressed="${!preferences.continuous}">原有切换</button></div>`) +
+        shellSettingsToggle('操作组移动时跟随鼠标', available ? '主动移动鼠标即可接管。' : '当前平台不可用。', preferences.follow && available, `data-continuity28="follow" ${available ? '' : 'disabled'}`);
     },
     preferences: () => ({ ...preferences, available, reduced: reduced.matches }),
   };

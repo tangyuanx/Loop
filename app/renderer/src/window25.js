@@ -54,19 +54,8 @@
   function restoreIdentityOwner() {
     const navigation = document.querySelector(".navigation");
     const brand = document.querySelector(".brand");
-    const bar = document.querySelector(".topbar");
     if (!navigation || !brand) return;
-    const toggle = bar?.querySelector(".nav-toggle") || brand.querySelector(".nav-toggle");
-    const update = bar?.querySelector("[data-brand-update-slot]") || brand.querySelector("[data-brand-update-slot]");
-    if (toggle && toggle.parentElement !== brand) brand.append(toggle);
-    if (update && update.parentElement !== brand) brand.append(update);
     if (brand.parentElement !== navigation) navigation.prepend(brand);
-  }
-
-  function navIsCollapsed() {
-    const app = document.querySelector(".app");
-    if (app) return app.classList.contains("nav-collapsed");
-    return typeof state !== "undefined" && state.navCollapsed === true;
   }
 
   /** The Demo's `.window25-traffic` box: 56px wide, 12px circles, 8px gaps. */
@@ -178,19 +167,8 @@
     if (!bar || !brand) return;
     document.body.dataset.window25 = platform;
     bar.setAttribute("aria-label", "Loop 一体化标题栏");
-    const toggle = brand.querySelector(".nav-toggle");
-    const update = brand.querySelector("[data-brand-update-slot]") || brand.querySelector(".brand-update");
     bar.prepend(brand);
-    if (platform === "mac") {
-      if (toggle) brand.after(toggle);
-      ensureTrafficSpace(brand);
-    } else if (navIsCollapsed()) {
-      if (toggle) brand.after(toggle);
-      if (update) (toggle || brand).after(update);
-    } else if (toggle) {
-      if (update) brand.insertBefore(toggle, update);
-      else brand.append(toggle);
-    }
+    if (platform === "mac") ensureTrafficSpace(brand);
     applyCaptionReservation(bar);
     ensureCaptionSpace(bar);
     renderWindowState();
@@ -227,14 +205,15 @@
   const window25BaseRender = render;
   render = function window25Render() {
     const focused = document.activeElement;
-    const action = focused?.closest?.(".topbar") ? focused.getAttribute("data-action") : null;
+    const action = (focused?.closest?.(".topbar") || focused?.closest?.(".nav-bottom")) ? focused.getAttribute("data-action") : null;
     restoreIdentityOwner();
     window25BaseRender();
     decorate();
     // Root replacement detaches the focused header button. Restore its same
     // action only when the render has not explicitly focused an editor/dialog.
     if (action && (!document.activeElement?.isConnected || document.activeElement === document.body)) {
-      const button = [...(document.querySelector(".topbar")?.querySelectorAll("[data-action]") || [])]
+      const button = [...(document.querySelector(".topbar")?.querySelectorAll("[data-action]") || []),
+        ...(document.querySelector(".nav-bottom")?.querySelectorAll("[data-action]") || [])]
         .find((element) => element.getAttribute("data-action") === action);
       if (!button?.disabled) button?.focus({ preventScroll: true });
     }

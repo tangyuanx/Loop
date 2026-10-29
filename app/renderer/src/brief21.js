@@ -35,7 +35,7 @@ function brief21IsBriefKey(key) {
 function brief21Resize(el) {
   const top = el.scrollTop;
   el.style.height = "0px";
-  el.style.height = `${Math.max(32, Math.min(160, el.scrollHeight))}px`;
+  el.style.height = `${Math.max(26, Math.min(160, el.scrollHeight))}px`;
   el.scrollTop = top;
 }
 
@@ -97,14 +97,15 @@ function brief21Flush(key) {
  * read-only line instead, and reading mode hides both (frozen sheet).
  */
 function brief21SetupFlowBrief() {
-  const brief = document.querySelector(".workspace > .brief");
+  const brief = document.querySelector(".workspace > .brief, .task-work-main > .brief");
   document.querySelector(".scale20-brief-toggle")?.remove();
-  if (!brief || state.taskPane !== "flow") {
+  if (!brief) {
     document.querySelector(".brief21-toggle")?.remove();
     return;
   }
   const drawer = Boolean(document.querySelector(".inspector.flow-drawer"));
-  const expanded = !drawer && (BRIEF21_EXPANDED.get(state.activeTaskId) ?? true);
+  const hasContent = shellBriefFields(shellActiveTask() || {}).some(({ value }) => value.trim());
+  const expanded = !drawer && (BRIEF21_EXPANDED.get(state.activeTaskId) ?? hasContent);
   brief.id = `brief21-task-${state.activeTaskId}`;
   brief.hidden = !expanded;
   let toggle = document.querySelector(".brief21-toggle");
@@ -156,13 +157,14 @@ render = function brief21Render() {
         direction: active.selectionDirection, top: active.scrollTop, briefTop: active.closest(".brief")?.scrollTop ?? 0 }
     : null;
   if (editing) brief21Retain(active);
-  const continuing = cursor?.key.split(":")[0] === state.activeTaskId && state.taskPane !== "notes"
+  const continuing = cursor?.key.split(":")[0] === state.activeTaskId
     && !state.settingsOpen && !state.calendarOpen && !state.reviewOpen ? cursor?.key : null;
   [...BRIEF21_SESSIONS.keys()].filter(key => key !== continuing).forEach(brief21Flush);
   brief21Rendering = true;
   try { brief21PriorRender(); } finally { brief21Rendering = false; }
   brief21SetupFlowBrief();
   brief21ResizeAll();
+  if (typeof shellFitTaskInfoToFlow === "function") shellFitTaskInfoToFlow();
   if (cursor) {
     const el = document.querySelector(`[data-brief21-key="${CSS.escape(cursor.key)}"]`);
     if (el && el.getClientRects().length && state.activeTaskId === cursor.key.split(":")[0]) {
@@ -228,6 +230,7 @@ window.addEventListener("click", (event) => {
 window.addEventListener("resize", () => {
   brief21SetupFlowBrief();
   brief21ResizeAll();
+  if (typeof shellFitTaskInfoToFlow === "function") shellFitTaskInfoToFlow();
 });
 
 document.fonts?.ready.then(brief21ResizeAll);

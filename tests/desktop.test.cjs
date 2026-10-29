@@ -406,6 +406,121 @@ function rendererHarness(personalTaskTrack = undefined) {
     });
 }
 
+test("collapsed navigation keeps group routing and remembers its presentation without changing task data", async () => {
+  const harness = await rendererHarness();
+  const result = await harness.evaluate(`(async () => {
+    state.taskGroups = [{ id: "rail-group", title: "固件排查", order: 1 }];
+    state.tasks = normalizeTasks([{ id: "rail-task", title: "核对缓存", groupId: "rail-group", nodes: [] }]);
+    const before = JSON.stringify(state.tasks);
+    await shellAction({ action: "toggle-nav" }, {});
+    const restored = loadBrowserNavCollapsed();
+    await shellAction({ action: "select-nav-group", groupId: "rail-group" }, {});
+    const collapsed = state.navCollapsed;
+    const activeGroupId = state.activeGroupId;
+    const groups = renderShellGroupNavigation();
+    await shellAction({ action: "toggle-nav" }, {});
+    return { restored, collapsed, activeGroupId, groups, expandedAfterReload: !loadBrowserNavCollapsed(), unchanged: before === JSON.stringify(state.tasks) };
+  })()`);
+  assert.equal(result.restored, true);
+  assert.equal(result.collapsed, true);
+  assert.equal(result.activeGroupId, "rail-group");
+  assert.match(result.groups, /title="固件排查" aria-label="分组：固件排查"/);
+  assert.equal(result.expandedAfterReload, true);
+  assert.equal(result.unchanged, true);
+});
+
+test("task list visibility preserves editing state, scope and scroll without rendering", async () => {
+  const harness = await rendererHarness();
+  harness.evaluate(`
+    state.tasks = normalizeTasks([{ id: "layout-task", title: "缓存排查", nodes: [{ id: "layout-node", title: "检查顺序" }] }]);
+    state.activeTaskId = "layout-task";
+    state.selectedNodeId = "layout-node";
+    state.query = "缓存";
+    state.shellDrafts["layout-task:description"] = "正在编辑的背景";
+    state.taskListCollapsed = false;
+    globalThis.layoutBefore = JSON.stringify([state.tasks, state.activeTaskId, state.selectedNodeId, state.query, state.shellDrafts]);
+    globalThis.layoutList = { scrollTop: 324, scrollLeft: 8 };
+    globalThis.layoutPane = { inert: false, contains: () => false };
+    globalThis.layoutToggle = { attrs: {}, setAttribute(key, value) { this.attrs[key] = value; } };
+    globalThis.layoutClasses = new Map();
+    document.querySelector = selector => selector === "#task-results" ? layoutList
+      : selector === ".task-list-pane" ? layoutPane
+      : selector === '[data-action="toggle-task-list"]' ? layoutToggle
+      : selector === ".app" ? { classList: { toggle: (key, value) => layoutClasses.set(key, value) } } : null;
+    render = () => { throw new Error("Visibility changes must not rebuild the editor"); };
+  `);
+  await harness.evaluate(`action({ action: "toggle-task-list" })`);
+  assert.equal(harness.evaluate(`state.taskListCollapsed && layoutPane.inert && layoutClasses.get("list-collapsed")`), true);
+  assert.equal(harness.evaluate(`layoutToggle.attrs["aria-expanded"]`), "false");
+  assert.equal(harness.evaluate(`loadBrowserTaskListCollapsed()`), true);
+  harness.evaluate(`layoutList.scrollTop = 0; layoutList.scrollLeft = 0;`);
+  await harness.evaluate(`action({ action: "toggle-task-list" })`);
+  assert.deepEqual(harness.json(`[layoutList.scrollTop, layoutList.scrollLeft]`), [324, 8]);
+  assert.equal(harness.evaluate(`!state.taskListCollapsed && !layoutPane.inert && !loadBrowserTaskListCollapsed()`), true);
+  assert.equal(harness.evaluate(`layoutBefore === JSON.stringify([state.tasks, state.activeTaskId, state.selectedNodeId, state.query, state.shellDrafts])`), true);
+  await harness.evaluate(`action({ action: "toggle-task-list" })`);
+  harness.evaluate(`state.query = "另一个范围"; layoutList.scrollTop = 17;`);
+  await harness.evaluate(`action({ action: "toggle-task-list" })`);
+  assert.equal(harness.evaluate(`layoutList.scrollTop`), 17, "changing scope does not restore the old scope's viewport");
+});
+
+test("topbar shows a read-only task path and editable title, without duplicate settings or completion", async () => {
+  const harness = await rendererHarness();
+  harness.evaluate(`
+    state.taskGroups = [{ id: "header-group", title: "固件排查", order: 1 }];
+    state.tasks = normalizeTasks([{ id: "header-task", title: "核对缓存", groupId: "header-group", nodes: [] }]);
+    state.activeTaskId = "header-task";
+    state.activeGroupId = ALL_TASKS_GROUP_ID;
+  `);
+  const topbar = harness.evaluate(`renderShellTopbar()`);
+  assert.match(topbar, /aria-label="任务分组：固件排查"/);
+  assert.doesNotMatch(topbar, /shell-route-name/);
+  assert.match(topbar, /data-action="edit-task-title"/);
+  assert.doesNotMatch(topbar, /data-action="toggle-task-group-select"/);
+  assert.match(topbar, /data-action="share-task" data-task-id="header-task"/);
+  assert.doesNotMatch(topbar, /data-action="(?:toggle-task-done|toggle-settings)"/);
+  assert.match(topbar, /data-action="toggle-task-list"/);
+  assert.doesNotMatch(harness.evaluate(`renderShellTaskProperties(shellActiveTask())`), /toggle-task-group-select/);
+  harness.evaluate(`state.settingsOpen = true;`);
+  const settings = harness.evaluate(`renderShellTopbar()`);
+  assert.doesNotMatch(settings, /data-action="(?:share-task|toggle-task-done|toggle-task-list)"/);
+  assert.doesNotMatch(settings, /data-action="(?:toggle-settings|edit-task-title)"/);
+});
+
+test("search shortcut reveals a hidden task list before requesting input focus", async () => {
+  const harness = await rendererHarness();
+  harness.evaluate(`
+    state.taskListCollapsed = true;
+    state.query = "查找";
+    render = () => { globalThis.listAtSearchRender = state.taskListCollapsed; };
+  `);
+  let prevented = false;
+  harness.dispatch("keydown", { key: "k", metaKey: true, target: null, preventDefault() { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(harness.evaluate(`listAtSearchRender`), false);
+  assert.equal(harness.evaluate(`state.focusSearch && state.searchCursor === 2`), true);
+});
+
+test("topbar task menu is clamped, focuses once and toggles closed to its trigger", async () => {
+  const harness = await rendererHarness();
+  harness.evaluate(`
+    globalThis.menuFocusCount = 0;
+    globalThis.triggerFocusCount = 0;
+    globalThis.testMenu = { style: {}, offsetWidth: 230, offsetHeight: 340, remove() {},
+      querySelector: () => ({ focus() { menuFocusCount++; } }) };
+    globalThis.testTrigger = { getBoundingClientRect: () => ({ right: 1250, bottom: 40 }),
+      setAttribute() {}, focus() { triggerFocusCount++; } };
+    document.querySelector = selector => selector === '[data-task-menu]' ? testMenu
+      : selector === '[data-action="open-task-menu"]' ? testTrigger : null;
+    shellStartTaskMenu(); shellLayoutTaskMenu(); shellLayoutTaskMenu();
+  `);
+  assert.deepEqual(harness.json(`testMenu.style`), { left: "1020px", top: "48px" });
+  assert.equal(harness.evaluate(`menuFocusCount`), 1);
+  harness.evaluate(`shellStartTaskMenu();`);
+  assert.equal(harness.evaluate(`state.taskMenuOpen`), false);
+  assert.equal(harness.evaluate(`triggerFocusCount`), 1);
+});
+
 test("knowledge draft changes and undo update dirty chrome without rendering the editor", async () => {
   const harness = await rendererHarness();
   harness.evaluate(`document.addEventListener = () => {};`);
@@ -4279,7 +4394,7 @@ test("production Today widget uses its dedicated frontend and a sandboxed Electr
   assert.match(rendererApp, /const effective = action === "download" && status !== "available"/);
   assert.match(rendererApp, /if \(typeof globalThis\.shellSettingsSyncUpdateCard === "function"\) \{\s*globalThis\.shellSettingsSyncUpdateCard\(\);/);
   // - search scope matches the approved Demo; brief fields stay click-to-edit
-  assert.match(shellSource, /placeholder="搜索任务、节点、速记" aria-label="搜索\$\{escAttr\(shellListTitle\(\)\)\}中的任务、节点、速记"/);
+  assert.match(shellSource, /placeholder="搜索" aria-label="搜索\$\{escAttr\(shellListTitle\(\)\)\}中的任务、节点、速记"/);
   assert.match(workspaceSource, /<button class="brief-value \$\{value \? "" : "muted"\}" type="button" data-action="shell-edit-brief"/);
   // Group management was removed (the row had no visible control of its own);
   // group rows now render as a single button.

@@ -16,12 +16,19 @@ body .phase9 .settings-nav button.active { color: var(--text); background: var(-
 body .phase9 .settings-content { padding: 28px 36px 40px; scrollbar-gutter: stable; }
 body .phase9 .settings-document > h2 { font-size: calc(18px * var(--font-scale, 1)); font-weight: var(--ui-emphasis-weight); }
 body .phase9 .settings-document > p { color: var(--secondary); line-height: 1.8; }
-body .phase9 .setting-row { padding: 18px 0; gap: 24px; }
+body .phase9 .setting-row { padding: 14px 0; gap: 24px; }
 body .phase9 .setting-label { font-weight: var(--ui-emphasis-weight); }
 body .phase9 .setting-row p { max-width: 48ch; line-height: 1.8; }
 body .phase9 .prefs-subheading { font-weight: var(--ui-emphasis-weight) !important; margin-top: 28px !important; }
 body .phase9 .font-preview { padding: 20px; }
 body .phase9 .font-preview b { font-weight: var(--ui-emphasis-weight); }
+/* Theme previews describe both fixed palettes, including in the other theme. */
+body .theme-mini { background: #fff; border-color: #dedede; }
+body .theme-mini i { background: #f4f4f4; border-color: #e3e3e3; }
+body .theme-mini span { background: #808080; box-shadow: 0 7px 0 #d8d8d8, 0 14px 0 #d8d8d8; }
+body .theme-mini.dark { background: #181818; border-color: #484848; }
+body .theme-mini.dark i { background: #242424; border-color: #363636; }
+body .theme-mini.dark span { background: #ababab; box-shadow: 0 7px 0 #484848, 0 14px 0 #484848; }
 /* Share the action-button surface; replace only frozen choice-field geometry. */
 body[data-controls22-enabled] button.prefs-choice { width: max-content; min-width: 0; max-width: 230px; height: 32px; min-height: 32px; padding: 0 11px; border-radius: 5px; gap: 12px; white-space: nowrap; }
 body .prefs-choice > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

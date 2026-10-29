@@ -18,6 +18,8 @@ const KNOWLEDGE_MODE_KEY = "task-track-knowledge-mode";
 const TASK_GROUPS_KEY = "task-track-groups";
 const ACTIVE_GROUP_KEY = "task-track-active-group";
 const SIDEBAR_WIDTH_KEY = "task-track-sidebar-width";
+const NAV_COLLAPSED_KEY = "loop-navigation-collapsed";
+const TASK_LIST_COLLAPSED_KEY = "loop-task-list-collapsed";
 const DETAIL_HEIGHT_KEY = "task-track-detail-height";
 const ATTACHMENTS_KEY = "task-track-attachments";
 const INSTALLATION_ID_KEY = "task-track-installation-id";
@@ -196,7 +198,7 @@ const ALL_TASKS_GROUP_ID = "group_all";
 const UNGROUPED_TASKS_GROUP_ID = "group_ungrouped";
 // The Demo's task-list column is 270px (--list-width). The persisted sidebar
 // width preference now drives that column; existing wider values are kept.
-const defaultSidebarWidth = 270;
+const defaultSidebarWidth = 240;
 const sidebarWidthLimits = [230, 460];
 const defaultDetailHeight = 58;
 const detailHeightLimits = [50, 82];
@@ -346,7 +348,8 @@ let state = {
 // ============================================================
 // SHELL UI STATE (see src/shell.js)
 // ============================================================
-  navCollapsed: false,
+  navCollapsed: loadBrowserNavCollapsed(),
+  taskListCollapsed: loadBrowserTaskListCollapsed(),
   shellDrafts: {},
   taskMenuOpen: false,
   nodeRecordPreview: false,
@@ -1075,6 +1078,14 @@ function loadBrowserTaskGroups(tasks) {
   } catch {
     return normalizeTaskGroups([], tasks);
   }
+}
+
+function loadBrowserNavCollapsed() {
+  try { return localStorage.getItem(NAV_COLLAPSED_KEY) === "1"; } catch { return false; }
+}
+
+function loadBrowserTaskListCollapsed() {
+  try { return localStorage.getItem(TASK_LIST_COLLAPSED_KEY) === "1"; } catch { return false; }
 }
 
 function loadBrowserSidebarWidth() {
@@ -2179,6 +2190,7 @@ function normalizeFlowWidth(key, value) {
 }
 
 function normalizeSidebarWidth(value) {
+  if (value === null || value === undefined || value === "") return defaultSidebarWidth;
   const width = Number(value);
   if (!Number.isFinite(width)) return defaultSidebarWidth;
   return Math.max(sidebarWidthLimits[0], Math.min(sidebarWidthLimits[1], Math.round(width)));
@@ -2448,12 +2460,13 @@ function render() {
   if (taskGroupSelectTaskId && taskGroupSelectTaskId !== task?.id) taskGroupSelectTaskId = "";
   if (deadlinePopoverTaskId && deadlinePopoverTaskId !== task?.id) deadlinePopoverTaskId = "";
   const shellWide = shellIsWide();
+  if (shellWide) state.taskMenuOpen = false;
   // Regions that a pane switch must not rebuild. The skeleton below carries an
   // empty placeholder for each of them, so their markup is parsed at most once
   // per render and an unchanged region is restored as the same DOM nodes - which
   // keeps its list scroll position and the bindings recorded on each row.
   const navigationMarkup = renderShellNavigation();
-  const topbarMarkup = renderShellTopbar();
+  const topbarMarkup = renderShellTopbar(task);
   const listMarkup = shellWide ? "" : renderShellTaskList(filteredTasks());
   let workspaceBody = state.calendarOpen ? renderShellCalendar() : state.reviewOpen ? renderShellReview() : state.settingsOpen ? renderShellSettings() : renderShellWorkspace(task);
   if (!workspaceBody.includes("data-workspace-status")) workspaceBody += renderShellWorkspaceFooter();
@@ -2470,11 +2483,12 @@ function render() {
   cachedKnowledgePanes.forEach((_pane, taskId) => preservedEditors.add(noteDraftKey(taskId, "")));
   destroyMilkdownEditors(preservedEditors);
   document.querySelector("#root").innerHTML = `
-    <main class="app ${state.navCollapsed ? "nav-collapsed " : ""}${shellWide ? "app-wide" : ""}" style="--list-width:${normalizeSidebarWidth(state.sidebarWidth)}px">
+    <main class="app ${state.navCollapsed ? "nav-collapsed " : ""}${state.taskListCollapsed ? "list-collapsed " : ""}${shellWide ? "app-wide" : ""}" style="--list-width:${normalizeSidebarWidth(state.sidebarWidth)}px">
       <div data-region="navigation"></div>
       <div data-region="topbar"></div>
       ${shellWide ? "" : '<div data-region="task-list"></div>'}
       <div data-region="workspace"></div>
+      ${!shellWide && task && state.taskMenuOpen ? renderShellTaskMenu(task) : ""}
       <div id="context-menu-root">${renderContextMenu()}</div>
       ${renderTaskPriorityPopover()}
       ${state.feedbackOpen ? renderBugReportPanel() : ""}
@@ -5223,7 +5237,6 @@ function bindActionDelegation() {
     const element = event.target.closest?.("[data-action]");
     if (!element || element.dataset.actionBound === "1" || element.disabled === true) return;
     event.stopPropagation();
-    element.dataset.actionBound = "1";
     void action(element.dataset, event);
   });
 }
@@ -8106,7 +8119,7 @@ async function action(data, event = null) {
   // recognises is executed there and re-rendered, the legacy chain below
   // keeps handling the remaining project commands.
   if (typeof shellAction === "function" && await shellAction(data, event)) {
-    if (!["note-format", "note-heading"].includes(data.action)) render();
+    if (!["note-format", "note-heading", "toggle-task-list", "toggle-task-info"].includes(data.action)) render();
     return;
   }
   state.contextMenu = null;
@@ -8986,6 +8999,10 @@ function selectGroup(groupId) {
 }
 
 function addGroup() {
+  if (state.navCollapsed) {
+    state.navCollapsed = false;
+    try { localStorage.setItem(NAV_COLLAPSED_KEY, "0"); } catch {}
+  }
   const group = {
     id: id("group"),
     title: `分组 ${state.taskGroups.length + 1}`,
@@ -10621,6 +10638,7 @@ window.addEventListener("keydown", (event) => {
   const target = event.target;
   if (target instanceof HTMLTextAreaElement || target?.isContentEditable) return;
   event.preventDefault();
+  shellSetTaskListCollapsed(false);
   state.searchOpen = true;
   state.focusSearch = true;
   state.searchCursor = state.query.length;

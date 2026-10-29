@@ -25,7 +25,7 @@ function shellFontScaleChoices() {
 }
 
 function shellSettingsRow(label, description, control) {
-  return `<div class="setting-row"><div><span class="setting-label">${esc(label)}</span><p>${esc(description)}</p></div>${control}</div>`;
+  return `<div class="setting-row"><div><span class="setting-label">${esc(label)}</span>${description ? `<p>${esc(description)}</p>` : ""}</div>${control}</div>`;
 }
 
 function shellSettingsChoice(key, description, choices, value) {
@@ -49,12 +49,12 @@ const SHELL_SETTINGS_CHOICE_LABELS = {
 };
 
 const SHELL_SETTINGS_CHOICE_DESCRIPTIONS = {
-  "font-scale": "调整界面字号，保持任务和处理流的阅读节奏。",
-  "zh-font": "内置字体可直接使用；其他字体需设备已安装。",
-  "en-font": "用于英文、数字与中英文混排。",
-  "task-filter": "打开今日、任务仓库与分组时使用。",
-  "priority-filter": "进入任务视图时的默认筛选范围。",
-  "new-task-priority": "新建任务时使用，创建后仍可单独调整。",
+  "font-scale": "",
+  "zh-font": "非内置字体需先在设备上安装。",
+  "en-font": "",
+  "task-filter": "",
+  "priority-filter": "",
+  "new-task-priority": "",
 };
 
 function shellSettingsChoiceOptions(key) {
@@ -96,34 +96,34 @@ function shellSettingsAction(label, description, text, attributes) {
 function shellSettingsAppearance() {
   const dark = state.theme === "dark";
   const theme = `<div class="prefs-theme" role="group" aria-label="主题">${["light", "dark"].map((value) => `<button class="theme-option ${(dark ? "dark" : "light") === value ? "active" : ""}" type="button" data-setting-button="theme" data-value="${value}" aria-pressed="${(dark ? "dark" : "light") === value}"><span class="theme-mini ${value}" aria-hidden="true"><i></i><b></b><span></span></span><span>${shellIcon(value === "light" ? "sun" : "moon")}${value === "light" ? "浅色" : "深色"}</span></button>`).join("")}</div>`;
-  return `<h2>外观</h2><p>选择舒适的阅读方式，调整会即时应用。</p>
-    ${shellSettingsRow("主题", "适应你的工作环境。", theme)}
+  return `<h2>外观</h2>
+    ${shellSettingsRow("主题", "", theme)}
     ${shellSettingsChoice("font-scale", SHELL_SETTINGS_CHOICE_DESCRIPTIONS["font-scale"], shellSettingsChoiceOptions("font-scale"), state.fontScale)}
     ${shellSettingsChoice("zh-font", SHELL_SETTINGS_CHOICE_DESCRIPTIONS["zh-font"], shellSettingsChoiceOptions("zh-font"), state.zhFont)}
     ${shellSettingsChoice("en-font", SHELL_SETTINGS_CHOICE_DESCRIPTIONS["en-font"], shellSettingsChoiceOptions("en-font"), state.enFont)}
     ${window.LoopContinuity28?.settings() || ""}
     <div class="font-preview"><div><span>字体预览</span><span>中文 · English · 0123456789</span></div><b>PCIe MSI 中断路径排查</b><p>沿设备、驱动到内核中断域逐层确认。<br />Record each step, keep the context. 0123456789</p></div>
-    <footer class="settings-footer"><span>不需要额外保存</span><button class="text-button" type="button" data-action="reset-appearance">恢复默认外观</button></footer>`;
+    <footer class="settings-footer"><button class="text-button" type="button" data-action="reset-appearance">恢复默认外观</button></footer>`;
 }
 
 function shellSettingsTasks() {
-  return `<h2>任务与浮窗</h2><p>设置常用默认值，减少每次打开任务时的调整。</p>
+  return `<h2>任务与浮窗</h2>
     ${shellSettingsChoice("task-filter", SHELL_SETTINGS_CHOICE_DESCRIPTIONS["task-filter"], shellSettingsChoiceOptions("task-filter"), state.taskFilter)}
     ${shellSettingsChoice("priority-filter", SHELL_SETTINGS_CHOICE_DESCRIPTIONS["priority-filter"], shellSettingsChoiceOptions("priority-filter"), state.priorityFilter)}
     ${shellSettingsChoice("new-task-priority", SHELL_SETTINGS_CHOICE_DESCRIPTIONS["new-task-priority"], shellSettingsChoiceOptions("new-task-priority"), state.newTaskPriority)}
     <h3 class="prefs-subheading">今日浮窗</h3>
-    ${shellSettingsToggle("显示今日浮窗", "在独立小窗口中查看今日任务与速记。", todayWidgetWindowState.visible === true, `data-action="toggle-today-widget-visibility" ${desktopTodayWidget ? "" : "disabled"}`)}
-    ${shellSettingsToggle("始终置顶", "使用其他应用时，浮窗仍保持在最前面。", todayWidgetWindowState.alwaysOnTop === true, `data-action="toggle-today-widget-always-on-top" ${desktopTodayWidget ? "" : "disabled"}`)}
-    ${shellSettingsToggle("鼠标穿透", "让点击穿过浮窗，操作后面的应用。", todayWidgetWindowState.clickThrough === true, `data-action="toggle-today-widget-click-through" ${desktopTodayWidget ? "" : "disabled"}`)}
+    ${shellSettingsToggle("显示今日浮窗", "", todayWidgetWindowState.visible === true, `data-action="toggle-today-widget-visibility" ${desktopTodayWidget ? "" : "disabled"}`)}
+    ${shellSettingsToggle("始终置顶", "", todayWidgetWindowState.alwaysOnTop === true, `data-action="toggle-today-widget-always-on-top" ${desktopTodayWidget ? "" : "disabled"}`)}
+    ${shellSettingsToggle("鼠标穿透", "点击穿过浮窗，操作后方应用。", todayWidgetWindowState.clickThrough === true, `data-action="toggle-today-widget-click-through" ${desktopTodayWidget ? "" : "disabled"}`)}
     <h3 class="prefs-subheading">桌面提醒</h3>
     ${typeof desktopReminderSettingsRow === "function" ? desktopReminderSettingsRow() : ""}
-    <p class="prefs-native-caption">快捷键 <kbd>⌘ / Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>T</kbd> 可切换鼠标穿透。</p>`;
+    <p class="prefs-native-caption">鼠标穿透：<kbd>⌘ / Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>T</kbd></p>`;
 }
 
 function shellSettingsKnowledge() {
-  return `<h2>知识笔记</h2><p>以下设置对所有笔记生效，修改后自动保存。</p>
-    ${shellSettingsChoice("knowledge-width", "默认适合阅读，较宽适合代码与表格。", shellSettingsChoiceOptions("knowledge-width"), shellNoteWidth())}
-    ${shellSettingsChoice("knowledge-mode", "笔记内切换视图时，也会同步此设置。", shellSettingsChoiceOptions("knowledge-mode"), shellKnowledgeMode())}
+  return `<h2>知识笔记</h2><p>对所有笔记生效。</p>
+    ${shellSettingsChoice("knowledge-width", "", shellSettingsChoiceOptions("knowledge-width"), shellNoteWidth())}
+    ${shellSettingsChoice("knowledge-mode", "与笔记内的视图切换同步。", shellSettingsChoiceOptions("knowledge-mode"), shellKnowledgeMode())}
     <p class="prefs-native-caption">笔记的字体与字号跟随「外观」设置。</p>`;
 }
 
@@ -135,13 +135,13 @@ function shellSettingsData() {
   const recoveryEntry = typeof recovery26Open === "function"
     ? `<div class="recovery26-data-entry"><div>最近删除<small>恢复任务、分组、节点与笔记${deleted ? ` · ${deleted} 项` : ""}</small></div><button class="button" type="button" data-recovery26="open">管理</button></div>`
     : "";
-  return `<h2>数据</h2><p>备份整个工作空间，在需要时恢复。</p>
+  return `<h2>数据</h2>
     ${recoveryEntry}
-    ${shellSettingsAction("完整备份", "包含任务、分组、处理记录、笔记恢复内容及应用偏好。", "导出备份", `data-backup-action="export" ${desktopDataBackup ? "" : "disabled"}`)}
+    ${shellSettingsAction("完整备份", "包含任务、笔记恢复内容与应用偏好。", "导出备份", `data-backup-action="export" ${desktopDataBackup ? "" : "disabled"}`)}
     <h3 class="prefs-subheading">恢复工作空间</h3>
     ${shellSettingsAction("从备份文件恢复", "选择 Loop 完整备份（.loopbackup）。", "选择文件", `data-backup-action="import-file" ${desktopDataBackup ? "" : "disabled"}`)}
     ${shellSettingsAction("从备份目录恢复", "支持 Loop 当前及历史版本的备份目录。", "选择目录", `data-backup-action="import-directory" ${desktopDataBackup ? "" : "disabled"}`)}
-    <div class="prefs-inline-note">${shellIcon("history")}<span>恢复会替换当前工作空间。Loop 会先备份当前数据，失败时自动回滚；成功后重新启动。<br />外部绑定的 Markdown 文件需要另行备份。</span></div>
+    <div class="prefs-inline-note">${shellIcon("history")}<span>恢复将替换当前数据并重启，操作前自动备份，失败时回滚。<br />外部 Markdown 文件需另行备份。</span></div>
     <p class="prefs-transfer-status" data-backup-status role="status"></p>`;
 }
 
@@ -219,7 +219,7 @@ function shellSettingsSyncUpdateCard() {
 
 function shellSettingsUpdates() {
   const update = appUpdateState;
-  return `<h2>软件更新</h2><p>检查新版本，管理更新方式。</p>
+  return `<h2>软件更新</h2>
     <section class="prefs-update-detail" data-shell-update-detail aria-live="polite">${shellSettingsUpdateCardBody()}</section>
     <div class="prefs-update-options">${shellSettingsToggle("自动检查更新", update.preferenceError ? "设置未保存，请检查目录权限后重试。" : update.automaticChecks ? "应用启动后定期检查。" : "仅在手动操作时检查。", update.automaticChecks === true, `data-update-automatic ${update.supported && !updatePreferenceInFlight ? "" : "disabled"}`)}</div>
     ${update.supported ? "" : '<p class="prefs-native-caption">开发模式或未签名的构建不连接更新服务。</p>'}`;
@@ -229,9 +229,9 @@ function shellSettingsAdvanced() {
   // work.js owns this page (Demo phase 15): unlock gate + schedule form.
   const body = typeof globalThis.LoopWork?.settingsBody === "function"
     ? globalThis.LoopWork.settingsBody()
-    : `<h2>高级功能</h2><p>按需要启用附加能力，保持日常任务工作台简洁。</p>`;
+    : `<h2>高级功能</h2>`;
   return `${body}<h3 class="prefs-subheading">时间预览</h3>
-    ${shellSettingsAction("预览时间", loopClockIsPreview() ? `当前预览：${loopStamp()}。不修改系统时间。` : "临时切换界面中的日期与时间，不修改系统时间。", "设置预览", 'data-action="time18-clock" aria-haspopup="dialog" aria-expanded="false"')}
+    ${shellSettingsAction("预览时间", loopClockIsPreview() ? `当前：${loopStamp()}。不影响系统时间。` : "仅改变界面时间，不影响系统。", "设置预览", 'data-action="time18-clock" aria-haspopup="dialog" aria-expanded="false"')}
     ${loopClockIsPreview() ? '<button class="text-button" type="button" data-action="time18-clear">恢复真实时间</button>' : ""}`;
 }
 
@@ -253,10 +253,10 @@ const SHELL_HELP_TOPICS = [
 
 function shellSettingsHelp() {
   const open = Number(state.helpTopicOpen);
-  return `<h2>帮助与反馈</h2><p>了解 Loop 的使用方式，记录遇到的问题与建议。</p>
+  return `<h2>帮助与反馈</h2>
     ${globalThis.LoopManual27?.entry() || ""}
     <section class="help14-intro">
-      <div><span class="setting-label">问题与建议</span><p>描述遇到的情况，保留复现步骤与预期结果。</p></div>
+      <div><span class="setting-label">问题与建议</span></div>
       <button class="button" type="button" data-action="open-help-feedback">提交反馈</button>
     </section>
     <h3 class="prefs-subheading">使用说明</h3>
@@ -362,7 +362,7 @@ function renderShellSettings() {
         : page === "updates" ? shellSettingsUpdates()
           : page === "advanced" ? shellSettingsAdvanced()
             : shellSettingsHelp();
-  return `${shellPageHeading("设置", "调整工作空间的外观与使用偏好。")}
+  return `${shellPageHeading("设置", "")}
     <div class="settings-layout phase9">
       <nav class="settings-nav" aria-label="设置分类">
         ${SHELL_SETTINGS_CATEGORIES.map(([value, label, image]) => `<button class="${page === value ? "active" : ""}" type="button" data-action="set-settings-page" data-page="${value}" aria-current="${page === value ? "page" : "false"}">${shellIcon(image)}${label}</button>`).join("")}

@@ -175,8 +175,8 @@ function normalizeTaskData(data) {
       : taskGroups[0]?.id || UNGROUPED_TASKS_GROUP_ID,
     flowWidths: normalizeFlowWidths(safeData.flowWidths),
     // Mirrors app.js defaultSidebarWidth / sidebarWidthLimits: the preference now
-    // drives the Demo's task-list column, whose baseline is 270px.
-    sidebarWidth: clampNumber(safeData.sidebarWidth, 270, 230, 460),
+    // drives the task-list column, whose compact baseline is 240px.
+    sidebarWidth: clampNumber(safeData.sidebarWidth, 240, 230, 460),
     detailHeight: clampNumber(safeData.detailHeight, 58, 50, 82),
     attachments: normalizeAttachments(safeData.attachments),
     theme: safeData.theme === "dark" ? "dark" : "light",

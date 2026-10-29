@@ -966,6 +966,7 @@ function shellUpdatePanelBody() {
     checking: "正在检查更新",
     latest: "当前已是最新版本",
     idle: "尚未检查更新",
+    unsupported: "软件更新",
   };
   const bodies = {
     available: "点击下载获取更新包，完成后由你选择安装。",
@@ -975,6 +976,7 @@ function shellUpdatePanelBody() {
     installing: "应用即将自动重启，请稍候。",
     error: updateErrorPresentation(update.errorCode).detail,
     checking: "正在连接 GitHub Release。",
+    unsupported: "当前运行环境暂不支持应用内更新，可在设置中查看详情。",
   };
   const version = update.version ? ` · 新版本 v${update.version}` : "";
   const progress = ["downloading", "preparing", "installing"].includes(update.status)
@@ -988,6 +990,7 @@ function shellUpdatePanelBody() {
       ${renderUpdateReleaseNotes(update)}
       <footer>
         <button type="button" class="text-button" data-action="close-dialog">稍后</button>
+        ${["idle", "latest"].includes(update.status) && update.supported ? '<button type="button" class="button primary" data-update-action="check">检查更新</button>' : ""}
         ${["available", "error"].includes(update.status) ? `<button type="button" class="button primary" data-update-action="${update.status === "error" ? update.retryAction : "download"}">${update.status === "error" ? (update.retryAction === "check" ? "重新检查" : update.retryAction === "install" ? "重试安装" : "重试下载") : "下载更新"}</button>` : ""}
         ${update.status === "downloaded" ? '<button type="button" class="button primary" data-update-action="install">安装并重启</button>' : ""}
       </footer>`;
@@ -996,7 +999,17 @@ function shellUpdatePanelBody() {
 function shellUpdatePanel(trigger) {
   // shellMountSurface only mounts when the markup contains .surface-popover;
   // without it the click silently did nothing at all.
-  shellMountSurface(`<section class="surface-popover utility-popover" aria-label="软件更新">${shellUpdatePanelBody()}</section>`, trigger, 310);
+  const anchor = document.querySelector('.nav-bottom [data-action="open-update-panel"]') || trigger;
+  const panel = shellMountSurface(`<section class="surface-popover utility-popover" aria-label="软件更新">${shellUpdatePanelBody()}</section>`, anchor, 310);
+  shellPositionUpdatePanel(panel, anchor);
+}
+
+function shellPositionUpdatePanel(panel, anchor = document.querySelector('.nav-bottom [data-action="open-update-panel"]')) {
+  if (!panel || !anchor?.getBoundingClientRect) return;
+  const rect = anchor.getBoundingClientRect();
+  panel.style.left = `${Math.max(12, Math.min(rect.left, innerWidth - panel.offsetWidth - 12))}px`;
+  panel.style.top = `${Math.max(12, rect.top - panel.offsetHeight - 8)}px`;
+  shellClampFloatingSurface(panel);
 }
 
 /** Keep an open 软件更新 popover in step with the state (progress, errors). */
@@ -1004,6 +1017,7 @@ function shellRefreshUpdatePanel() {
   const panel = document.querySelector('.utility-popover[aria-label="软件更新"]');
   if (!panel) return false;
   replaceUpdateSurfaceContent(panel, shellUpdatePanelBody());
+  shellPositionUpdatePanel(panel);
   return true;
 }
 
@@ -1384,13 +1398,32 @@ function shellFinishBriefDraft(key, commit) {
   render();
 }
 
+let shellTaskMenuNeedsFocus = false;
+
 function shellStartTaskMenu() {
+  if (state.taskMenuOpen) { shellCloseTaskMenu({ restoreFocus: true }); return; }
   state.taskMenuOpen = true;
+  shellTaskMenuNeedsFocus = true;
+}
+
+function shellLayoutTaskMenu() {
+  const menu = document.querySelector("[data-task-menu]");
+  const trigger = document.querySelector('[data-action="open-task-menu"]');
+  if (!state.taskMenuOpen || !menu || !trigger) return;
+  trigger.setAttribute("aria-expanded", "true");
+  const rect = trigger.getBoundingClientRect();
+  menu.style.left = `${Math.max(12, Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 12))}px`;
+  menu.style.top = `${Math.max(12, Math.min(rect.bottom + 8, window.innerHeight - menu.offsetHeight - 12))}px`;
+  if (shellTaskMenuNeedsFocus) {
+    shellTaskMenuNeedsFocus = false;
+    menu.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
+  }
 }
 
 function shellCloseTaskMenu({ restoreFocus = false } = {}) {
   if (!state.taskMenuOpen) return;
   state.taskMenuOpen = false;
+  shellTaskMenuNeedsFocus = false;
   document.querySelector("[data-task-menu]")?.remove();
   const trigger = document.querySelector('[data-action="open-task-menu"]');
   trigger?.setAttribute("aria-expanded", "false");
@@ -1411,6 +1444,14 @@ async function shellAction(data, event) {
       return true;
     case "toggle-nav":
       state.navCollapsed = !state.navCollapsed;
+      try { localStorage.setItem(NAV_COLLAPSED_KEY, state.navCollapsed ? "1" : "0"); } catch {}
+      return true;
+    case "toggle-task-list":
+      shellSetTaskListCollapsed(!state.taskListCollapsed);
+      return true;
+    case "toggle-task-info":
+      shellTaskInfoChoices.add(data.taskId);
+      shellSetTaskInfoCollapsed(data.taskId, !shellTaskInfoCollapsed.has(data.taskId));
       return true;
     case "clear-search":
       state.query = "";
@@ -2074,6 +2115,7 @@ const SHELL_OVERLAY_TRIGGERS = [
   "[data-action='open-node-operations']", "[data-action='open-node-path']",
   "[data-action='open-node-delete']", "[data-action='edit-task-title']",
   "[data-action='edit-node-title']", "[data-action='open-task-menu']",
+  "[data-action='toggle-task-group-select']",
   ".status-trigger", ".node-status",
 ].join(",");
 
@@ -2087,12 +2129,30 @@ function shellBindOverlayDismissal() {
   if (window.__loopShellDismissBound) return;
   window.__loopShellDismissBound = true;
   window.addEventListener("resize", () => {
+    shellLayoutTaskMenu();
     document.querySelectorAll("#overlay .surface-popover, #overlay .priority-popover, #overlay .status-menu")
       .forEach(shellClampFloatingSurface);
   });
   let consumeOutsideClick = false;
   document.addEventListener("keydown", (event) => {
     if (event.isComposing || event.keyCode === 229) return;
+    if (state.taskMenuOpen && !shellOverlayIsOpen()) {
+      const menu = document.querySelector("[data-task-menu]");
+      if (event.key === "Tab") {
+        shellCloseTaskMenu({ restoreFocus: true });
+        return;
+      }
+      if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) && menu?.contains(event.target)) {
+        const items = [...menu.querySelectorAll('button:not(:disabled)')];
+        const index = items.indexOf(document.activeElement);
+        const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
+          : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        items[next]?.focus({ preventScroll: true });
+        return;
+      }
+    }
     if (event.key === "Tab" && shellOverlayIsOpen()) {
       const dialog = shellOverlay().querySelector('[role="dialog"][aria-modal="true"]');
       if (dialog) {
@@ -2127,7 +2187,7 @@ function shellBindOverlayDismissal() {
   }, true);
   document.addEventListener("pointerdown", (event) => {
     consumeOutsideClick = false;
-    // This menu is inline in the workspace, outside #overlay. Remove only its
+    // This menu lives in the shell, outside #overlay. Remove only its
     // DOM so the clicked input/control can keep focus and handle this pointer.
     if (state.taskMenuOpen && !event.target.closest?.('[data-task-menu], [data-action="open-task-menu"]')) {
       shellCloseTaskMenu();
@@ -2195,6 +2255,14 @@ function shellBindListResizer() {
 }
 
 function shellBindOverlay() {
+  const card = document.querySelector("[data-task-info]");
+  if (card && bindRenderElement(card, "task-info-keys")) card.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || event.isComposing || shellOverlayIsOpen()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    shellSetTaskInfoCollapsed(card.dataset.taskInfo, true);
+    card.querySelector('[data-action="toggle-task-info"]')?.focus({ preventScroll: true });
+  });
   shellBindOverlayDelegation();
   shellBindOverlayDismissal();
   shellBindNodeDraft();

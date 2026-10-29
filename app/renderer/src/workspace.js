@@ -121,12 +121,12 @@ function shellRecurrenceLabel(recurrence) {
 
 function renderShellTaskTitle(task) {
   const note = shellTaskIsNote(task);
-  return `<h1 class="task-title"><button class="title-edit" type="button" data-action="edit-task-title" aria-label="编辑${note ? "速记" : "任务"}标题">${esc(task.title || "未命名任务")}${shellIcon("edit")}</button></h1>`;
+  return `<h1 class="task-title"><button class="title-edit" type="button" data-action="edit-task-title" aria-label="编辑${note ? "速记" : "任务"}标题" title="${escAttr(task.title || "未命名任务")}"><span>${esc(task.title || "未命名任务")}</span>${shellIcon("edit")}</button></h1>`;
 }
 
-function renderShellTaskProperties(task) {
+function renderShellTaskProperties(task, { all = false } = {}) {
   // The Demo hides the today/priority/status trio only on the 今日 route.
-  const showStatus = shellRoute() !== "today";
+  const showStatus = all || shellRoute() !== "today";
   const tags = normalizeTaskTags(task.tags);
   const deadlineProperty = shellDeadlineProperty(task);
   return `<div class="task-properties">
@@ -135,7 +135,6 @@ function renderShellTaskProperties(task) {
     <span class="property">${shellTaskDone(task) ? "已完成" : "处理中"}</span>` : ""}
     <button class="property ${deadlineProperty.classes}" type="button" data-action="toggle-deadline-picker" data-task-id="${escAttr(task.id)}" aria-haspopup="dialog" title="${escAttr(deadlineProperty.title)}">${shellIcon("calendar")}${esc(deadlineProperty.text)}${shellIcon("down")}</button>
     <button class="property" type="button" data-action="open-task-recurrence" aria-haspopup="dialog">${shellIcon("repeat")}${esc(shellRecurrenceLabel(task.recurrence))}${shellIcon("down")}</button>
-    <button class="property group-property" type="button" data-action="toggle-task-group-select" data-task-id="${escAttr(task.id)}" title="移动分组">${shellIcon("folder")}${esc(shellGroupTitle(task.groupId))}${shellIcon("down")}</button>
   </div>`;
 }
 
@@ -498,6 +497,8 @@ function shellResizeRecordWindow(rect, edge, dx, dy) {
 window.addEventListener("resize", () => shellLayoutRecordWindow());
 
 function shellAfterRender() {
+  shellSyncTaskListVisibility();
+  window.requestAnimationFrame(shellLayoutTaskMenu);
   const task = shellActiveTask();
   const panel = document.querySelector(".node-record-window");
   shellLayoutRecordWindow();
@@ -592,23 +593,68 @@ function renderShellHistory(task) {
     : "<p>开始处理后，节点状态的变化会记录在这里。</p>"}</section>`;
 }
 
+function renderShellTaskActions(task) {
+  return `<div class="task-heading-actions" role="group" aria-label="任务操作区" data-task-id="${escAttr(task.id)}">
+    <button class="button task-share-action" type="button" data-action="share-task" data-task-id="${escAttr(task.id)}" aria-label="分享／导出任务" title="分享／导出任务">${shellIcon("share")}<span>分享</span></button>
+    <button class="icon-button task-menu-action" type="button" data-action="open-task-menu" aria-label="任务操作" title="任务操作" aria-haspopup="menu" aria-expanded="${state.taskMenuOpen === true}">${shellIcon("more")}</button>
+  </div>`;
+}
+
+const shellTaskInfoCollapsed = new Set();
+const shellTaskInfoChoices = new Set();
+
+function shellFitTaskInfoToFlow() {
+  const card = document.querySelector("[data-task-info]");
+  const toolbar = document.querySelector(".flow-toolbar");
+  if (!card || !toolbar || shellTaskInfoChoices.has(card.dataset.taskInfo) || shellTaskInfoCollapsed.has(card.dataset.taskInfo)) return;
+  // An automatically opened card must not cover the processing controls.
+  // An explicitly opened card remains under the user's control.
+  if (card.getBoundingClientRect().bottom > toolbar.getBoundingClientRect().top - 8) {
+    shellSetTaskInfoCollapsed(card.dataset.taskInfo, true);
+  }
+}
+
+function renderShellTaskInfo(task) {
+  const collapsed = shellTaskInfoCollapsed.has(task.id);
+  return `<aside class="task-info-card" aria-label="任务详情" data-task-info="${escAttr(task.id)}">
+    <header class="task-info-head"><span>任务详情</span><button class="icon-button" type="button" data-action="toggle-task-info" data-task-id="${escAttr(task.id)}" aria-expanded="${!collapsed}" aria-controls="task-info-body" aria-label="${collapsed ? "展开任务详情" : "收起任务详情"}" title="${collapsed ? "展开任务详情" : "收起任务详情"}">${shellIcon(collapsed ? "info" : "minus")}</button></header>
+    <div class="task-info-body" id="task-info-body" ${collapsed ? "hidden" : ""}>
+      ${renderShellTaskProperties(task, { all: true })}
+      <button class="property task-info-group" type="button" data-action="toggle-task-group-select" data-task-id="${escAttr(task.id)}" aria-label="修改任务分组：${escAttr(shellGroupTitle(task.groupId))}">${shellIcon("folder")}${esc(shellGroupTitle(task.groupId))}${shellIcon("down")}</button>
+    </div>
+  </aside>`;
+}
+
+function shellSetTaskInfoCollapsed(taskId, collapsed) {
+  if (collapsed) shellTaskInfoCollapsed.add(taskId);
+  else shellTaskInfoCollapsed.delete(taskId);
+  const card = document.querySelector("[data-task-info]");
+  if (card?.dataset.taskInfo !== taskId) return;
+  card.closest(".task-work-area")?.classList.toggle("task-info-collapsed", collapsed);
+  card.querySelector(".task-info-body").hidden = collapsed;
+  const button = card.querySelector('[data-action="toggle-task-info"]');
+  const label = collapsed ? "展开任务详情" : "收起任务详情";
+  button.setAttribute("aria-expanded", String(!collapsed));
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  button.innerHTML = shellIcon(collapsed ? "info" : "minus");
+  if (!collapsed) brief21ResizeAll?.();
+}
+
 function renderShellWorkspace(task) {
   if (!task) return renderShellEmptyWorkspace();
   const pane = state.taskPane === "notes" ? "notes" : state.taskPane === "history" ? "history" : "flow";
-  return `<div class="task-heading">
-      <div class="task-heading-main">${renderShellTaskTitle(task)}${pane === "notes" ? renderWorkbenchContext(task) : renderShellTaskProperties(task)}</div>
-      <div class="task-heading-actions">
-        <button class="button" type="button" data-action="toggle-task-done" data-task-id="${escAttr(task.id)}" aria-label="${shellTaskDone(task) ? "恢复任务" : "完成任务"}">${shellIcon("check")}${shellTaskDone(task) ? "恢复任务" : "完成任务"}</button>
-        <button class="icon-button" type="button" data-action="open-task-menu" aria-label="任务操作" aria-expanded="${state.taskMenuOpen === true}">${shellIcon("more")}</button>
+  return `<section class="task-work-area ${shellTaskInfoCollapsed.has(task.id) ? "task-info-collapsed" : ""}">
+      <div class="task-work-main">
+        ${renderShellBrief(task)}
+        ${pane === "notes" ? "" : renderShellTabs(task)}
+        <div class="tab-content">
+          ${pane === "flow" ? renderShellFlow(task) : pane === "notes" ? renderShellNotes(task) : renderShellHistory(task)}
+        </div>
       </div>
-    </div>
-    ${pane === "notes" ? renderWorkbenchDetails(task) : renderShellBrief(task)}
-    ${pane === "notes" ? "" : renderShellTabs(task)}
-    <div class="tab-content">
-      ${pane === "flow" ? renderShellFlow(task) : pane === "notes" ? renderShellNotes(task) : renderShellHistory(task)}
-    </div>
-    ${pane === "notes" ? "" : renderShellWorkspaceFooter(pane)}
-    ${state.taskMenuOpen ? renderShellTaskMenu(task) : ""}`;
+      ${renderShellTaskInfo(task)}
+    </section>
+    ${pane === "notes" ? "" : renderShellWorkspaceFooter(pane)}`;
 }
 
 function renderShellWorkspaceFooter(pane = "") {

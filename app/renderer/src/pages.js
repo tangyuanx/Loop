@@ -13,7 +13,7 @@ const SHELL_REVIEW_FIELD_LABELS = { updated: "更新日期", created: "创建日
 const SHELL_REVIEW_PRESETS = [["week", "本周"], ["month", "本月"], ["year", "今年"], ["all", "全部"], ["custom", "自定义"]];
 
 function shellPageHeading(title, description, actions = "") {
-  return `<header class="page-heading"><div><h1>${esc(title)}</h1><p>${esc(description)}</p></div>${actions ? `<div class="heading-actions">${actions}</div>` : ""}</header>`;
+  return `<header class="page-heading"><div><h1>${esc(title)}</h1>${description ? `<p>${esc(description)}</p>` : ""}</div>${actions ? `<div class="heading-actions">${actions}</div>` : ""}</header>`;
 }
 
 // ------------------------------------------------------------
