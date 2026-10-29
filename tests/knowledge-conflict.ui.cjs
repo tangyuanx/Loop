@@ -1,5 +1,6 @@
 /* Real Electron + production IPC/storage/watcher. Native answers are scripted;
    failure/delay injection wraps fs only inside this isolated test process. */
+const wb = require('./workbench-helpers.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
@@ -28,6 +29,7 @@ async function choose(id) {
   await page.locator(`[data-task-row="${id}"] .task-select`).click();
   await page.locator('[data-pane="notes"]').click();
   await page.waitForFunction(id=>knowledgeCurrentEntry(id)?.view&&document.querySelector('.knowledge-pane')?.dataset.taskId===id,id);
+  await wb.minimizeTaskInfo(page);
 }
 async function open(id) {
   await choose(id);

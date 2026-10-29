@@ -1,5 +1,6 @@
 /* Production Electron, IPC and disk. Only native file picker answers and
    explicit task-data write faults/delays are injected in this test process. */
+const wb=require('./workbench-helpers.cjs');
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
 const {_electron}=require('playwright-core');
 const {writeTaskData}=require('../app/main/storage.cjs');
@@ -10,7 +11,7 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function until(fn,timeout=15000){const start=Date.now();while(Date.now()-start<timeout){if(await fn())return;await pause(80)}throw Error('Condition timed out')}
 async function shot(name){await page.screenshot({path:path.join(out,name+'.png')})}
 async function test(id,fn){try{results.push({id,status:'PASS',detail:await fn()})}catch(error){results.push({id,status:'FAIL',error:error.stack});await shot(id+'-failure').catch(()=>{})}await fs.writeFile(path.join(out,'results.json'),JSON.stringify({source,profile,files,results,errors},null,2));console.log(JSON.stringify(results.at(-1)))}
-async function choose(id){await page.keyboard.press('Escape');await page.locator(`[data-task-row="${id}"] .task-select`).click();await page.locator('[data-pane="notes"]').click();await page.evaluate(id=>knowledgeAttach(knowledgeFindDocument(id)),id);await page.waitForFunction(id=>knowledgeCurrentEntry(id)?.view&&document.querySelector('.knowledge-pane')?.dataset.taskId===id,id)}
+async function choose(id){await page.keyboard.press('Escape');await page.locator(`[data-task-row="${id}"] .task-select`).click();await page.locator('[data-pane="notes"]').click();await page.evaluate(id=>knowledgeAttach(knowledgeFindDocument(id)),id);await page.waitForFunction(id=>knowledgeCurrentEntry(id)?.view&&document.querySelector('.knowledge-pane')?.dataset.taskId===id,id);await wb.minimizeTaskInfo(page)}
 async function rename(){await page.locator('[data-wb-action="more"]').click();await page.locator('.wb-more-menu [data-kn-action="rename"]').click();await page.locator('#kn-rename-title').waitFor()}
 async function commit(){await page.locator('#kn-rename-commit').click();await page.waitForFunction(()=>!document.querySelector('#kn-rename-commit')?.disabled)}
 async function snapshot(id){return page.evaluate(id=>{const t=state.tasks.find(t=>t.id===id);return {notes:t.notes,noteId:t.knowledgeNote.noteId,filePath:t.knowledgeNote.filePath,title:t.knowledgeNote.title,aliases:t.knowledgeNote.aliases,taskTitle:t.title}},id)}

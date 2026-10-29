@@ -39,6 +39,7 @@ async function choose(id) {
   await page.keyboard.press('Escape');await page.locator(`[data-task-row="${id}"] .task-select`).click();
   await page.locator('[data-pane="notes"]').click();
   await page.waitForFunction(id=>knowledgeCurrentEntry(id)?.view && document.querySelector('.knowledge-pane')?.dataset.taskId===id,id);
+  await wb.minimizeTaskInfo(page);
 }
 async function mode(value) { await wb.mode(page,value);await page.waitForFunction(value=>knowledgeCurrentEntry()?.mode===value,value); }
 async function nativeSave(file) { await app.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>file?{canceled:false,filePath:file}:{canceled:true};},file); }

@@ -1,10 +1,20 @@
 /* Navigate the production menu controls; editor/data assertions stay in suites. */
+async function minimizeTaskInfo(page){
+  // The floating attributes card deliberately overlays the document. Dismiss it
+  // through the same control as a user before operating the toolbar beneath it.
+  const toggle=page.locator('[data-action="toggle-task-info"][aria-expanded="true"]');
+  if(await toggle.count()){
+    await toggle.click();
+    await page.locator('[data-action="toggle-task-info"][aria-expanded="false"]').waitFor();
+  }
+}
 async function mode(page,value){
+  await minimizeTaskInfo(page);
   await page.locator('[data-wb-action="mode"]').click();
   await page.locator(`[data-wb-mode="${value}"]`).click();
   await page.waitForFunction(value=>knowledgeCurrentEntry()?.mode===value,value);
 }
-async function more(page){await page.locator('[data-wb-action="more"]').click();}
+async function more(page){await minimizeTaskInfo(page);await page.locator('[data-wb-action="more"]').click();}
 async function context(page){await more(page);await page.locator('[data-wb-action="format"]').click();}
 async function format(page,kind,value){
   await context(page);
@@ -15,4 +25,4 @@ async function format(page,kind,value){
 }
 async function panels(page){await more(page);await page.locator('.wb-more-menu [data-kn-action="panels"]').click();}
 async function width(page,value){await more(page);await page.locator('[data-action="knowledge-width-menu"]').click();await page.locator(`[data-action="set-note-width"][data-width="${value}"]`).click();}
-module.exports={mode,more,context,format,panels,width};
+module.exports={minimizeTaskInfo,mode,more,context,format,panels,width};
