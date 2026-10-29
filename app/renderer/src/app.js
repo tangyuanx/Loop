@@ -7001,7 +7001,7 @@ function bindTaskRepositoryRows(scope = document) {
       document.querySelectorAll("details[open]").forEach((details) => {
         if (!details.contains(event.target)) details.removeAttribute("open");
       });
-      const keepNodeDetail = event.target.closest(".node-inline-record, .node-detail, .node-detail-page, .flow-row:not(.flow-header), .context-menu, [data-action], [data-edit-key], button, input, textarea, select");
+      const keepNodeDetail = event.target.closest(".node-record-window, .node-detail, .node-detail-page, .flow-row:not(.flow-header), .context-menu, [data-action], [data-edit-key], button, input, textarea, select");
       const keepSettings = event.target.closest(".settings-overlay, .settings-trigger, .theme-toggle");
       const keepReview = event.target.closest(".review-overlay, .review-trigger");
       const keepContextMenu = event.target.closest(".context-menu");
@@ -7363,7 +7363,7 @@ function exitNodeDetail() {
   state.recordDraft = "";
   state.nodeDetailFullscreen = false;
   state.nodeDetailPosition = null;
-  document.querySelector(".node-inline-record, .node-detail, .node-detail-page")?.remove();
+  document.querySelector(".node-record-window, .node-detail, .node-detail-page")?.remove();
   document.querySelectorAll(".flow-row.selected").forEach((row) => row.classList.remove("selected"));
   return true;
 }
@@ -7399,7 +7399,6 @@ function selectNodeForInspector(taskId, nodeId) {
   state.selectedNodeId = nodeId;
   state.recordDraft = node.note || "";
   state.nodeDetailFullscreen = false;
-  state.nodeDetailPosition = null;
 }
 
 function bindFlowTitleShortcuts() {

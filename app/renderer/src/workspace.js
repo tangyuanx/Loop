@@ -235,7 +235,7 @@ function renderShellFlowNode(task, node, depth = 0) {
   const nested = hasChildren
     ? `<div class="flow-branch" data-branch-node="${escAttr(node.id)}" data-expanded="${!node.collapsed}" ${node.collapsed ? 'inert aria-hidden="true"' : ""}>${keepChildren ? `<ol class="flow-children">${children.map((child) => renderShellFlowNode(task, child, depth + 1)).join("")}</ol>` : ""}</div>`
     : "";
-  return `<li class="flow-item" data-flow-id="${escAttr(node.id)}" data-flow-depth="${depth}">${body}${selected ? renderShellNodeRecord(task, node) : ""}${nested}</li>`;
+  return `<li class="flow-item" data-flow-id="${escAttr(node.id)}" data-flow-depth="${depth}">${body}${nested}</li>`;
 }
 
 function shellFlowDepth(nodes) {
@@ -248,6 +248,7 @@ function renderShellFlow(task) {
   // it so cancelling a blank draft in place can reveal the same entry again.
   const empty = !list.length || (list.length === 1 && list[0].id === state.focusNodeTitleId);
   const pending = list.filter((node) => node.status === "todo" || node.status === "blocked");
+  const selected = list.find((node) => node.id === state.selectedNodeId);
   const roots = sort(task.nodes || []);
   const addButton = `<button class="add-node" type="button" data-action="add-root-node" data-task-id="${escAttr(task.id)}">${shellIcon("plus")}添加节点</button>`;
   return `<section class="flow-pane${empty ? " flow-empty" : ""}" aria-label="层级处理流">
@@ -267,11 +268,11 @@ function renderShellFlow(task) {
       ${shellHideCompletedNodes && list.length && list.every((node) => !shellFlowNodeVisible(node)) ? '<p class="flow-filter-empty" role="status">所有节点均已完成，已隐藏</p>' : ""}
       ${empty ? "" : addButton}
     </div>
-    </section>`;
+    </section>${selected ? renderShellNodeRecord(task, selected) : ""}`;
 }
 
 // ------------------------------------------------------------
-// Node inspector
+// Node record window
 // ------------------------------------------------------------
 
 function shellNodePath(task, nodeId) {
@@ -301,10 +302,11 @@ function renderShellRecord(note) {
 
 function renderShellNodeRecord(task, node) {
   const record = nodeNoteDrafts.get(noteDraftKey(task.id, node.id))?.markdown ?? node.note ?? "";
-  return `<section class="node-inline-record" data-node-id="${escAttr(node.id)}" aria-label="处理记录：${escAttr(node.title)}">
-    <div class="node-inline-record-head"><label for="record-draft">处理记录</label>
-      <button class="icon-button" type="button" data-action="close-node-detail" aria-label="收起处理记录">${shellIcon("close")}</button>
-    </div>
+  return `<section class="node-record-window" role="dialog" aria-modal="false" aria-labelledby="node-record-window-title" data-node-id="${escAttr(node.id)}">
+    <header class="node-record-window-head" data-record-window-handle>
+      <div><span>处理记录</span><h2 id="node-record-window-title">${esc(node.title || "未命名节点")}</h2></div>
+      <button class="icon-button" type="button" data-action="close-node-detail" aria-label="关闭节点详情">${shellIcon("close")}</button>
+    </header>
     <textarea class="record-editor" id="record-draft" data-shell-node-record="${escAttr(node.id)}" aria-label="处理记录：${escAttr(node.title)}" placeholder="记录处理过程、验证结果与下一步…">${esc(record)}</textarea>
   </section>`;
 }
@@ -426,9 +428,26 @@ function shellBeforeRender() {
   }
 }
 
+function shellLayoutRecordWindow(position = state.nodeDetailPosition) {
+  const panel = document.querySelector(".node-record-window");
+  if (!panel?.offsetWidth || !panel.offsetHeight) return;
+  const workspace = document.querySelector(".workspace")?.getBoundingClientRect();
+  const flow = document.querySelector(".flow-pane")?.getBoundingClientRect();
+  const margin = 16;
+  const left = position?.x ?? (workspace ? workspace.right - panel.offsetWidth - 24 : (innerWidth - panel.offsetWidth) / 2);
+  const top = position?.y ?? (flow ? flow.top + 54 : (innerHeight - panel.offsetHeight) / 2);
+  const x = Math.max(margin, Math.min(innerWidth - panel.offsetWidth - margin, left));
+  const y = Math.max(margin, Math.min(innerHeight - panel.offsetHeight - margin, top));
+  panel.style.left = `${x}px`;
+  panel.style.top = `${y}px`;
+  if (position) state.nodeDetailPosition = { x, y };
+}
+window.addEventListener("resize", () => shellLayoutRecordWindow());
+
 function shellAfterRender() {
   const task = shellActiveTask();
-  const panel = document.querySelector(".node-inline-record");
+  const panel = document.querySelector(".node-record-window");
+  shellLayoutRecordWindow();
   if (panel) {
     let fresh = panel.querySelector("[data-shell-node-record]");
     const cached = shellRecordEditors.get(`${task?.id}:${state.selectedNodeId}`);
@@ -545,7 +564,7 @@ function renderShellWorkspaceFooter(pane = "") {
     ? knowledgeSavePresentation(task).shortcut : '⌘ / Ctrl + S 保存笔记';
   return `<footer class="workspace-foot">
     <div data-workspace-status>${renderWorkspaceStatus()}</div>
-    ${pane ? `<span class="foot-shortcut">${pane === "notes" ? shortcut : "拖动节点调整层级 · Esc 收起记录"}</span>` : ""}
+    ${pane ? `<span class="foot-shortcut">${pane === "notes" ? shortcut : "拖动节点调整层级 · Esc 关闭浮窗"}</span>` : ""}
   </footer>`;
 }
 

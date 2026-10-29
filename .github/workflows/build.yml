@@ -46,8 +46,8 @@ jobs:
       - run: npm ci
       - run: npm run build:milkdown
       - run: npm run build:knowledge
-      - name: Verify inline records and existing node interactions
+      - name: Verify floating records and existing node interactions
         run: |
-          node tests/node-inline-record.ui.cjs
+          node tests/node-floating-record.ui.cjs
           npm run test:ui:node-interactions
           npm run test:ui:flow-filter

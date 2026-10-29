@@ -1802,6 +1802,7 @@ function shellStartNodeTitleEdit(title) {
   const task = state.tasks.find((item) => item.id === title.dataset.taskId);
   const node = task && findNode(task.nodes, title.dataset.nodeId);
   if (!node || !title.isConnected) return;
+  if (state.selectedNodeId) { flushNodeNoteDrafts({ persist: true }); exitNodeDetail(); }
   shellNodeRenameDraft = { taskId: task.id, nodeId: node.id, value: node.title };
   title.outerHTML = renderShellNodeTitle(task, node);
   retainedRegionMarkup.delete("workspace");
@@ -1971,7 +1972,33 @@ function shellBindBriefDrafts() {
   });
 }
 
+function shellBindNodeRecordWindow() {
+  const handle = document.querySelector("[data-record-window-handle]");
+  if (!handle || !bindRenderElement(handle, "record-window-drag")) return;
+  let drag = null;
+  handle.addEventListener("pointerdown", event => {
+    if (event.button !== 0 || event.target.closest("button")) return;
+    const rect = handle.closest(".node-record-window").getBoundingClientRect();
+    drag = { id: event.pointerId, dx: event.clientX - rect.left, dy: event.clientY - rect.top };
+    event.preventDefault();
+    handle.setPointerCapture(event.pointerId);
+  });
+  handle.addEventListener("pointermove", event => {
+    if (drag?.id !== event.pointerId) return;
+    shellLayoutRecordWindow({ x: event.clientX - drag.dx, y: event.clientY - drag.dy });
+  });
+  const finish = event => {
+    if (drag?.id !== event.pointerId) return;
+    drag = null;
+    if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+  };
+  handle.addEventListener("pointerup", finish);
+  handle.addEventListener("pointercancel", finish);
+  handle.addEventListener("lostpointercapture", () => { drag = null; });
+}
+
 function shellBindNodeRecord() {
+  shellBindNodeRecordWindow();
   const editor = document.querySelector("[data-shell-node-record]");
   if (!editor || !bindRenderElement(editor, "shell-node-record")) return;
   // Chromium drops its document-wide native undo stack when a retained region

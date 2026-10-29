@@ -12,7 +12,7 @@ function renderer(options = {}) {
     elements.clear();
     elements.set('.workspace', { dataset: { taskId: requested.task } });
     elements.set('.pane-tab.active', { dataset: { pane: requested.pane } });
-    if (requested.node) elements.set(options.inline ? '.node-inline-record' : '.inspector', { dataset: { nodeId: requested.node } });
+    if (requested.node) elements.set(options.inline ? '.node-record-window' : '.inspector', { dataset: { nodeId: requested.node } });
     if (requested.pane === 'flow') elements.set('.flow-scroll', makeViewport(0, requested.height));
     if (requested.node) elements.set(options.inline ? '[data-shell-node-record]' : '.inspector-body', makeViewport());
     if (requested.pane === 'notes') { elements.set('.knowledge-body', makeViewport()); elements.set('#knowledge-source', makeViewport()); }
@@ -110,7 +110,7 @@ test('navigation toggle keeps its own operation identity across Windows brand re
   assert.equal(button.dataset.pointerGroup, original);
 });
 
-test('inline node records preserve independent editor scroll positions without an inspector', () => {
+test('floating node records preserve independent editor scroll positions without an inspector', () => {
   const r = renderer({ inline: true });
   r.go('A', 'flow', 'n1'); r.flush();
   r.get('[data-shell-node-record]').scrollTop = 180;

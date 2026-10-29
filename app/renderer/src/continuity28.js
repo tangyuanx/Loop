@@ -11,7 +11,7 @@
   const rect = el => el?.getClientRects().length ? el.getBoundingClientRect() : null;
   const one = selector => { try { const matches = document.querySelectorAll(selector); return matches.length === 1 ? matches[0] : null; } catch { return null; } };
   function context() {
-    return { task: document.querySelector('.workspace')?.dataset.taskId || '', node: (document.querySelector('.node-inline-record') || document.querySelector('.inspector'))?.dataset.nodeId || '', pane: document.querySelector('.pane-tab.active')?.dataset.pane || '' };
+    return { task: document.querySelector('.workspace')?.dataset.taskId || '', node: (document.querySelector('.node-record-window') || document.querySelector('.inspector'))?.dataset.nodeId || '', pane: document.querySelector('.pane-tab.active')?.dataset.pane || '' };
   }
   function key(c, selector) {
     // The flow belongs to the task, regardless of the selected node. Only
