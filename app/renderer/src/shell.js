@@ -161,7 +161,7 @@ function renderShellBrandUpdate() {
   const labels = {
     available: "更新可用",
     downloading: `下载 ${Math.round(update.percent || 0)}%`,
-    downloaded: "重启更新",
+    downloaded: "待安装",
     preparing: "准备更新",
     installing: "正在安装",
     error: "更新未完成",

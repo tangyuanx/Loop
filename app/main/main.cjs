@@ -8,7 +8,7 @@
  *   - Manage application menu
  */
 
-const { app, BrowserWindow, Menu, Notification, clipboard, dialog, globalShortcut, ipcMain, screen, shell } = require("electron");
+const { app, BrowserWindow, Menu, Notification, clipboard, dialog, globalShortcut, ipcMain, net, screen, shell } = require("electron");
 
 // Match the bundled Chinese outlines with grayscale coverage on Windows.
 // LCD color fringes make the dense CJK strokes look heavier than on macOS;
@@ -838,6 +838,7 @@ app.whenReady().then(async () => {
     BrowserWindow,
     ipcMain,
     autoUpdater,
+    fetchReleaseNotes: (url, options) => net.fetch(url, options),
     macUpdatesEnabled: false,
     installDirectory: process.platform === "win32" ? path.dirname(process.execPath) : "",
     prepareInstall: requestUpdateInstallPreparation,

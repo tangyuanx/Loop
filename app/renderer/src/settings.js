@@ -160,7 +160,7 @@ function shellSettingsUpdateCardBody() {
   const titles = {
     available: "有可用更新",
     downloading: `正在下载更新 · ${Math.round(update.percent || 0)}%`,
-    downloaded: "更新已准备好",
+    downloaded: "下载完成，等待安装",
     preparing: "正在保存并准备升级…",
     installing: "正在完成升级…",
     error: update.retryAction === "check" ? "检查更新失败" : "更新未完成",
@@ -170,9 +170,9 @@ function shellSettingsUpdateCardBody() {
     idle: "尚未检查更新",
   };
   const bodies = {
-    available: "后台下载完成后，自动安装并重新启动。",
-    downloading: "下载期间可继续处理任务；完成后应用会自动重启。",
-    downloaded: update.errorCode ? "升级前保存未完成，应用没有退出。请检查磁盘空间或目录权限后重试。" : "请保存正在编辑的内容，然后重启完成安装。",
+    available: "点击下载获取更新包，完成后由你选择安装。",
+    downloading: "下载期间可继续处理任务，完成后会停在待安装状态。",
+    downloaded: update.errorCode ? "升级前保存未完成，应用没有退出。请检查磁盘空间或目录权限后重试。" : "你可以继续使用 Loop，准备好后点击“安装并重启”。",
     preparing: "正在安全写入任务与知识笔记草稿。",
     installing: "应用即将自动重启，请稍候。",
     error: updateErrorPresentation(update.errorCode).detail,
@@ -188,8 +188,8 @@ function shellSettingsUpdateCardBody() {
     : "";
   // One entry point. What it does follows the state, so it is never a no-op:
   // checking while busy is disabled, otherwise it offers the only useful action.
-  const actions = status === "available" ? '<button class="button primary" type="button" data-update-action="download">升级并重启</button>'
-    : status === "downloaded" ? '<button class="button primary" type="button" data-update-action="install">重启并安装</button>'
+  const actions = status === "available" ? '<button class="button primary" type="button" data-update-action="download">下载更新</button>'
+    : status === "downloaded" ? '<button class="button primary" type="button" data-update-action="install">安装并重启</button>'
       : status === "error" ? `<button class="button primary" type="button" data-update-action="${update.retryAction}">${update.retryAction === "check" ? "重新检查" : update.retryAction === "install" ? "重试安装" : "重试下载"}</button>`
         : `<button class="button" type="button" data-update-action="check" ${busy || !update.supported ? "disabled" : ""}>${status === "checking" ? "检查中…" : "检查更新"}</button>`;
   const currentVersion = String(update.currentVersion || APP_VERSION || "");
@@ -199,7 +199,7 @@ function shellSettingsUpdateCardBody() {
   const versions = `<div class="prefs-update-version"><span aria-label="${escAttr(`当前版本 v${currentVersion}`)}">v${esc(currentVersion)}</span>${targetVersion ? `<span class="prefs-version-arrow" aria-hidden="true">→</span><strong aria-label="${escAttr(`更新版本 v${targetVersion}`)}">v${esc(targetVersion)}</strong>` : ""}</div>`;
   return `<div class="prefs-update-heading"><div><h3>${esc(titles[status] || "软件更新")}</h3>${versions}</div><div class="prefs-update-actions">${actions}</div></div>
       ${bodies[status] ? `<p>${esc(bodies[status])}</p>` : ""}
-      ${progress}`;
+      ${progress}${renderUpdateReleaseNotes(update)}`;
 }
 
 /** Cheap in-place sync used by app.js whenever appUpdateState changes. */
@@ -207,7 +207,7 @@ function shellSettingsSyncUpdateCard() {
   if (typeof activeSettingsPage === "string" && activeSettingsPage !== "updates") return;
   const node = document.querySelector("[data-shell-update-detail]");
   if (!node) return;
-  node.innerHTML = shellSettingsUpdateCardBody();
+  replaceUpdateSurfaceContent(node, shellSettingsUpdateCardBody());
   const toggle = document.querySelector("[data-update-automatic]");
   if (toggle) {
     toggle.setAttribute("aria-checked", String(appUpdateState.automaticChecks === true));

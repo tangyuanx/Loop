@@ -959,7 +959,7 @@ function shellUpdatePanelBody() {
   const titles = {
     available: "新版本可用",
     downloading: "正在下载更新",
-    downloaded: "更新已准备好",
+    downloaded: "下载完成，等待安装",
     preparing: "正在准备更新",
     installing: "正在安装更新",
     error: update.retryAction === "check" ? "检查更新失败" : "更新未完成",
@@ -968,9 +968,9 @@ function shellUpdatePanelBody() {
     idle: "尚未检查更新",
   };
   const bodies = {
-    available: "确认后在后台下载，完成后自动安装并重新启动。",
+    available: "点击下载获取更新包，完成后由你选择安装。",
     downloading: `${Math.round(update.percent || 0)}% · 下载期间可继续处理任务。`,
-    downloaded: update.errorCode ? "升级前保存未完成，应用没有退出。请检查磁盘空间或目录权限后重试。" : "安装需要重启 Loop。请先保存正在编辑的内容。",
+    downloaded: update.errorCode ? "升级前保存未完成，应用没有退出。请检查磁盘空间或目录权限后重试。" : "你可以继续使用 Loop，准备好后点击“安装并重启”。",
     preparing: "正在安全写入任务与知识笔记草稿。",
     installing: "应用即将自动重启，请稍候。",
     error: updateErrorPresentation(update.errorCode).detail,
@@ -985,10 +985,11 @@ function shellUpdatePanelBody() {
       <p>当前 v${esc(update.currentVersion || APP_VERSION || "")}${esc(version)}</p>
       <p>${esc(bodies[update.status] || "暂无可用更新。")}</p>
       ${progress}
+      ${renderUpdateReleaseNotes(update)}
       <footer>
         <button type="button" class="text-button" data-action="close-dialog">稍后</button>
         ${["available", "error"].includes(update.status) ? `<button type="button" class="button primary" data-update-action="${update.status === "error" ? update.retryAction : "download"}">${update.status === "error" ? (update.retryAction === "check" ? "重新检查" : update.retryAction === "install" ? "重试安装" : "重试下载") : "下载更新"}</button>` : ""}
-        ${update.status === "downloaded" ? '<button type="button" class="button primary" data-action="run-update-install">重启并安装</button>' : ""}
+        ${update.status === "downloaded" ? '<button type="button" class="button primary" data-update-action="install">安装并重启</button>' : ""}
       </footer>`;
 }
 
@@ -1002,7 +1003,7 @@ function shellUpdatePanel(trigger) {
 function shellRefreshUpdatePanel() {
   const panel = document.querySelector('.utility-popover[aria-label="软件更新"]');
   if (!panel) return false;
-  panel.innerHTML = shellUpdatePanelBody();
+  replaceUpdateSurfaceContent(panel, shellUpdatePanelBody());
   return true;
 }
 

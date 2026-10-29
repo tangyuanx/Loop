@@ -1,5 +1,6 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { notesFromUpdateInfo, fetchUpdateReleaseNotes } = require("./update-release-notes.cjs");
 
 const UPDATE_CHANNELS = Object.freeze({
   getState: "app-update:get-state",
@@ -26,6 +27,7 @@ function createUpdateController({
   intervalMs = DEFAULT_INTERVAL_MS,
   fileSystem = fs,
   prepareInstall = async () => true,
+  fetchReleaseNotes = null,
 } = {}) {
   if (!app || !BrowserWindow || !ipcMain || !autoUpdater) {
     throw new TypeError("Updater controller requires Electron app, BrowserWindow, ipcMain, and autoUpdater.");
@@ -46,6 +48,8 @@ function createUpdateController({
     currentVersion: sanitizeVersion(app.getVersion?.()),
     version: "",
     releaseDate: "",
+    releaseNotes: [],
+    releaseNotesStatus: "idle",
     size: 0,
     percent: 0,
     transferred: 0,
@@ -62,9 +66,11 @@ function createUpdateController({
   let userApprovedInstall = false;
   let installInFlight = null;
   let preferenceQueue = Promise.resolve();
+  let notesRequest = 0;
 
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.fullChangelog = true;
   autoUpdater.allowPrerelease = state.currentVersion.includes("-");
   if (platform === "win32" && supported && typeof installDirectory === "string" && installDirectory.trim()) {
     autoUpdater.installDirectory = installDirectory;
@@ -73,7 +79,7 @@ function createUpdateController({
   const preferencesPath = () => path.join(app.getPath("userData"), PREFERENCES_FILE);
 
   function getState() {
-    return { ...state };
+    return { ...state, releaseNotes: state.releaseNotes.map((entry) => ({ ...entry })) };
   }
 
   function updateState(patch, { broadcast = true } = {}) {
@@ -152,6 +158,7 @@ function createUpdateController({
 
   async function checkForUpdates(source = "manual") {
     if (!supported || ["checking", "downloading", "downloaded", "preparing", "installing"].includes(state.status)) return getState();
+    notesRequest += 1;
     updateState({
       status: "checking",
       errorCode: "",
@@ -161,6 +168,8 @@ function createUpdateController({
       bytesPerSecond: 0,
       checkSource: source === "automatic" ? "automatic" : "manual",
       retryAction: "check",
+      releaseNotes: [],
+      releaseNotesStatus: "idle",
     });
     try {
       await autoUpdater.checkForUpdates();
@@ -171,10 +180,9 @@ function createUpdateController({
   }
 
   async function downloadUpdate() {
-    if (!supported || !(["available", "downloaded"].includes(state.status)
+    if (!supported || !(state.status === "available"
       || (state.status === "error" && state.retryAction === "download" && state.version))) return getState();
-    userApprovedInstall = true;
-    if (state.status === "downloaded") return installDownloadedUpdate();
+    userApprovedInstall = false;
     updateState({ status: "downloading", errorCode: "", percent: 0, retryAction: "download" });
     try {
       await autoUpdater.downloadUpdate();
@@ -214,7 +222,7 @@ function createUpdateController({
       }
       updateState({ status: "installing", errorCode: "" });
       try {
-        // The explicit in-app upgrade action has already authorized this
+        // The explicit install action has already authorized this
         // Windows-only silent installer run and the automatic relaunch.
         autoUpdater.quitAndInstall(true, true);
       } catch (error) {
@@ -242,22 +250,37 @@ function createUpdateController({
     updateState({ status: "checking", errorCode: "" });
   });
   autoUpdater.on("update-available", (info) => {
+    const request = ++notesRequest;
+    const releaseNotes = notesFromUpdateInfo(info, state.currentVersion);
     const file = Array.isArray(info?.files) ? info.files[0] : null;
     updateState({
       status: "available",
       version: sanitizeVersion(info?.version),
       releaseDate: sanitizeDate(info?.releaseDate),
+      releaseNotes,
+      releaseNotesStatus: fetchReleaseNotes ? "loading" : "partial",
       size: safeNumber(file?.size),
       lastCheckedAt: new Date().toISOString(),
       errorCode: "",
     });
+    if (fetchReleaseNotes) {
+      const targetVersion = state.version;
+      void fetchUpdateReleaseNotes({
+        fetch: fetchReleaseNotes, currentVersion: state.currentVersion, targetVersion, fallback: releaseNotes,
+      }).then((result) => {
+        if (request === notesRequest && state.version === targetVersion) updateState(result);
+      });
+    }
   });
   autoUpdater.on("update-not-available", () => {
+    notesRequest += 1;
     userApprovedInstall = false;
     updateState({
       status: "latest",
       version: "",
       releaseDate: "",
+      releaseNotes: [],
+      releaseNotesStatus: "idle",
       size: 0,
       lastCheckedAt: new Date().toISOString(),
       errorCode: "",
@@ -280,7 +303,6 @@ function createUpdateController({
       transferred: state.total || state.transferred,
       errorCode: "",
     });
-    if (userApprovedInstall) void installDownloadedUpdate();
   });
   autoUpdater.on("update-cancelled", () => {
     userApprovedInstall = false;
@@ -306,6 +328,7 @@ function createUpdateController({
   }
 
   function stop() {
+    notesRequest += 1;
     clearSchedule();
   }
 
