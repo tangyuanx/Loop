@@ -134,8 +134,9 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
     await page.waitForFunction(() => flowNodeDragState?.root);
     await drop(); nodes = await tree(); assert.deepEqual(nodes.map(n => n.id), ['a', 'b', 'd', 'c']);
 
-    // Status controls are never drag handles, and short clicks still open details.
+    // Status controls are never drag handles, and short clicks open inline records.
     const status = page.locator('.node-status[data-node-id="a"]');
+    await status.scrollIntoViewIfNeeded(); await settle();
     const statusBox = await status.boundingBox();
     await page.mouse.move(statusBox.x + statusBox.width / 2, statusBox.y + statusBox.height / 2);
     await page.mouse.down(); await page.waitForTimeout(250);
