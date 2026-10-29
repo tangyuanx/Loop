@@ -64,7 +64,26 @@ body .history-line time { flex-shrink: 0; font-variant-numeric: tabular-nums; }
 /* A movable record window keeps the processing tree at its original size. */
 body .node-record-window { position: fixed; z-index: 80; display: flex; flex-direction: column; width: min(440px,calc(100vw - 32px)); height: min(420px,calc(100dvh - 32px)); box-sizing: border-box; padding: 16px 16px 10px; background: var(--canvas); color: var(--text); border: 1px solid color-mix(in srgb,var(--line) 50%,transparent); border-radius: 20px; box-shadow: var(--surface-shadow); overflow: hidden; }
 body .node-record-window-head { display: flex; align-items: center; min-height: 39px; padding: 0 0 8px; flex-shrink: 0; min-width: 0; cursor: move; touch-action: none; user-select: none; }
-body .node-record-window-head h2 { margin: 0; width: 100%; min-width: 0; font-size: var(--type-12); font-weight: 400; line-height: 1.6; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+body .node-record-window-head h2 { margin: 0; flex: 1; min-width: 0; font-size: var(--type-12); font-weight: 400; line-height: 1.6; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+body .node-record-window-close { flex-shrink: 0; width: 28px; height: 28px; padding: 6px; margin-left: 8px; color: var(--secondary); border: 0; border-radius: 6px; background: transparent; cursor: pointer; }
+body .node-record-window-close:hover { color: var(--text); background: var(--hover); }
+body .node-record-window-close svg { display: block; width: 16px; height: 16px; }
+body .node-record-window-resize { position: absolute; z-index: 1; padding: 0; border: 0; background: transparent; touch-action: none; user-select: none; }
+body .node-record-window-resize:is([data-record-window-resize="n"],[data-record-window-resize="s"]) { left: 16px; right: 16px; height: 6px; cursor: ns-resize; }
+body .node-record-window-resize[data-record-window-resize="n"] { top: 0; }
+body .node-record-window-resize[data-record-window-resize="s"] { bottom: 0; }
+body .node-record-window-resize:is([data-record-window-resize="e"],[data-record-window-resize="w"]) { top: 16px; bottom: 16px; width: 6px; cursor: ew-resize; }
+body .node-record-window-resize[data-record-window-resize="e"] { right: 0; }
+body .node-record-window-resize[data-record-window-resize="w"] { left: 0; }
+body .node-record-window-resize:is([data-record-window-resize="ne"],[data-record-window-resize="nw"],[data-record-window-resize="se"],[data-record-window-resize="sw"]) { width: 16px; height: 16px; }
+body .node-record-window-resize:is([data-record-window-resize="ne"],[data-record-window-resize="nw"]) { top: 0; }
+body .node-record-window-resize:is([data-record-window-resize="se"],[data-record-window-resize="sw"]) { bottom: 0; }
+body .node-record-window-resize:is([data-record-window-resize="ne"],[data-record-window-resize="se"]) { right: 0; }
+body .node-record-window-resize:is([data-record-window-resize="nw"],[data-record-window-resize="sw"]) { left: 0; }
+body .node-record-window-resize:is([data-record-window-resize="nw"],[data-record-window-resize="se"]) { cursor: nwse-resize; }
+body .node-record-window-resize:is([data-record-window-resize="ne"],[data-record-window-resize="sw"]) { cursor: nesw-resize; }
+body .node-record-window-resize svg { width: 16px; height: 16px; fill: none; stroke: var(--secondary); stroke-width: 1; pointer-events: none; }
+body :is(.node-record-window-close,button.node-record-window-resize):focus-visible { outline: 1px solid var(--focus-line); outline-offset: -2px; }
 body .node-record-window #record-draft.record-editor { display: block; flex: 1; width: 100%; box-sizing: border-box; min-height: 0; height: auto; max-height: none; resize: none; padding: 13px; color: var(--text); background: var(--list); border: 0; border-radius: 12px; font-size: var(--type-13); line-height: 1.9; }
 body .node-record-window #record-draft.record-editor:is(:focus,:focus-visible) { background: var(--list); box-shadow: inset 0 -1px 0 var(--focus-line); outline: none; }
 body .node-record-window-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 29px; padding-top: 6px; flex-shrink: 0; color: var(--secondary); font-size: var(--type-11); font-variant-numeric: tabular-nums; white-space: nowrap; }

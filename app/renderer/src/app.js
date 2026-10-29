@@ -341,6 +341,7 @@ let state = {
   knowledgeDraftPrompt: null,
   contextMenu: null,
   nodeDetailPosition: null,
+  nodeDetailSize: null,
 
 // ============================================================
 // SHELL UI STATE (see src/shell.js)
@@ -7376,10 +7377,11 @@ function startDetailResize(event) {
 // ============================================================
 function exitNodeDetail() {
   if (!state.selectedNodeId) return false;
+  // Closing ends the title-click gesture; a quick reopen is not a rename.
+  flowNodeLastTitleClick = null;
   state.selectedNodeId = "";
   state.recordDraft = "";
   state.nodeDetailFullscreen = false;
-  state.nodeDetailPosition = null;
   document.querySelector(".node-record-window, .node-detail, .node-detail-page")?.remove();
   document.querySelectorAll(".flow-row.selected").forEach((row) => row.classList.remove("selected"));
   return true;
@@ -7396,7 +7398,6 @@ function saveSelectedNodeRecord() {
   state.selectedNodeId = "";
   state.recordDraft = "";
   state.nodeDetailFullscreen = false;
-  state.nodeDetailPosition = null;
 }
 
 function saveNodeInspectorRecord() {
@@ -8593,7 +8594,6 @@ async function action(data, event = null) {
     state.selectedNodeId = "";
     state.recordDraft = "";
     state.nodeDetailFullscreen = false;
-    state.nodeDetailPosition = null;
   }
   if (data.action === "save-node-detail") {
     saveNodeInspectorRecord();

@@ -307,12 +307,15 @@ function renderShellNodeRecord(task, node) {
   return `<section class="node-record-window" role="dialog" aria-modal="false" aria-labelledby="node-record-window-title" data-node-id="${escAttr(node.id)}">
     <header class="node-record-window-head" data-record-window-handle>
       <h2 id="node-record-window-title" title="${escAttr(node.title || "未命名节点")}">${esc(node.title || "未命名节点")}</h2>
+      <button class="icon-button node-record-window-close" type="button" data-action="close-node-detail" aria-label="关闭节点记录" title="关闭">${briefFieldIcon("x")}</button>
     </header>
     <textarea class="record-editor" id="record-draft" data-shell-node-record="${escAttr(node.id)}" aria-label="处理记录：${escAttr(node.title)}">${esc(record)}</textarea>
     <footer class="node-record-window-foot">
       <div class="node-record-window-meta"><span class="node-record-window-status ${status}"><i aria-hidden="true"></i>${esc(shellNodeStatusLabel(status))}</span><span aria-hidden="true">·</span><time data-record-updated-at datetime="${escAttr(updatedAt || "")}">${esc(shellNodeRecordTime(updatedAt))}</time></div>
       <span data-record-count>${Array.from(record).length} 字</span>
     </footer>
+    ${["n", "e", "s", "w", "ne", "nw", "sw"].map(edge => `<span class="node-record-window-resize" data-record-window-resize="${edge}" aria-hidden="true"></span>`).join("")}
+    <button class="node-record-window-resize" data-record-window-resize="se" type="button" aria-label="调整浮窗大小" title="拖动调整大小，或使用方向键"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 12l6-6M10 12l2-2"/></svg></button>
   </section>`;
 }
 
@@ -452,14 +455,17 @@ function shellBeforeRender() {
 function shellLayoutRecordWindow(position = state.nodeDetailPosition) {
   const panel = document.querySelector(".node-record-window");
   if (!panel?.offsetWidth || !panel.offsetHeight) return;
+  const margin = 16;
+  const size = state.nodeDetailSize;
+  panel.style.width = size ? `${Math.min(size.width, innerWidth - margin * 2)}px` : "";
+  panel.style.height = size ? `${Math.min(size.height, innerHeight - margin * 2)}px` : "";
   const workspace = document.querySelector(".workspace")?.getBoundingClientRect();
   const flow = document.querySelector(".flow-pane")?.getBoundingClientRect();
-  const margin = 16;
   const toolbar = document.querySelector(".flow-toolbar")?.getBoundingClientRect();
   panel.style.maxHeight = "";
   const fitsAbove = flow && flow.top >= panel.offsetHeight + margin + 12;
   const belowTop = toolbar ? toolbar.bottom + 12 : (flow ? flow.top + 54 : null);
-  if (!position && !fitsAbove && belowTop != null) {
+  if (!size && !position && !fitsAbove && belowTop != null) {
     panel.style.maxHeight = `${Math.max(120, innerHeight - belowTop - margin)}px`;
   }
   const left = position?.x ?? (workspace ? workspace.right - panel.offsetWidth - 24 : (innerWidth - panel.offsetWidth) / 2);
@@ -474,6 +480,20 @@ function shellLayoutRecordWindow(position = state.nodeDetailPosition) {
   panel.style.left = `${x}px`;
   panel.style.top = `${y}px`;
   if (position) state.nodeDetailPosition = { x, y };
+}
+
+function shellResizeRecordWindow(rect, edge, dx, dy) {
+  const margin = 16;
+  const minWidth = Math.min(280, innerWidth - margin * 2);
+  const minHeight = Math.min(200, innerHeight - margin * 2);
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+  let { left, top, right, bottom } = rect;
+  if (edge.includes("w")) left = clamp(left + dx, margin, right - minWidth);
+  if (edge.includes("e")) right = clamp(right + dx, left + minWidth, innerWidth - margin);
+  if (edge.includes("n")) top = clamp(top + dy, margin, bottom - minHeight);
+  if (edge.includes("s")) bottom = clamp(bottom + dy, top + minHeight, innerHeight - margin);
+  state.nodeDetailSize = { width: right - left, height: bottom - top };
+  shellLayoutRecordWindow({ x: left, y: top });
 }
 window.addEventListener("resize", () => shellLayoutRecordWindow());
 

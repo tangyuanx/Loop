@@ -1781,11 +1781,12 @@ async function shellAction(data, event) {
       return true;
     case "close-node":
     case "close-node-detail":
+      flushNodeNoteDrafts({ persist: true });
       state.selectedNodeId = "";
       state.recordDraft = "";
       state.nodeDetailFullscreen = false;
       state.nodeRecordPreview = false;
-      state.nodeDetailPosition = null;
+      // Closing the record must not discard the user's window placement.
       shellCloseOverlay({ restoreFocus: false });
       return true;
     default:
@@ -1973,28 +1974,40 @@ function shellBindBriefDrafts() {
 }
 
 function shellBindNodeRecordWindow() {
-  const handle = document.querySelector("[data-record-window-handle]");
-  if (!handle || !bindRenderElement(handle, "record-window-drag")) return;
+  const panel = document.querySelector(".node-record-window");
+  if (!panel || !bindRenderElement(panel, "record-window-geometry")) return;
   let drag = null;
-  handle.addEventListener("pointerdown", event => {
-    if (event.button !== 0 || event.target.closest("button")) return;
-    const rect = handle.closest(".node-record-window").getBoundingClientRect();
-    drag = { id: event.pointerId, dx: event.clientX - rect.left, dy: event.clientY - rect.top };
+  panel.addEventListener("pointerdown", event => {
+    if (event.button !== 0) return;
+    const edge = event.target.closest("[data-record-window-resize]")?.dataset.recordWindowResize;
+    if (!edge && (!event.target.closest("[data-record-window-handle]") || event.target.closest("button"))) return;
+    drag = { id: event.pointerId, edge, rect: panel.getBoundingClientRect(), x: event.clientX, y: event.clientY };
     event.preventDefault();
-    handle.setPointerCapture(event.pointerId);
+    panel.setPointerCapture(event.pointerId);
   });
-  handle.addEventListener("pointermove", event => {
+  panel.addEventListener("pointermove", event => {
     if (drag?.id !== event.pointerId) return;
-    shellLayoutRecordWindow({ x: event.clientX - drag.dx, y: event.clientY - drag.dy });
+    const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+    if (drag.edge) shellResizeRecordWindow(drag.rect, drag.edge, dx, dy);
+    else shellLayoutRecordWindow({ x: drag.rect.left + dx, y: drag.rect.top + dy });
   });
   const finish = event => {
     if (drag?.id !== event.pointerId) return;
     drag = null;
-    if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+    if (panel.hasPointerCapture(event.pointerId)) panel.releasePointerCapture(event.pointerId);
   };
-  handle.addEventListener("pointerup", finish);
-  handle.addEventListener("pointercancel", finish);
-  handle.addEventListener("lostpointercapture", () => { drag = null; });
+  panel.addEventListener("pointerup", finish);
+  panel.addEventListener("pointercancel", finish);
+  panel.addEventListener("lostpointercapture", () => { drag = null; });
+  panel.querySelector('[data-record-window-resize="se"]').addEventListener("keydown", event => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const step = event.shiftKey ? 40 : 10;
+    shellResizeRecordWindow(panel.getBoundingClientRect(), "se",
+      event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0,
+      event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0);
+  });
 }
 
 function shellBindNodeRecord() {
