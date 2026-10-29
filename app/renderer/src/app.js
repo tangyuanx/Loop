@@ -269,7 +269,7 @@ let state = {
 // ============================================================
   tasks: [],
   knowledgeDocuments: [],
-  knowledgeWorkspace: {openIds:[],activeId:'',recentIds:[],taskId:'',lastByTask:{},visible:false},
+  knowledgeWorkspace: {openIds:[],activeId:'',recentIds:[],taskId:'',lastByTask:{},tabsByTask:{},visible:false},
   taskGroups: [{ ...defaultTaskGroup }],
   activeGroupId: ALL_TASKS_GROUP_ID,
   editingGroupId: "",
@@ -674,16 +674,33 @@ function knowledgeActiveDocument(task=state.tasks.find(t=>t.id===state.activeTas
   if(!task)return null;
   if(!state.tasks.includes(task)||task.id!==state.activeTaskId)return task;
   const session=state.knowledgeWorkspace;
+  session.tabsByTask||={};
   session.openIds=session.openIds.filter(id=>{const note=knowledgeFindDocument(id);return note&&!note.knowledgeNote?.isDeleted;});
   if(session.activeId&&!session.openIds.includes(session.activeId))session.activeId=session.openIds.at(-1)||'';
-  if(session.taskId!==task.id){
+  const hasRemembered=Object.hasOwn(session.lastByTask,task.id);
+  if(session.taskId!==task.id||!hasRemembered){
+    if(session.taskId!==task.id){
+      if(session.taskId)session.tabsByTask[session.taskId]=session.openIds.slice();
+      session.openIds=knowledgeDocument.normalizeNoteLinks(session.tabsByTask[task.id]||[])
+        .filter(id=>{const note=knowledgeFindDocument(id);return note&&!note.knowledgeNote?.isDeleted;});
+    }
     const remembered=knowledgeFindDocument(session.lastByTask[task.id]);
     const legacy=knowledgeFindDocument(task.activeKnowledgeId)||((task.notes?.trim()||task.knowledgeNote?.filePath)?task:null);
-    const target=remembered||(!Object.hasOwn(session.lastByTask,task.id)?legacy:null)||knowledgeFindDocument(session.activeId);
+    let target=remembered||(!hasRemembered?legacy:null);
+    // A task's first notebook visit starts its own independent blank draft.
+    // Never inherit the document that happened to be active in another task.
+    if(!target&&!hasRemembered&&state.taskPane==='notes'){
+      const stamp=now(),documentId=id('document'),title='未命名';
+      target={id:documentId,title,creatorTaskId:task.id,notes:'',createdAt:stamp,updatedAt:stamp,
+        knowledgeNote:knowledgeDocument.createKnowledgeNoteMetadata({taskId:documentId,title,createdAt:stamp})};
+      state.knowledgeDocuments.push(target);
+      session.recentIds=[documentId,...session.recentIds].slice(0,40);
+    }
     session.taskId=task.id;
     session.activeId=target&&!target.knowledgeNote?.isDeleted?target.id:'';
     if(session.activeId&&!session.openIds.includes(session.activeId))session.openIds.push(session.activeId);
-    session.lastByTask[task.id]=session.activeId;
+    session.tabsByTask[task.id]=session.openIds.slice();
+    if(session.activeId||state.taskPane==='notes')session.lastByTask[task.id]=session.activeId;
   }
   const note=knowledgeFindDocument(session.activeId);
   return note&&!note.knowledgeNote?.isDeleted?note:null;

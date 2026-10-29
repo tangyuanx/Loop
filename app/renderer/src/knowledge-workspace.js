@@ -19,9 +19,11 @@ function knowledgeAttach(note,anchor='') {
   const task=state.tasks.find(t=>t.id===state.activeTaskId);if(!task||!note)return;
   captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});
   if(note.knowledgeNote?.isDeleted)return;
+  knowledgeActiveDocument(task);
   const session=state.knowledgeWorkspace;
   session.openIds=knowledgeDocument.normalizeNoteLinks([...session.openIds,note.id]);
   session.activeId=note.id;session.taskId=task.id;session.lastByTask[task.id]=note.id;
+  session.tabsByTask[task.id]=session.openIds.slice();
   session.recentIds=[note.id,...session.recentIds.filter(id=>id!==note.id)].slice(0,40);
   state.taskPane='notes';save();shellCloseOverlay({restoreFocus:false});render();
   requestAnimationFrame(()=>document.querySelector('.kn-document-tabs [aria-selected=true]')?.scrollIntoView({block:'nearest',inline:'nearest'}));
@@ -34,6 +36,7 @@ function knowledgeDetach(noteId) {
   session.openIds=session.openIds.filter(id=>id!==noteId);
   if(session.activeId===noteId)session.activeId=session.openIds[Math.max(0,index-1)]||'';
   session.lastByTask[task.id]=session.activeId;
+  session.tabsByTask[task.id]=session.openIds.slice();
   save();render();
 }
 function knowledgePreserveTaskNote(task) {
@@ -63,7 +66,7 @@ async function knowledgeOpenFile() {
     await syncKnowledgeFileWatcher(note);
   }
   if(owner.id===state.activeTaskId)knowledgeAttach(note);
-  else {const session=state.knowledgeWorkspace;session.openIds=knowledgeDocument.normalizeNoteLinks([...session.openIds,note.id]);session.recentIds=[note.id,...session.recentIds.filter(id=>id!==note.id)].slice(0,40);session.lastByTask[owner.id]=note.id;save();}
+  else {const session=state.knowledgeWorkspace;session.tabsByTask[owner.id]=knowledgeDocument.normalizeNoteLinks([...(session.tabsByTask[owner.id]||[]),note.id]);session.recentIds=[note.id,...session.recentIds.filter(id=>id!==note.id)].slice(0,40);session.lastByTask[owner.id]=note.id;save();}
 }
 function knowledgeDetail(task) {
   const note=task.knowledgeNote,updated=note.updatedAt||task.updatedAt;

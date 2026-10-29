@@ -14,7 +14,7 @@ const source=path.resolve(__dirname,'..'),pause=ms=>new Promise(resolve=>setTime
   app=await _electron.launch({executablePath:require('electron'),args:[source],cwd:source,env});
   for(let i=0;i<150;i++){page=app.windows().find(p=>p.url().endsWith('/app/renderer/index.html'));if(page)break;await pause(100);}
   assert.ok(page);page.setDefaultTimeout(12000);page.on('pageerror',e=>errors.push(e.message));
-  await page.waitForFunction(()=>typeof knowledgeOpen==='function'&&state.tasks.length===3);
+  await page.waitForFunction(()=>typeof knowledgeOpen==='function'&&state.tasks.some(task=>task.id==='c'));
   const runtime=await app.evaluate(async({app})=>{await app.whenReady();return {appPath:app.getAppPath(),userData:app.getPath('userData'),pid:process.pid}});
   assert.equal(runtime.userData,profile);assert.equal(runtime.appPath,source);await fs.writeFile(path.join(out,'runtime.json'),JSON.stringify(runtime,null,2));
   await app.evaluate(({dialog})=>{global.__noteSavePath='';global.__noteOpenPath='';global.__noteSaves=0;global.__noteOpens=0;
@@ -30,7 +30,9 @@ const source=path.resolve(__dirname,'..'),pause=ms=>new Promise(resolve=>setTime
  const recent=async id=>{await page.locator('.knowledge-header [data-kn-action=recent]').click();await page.locator(`[data-kn-note="${id}"]`).click();await ready(id);};
  try{
   await start();await select('a');await ready('a');assert.equal(await page.locator('.kn-document-tabs').count(),0);
-  await select('b');assert.equal(await current(),'a');assert.equal(await page.evaluate(()=>state.tasks[1].notes),'');
+  await select('b');const firstB=await current();assert.notEqual(firstB,'a');await ready(firstB);assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),'');assert.equal(await page.evaluate(()=>state.tasks[1].notes),'');
+  assert.equal(await page.locator('.kn-document-tabs').count(),0);assert.deepEqual(await page.evaluate(()=>state.knowledgeWorkspace.openIds),[firstB]);
+  await select('a');await ready('a');await select('b');await ready(firstB);
   await page.locator('.knowledge-header [data-kn-action=new-note]').click();
   const d1=await current();assert.notEqual(d1,'a');await ready(d1);assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),'');assert.equal(await page.locator('[role=dialog]').count(),0);
   assert.equal(await page.locator('.kn-document-tabs [role=tab]').count(),2);await edit('未保存草稿一');
@@ -42,23 +44,38 @@ const source=path.resolve(__dirname,'..'),pause=ms=>new Promise(resolve=>setTime
   await page.keyboard.press('Meta+s');await page.waitForFunction(p=>knowledgeActiveDocument()?.knowledgeNote.filePath===p,first);
   assert.equal(await fs.readFile(first,'utf8'),'未保存草稿一');
   assert.equal(await page.evaluate(()=>LoopKnowledgeCore.noteTitle(knowledgeActiveDocument())),'第一份方案');
-  await select('a');assert.equal(await current(),'a');await page.locator(`[data-kn-document="${d1}"]`).click();await ready(d1);
+  await select('a');assert.equal(await current(),'a');assert.equal(await page.locator('.kn-document-tabs').count(),0);await recent(d1);
   await select('b');assert.equal(await current(),d1);
   await page.locator('.knowledge-header [data-kn-action=new-note]').click();const d2=await current();await ready(d2);await edit('第二篇仍是草稿');
   await select('a');await ready(d1);await select('b');await ready(d2);
   await page.screenshot({path:path.join(out,'multiple-documents.png')});
-  // A new task keeps the current independent document; it gets no own note.
-  await select('c');await ready(d2);assert.equal(await page.evaluate(()=>state.tasks.find(t=>t.id==='c').notes),'');
+  // Each first notebook visit starts blank, while existing tasks remember their document.
+  await select('c');const firstC=await current();assert.notEqual(firstC,d2);assert.notEqual(firstC,firstB);await ready(firstC);assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),'');assert.equal(await page.evaluate(()=>state.tasks.find(t=>t.id==='c').notes),'');
+  assert.equal(await page.locator('.kn-document-tabs').count(),0);assert.deepEqual(await page.evaluate(()=>state.knowledgeWorkspace.openIds),[firstC]);
+  await select('b');await ready(d2);await select('c');await ready(firstC);
   const file=path.join(profile,'外部笔记.md');await fs.writeFile(file,'# 本地文件\n\n原始内容');await app.evaluate((_e,p)=>{global.__noteOpenPath=p},file);
   await page.locator('.knowledge-header [data-kn-action=open-file]').click();await page.waitForFunction(p=>knowledgeActiveDocument()?.knowledgeNote.filePath===p,file);
   const external=await current();await ready(external);assert.match(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),/原始内容/);
   const count=await page.evaluate(()=>state.knowledgeDocuments.length);await page.keyboard.press('Meta+o');await page.waitForTimeout(150);assert.equal(await current(),external);assert.equal(await page.evaluate(()=>state.knowledgeDocuments.length),count);
   await app.evaluate(()=>{global.__noteOpenPath=''});await page.keyboard.press('Meta+o');await page.waitForTimeout(150);assert.equal(await current(),external);
-  await page.locator(`[data-kn-detach="${d2}"]`).click();assert.equal(await page.locator(`[data-kn-document="${d2}"]`).count(),0);await recent(d2);assert.match(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),/第二篇仍是草稿/);
+  // Reproduce the actual create-task form while another task's file is open.
+  const documentsBeforeCreate=await page.evaluate(()=>state.knowledgeDocuments.length);
+  await page.locator('[data-action=add-task]').click();await page.locator('#create-title').fill('刚刚创建的新任务');await page.locator('#create-form button[type=submit]').click();
+  await page.waitForFunction(()=>state.tasks.some(task=>task.title==='刚刚创建的新任务'));
+  const createdTask=await page.evaluate(()=>state.activeTaskId);assert.equal(await page.evaluate(()=>state.knowledgeDocuments.length),documentsBeforeCreate);await page.locator('[data-pane=notes]').click();
+  const createdNote=await current();await ready(createdNote);assert.notEqual(createdNote,external);assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),'');
+  assert.equal(await page.locator('.kn-document-tabs').count(),0);assert.deepEqual(await page.evaluate(()=>state.knowledgeWorkspace.openIds),[createdNote]);await page.screenshot({path:path.join(out,'new-task-no-tabs.png')});
+  assert.equal(await page.evaluate(()=>state.knowledgeDocuments.length),documentsBeforeCreate+1);
+  await page.waitForFunction(()=>!pendingPayload&&!saveInFlight);assert.equal((await readTaskData(profile)).knowledgeWorkspace.lastByTask[createdTask],createdNote);
+  await edit('新任务自己的记录');await select('c');await ready(external);assert.match(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),/原始内容/);
+  await select(createdTask);await ready(createdNote);assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),'新任务自己的记录');
+  await select('c');await ready(external);
+  await select('b');await ready(d2);await page.locator(`[data-kn-detach="${d2}"]`).click();assert.equal(await page.locator(`[data-kn-document="${d2}"]`).count(),0);await recent(d2);assert.match(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),/第二篇仍是草稿/);
   await select('a');await ready(d1);await select('b');await ready(d2);await flush();
   const disk=await readTaskData(profile);assert.equal(disk.knowledgeWorkspace.activeId,d2);assert.equal(disk.knowledgeWorkspace.lastByTask.a,d1);assert.equal(disk.knowledgeWorkspace.lastByTask.b,d2);
+  assert.deepEqual(disk.knowledgeWorkspace.tabsByTask[createdTask],[createdNote]);assert.equal(disk.knowledgeWorkspace.tabsByTask.a.includes(d2),false);
   await app.close();app=null;await start();await ready(d2);assert.equal(await page.evaluate(()=>state.activeTaskId),'b');assert.match(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),/第二篇仍是草稿/);
-  await select('a');await ready(d1);await select('b');await ready(d2);
+  await select('a');await ready(d1);await select('b');await ready(d2);await select(createdTask);await ready(createdNote);assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),'新任务自己的记录');await select('b');await ready(d2);
   assert.doesNotMatch(await page.locator('.knowledge-pane').innerText(),/本任务创建|其他笔记/);
   for(const id of await page.evaluate(()=>state.knowledgeWorkspace.openIds.filter(id=>id!==knowledgeActiveDocument().id)))await page.locator(`[data-kn-detach="${id}"]`).click();
   assert.equal(await page.locator('.kn-document-tabs').count(),0);assert.equal(await current(),d2);

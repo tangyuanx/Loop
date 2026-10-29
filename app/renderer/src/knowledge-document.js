@@ -245,10 +245,18 @@
       else if (live.has(task.activeKnowledgeId)) lastByTask[task.id] = task.activeKnowledgeId;
       else if (live.has(task.id)) lastByTask[task.id] = task.id;
     }
-    const openIds = normalizeNoteLinks(source.openIds).filter(id => live.has(id));
+    const tabsByTask = {};
+    for (const task of tasks) {
+      // Old sessions had one global tab list. Keep each task's last document
+      // and retain every old tab in Recents, without copying tabs across tasks.
+      if (Array.isArray(source.tabsByTask?.[task.id])) tabsByTask[task.id] = normalizeNoteLinks(source.tabsByTask[task.id]).filter(id => live.has(id));
+      else if (Object.hasOwn(lastByTask, task.id)) tabsByTask[task.id] = lastByTask[task.id] ? [lastByTask[task.id]] : [];
+    }
+    const taskId = tasks.some(task => task.id === source.taskId) ? source.taskId : '';
+    const openIds = tabsByTask[taskId]?.slice() || [];
     const activeId = live.has(source.activeId) && openIds.includes(source.activeId) ? source.activeId : openIds.at(-1) || '';
-    return {openIds, activeId, recentIds: normalizeNoteLinks(source.recentIds).filter(id => live.has(id)).slice(0, 40),
-      taskId: tasks.some(task => task.id === source.taskId) ? source.taskId : '', lastByTask, visible: source.visible === true};
+    return {openIds, activeId, recentIds: normalizeNoteLinks([...(Array.isArray(source.recentIds)?source.recentIds:[]),...(Array.isArray(source.openIds)?source.openIds:[])]).filter(id => live.has(id)).slice(0, 40),
+      taskId, lastByTask, tabsByTask, visible: source.visible === true};
   }
 
   return Object.freeze({

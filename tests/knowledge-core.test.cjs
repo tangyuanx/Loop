@@ -12,10 +12,21 @@ test('document workspace restores tabs and per-task last document without creati
  assert.deepEqual(migrated.openIds,[]);assert.deepEqual(migrated.lastByTask,{legacy:'legacy',linked:'d'});
  const input={openIds:['d','d','legacy','missing','deleted'],activeId:'d',recentIds:['legacy','d','deleted'],taskId:'linked',lastByTask:{empty:'d',legacy:'',linked:'missing'},visible:true};
  const normalized=metadata.normalizeWorkspace(input,tasks,docs);
- assert.deepEqual(normalized.openIds,['d','legacy']);assert.equal(normalized.activeId,'d');assert.equal(normalized.lastByTask.legacy,'');assert.equal(normalized.lastByTask.empty,'d');assert.equal(normalized.lastByTask.linked,'d');
+ assert.deepEqual(normalized.openIds,['d']);assert.equal(normalized.activeId,'d');assert.equal(normalized.lastByTask.legacy,'');assert.equal(normalized.lastByTask.empty,'d');assert.equal(normalized.lastByTask.linked,'d');
+ assert.deepEqual(normalized.tabsByTask,{empty:['d'],legacy:[],linked:['d']});assert.deepEqual(normalized.recentIds,['legacy','d']);
  assert.deepEqual(metadata.normalizeWorkspace(normalized,tasks,docs),normalized);
  const persisted=normalizeTaskData({version:2,tasks,knowledgeDocuments:docs,knowledgeWorkspace:input});
  assert.equal(persisted.knowledgeWorkspace.activeId,'d');assert.equal(persisted.tasks[0].notes,'');
+});
+
+test('task tab sessions keep multiple documents separate and retain explicit empty sessions',()=>{
+ const tasks=[{id:'a'},{id:'b'},{id:'new'}],documents=[{id:'one'},{id:'two'},{id:'three'}];
+ const input={taskId:'b',activeId:'three',openIds:['one','three'],recentIds:['three','two','one'],lastByTask:{a:'two',b:'three'},tabsByTask:{a:['one','two','two'],b:['three','missing']},visible:true};
+ const normalized=metadata.normalizeWorkspace(input,tasks,documents);
+ assert.deepEqual(normalized.openIds,['three']);assert.deepEqual(normalized.tabsByTask.a,['one','two']);assert.deepEqual(normalized.tabsByTask.b,['three']);assert.equal(normalized.tabsByTask.new,undefined);
+ assert.deepEqual(metadata.normalizeWorkspace(normalized,tasks,documents),normalized);
+ const closed=metadata.normalizeWorkspace({...normalized,activeId:'',openIds:[],lastByTask:{...normalized.lastByTask,b:''},tabsByTask:{...normalized.tabsByTask,b:[]}},tasks,documents);
+ assert.deepEqual(closed.openIds,[]);assert.equal(closed.activeId,'');assert.deepEqual(closed.tabsByTask.a,['one','two']);
 });
 
 test('open and relocate use the corresponding native file picker titles',async()=>{
