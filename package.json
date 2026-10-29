@@ -1,6 +1,6 @@
 {
   "name": "loop",
-  "version": "0.1.251",
+  "version": "0.1.252",
   "description": "Loop is a local-first personal task flow tracker for closing work from creation to completion.",
   "private": true,
   "license": "UNLICENSED",
@@ -20,6 +20,7 @@
     "postinstall": "npm --prefix services/bug-report ci",
     "build:milkdown": "node tools/build-milkdown.cjs",
     "test:ui:group-menu": "node tests/group-context-menu.ui.cjs",
+    "test:ui:updater": "node tests/updater.ui.cjs",
     "test:ui:node-menu": "node tests/node-context-menu.ui.cjs",
     "test:ui:context-create": "node tests/context-create.ui.cjs",
     "test:ui:product": "node tests/product-experience.ui.cjs",
@@ -131,6 +132,7 @@
     "@lezer/highlight": "^1.2.3"
   },
   "dependencies": {
-    "electron-updater": "6.8.9"
+    "electron-updater": "6.8.9",
+    "semver": "7.8.5"
   }
 }

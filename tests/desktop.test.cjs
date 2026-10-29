@@ -3432,7 +3432,7 @@ test("transient controls close on outside pointer presses without changing prote
   assert.match(app, /if \(repositoryGroupPickerOpen && !keepRepositoryGroup\)/);
 });
 
-test("settings expose one-confirmation background update with a safe silent restart handshake", async () => {
+test("settings separate download and install with a safe silent restart handshake", async () => {
   const [app, styles, approved, preload, updater, main] = await Promise.all([
     fs.readFile(path.join(__dirname, "..", "app", "renderer", "src", "app.js"), "utf8"),
     rendererStyles(),
@@ -3475,14 +3475,14 @@ test("settings expose one-confirmation background update with a safe silent rest
   assert.match(app, /<h3 id="software-update-title">软件更新<\/h3>/);
   assert.match(available, /自动检查更新/);
   assert.match(available, /v0\.1\.110 可用/);
-  assert.match(available, /data-update-action="download">升级并重启/);
+  assert.match(available, /data-update-action="download">下载更新/);
   assert.match(preparing, /正在保存并准备升级/);
   assert.match(sidebar.latest, /class="topbar-update-slot"[^>]*data-sidebar-update-slot hidden/);
   assert.doesNotMatch(sidebar.latest, /v0\.1\.109|sidebar-version/);
   assert.doesNotMatch(sidebar.latest, /sidebar-update-action/);
   assert.match(sidebar.available, /class="sidebar-update-action/);
   assert.match(sidebar.available, /data-sidebar-update-action/);
-  assert.match(sidebar.available, /更新到 v0\.1\.110，完成后自动重启/);
+  assert.match(sidebar.available, /查看 v0\.1\.110 的更新内容并下载/);
   assert.match(sidebar.available, /feather-sprite\.svg#download-cloud/);
   assert.match(sidebar.downloading, /aria-busy="true" disabled/);
   assert.match(sidebar.downloading, />42%<\/span>/);
@@ -4276,7 +4276,7 @@ test("production Today widget uses its dedicated frontend and a sandboxed Electr
   assert.match(settingsSource, /update\.retryAction === "check" \? "重新检查"/);
   assert.match(rendererApp, /function bindUpdateActionDelegation\(\)/);
   assert.match(rendererApp, /let lastUpdateAction = "check"/);
-  assert.match(rendererApp, /const effective = action === "download" && !\["available", "downloaded"\]\.includes\(status\)/);
+  assert.match(rendererApp, /const effective = action === "download" && status !== "available"/);
   assert.match(rendererApp, /if \(typeof globalThis\.shellSettingsSyncUpdateCard === "function"\) \{\s*globalThis\.shellSettingsSyncUpdateCard\(\);/);
   // - search scope matches the approved Demo; brief fields stay click-to-edit
   assert.match(shellSource, /placeholder="搜索任务、节点、速记" aria-label="搜索\$\{escAttr\(shellListTitle\(\)\)\}中的任务、节点、速记"/);
@@ -7488,6 +7488,41 @@ test('update retry surfaces use the failed operation and busy clicks never start
   h.evaluate(`appUpdateState = normalizeAppUpdateState({status:'downloading',supported:true});`);
   await h.evaluate(`runUpdateAction('check')`);
   assert.deepEqual(calls, ['download','install']);
+});
+
+test('update notes group skipped releases and downloaded actions require explicit installation', async () => {
+  const calls = [];
+  const h = await rendererHarness({ updates: {
+    download: async () => { calls.push('download'); },
+    install: async () => { calls.push('install'); return { status: 'installing', supported: true }; },
+    check: async () => { calls.push('check'); },
+  } });
+  h.evaluate(`
+    refreshUpdateSurfaces = () => {};
+    appUpdateState = normalizeAppUpdateState({ status:'available', supported:true, currentVersion:'0.1.9', version:'0.1.12', releaseNotesStatus:'ready', releaseNotes:[
+      { version:'0.1.12', notes:'## 修复\\n- 修复表格光标\\n<script>alert(1)</script>\\n![远程图片](https://example.com/image.png)' },
+      { version:'0.1.11', notes:'- 支持全局页宽' },
+      { version:'0.1.10', notes:'' }
+    ] });
+  `);
+  for (const markup of ['shellSettingsUpdateCardBody()', 'shellUpdatePanelBody()', 'renderUpdateSettingsControls()']) {
+    const html = h.evaluate(markup);
+    assert.match(html, /data-update-action="download">下载更新/);
+    assert.match(html, /本次涵盖 3 个版本/);
+    assert.match(html, /data-update-release="0.1.12" open/);
+    assert.match(html, /data-update-release="earlier"><summary>此前 2 个版本/);
+    assert.doesNotMatch(html, /<script>|<img\b|data-update-release="0.1.11" open/);
+    assert.match(html, /&lt;script&gt;/);
+    assert.match(html, /此版本未提供更新说明/);
+  }
+  h.evaluate(`appUpdateState = {...appUpdateState, status:'downloaded'};`);
+  assert.match(h.evaluate('shellSettingsUpdateCardBody()'), /data-update-action="install">安装并重启/);
+  assert.match(h.evaluate('shellUpdatePanelBody()'), /data-update-action="install">安装并重启/);
+  await h.evaluate(`runUpdateAction('download')`);
+  await h.evaluate(`runUpdateAction('check')`);
+  assert.deepEqual(calls, []);
+  await h.evaluate(`runUpdateAction('install')`);
+  assert.deepEqual(calls, ['install']);
 });
 
 test('backup ownership survives settings rerenders, prevents duplicate operations and retains cancellation status', async () => {

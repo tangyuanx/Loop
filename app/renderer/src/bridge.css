@@ -617,3 +617,30 @@ body[data-window25-inactive] .topbar > .brand-update-slot > .brand-update {
 /* Reduce the visible completion circle without changing its 26 × 28px button. */
 .task-check-ring { width: 14px; height: 14px; }
 .task-check-ring svg { width: 9px; height: 9px; }
+
+/* Release history belongs to the existing update surface, with one expanded
+   version and a bounded reading area even after many skipped releases. */
+.update-release-notes { margin-top:24px; min-width:0; font-size:calc(12px * var(--font-scale,1)); }
+.update-release-notes>header { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px 14px; margin-bottom:8px; }
+.update-release-notes h4 { margin:0; color:var(--text); font-size:inherit; font-weight:600; }
+.update-release-notes>header>span,.update-release-latest,.update-release time { color:var(--secondary); font-size:calc(11px * var(--font-scale,1)); font-weight:400; }
+.update-release-scroll { max-height:320px; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.update-release summary,.update-earlier-releases>summary { cursor:pointer; padding:9px 2px; color:var(--text); line-height:1.6; overflow-wrap:anywhere; }
+.update-release summary strong { font-weight:400; }
+.update-release-latest { margin-left:10px; }
+.update-release time { margin-left:12px; }
+.update-release summary:focus-visible,.update-earlier-releases>summary:focus-visible { outline:2px solid var(--secondary); outline-offset:-2px; border-radius:3px; }
+.update-release-body { padding:0 6px 10px 16px; color:var(--secondary); line-height:1.8; overflow-wrap:anywhere; }
+.update-release-notes .update-release-body :is(h1,h2,h3,h4,h5,h6) { margin:12px 0 6px; color:var(--text); font-size:inherit; font-weight:600; }
+.update-release-body p { margin:6px 0; }
+.update-release-body ul,.update-release-body ol { padding-left:20px; margin:6px 0; }
+.update-release-body li { margin:4px 0; }
+.update-release-body pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+.update-release-body table { display:block; max-width:100%; overflow:auto; }
+.update-release-body img { display:none; }
+.update-release-body a,.update-release-link { color:var(--secondary); text-underline-offset:3px; }
+.update-release-link { display:inline-block; margin-top:10px; }
+.update-earlier-releases>.update-release { margin-left:14px; }
+.update-notes-status { color:var(--secondary); line-height:1.7; }
+.utility-popover .update-release-notes { margin-top:18px; }
+.utility-popover .update-release-scroll { max-height:180px; }

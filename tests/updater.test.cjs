@@ -5,6 +5,7 @@ const path = require("node:path");
 const test = require("node:test");
 const { EventEmitter } = require("node:events");
 const { classifyUpdateError, createUpdateController } = require("../app/main/updater.cjs");
+const { normalizeReleaseNotes, notesFromUpdateInfo, fetchUpdateReleaseNotes } = require("../app/main/update-release-notes.cjs");
 
 function createHarness({
   platform = "win32",
@@ -15,6 +16,7 @@ function createHarness({
   checkError = null,
   installDirectory = "C:\\Users\\example\\AppData\\Local\\Programs\\Personal Task Track",
   fileSystem = fs,
+  fetchReleaseNotes = null,
 } = {}) {
   const updates = new EventEmitter();
   const handlers = new Map();
@@ -66,6 +68,7 @@ function createHarness({
     macUpdatesEnabled,
     installDirectory,
     fileSystem,
+    fetchReleaseNotes,
     prepareInstall: async () => {
       prepareInstallCount += 1;
       return prepareInstallResult;
@@ -100,13 +103,15 @@ test("a failed download retries the download without losing the checked release"
   await h.controller.downloadUpdate(); await settle();
   assert.equal(h.downloadCount(), 1);
   assert.equal(h.checkCount(), 1);
-  assert.equal(h.controller.getState().status, "installing");
+  assert.equal(h.controller.getState().status, "downloaded");
+  assert.equal(h.prepareInstallCount(), 0);
 });
 
 test("an installer failure can retry the downloaded installer without downloading again", async (t) => {
   const h = createHarness({ installThrows: true });
   t.after(() => fs.rm(h.userData, { recursive: true, force: true }));
-  await h.controller.checkForUpdates(); await h.controller.downloadUpdate(); await settle();
+  await h.controller.checkForUpdates(); await h.controller.downloadUpdate();
+  await h.controller.installUpdate();
   assert.equal(h.controller.getState().retryAction, "install");
   let installed = 0;
   h.updates.quitAndInstall = () => { installed++; };
@@ -145,7 +150,7 @@ test("concurrent update-preference changes commit in order and restart reads the
   assert.equal(other.controller.getState().automaticChecks, false);
 });
 
-test("one explicit Windows upgrade action downloads, prepares, silently installs, and relaunches", async () => {
+test("Windows download waits for a separate explicit install action before saving and relaunching", async () => {
   const harness = createHarness();
   harness.controller.registerIpc();
   await harness.controller.start({ schedule: false });
@@ -158,6 +163,15 @@ test("one explicit Windows upgrade action downloads, prepares, silently installs
 
   await harness.controller.downloadUpdate();
   await settle();
+  assert.equal(harness.controller.getState().status, "downloaded");
+  assert.equal(harness.prepareInstallCount(), 0);
+  assert.equal(harness.installArgs(), null);
+  await harness.handlers.get("app-update:download")();
+  await harness.controller.checkForUpdates("automatic");
+  assert.equal(harness.downloadCount(), 1);
+  assert.equal(harness.prepareInstallCount(), 0);
+  assert.equal(harness.controller.getState().status, "downloaded");
+  await harness.handlers.get("app-update:install")();
   assert.equal(harness.controller.getState().status, "installing");
   assert.equal(harness.controller.getState().percent, 100);
   assert.equal(harness.downloadCount(), 1);
@@ -188,7 +202,7 @@ test("failed pre-install persistence keeps the app open and the downloaded updat
   await harness.controller.start({ schedule: false });
   await harness.controller.checkForUpdates();
   await harness.controller.downloadUpdate();
-  await settle();
+  await harness.controller.installUpdate();
 
   assert.equal(harness.controller.getState().status, "downloaded");
   assert.equal(harness.controller.getState().errorCode, "INSTALL_PREPARATION_FAILED");
@@ -209,6 +223,8 @@ test("rapid repeated upgrade actions share one download and one install preparat
   await settle();
 
   assert.equal(harness.downloadCount(), 1);
+  assert.equal(harness.prepareInstallCount(), 0);
+  await Promise.all([harness.controller.installUpdate(), harness.controller.installUpdate(), harness.controller.installUpdate()]);
   assert.equal(harness.prepareInstallCount(), 1);
   assert.deepEqual(harness.installArgs(), [true, true]);
   await fs.rm(harness.userData, { recursive: true, force: true });
@@ -219,7 +235,7 @@ test("installer launch failure remains visible and does not report an installing
   await harness.controller.start({ schedule: false });
   await harness.controller.checkForUpdates();
   await harness.controller.downloadUpdate();
-  await settle();
+  await harness.controller.installUpdate();
 
   assert.equal(harness.controller.getState().status, "error");
   assert.equal(harness.controller.getState().errorCode, "EACCES");
@@ -277,4 +293,79 @@ test("update failures distinguish an incomplete Windows release from user networ
     fs.rm(incompleteRelease.userData, { recursive: true, force: true }),
     fs.rm(offline.userData, { recursive: true, force: true }),
   ]);
+});
+
+test("release notes use semantic order, deduplicate, and exclude installed, future, and prerelease versions", () => {
+  const entries = [
+    { version: "v0.1.9", notes: "installed" },
+    { version: "0.1.10", notes: "ten" },
+    { version: "0.1.12", notes: "twelve", releaseDate: "2026-10-29" },
+    { version: "0.1.11", notes: "eleven" },
+    { version: "0.1.12", notes: "duplicate" },
+    { version: "0.1.13", notes: "future" },
+    { version: "0.1.12-beta.1", notes: "beta" },
+    { version: "not-a-version", notes: "invalid" },
+  ];
+  const notes = normalizeReleaseNotes(entries, "0.1.9", "0.1.12");
+  assert.deepEqual(notes.map((item) => item.version), ["0.1.12", "0.1.11", "0.1.10"]);
+  assert.equal(notes[0].notes, "twelve");
+  assert.equal(notes[0].releaseDate, "2026-10-29T00:00:00.000Z");
+  assert.equal(notesFromUpdateInfo({ version: "0.1.12", releaseNotes: "latest notes" }, "0.1.9")[0].notes, "latest notes");
+  assert.equal(notesFromUpdateInfo({ version: "0.1.12", releaseNotes: [{ version: "0.1.11", note: "earlier" }] }, "0.1.9").length, 2);
+});
+
+test("history paginates across a large version gap and retains versions missing a description", async () => {
+  const calls = [];
+  const page1 = Array.from({ length: 100 }, (_, index) => ({ tag_name: `v0.1.${150 - index}`, body: `note ${150 - index}` }));
+  const page2 = [
+    { tag_name: "v0.1.50", body: null },
+    { tag_name: "v0.1.49", body: "installed" },
+    { tag_name: "v0.1.151", body: "future" },
+    { tag_name: "v0.1.149", body: "draft", draft: true },
+  ];
+  const result = await fetchUpdateReleaseNotes({ currentVersion: "0.1.49", targetVersion: "0.1.150", fetch: async (url) => {
+    calls.push(url);
+    return { ok: true, json: async () => calls.length === 1 ? page1 : page2 };
+  } });
+  assert.match(calls[1], /page=2$/);
+  assert.equal(result.releaseNotesStatus, "ready");
+  assert.equal(result.releaseNotes.length, 101);
+  assert.equal(result.releaseNotes.at(-1).version, "0.1.50");
+  assert.equal(result.releaseNotes.at(-1).notes, "");
+});
+
+test("history failure and pagination limits report partial notes without blocking the installer", async () => {
+  const fallback = [{ version: "0.1.110", notes: "feed note" }];
+  for (const fetch of [async () => { throw new Error("offline"); }, async () => ({ ok: false, status: 429 })]) {
+    const result = await fetchUpdateReleaseNotes({ fetch, currentVersion: "0.1.109", targetVersion: "0.1.110", fallback });
+    assert.equal(result.releaseNotesStatus, "partial");
+    assert.equal(result.releaseNotes[0].notes, "feed note");
+  }
+  const limited = await fetchUpdateReleaseNotes({ currentVersion: "0.1.1", targetVersion: "0.1.110", maxPages: 1,
+    fetch: async () => ({ ok: true, json: async () => Array.from({ length: 100 }, () => ({ tag_name: "v0.1.110", body: "latest" })) }),
+  });
+  assert.equal(limited.releaseNotesStatus, "partial");
+});
+
+test("late history from an earlier check cannot overwrite a newer check or install waiting state", async (t) => {
+  let resolveFirst;
+  let calls = 0;
+  const h = createHarness({ fetchReleaseNotes: () => {
+    if (++calls === 1) return new Promise((resolve) => { resolveFirst = resolve; });
+    return Promise.resolve({ ok: true, json: async () => [{ tag_name: "v0.1.110", body: "new history" }] });
+  } });
+  t.after(() => { h.controller.stop(); return fs.rm(h.userData, { recursive: true, force: true }); });
+  await h.controller.checkForUpdates();
+  assert.equal(h.controller.getState().releaseNotesStatus, "loading");
+  await h.controller.checkForUpdates();
+  await settle();
+  await h.controller.downloadUpdate();
+  resolveFirst({ ok: true, json: async () => [{ tag_name: "v0.1.110", body: "stale history" }] });
+  await settle();
+  assert.equal(h.controller.getState().releaseNotes[0].notes, "new history");
+  assert.equal(h.controller.getState().status, "downloaded");
+  assert.equal(h.prepareInstallCount(), 0);
+  const snapshot = h.controller.getState();
+  snapshot.releaseNotes[0].notes = "mutated outside the controller";
+  assert.equal(h.controller.getState().releaseNotes[0].notes, "new history");
 });

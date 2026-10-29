@@ -4829,6 +4829,12 @@ function normalizeAppUpdateState(value) {
     currentVersion: String(raw.currentVersion || APP_VERSION || "").slice(0, 64),
     version: String(raw.version || "").slice(0, 64),
     releaseDate: String(raw.releaseDate || "").slice(0, 64),
+    releaseNotes: (Array.isArray(raw.releaseNotes) ? raw.releaseNotes : []).slice(0, 500).map((entry) => ({
+      version: String(entry?.version || "").slice(0, 64),
+      releaseDate: String(entry?.releaseDate || "").slice(0, 64),
+      notes: String(entry?.notes || "").slice(0, 12_000),
+    })),
+    releaseNotesStatus: ["loading", "ready", "partial"].includes(raw.releaseNotesStatus) ? raw.releaseNotesStatus : "idle",
     size: safeNumber(raw.size),
     percent: Math.max(0, Math.min(100, safeNumber(raw.percent))),
     transferred: safeNumber(raw.transferred),
@@ -4839,6 +4845,53 @@ function normalizeAppUpdateState(value) {
     retryAction: ["check", "download", "install"].includes(raw.retryAction) ? raw.retryAction : (raw.version ? "download" : "check"),
     preferenceError: String(raw.preferenceError || "").replace(/[^0-9A-Z_.-]/gi, "").slice(0, 64),
   };
+}
+
+function renderUpdateReleaseNotes(update = appUpdateState) {
+  if (!update.version || !["available", "downloading", "downloaded", "preparing", "installing", "error"].includes(update.status)) return "";
+  if (update.status === "error" && update.retryAction === "check") return "";
+  const entries = update.releaseNotes || [];
+  const latest = entries.find((entry) => entry.version === update.version);
+  const earlier = entries.filter((entry) => entry.version !== update.version);
+  const release = (entry, isLatest = false) => {
+    const date = formatUpdateDate(entry.releaseDate);
+    // Release descriptions are display-only: escape HTML via renderMarkdown,
+    // and show image alt text without loading remote assets or local files.
+    const notes = String(entry.notes || "").replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
+    return `<details class="update-release" data-update-release="${escAttr(entry.version)}" ${isLatest ? "open" : ""}>
+      <summary><strong>v${esc(entry.version)}</strong>${isLatest ? '<span class="update-release-latest">最新版本</span>' : ""}${date ? `<time>${esc(date)}</time>` : ""}</summary>
+      <div class="update-release-body">${notes.trim() ? renderMarkdown(notes) : '<p>此版本未提供更新说明。</p>'}</div>
+    </details>`;
+  };
+  const status = update.releaseNotesStatus === "loading" ? "正在获取更新说明…"
+    : update.releaseNotesStatus === "partial" ? "更新说明未完全获取，可查看完整发布记录。" : "";
+  return `<section class="update-release-notes" aria-label="更新内容" aria-live="off">
+    <header><h4>更新内容</h4>${entries.length > 1 ? `<span>${update.releaseNotesStatus === "ready" ? "本次涵盖" : "已获取"} ${entries.length} 个版本</span>` : ""}</header>
+    ${status ? `<p class="update-notes-status">${status}</p>` : ""}
+    <div class="update-release-scroll" data-update-notes-scroll>
+      ${latest ? release(latest, true) : ""}
+      ${earlier.length ? `<details class="update-earlier-releases" data-update-release="earlier"><summary>此前 ${earlier.length} 个版本</summary>${earlier.map((entry) => release(entry)).join("")}</details>` : ""}
+      ${!entries.length && update.releaseNotesStatus !== "loading" ? '<p>暂未获取到更新说明。</p>' : ""}
+    </div>
+    <a class="update-release-link" href="https://github.com/tangyuanx/Loop/releases" target="_blank" rel="noreferrer">查看完整发布记录 ↗</a>
+  </section>`;
+}
+
+// Progress pushes replace the status markup. Preserve the reader's expanded
+// versions and scroll position instead of collapsing notes on every tick.
+function replaceUpdateSurfaceContent(node, html) {
+  const open = new Map([...node.querySelectorAll("[data-update-release]")].map((item) => [item.dataset.updateRelease, item.open]));
+  const scrollTop = node.querySelector("[data-update-notes-scroll]")?.scrollTop || 0;
+  const focusedAction = node.contains(document.activeElement) ? document.activeElement?.dataset?.updateAction : "";
+  const focusedRelease = node.contains(document.activeElement) ? document.activeElement?.closest?.("summary")?.parentElement?.dataset?.updateRelease : "";
+  node.innerHTML = html;
+  node.querySelectorAll("[data-update-release]").forEach((item) => {
+    if (open.has(item.dataset.updateRelease)) item.open = open.get(item.dataset.updateRelease);
+  });
+  const scroll = node.querySelector("[data-update-notes-scroll]");
+  if (scroll) scroll.scrollTop = scrollTop;
+  if (["check", "download", "install"].includes(focusedAction)) node.querySelector(`[data-update-action="${focusedAction}"]`)?.focus({ preventScroll: true });
+  if (focusedRelease) [...node.querySelectorAll("[data-update-release]")].find((item) => item.dataset.updateRelease === focusedRelease)?.querySelector("summary")?.focus({ preventScroll: true });
 }
 
 function renderUpdateSettingsControls() {
@@ -4874,6 +4927,7 @@ function renderUpdateSettingsControls() {
       <div class="settings-update-status" aria-live="polite">
         ${renderUpdateStatus(update)}
       </div>
+      ${renderUpdateReleaseNotes(update)}
     </div>
   `;
 }
@@ -4902,8 +4956,8 @@ function renderUpdateStatus(update) {
       tone: "available",
       title: `v${esc(update.version)} 可用`,
       detail: metadata || "新版本已发布",
-      notes: ["确认后在应用内后台下载", "完成后自动安装并重新启动"],
-      actions: `<button class="settings-update-button ghost" type="button" data-update-action="later">稍后</button><button class="settings-update-button primary" type="button" data-update-action="download">升级并重启</button>`,
+      notes: ["点击下载后在后台获取更新包", "下载完成后，由你选择安装并重启"],
+      actions: `<button class="settings-update-button ghost" type="button" data-update-action="later">稍后</button><button class="settings-update-button primary" type="button" data-update-action="download">下载更新</button>`,
     });
   }
   if (update.status === "downloading") {
@@ -4911,7 +4965,7 @@ function renderUpdateStatus(update) {
     const detail = [
       `${percent}%`,
       update.bytesPerSecond ? `${formatUpdateSize(update.bytesPerSecond)}/s` : "",
-      "完成后将自动重启",
+      "完成后等待你安装",
     ].filter(Boolean).join(" · ");
     return updateStatusSheet({
       icon: "↓",
@@ -4927,7 +4981,7 @@ function renderUpdateStatus(update) {
       tone: preparationFailed ? "error" : "available",
       title: preparationFailed ? "升级前保存未完成" : `v${esc(update.version)} 已下载`,
       detail: preparationFailed ? "应用没有退出，你的内容仍保留。请排除磁盘或权限问题后重试。" : "升级包已就绪，由你确认后再安装并重启。",
-      actions: `<button class="settings-update-button ghost" type="button" data-update-action="later">稍后</button><button class="settings-update-button primary" type="button" data-update-action="download">${preparationFailed ? "重试升级" : "升级并重启"}</button>`,
+      actions: `<button class="settings-update-button ghost" type="button" data-update-action="later">稍后</button><button class="settings-update-button primary" type="button" data-update-action="install">${preparationFailed ? "重试安装" : "安装并重启"}</button>`,
     });
   }
   if (update.status === "preparing") {
@@ -5046,16 +5100,16 @@ function renderSidebarUpdateControl(update = appUpdateState) {
   const label = update.status === "available"
     ? "更新"
     : update.status === "downloaded"
-      ? "重启更新"
+      ? "待安装"
       : update.status === "downloading"
         ? `${Math.round(update.percent)}%`
         : update.status === "preparing"
           ? "准备中"
           : "安装中";
   const description = update.status === "available"
-    ? `更新到 v${update.version}，完成后自动重启`
+    ? `查看 v${update.version} 的更新内容并下载`
     : update.status === "downloaded"
-      ? `重启并安装 v${update.version}`
+      ? `v${update.version} 已下载，查看并选择安装`
       : `正在更新到 v${update.version}`;
   const icon = busy ? "loader" : "download-cloud";
   return `
@@ -5084,9 +5138,7 @@ function refreshSidebarUpdateControl() {
 function bindSidebarUpdateControl() {
   document.querySelector("[data-sidebar-update-action]")?.addEventListener("click", (event) => {
     event.stopPropagation();
-    // "available" downloads and then installs; "downloaded" installs; anything
-    // else means there is nothing to fetch, so re-check and say so.
-    void runUpdateAction(["available", "downloaded"].includes(appUpdateState.status) ? "download" : "check");
+    shellUpdatePanel(event.currentTarget);
   });
 }
 
@@ -5111,7 +5163,7 @@ function updatesPageIsOpen() {
 function refreshUpdateSettings() {
   const slot = document.querySelector(".settings-update-slot");
   if (!slot) return;
-  slot.innerHTML = renderUpdateSettingsControls();
+  replaceUpdateSurfaceContent(slot, renderUpdateSettingsControls());
   bindUpdateSettingsControls();
 }
 
@@ -5250,7 +5302,9 @@ function syncDataBackupControls() {
 
 async function runUpdateAction(action) {
   if (!desktopUpdates) return;
+  if (!["check", "download", "install"].includes(action)) return;
   if (!appUpdateState.supported || ["checking", "downloading", "preparing", "installing"].includes(appUpdateState.status)) return;
+  if (appUpdateState.status === "downloaded" && action !== "install") return;
   // A click must never look dead. Two things can make it look dead: asking for a
   // download while nothing is downloadable (the updater returns the unchanged
   // state), and waiting for the first push from the main process. So the action
@@ -5258,7 +5312,7 @@ async function runUpdateAction(action) {
   // before anything is awaited.
   const status = appUpdateState.status;
   const retry = status === "error" ? appUpdateState.retryAction : "";
-  const effective = action === "download" && !["available", "downloaded"].includes(status) && retry !== "download"
+  const effective = action === "download" && status !== "available" && retry !== "download"
     ? "check"
     : action === "install" && status !== "downloaded" && retry !== "install"
       ? "check"
@@ -5278,7 +5332,7 @@ async function runUpdateAction(action) {
         : await desktopUpdates.install();
     if (result && typeof result === "object") appUpdateState = normalizeAppUpdateState(result);
   } catch {
-    appUpdateState = { ...appUpdateState, status: "error", errorCode: "UPDATE_ACTION_FAILED" };
+    appUpdateState = { ...appUpdateState, status: "error", errorCode: "UPDATE_ACTION_FAILED", retryAction: effective };
   }
   refreshUpdateSurfaces();
 }
