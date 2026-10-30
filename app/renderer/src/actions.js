@@ -804,8 +804,9 @@ function shellNodeOperations(trigger, nodeId) {
   shellMountSurface(
     `<div class="surface-popover" role="menu" aria-label="节点操作">${shellSurfaceHeader("节点操作")}
       <button class="button" type="button" role="menuitem" data-action="edit-node-title" data-node-id="${escAttr(nodeId)}">${shellIcon("edit")}修改标题</button>
-      <button class="button" type="button" role="menuitem" data-action="add-sibling-node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(nodeId)}">${shellIcon("plus")}添加兄弟节点</button>
+      <button class="button" type="button" role="menuitem" data-action="add-sibling-node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(nodeId)}">${shellIcon("plus")}添加同级节点</button>
       <button class="button" type="button" role="menuitem" data-action="add-child-node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(nodeId)}">${shellIcon("indent")}添加子节点</button>
+      <button class="button" type="button" role="menuitem" data-action="share-node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(nodeId)}">${shellIcon("share")}分享此节点…</button>
       <div class="menu-divider"></div>
       ${moves.map(([value, label, disabled]) => `<button class="button" type="button" role="menuitem" data-action="move-node" data-node-id="${escAttr(nodeId)}" data-direction="${value}" ${disabled ? "disabled" : ""}>${label}</button>`).join("")}
       <div class="menu-divider"></div>
@@ -1033,10 +1034,11 @@ function shellRefreshUpdatePanel() {
 
 function shellChoiceMenu(trigger, title, options, selected, dataKey, iconName = "flag") {
   const rect = trigger.getBoundingClientRect();
+  const taskId = trigger.dataset.taskId || shellActiveTask()?.id || "";
   const overlay = shellOverlay();
   overlay.innerHTML = `<div class="priority-popover" role="menu" aria-label="${escAttr(title)}" data-return-focus="[data-action='${escAttr(trigger.dataset.action)}']" style="left:${Math.max(12, Math.min(rect.left, window.innerWidth - 200))}px;top:${rect.bottom + 7}px">
     <p class="status-menu-title">${esc(title)}</p>
-    ${Object.entries(options).map(([value, label]) => `<button type="button" role="menuitemradio" aria-checked="${selected === value}" data-action="set-task-priority" data-priority="${escAttr(value)}">${shellIcon(iconName)}<span>${esc(label)}</span>${selected === value ? shellIcon("check") : "<span></span>"}</button>`).join("")}
+    ${Object.entries(options).map(([value, label]) => `<button type="button" role="menuitemradio" aria-checked="${selected === value}" data-action="set-task-priority" data-task-id="${escAttr(taskId)}" data-priority="${escAttr(value)}">${shellIcon(iconName)}<span>${esc(label)}</span>${selected === value ? shellIcon("check") : "<span></span>"}</button>`).join("")}
   </div>`;
   shellClampFloatingSurface(overlay.querySelector(".priority-popover"));
   trigger.setAttribute("aria-expanded", "true");

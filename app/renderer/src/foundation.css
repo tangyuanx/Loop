@@ -211,7 +211,7 @@ body :is(input, textarea, select)::placeholder {
 
 /* Search fields are an inset surface.  The parent does not change fill when
  * focused; the one-pixel bottom line is the only focus cue. */
-body :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search) {
+body :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search, .node-share-search-field) {
   background: var(--input-surface);
   outline: none;
   box-shadow: none;
@@ -233,8 +233,8 @@ body .list-search:focus-within {
   box-shadow: inset 0 -1px 0 var(--focus-line);
 }
 
-body[data-foundation-enabled] :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search) input,
-body[data-foundation-enabled] :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search) input:is(:hover, :focus, :focus-visible) {
+body[data-foundation-enabled] :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search, .node-share-search-field) input,
+body[data-foundation-enabled] :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search, .node-share-search-field) input:is(:hover, :focus, :focus-visible) {
   border: 0;
   outline: none;
   box-shadow: none;
@@ -242,7 +242,7 @@ body[data-foundation-enabled] :is(.list-search, .kn-find-field, .kn-switcher-sea
   caret-color: var(--text);
 }
 
-body :is(.kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search):focus-within {
+body :is(.kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search, .node-share-search-field):focus-within {
   border-color: var(--input-focus);
   background: var(--input-surface);
   outline: none;

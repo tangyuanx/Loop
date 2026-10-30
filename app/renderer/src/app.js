@@ -532,6 +532,7 @@ function makeNode(taskId, parentId, order) {
     statusChangedAt: now(),
     completedAt: "",
     collapsed: false,
+    downstreamNodeIds: [],
     children: [],
   };
 }
@@ -793,6 +794,7 @@ function normalizeNodes(nodes, taskId = "", parentId = null, seenNodeIds = new S
             ),
             completedAt: normalizeOptionalDateValue(node.completedAt),
             collapsed: Boolean(node.collapsed),
+            downstreamNodeIds: Array.isArray(node.downstreamNodeIds) ? [...new Set(node.downstreamNodeIds.filter(id => typeof id === "string" && id.trim() && id !== nodeId))] : [],
             children: normalizeNodes(node.children, taskId, nodeId, seenNodeIds),
           };
         })
@@ -3898,11 +3900,15 @@ function renderContextMenu() {
   if (!node) return "";
   return `
     <div class="context-menu node-context-menu" role="menu" aria-label="${escAttr(node.title || "未命名节点")}的操作" style="left:${menu.x}px; top:${menu.y}px">
-      <div class="context-menu-title">${esc(node.title || "未命名节点")}</div>
-      <button type="button" role="menuitem" data-action="add-sibling-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("plus")}<span>添加兄弟节点</span></button>
-      <button type="button" role="menuitem" data-action="add-child-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("indent")}<span>添加子节点</span></button>
+      <div class="context-menu-title">${shellIcon("note")}<span>${esc(node.title || "未命名节点")}</span></div>
+      <div role="group" aria-label="添加节点">
+        <button type="button" role="menuitem" data-action="add-sibling-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("plus")}<span>添加同级节点</span></button>
+        <button type="button" role="menuitem" data-action="add-child-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("indent")}<span>添加子节点</span></button>
+      </div>
       <hr role="separator" />
-      <button type="button" role="menuitem" class="danger" data-action="delete-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("close")}<span>删除节点…</span></button>
+      <button type="button" role="menuitem" aria-haspopup="dialog" data-action="share-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("share")}<span>分享此节点…</span></button>
+      <hr role="separator" />
+      <button type="button" role="menuitem" aria-haspopup="dialog" class="danger" data-action="delete-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("trash")}<span>删除节点…</span></button>
     </div>
   `;
 }
@@ -8114,6 +8120,7 @@ async function pickEditorImageFile() {
  * @param {Event|null} event - Original DOM event, used for position calculations
  */
 async function action(data, event = null) {
+  const nodeShareTrigger = data.action === "share-node" ? event?.currentTarget : null;
   if (["toggle-calendar", "toggle-review", "toggle-settings"].includes(data.action)) state.globalListReturn = null;
   // The three-column shell owns the Demo's action vocabulary; anything it
   // recognises is executed there and re-rendered, the legacy chain below
@@ -8290,6 +8297,10 @@ async function action(data, event = null) {
   }
   if (data.action === "share-task") {
     void shareTask(data.taskId);
+    return;
+  }
+  if (data.action === "share-node") {
+    openNodeShare(data.taskId, data.nodeId, nodeShareTrigger);
     return;
   }
   if (data.action === "scroll-sheets") {
@@ -8536,6 +8547,7 @@ async function action(data, event = null) {
       save();
     }
     taskPriorityMenu = null;
+    if (document.querySelector("#overlay .priority-popover")) shellCloseOverlay();
   }
   if (data.action === "close-task-priority-menu") taskPriorityMenu = null;
   if (data.action === "add-task") {
@@ -8623,28 +8635,25 @@ async function shareTask(taskId) {
   if (!task) return;
   captureMountedMilkdownDrafts();
   flushNodeNoteDrafts({ persist: true });
-  const markdown = taskMarkdown(task);
-
   try {
-    if (desktopExport?.taskDocument) {
-      await desktopExport.taskDocument({
-        taskTitle: task.title || "未命名任务",
-        markdown,
-        html: renderMarkdown(markdown),
-      });
-      return;
-    }
-    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${safeDownloadName(task.title || "未命名任务")}.md`;
-    link.click();
-    URL.revokeObjectURL(url);
+    await exportTaskMarkdown(task.title || "未命名任务", taskMarkdown(task));
   } catch (error) {
     console.error("Failed to export task document.", error);
     showWorkspaceError("导出失败，请稍后重试。");
   }
+}
+
+async function exportTaskMarkdown(title, markdown) {
+  if (desktopExport?.taskDocument) return desktopExport.taskDocument({ taskTitle: title, markdown, html: renderMarkdown(markdown) });
+  const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${safeDownloadName(title)}.md`;
+    link.click();
+    return { canceled: false };
+  } finally { URL.revokeObjectURL(url); }
 }
 
 function taskMarkdown(task) {

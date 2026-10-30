@@ -84,3 +84,5 @@ body .desk19-result { overflow-wrap: anywhere; }
   body .manual27-head .manual27-directory { display: flex; }
   body .manual27-directory-popup .manual27-toc { display: block; }
 }
+/* Dialogs and menus sit above modeless node record windows. */
+body #overlay { position: relative; z-index: 100; }

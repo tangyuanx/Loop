@@ -125,14 +125,12 @@ function renderShellTaskTitle(task) {
 }
 
 function renderShellTaskProperties(task, { all = false } = {}) {
-  // The Demo hides the today/priority/status trio only on the 今日 route.
-  const showStatus = all || shellRoute() !== "today";
+  const showContext = all || shellRoute() !== "today";
   const tags = normalizeTaskTags(task.tags);
   const deadlineProperty = shellDeadlineProperty(task);
   return `<div class="task-properties">
-    ${showStatus ? `<button class="badge ${isTaskScheduledForToday(task) ? "green" : ""}" type="button" data-action="toggle-task-tag" data-tag="today" data-task-id="${escAttr(task.id)}" aria-pressed="${tags.today}">${esc(shellTodayReason(task))}</button>
-    <button class="property" type="button" data-action="toggle-task-priority-menu" data-task-id="${escAttr(task.id)}" aria-label="修改任务优先级">${shellIcon("flag")}${SHELL_PRIORITY_LABELS[normalizePriority(task.priority)]}${shellIcon("down")}</button>
-    <span class="property">${shellTaskDone(task) ? "已完成" : "处理中"}</span>` : ""}
+    ${showContext ? `<button class="badge ${isTaskScheduledForToday(task) ? "green" : ""}" type="button" data-action="toggle-task-tag" data-tag="today" data-task-id="${escAttr(task.id)}" aria-pressed="${tags.today}">${esc(shellTodayReason(task))}</button>
+    <button class="property" type="button" data-action="toggle-task-priority-menu" data-task-id="${escAttr(task.id)}" aria-label="修改任务优先级">${shellIcon("flag")}${SHELL_PRIORITY_LABELS[normalizePriority(task.priority)]}${shellIcon("down")}</button>` : ""}
     <button class="property ${deadlineProperty.classes}" type="button" data-action="toggle-deadline-picker" data-task-id="${escAttr(task.id)}" aria-haspopup="dialog" title="${escAttr(deadlineProperty.title)}">${shellIcon("calendar")}${esc(deadlineProperty.text)}${shellIcon("down")}</button>
     <button class="property" type="button" data-action="open-task-recurrence" aria-haspopup="dialog">${shellIcon("repeat")}${esc(shellRecurrenceLabel(task.recurrence))}${shellIcon("down")}</button>
   </div>`;
@@ -228,6 +226,7 @@ function renderShellFlowNode(task, node, depth = 0) {
       <button class="node-status ${node.status}" type="button" data-action="open-node-status" data-node-id="${escAttr(node.id)}" title="选择节点状态" aria-label="${escAttr(node.title)}：${shellNodeStatusLabel(node.status)}，选择状态" aria-haspopup="menu">${shellIcon(node.status === "todo" ? "circle" : node.status)}</button>
       ${renderShellNodeTitle(task, node, selected)}
       <span class="node-badge ${node.status}">${shellNodeStatusLabel(node.status)}</span>
+      <button class="node-share-action" type="button" data-action="share-node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" title="分享此节点…" aria-label="分享 ${escAttr(node.title)}" aria-haspopup="dialog">${shellIcon("share")}</button>
       <button class="node-add" type="button" data-action="add-child-node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" title="添加子节点" aria-label="给 ${escAttr(node.title)} 添加子节点">${shellIcon("plus")}</button>
     </div>`;
   const keepChildren = !node.collapsed || shellFlowClosing.has(node.id);
@@ -616,11 +615,29 @@ function shellFitTaskInfoToFlow() {
 
 function renderShellTaskInfo(task) {
   const collapsed = shellTaskInfoCollapsed.has(task.id);
+  const tags = normalizeTaskTags(task.tags);
+  const deadline = shellDeadlineProperty(task);
+  const row = (label, icon, value, action, { className = "", attributes = "", title = "" } = {}) => `
+    <button class="task-info-row ${className}" type="button" data-action="${action}" data-task-id="${escAttr(task.id)}" title="${escAttr(title || `${label}：${value}`)}" ${attributes}>
+      <span class="task-info-label">${shellIcon(icon)}<span>${label}</span></span>
+      <span class="task-info-value">${esc(value)}</span>${shellIcon("down", "task-info-chevron")}
+    </button>`;
   return `<aside class="task-info-card" aria-label="任务详情" data-task-info="${escAttr(task.id)}">
-    <header class="task-info-head"><span>任务详情</span><button class="icon-button" type="button" data-action="toggle-task-info" data-task-id="${escAttr(task.id)}" aria-expanded="${!collapsed}" aria-controls="task-info-body" aria-label="${collapsed ? "展开任务详情" : "收起任务详情"}" title="${collapsed ? "展开任务详情" : "收起任务详情"}">${shellIcon(collapsed ? "info" : "minus")}</button></header>
+    <header class="task-info-head"><span>任务详情</span><button class="icon-button" type="button" data-action="toggle-task-info" data-task-id="${escAttr(task.id)}" aria-expanded="${!collapsed}" aria-controls="task-info-body" aria-label="${collapsed ? "展开任务详情" : "收起任务详情"}" title="${collapsed ? "展开任务详情" : "收起任务详情"}">${shellIcon(collapsed ? "taskDetails" : "close")}</button></header>
     <div class="task-info-body" id="task-info-body" ${collapsed ? "hidden" : ""}>
-      ${renderShellTaskProperties(task, { all: true })}
-      <button class="property task-info-group" type="button" data-action="toggle-task-group-select" data-task-id="${escAttr(task.id)}" aria-label="修改任务分组：${escAttr(shellGroupTitle(task.groupId))}">${shellIcon("folder")}${esc(shellGroupTitle(task.groupId))}${shellIcon("down")}</button>
+      <div class="task-info-section" role="group" aria-label="任务属性">
+        ${row('分组', 'folder', shellGroupTitle(task.groupId), 'toggle-task-group-select', { className: 'task-info-group', attributes: `aria-haspopup="dialog" aria-label="修改任务分组：${escAttr(shellGroupTitle(task.groupId))}"` })}
+        ${row('优先级', 'flag', SHELL_PRIORITY_LABELS[normalizePriority(task.priority)], 'toggle-task-priority-menu', { attributes: 'aria-haspopup="menu" aria-label="修改任务优先级"' })}
+      </div>
+      <div class="task-info-section" role="group" aria-label="时间安排">
+        ${row('截止时间', 'calendar', task.deadlineAt ? deadline.text : '未设置', 'toggle-deadline-picker', { className: deadline.classes, attributes: 'aria-haspopup="dialog"', title: deadline.title })}
+        ${row('循环', 'repeat', shellRecurrenceLabel(task.recurrence), 'open-task-recurrence', { attributes: 'aria-haspopup="dialog"' })}
+      </div>
+      <div class="task-info-section">
+        <button class="task-info-row task-info-today" type="button" data-action="toggle-task-tag" data-tag="today" data-task-id="${escAttr(task.id)}" aria-pressed="${tags.today}" title="只调整手动加入，不影响截止与循环安排">
+          <span class="task-info-label">${shellIcon('home')}<span>手动加入今日</span></span><span class="task-info-value">${tags.today ? '已加入' : '加入今日'}</span>${shellIcon(tags.today ? 'check' : 'plus', 'task-info-chevron')}
+        </button>
+      </div>
     </div>
   </aside>`;
 }
@@ -637,7 +654,7 @@ function shellSetTaskInfoCollapsed(taskId, collapsed) {
   button.setAttribute("aria-expanded", String(!collapsed));
   button.setAttribute("aria-label", label);
   button.title = label;
-  button.innerHTML = shellIcon(collapsed ? "info" : "minus");
+  button.innerHTML = shellIcon(collapsed ? "taskDetails" : "close");
   if (!collapsed) brief21ResizeAll?.();
 }
 

@@ -402,6 +402,7 @@ function normalizeTaskNodes(nodes, taskId = "", parentId = null, seenNodeIds = n
             createdAt,
             updatedAt: normalizeDateValue(node.updatedAt, createdAt),
             collapsed: Boolean(node.collapsed),
+            downstreamNodeIds: Array.isArray(node.downstreamNodeIds) ? [...new Set(node.downstreamNodeIds.filter(id => typeof id === "string" && id.trim() && id !== nodeId))] : [],
             children: normalizeTaskNodes(node.children, taskId, nodeId, seenNodeIds),
           };
         })

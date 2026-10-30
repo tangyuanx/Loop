@@ -1,5 +1,6 @@
 // Real Electron regression using an isolated synthetic profile.
 const assert = require('node:assert/strict');
+const path = require('node:path');
 const { launchRepository } = require('./electron-ui-helpers.cjs');
 
 (async () => {
@@ -15,11 +16,15 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
     await page.waitForSelector('.flow-scroll');
     const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const open = async id => {
+      // The desktop closes context menus on native window blur. Bring this
+      // test's main window forward before exercising a right-click.
+      await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).focus());
+      await page.waitForFunction(()=>document.hasFocus());
       await page.locator(`.node-title[data-node-id="${id}"]`).scrollIntoViewIfNeeded();
       await settle();
-      await page.locator(`.node-title[data-node-id="${id}"]`).click({ button: 'right' });
+      await page.locator(`.node-title[data-node-id="${id}"]`).click({ button: 'right', position: { x: 25, y: 20 } });
       await page.waitForSelector('.node-context-menu');
-      assert.equal(await page.locator('.node-context-menu button').count(), 3);
+      assert.equal(await page.locator('.node-context-menu button').count(), 4);
     };
     const nameDraft = async text => {
       assert.equal(await page.locator('[data-shell-node-draft]').count(), 1, 'one draft at the intended level');
@@ -54,7 +59,7 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
 
     // A sibling is inserted after the target, before its next sibling.
     await open('n35');
-    await page.getByRole('menuitem', { name: '添加兄弟节点' }).click();
+    await page.getByRole('menuitem', { name: '添加同级节点' }).click();
     await nameDraft('新增兄弟');
     let nodes = await tree();
     assert.deepEqual(nodes.slice(35, 38).map(n => n.title), ['处理步骤 35', '新增兄弟', '处理步骤 36']);
@@ -74,7 +79,7 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
 
     // Nested sibling/child creation and Esc cancellation retain the hierarchy.
     await open('child');
-    await page.getByRole('menuitem', { name: '添加兄弟节点' }).click();
+    await page.getByRole('menuitem', { name: '添加同级节点' }).click();
     await nameDraft('子层兄弟');
     await open('child');
     await page.getByRole('menuitem', { name: '添加子节点' }).click();
@@ -103,7 +108,7 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
     await expectCancelled();
 
     await open('n35');
-    await page.getByRole('menuitem', { name: '添加兄弟节点' }).click();
+    await page.getByRole('menuitem', { name: '添加同级节点' }).click();
     await page.locator('[data-shell-node-draft]').fill('   ');
     await page.locator('.node-title[data-node-id="n36"]').click({ position: { x: 25, y: 20 } });
     await expectCancelled();
@@ -158,6 +163,16 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
     assert.equal(await page.evaluate(() => document.activeElement.dataset.action), 'add-sibling-node');
     await page.keyboard.press('ArrowDown');
     assert.equal(await page.evaluate(() => document.activeElement.dataset.action), 'add-child-node');
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.action), 'share-node');
+    await page.keyboard.press('End');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.action), 'delete-node');
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.action), 'add-sibling-node');
+    await page.keyboard.press('ArrowUp');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.action), 'delete-node');
+    await page.keyboard.press('Home');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.action), 'add-sibling-node');
     await page.keyboard.press('Escape');
     for (const theme of ['light', 'dark']) {
       await page.evaluate(theme => { state.theme = theme; render(); }, theme);
