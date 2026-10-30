@@ -137,13 +137,13 @@
   }
 
   /**
-   * Keep the native overlay painted with the app's own canvas/text colours, read
+   * Keep the native overlay painted with the title bar's actual colours, read
    * from the rendered page: a theme change must never leave a mismatched strip.
    * Only the Windows/Linux overlay has colours to set.
    */
   function publishChromeColors() {
     if (platform !== "windows" || typeof controls?.setChromeColors !== "function") return;
-    const computed = getComputedStyle(document.body);
+    const computed = getComputedStyle(document.querySelector(".topbar") || document.body);
     const background = cssColorToHex(computed.backgroundColor);
     const symbol = cssColorToHex(computed.color);
     if (!background || !symbol) return;

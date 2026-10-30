@@ -98,10 +98,10 @@ body .navigation .group-nav-row .nav-button { min-height: 34px; font-size: var(-
 body .nav-groups .count { font-size: var(--type-11); }
 body .navigation .nav-bottom { border: 0; height: auto; min-height: 0; padding: 12px 0 8px; margin-inline: 0; flex-shrink: 0; flex-direction: column; align-items: stretch; gap: 0; }
 body .navigation .nav-bottom .nav-button { width: 100%; min-height: 34px; margin: 0; padding-inline: 10px; }
-body .navigation .nav-bottom .local-status { margin: 8px 10px 0; }
 body .nav-bottom-actions { display: flex; align-items: center; gap: 4px; }
 body .navigation .nav-bottom-actions .nav-button { width: auto; flex: 1; min-width: 0; }
 body .nav-bottom-actions .brand-update-slot { display: flex; flex: 0 0 auto; }
+body .nav-bottom-actions .brand-update-slot:empty { display: none; }
 body .nav-bottom-actions .brand-update { display: inline-flex; width: 30px; height: 30px; padding: 7px; color: var(--secondary); border-radius: 6px; }
 body .nav-bottom-actions .brand-update:hover { background: var(--surface-navigation-hover); color: var(--text); }
 body .nav-collapsed .nav-bottom-actions { flex-direction: column; }

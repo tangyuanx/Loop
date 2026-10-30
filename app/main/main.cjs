@@ -78,8 +78,8 @@ const isMac = process.platform === "darwin";
  */
 const HEADER_HEIGHT = 48;
 const WINDOW_HEADER_THEMES = {
-  light: { color: "#ffffff", symbolColor: "#20242b" },
-  dark: { color: "#17191d", symbolColor: "#e7e9ed" },
+  light: { color: "#f4f4f4", symbolColor: "#1d1d1d" },
+  dark: { color: "#242424", symbolColor: "#ededed" },
 };
 // Calibrated against the frozen Demo's Mac identity (probe/phase25/
 // calibrate-traffic.cjs, measured on the real window image): macOS draws 14px

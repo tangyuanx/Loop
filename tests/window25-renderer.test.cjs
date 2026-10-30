@@ -49,6 +49,8 @@ function header(platform = 'darwin', delayedState = false) {
   const handlers = new Map();
   const overlay = { visible: true, rect: { x: 0, width: 1142 }, addEventListener: (event, callback) => handlers.set(event, callback), getTitlebarAreaRect() { return this.rect; } };
   let nav, bar, collapsed = false, replaceNav = true, replaceBar = true, focusEditor = false, onState, resolveInitial;
+  const chromeColors = [];
+  let barBackground = 'rgb(244, 244, 244)';
   const createNav = () => {
     const next = new Node('navigation'), brand = new Node('brand');
     brand.append(new Node('brand-mark')); brand.append(new Node('brand-name'));
@@ -62,11 +64,11 @@ function header(platform = 'darwin', delayedState = false) {
   const controls = {
     getState: () => delayedState ? new Promise(resolve => { resolveInitial = resolve; }) : Promise.resolve({ focused: true }),
     onState: callback => { onState = callback; },
-    setChromeColors: async () => ({ success: true }),
+    setChromeColors: async (colors) => { chromeColors.push(colors); return { success: true }; },
   };
   const context = vm.createContext({ document,
     window: { innerWidth: 1280, personalTaskTrack: { platform, windowControls: controls }, addEventListener: (event, callback) => handlers.set(event, callback) },
-    navigator: { windowControlsOverlay: overlay }, getComputedStyle: () => ({ backgroundColor: 'rgb(255, 255, 255)', color: 'rgb(32, 36, 43)' }),
+    navigator: { windowControlsOverlay: overlay }, getComputedStyle: (element) => ({ backgroundColor: element === bar ? barBackground : 'rgb(255, 255, 255)', color: 'rgb(32, 36, 43)' }),
     render() {
       if (replaceNav) nav = createNav(); if (replaceBar) bar = createBar();
       for (const child of [...app.children]) child.remove();
@@ -77,7 +79,7 @@ function header(platform = 'darwin', delayedState = false) {
     },
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../app/renderer/src/window25.js'), 'utf8'), context);
-  return { body, app, document, overlay, handlers, state: value => onState(value), initial: value => resolveInitial(value),
+  return { body, app, document, overlay, handlers, chromeColors, theme: value => { barBackground = value; }, state: value => onState(value), initial: value => resolveInitial(value),
     render(options = {}) { replaceNav = options.nav === true; replaceBar = options.bar === true; focusEditor = options.focusEditor === true; if ('collapsed' in options) collapsed = options.collapsed; context.render(); },
     get: selector => body.querySelector(selector), all: selector => body.querySelectorAll(selector),
   };
@@ -97,6 +99,16 @@ test('title identity survives independently replaced navigation and topbar regio
     h.render(); assertIdentity(h, platform);
     h.render({ nav: true, bar: true }); assertIdentity(h, platform);
   }
+});
+test('native caption follows the rendered title bar across themes, independently of body canvas', () => {
+  const h = header('win32');
+  assert.equal(h.chromeColors.at(-1).background, '#f4f4f4');
+  h.theme('rgb(36, 36, 36)');
+  h.render();
+  assert.equal(h.chromeColors.at(-1).background, '#242424');
+  h.theme('rgb(244, 244, 244)');
+  h.render();
+  assert.equal(h.chromeColors.at(-1).background, '#f4f4f4');
 });
 test('Windows collapse and expand keep a single update slot and derive caption space from native geometry', async () => {
   const h = header('win32'); await Promise.resolve();

@@ -158,6 +158,9 @@ function applyLoopAppearance() {
 
 function renderShellBrandUpdate() {
   const update = appUpdateState;
+  const detected = ["available", "downloading", "downloaded", "preparing", "installing"].includes(update.status)
+    || (update.status === "error" && update.version && ["download", "install"].includes(update.retryAction));
+  if (!detected) return "";
   const busy = ["downloading", "preparing", "installing"].includes(update.status);
   const labels = {
     idle: "软件更新",
@@ -252,7 +255,6 @@ function renderShellNavigation() {
       ${renderShellGroupNavigation()}
       <div class="nav-bottom">
         <div class="nav-bottom-actions">${shellNavButton("settings", "设置", "settings")}<span class="brand-update-slot" data-brand-update-slot>${renderShellBrandUpdate()}</span></div>
-        <div class="local-status"><i class="dot"></i>本地工作空间</div>
       </div>
     </aside>`;
 }
@@ -343,7 +345,7 @@ function shellTodayCompletedFoot() {
 
 function shellListFoot() {
   if (shellRoute() === "today") {
-    return state.captureSourceFilter === "quick" ? "随手记录，稍后整理" : `今天，${shellDateLabel()}`;
+    return state.captureSourceFilter === "quick" ? "随手记录，稍后整理" : "";
   }
   if (state.activeGroupId === ALL_TASKS_GROUP_ID) return "全部分组与未分组";
   return shellGroupTitle(state.activeGroupId);
@@ -434,7 +436,7 @@ function renderShellTaskList(list) {
       <div id="task-results" class="tasks-scroll" data-context="task-list">${renderShellTaskRows(list)}</div>
       ${shellBulk.active
         ? `<footer class="list-foot bulk-dock" aria-label="批量操作">${shellBulkFooter()}</footer>`
-        : `<footer class="list-foot ${shellTodayCompletedFoot() ? "time18-footer" : ""}"><span>${esc(shellListFoot())}</span>${shellTodayCompletedFoot()}${shellBulkFooter()}</footer>`}
+        : `<footer class="list-foot ${shellTodayCompletedFoot() ? "time18-footer" : ""}">${shellListFoot() ? `<span>${esc(shellListFoot())}</span>` : ""}${shellTodayCompletedFoot()}${shellBulkFooter()}</footer>`}
     </aside>`;
 }
 
