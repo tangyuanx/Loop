@@ -22,10 +22,14 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
   try {
     await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows().find(w => w.webContents.getURL().endsWith('/app/renderer/index.html')); w.setSize(1280, 820); w.focus(); });
     await expand();
-    assert.deepEqual(await card.locator('.task-info-label').allTextContents(), ['分组', '优先级', '截止时间', '循环', '手动加入今日']);
+    assert.deepEqual(await card.locator('.task-info-label').allTextContents(), ['分组', '优先级', '截止时间', '循环', '今日']);
     assert.doesNotMatch(await card.innerText(), /处理中|已完成/);
     assert.doesNotMatch(await page.evaluate(() => renderShellTaskProperties({ ...shellActiveTask(), status: 'done' })), /处理中|已完成/);
     assert.equal(await card.locator('.task-info-row').count(), 5);
+    for (const action of ['toggle-deadline-picker', 'open-task-recurrence', 'toggle-task-tag']) {
+      assert.equal(await field(action).locator('.task-info-value').innerText(), '', 'unset values stay blank');
+    }
+    const defaultWidth = (await card.boundingBox()).width;
     await page.screenshot({ path: path.join(evidence, 'light-1280-default.png') });
 
     // Toggling metadata does not remount the real tree or consume brief drafts.
@@ -52,6 +56,12 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     await page.locator('#overlay .priority-popover').waitFor({ state: 'detached' });
     assert.equal(await page.evaluate(() => shellActiveTask().priority), 'high');
     await field('toggle-task-group-select').click();
+    await page.getByRole('radio', { name: /未分组/ }).click();
+    await page.locator('#manage24-move-form button[type=submit]').click();
+    await page.waitForFunction(() => !shellActiveTask().groupId);
+    await page.waitForFunction(() => document.querySelector('.task-info-group .task-info-value')?.textContent === '');
+    assert.equal(await field('toggle-task-group-select').locator('.task-info-value').innerText(), '');
+    await field('toggle-task-group-select').click();
     await page.locator('[data-manage24-target="long"]').click();
     await page.locator('#manage24-move-form button[type=submit]').click();
     await page.waitForFunction(() => shellActiveTask().groupId === 'long');
@@ -68,8 +78,10 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     assert.equal(await page.evaluate(() => shellActiveTask().recurrence.frequency), 'daily');
     await field('toggle-task-tag').click();
     assert.equal(await field('toggle-task-tag').getAttribute('aria-pressed'), 'true');
+    assert.equal(await field('toggle-task-tag').locator('.task-info-value').innerText(), '已手动加入');
     await field('toggle-task-tag').click();
     assert.equal(await field('toggle-task-tag').getAttribute('aria-pressed'), 'false');
+    assert.equal(await field('toggle-task-tag').locator('.task-info-value').innerText(), '');
     assert.equal(await page.evaluate(() => isTaskScheduledForToday(shellActiveTask())), true, 'manual membership does not cancel the deadline or recurrence');
     assert.equal(await page.evaluate(() => shellActiveTask().status), 'active', 'removing the status label does not rewrite completion data');
 
@@ -80,6 +92,8 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
       const bounds = await card.boundingBox();
       assert.ok(bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= size[0] && bounds.y + bounds.height <= size[1]);
       assert.equal(await card.evaluate(el => el.scrollWidth <= el.clientWidth), true);
+      assert.ok(bounds.width >= defaultWidth, 'content can widen the panel when needed');
+      assert.equal(await card.locator('.task-info-row').evaluateAll(rows => rows.every(row => row.scrollWidth <= row.clientWidth)), true);
       await field('toggle-task-group-select').focus();
       await page.keyboard.press('Tab');
       assert.equal(await page.evaluate(() => document.activeElement.dataset.action), 'toggle-task-priority-menu');
@@ -88,6 +102,12 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
       assert.match(focus.outline, /^rgb\((\d+), \1, \1\)$/);
       await page.screenshot({ path: path.join(evidence, `${theme}-${size[0]}-configured.png`) });
     }
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(1024, 680));
+    await page.evaluate(() => { applySetting('font-scale', 'largest'); render(); });
+    await expand();
+    assert.equal(await card.evaluate(el => el.scrollWidth <= el.clientWidth), true);
+    assert.equal(await card.locator('.task-info-row').evaluateAll(rows => rows.every(row => row.scrollWidth <= row.clientWidth)), true);
+    await page.screenshot({ path: path.join(evidence, 'dark-1024-largest.png') });
     await page.evaluate(() => flushSave());
     const saved = await page.evaluate(() => window.personalTaskTrack.storage.read());
     assert.equal(saved.tasks[0].priority, 'high'); assert.equal(saved.tasks[0].groupId, 'long');
@@ -98,7 +118,7 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     assert.equal(await page.evaluate(() => shellActiveTask().groupId), 'long');
     assert.doesNotMatch(await card.innerText(), /处理中|已完成/);
     assert.deepEqual(errors, []);
-    await fs.writeFile(path.join(evidence, 'result.json'), JSON.stringify({ passed: true, profile: run.profile, errors, actualControlsAndDisk: true, screenshots: 5 }, null, 2));
+    await fs.writeFile(path.join(evidence, 'result.json'), JSON.stringify({ passed: true, profile: run.profile, errors, actualControlsAndDisk: true, defaultWidth, screenshots: 6 }, null, 2));
     console.log('PASS task details: five real property actions, persistence/reload, status label removed, manual/automatic today distinction, collapse/focus, tree/draft retention, themes/sizes.');
   } catch (error) {
     console.error(await page.evaluate(() => ({ collapsed: [...shellTaskInfoCollapsed], choices: [...shellTaskInfoChoices], overlay: document.querySelector('#overlay')?.innerText, task: state.activeTaskId })));

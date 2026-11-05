@@ -223,7 +223,11 @@ window.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopImmediatePropagation();
   BRIEF21_EXPANDED.set(state.activeTaskId, toggle.getAttribute("aria-expanded") !== "true");
-  render();
+  // Folding only changes geometry. Keep the live brief and processing tree,
+  // including native textarea undo and any open node record, in place.
+  brief21SetupFlowBrief();
+  brief21ResizeAll();
+  if (typeof shellFitTaskInfoToFlow === "function") shellFitTaskInfoToFlow();
   document.querySelector("#brief21-flow-toggle")?.focus({ preventScroll: true });
 }, true);
 

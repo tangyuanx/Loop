@@ -51,6 +51,18 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
       assert.equal(await page.evaluate(() => flowNodeDragState), null);
     };
 
+    // The tree toolbar acts on this task and handles mixed branch states.
+    const collapseAll = page.locator('.flow-toolbar [data-action="toggle-all-nodes"]');
+    assert.equal(await collapseAll.innerText(), '收起全部');
+    await collapseAll.click();
+    await page.waitForFunction(() => shellNodeList(shellActiveTask()).filter(n => n.children.length).every(n => n.collapsed));
+    await page.waitForFunction(() => !document.querySelector('.node-title[data-node-id="ax"]'));
+    assert.equal(await collapseAll.innerText(), '展开全部');
+    await collapseAll.click();
+    await page.waitForFunction(() => shellNodeList(shellActiveTask()).filter(n => n.children.length).every(n => !n.collapsed));
+    await title('ax').waitFor(); await title('bx').waitFor();
+    await page.locator('[data-action="toggle-node-collapse"][data-node-id="b"]').click();
+
     // Double-click must work even when click one opens/rebuilds the inspector.
     await title('a').dblclick({ delay: 60 });
     const rename = page.locator('[data-shell-node-rename]');
