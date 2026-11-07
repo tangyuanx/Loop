@@ -121,8 +121,6 @@ function renderShellKnowledge(task) {
         <div class="wb-tabs">${renderShellTabs(owner)}</div>
         <div class="knowledge-header-actions">
           <button class="text-button kn-switch-note kn-note-title" type="button" data-kn-action="rename" aria-label="重命名笔记" title="${escAttr(noteState.label)} · ${escAttr(file.text)} · ${escAttr(file.title)} · 重命名笔记"><span>${esc(LoopKnowledgeCore.noteTitle(task))}</span></button>
-          ${renderKnowledgeFileActions()}
-          ${renderShellKnowledgeViewbar(mode)}
           <button class="icon-button" type="button" data-kn-action="find" aria-label="查找当前笔记" title="查找当前笔记（Ctrl/Cmd+F）" aria-expanded="false">${shellIcon("search")}</button>
           <button class="icon-button" type="button" data-wb-action="focus" aria-label="${Workbench.focus ? "退出" : "进入"}专注模式" title="专注模式" aria-pressed="${Workbench.focus}">${shellIcon(Workbench.focus ? "restoreRecord" : "expandRecord")}</button>
           <button class="icon-button" type="button" data-wb-action="more" data-action="knowledge-file-menu" data-knowledge-action="file-menu" aria-label="更多笔记操作" title="更多笔记操作" aria-haspopup="menu" aria-expanded="false">${shellIcon("more")}</button>
@@ -145,10 +143,6 @@ function renderShellKnowledge(task) {
         <button class="button" type="button" data-note-save data-action="save-knowledge" data-task-id="${escAttr(task.id)}" title="保存笔记（Ctrl/Cmd+S）">${shellIcon("check")}保存</button>
       </footer>
     </section>`;
-}
-
-function renderShellKnowledgeViewbar(mode) {
-  return `<div class="knowledge-viewbar"><button type="button" data-wb-action="mode" aria-label="笔记视图：${{edit:"编辑",source:"源码",preview:"阅读"}[mode]}" aria-haspopup="menu">${{edit:"编辑",source:"源码",preview:"阅读"}[mode]}${shellIcon("down")}</button></div>`;
 }
 
 function renderShellKnowledgeWidthButton() {
@@ -218,6 +212,14 @@ function shellKnowledgeFileMenu(trigger) {
     : "";
   shellMountSurface(
     `<div class="surface-popover wb-more-menu" role="menu" aria-label="更多笔记操作">
+      <div class="note23-menu-label">视图</div>
+      ${["edit", "source", "preview"].map(value => `<button class="button" type="button" role="menuitemradio" aria-checked="${shellKnowledgeMode() === value}" data-wb-mode="${value}">${SHELL_NOTE_MODE_NAMES[value]}</button>`).join("")}
+      <div class="menu-divider"></div>
+      <div class="note23-menu-label">笔记</div>
+      <button class="button" type="button" role="menuitem" data-kn-action="new-note">新建笔记</button>
+      <button class="button" type="button" role="menuitem" data-kn-action="open-file">打开 Markdown 文件…</button>
+      <button class="button" type="button" role="menuitem" data-kn-action="recent">最近打开…</button>
+      <div class="menu-divider"></div>
       <button class="button" type="button" role="menuitem" data-wb-action="format">格式与插入…</button>
       <button class="button" type="button" role="menuitem" data-kn-action="panels" aria-pressed="${knowledgePanels.has(task.id)}">大纲与关联笔记</button>
       ${renderShellKnowledgeWidthButton()}
@@ -226,7 +228,6 @@ function shellKnowledgeFileMenu(trigger) {
       <button class="button" type="button" role="menuitem" data-wb-action="properties">笔记属性（源码）</button>
       <div class="menu-divider"></div><div class="note23-menu-label">文件</div>
       <button class="button" type="button" role="menuitem" data-knowledge-save-label data-action="save-knowledge" data-task-id="${escAttr(task.id)}" ${savePresentation.state==='saving'?'disabled':''}>${esc(savePresentation.menuLabel)}</button>
-      <button class="button" type="button" role="menuitem" data-kn-action="open-file">打开 Markdown 文件…</button>
       <button class="button" type="button" role="menuitem" data-action="save-knowledge-as" data-task-id="${escAttr(task.id)}">另存为…</button>
       <div class="menu-divider"></div>
       <div class="note23-menu-label">当前笔记</div>
@@ -247,7 +248,10 @@ function shellKnowledgeFileMenu(trigger) {
 function shellKnowledgeExportNote(task) {
   if (!task) return;
   captureMountedMilkdownDrafts();
-  flushNodeNoteDrafts({ persist: true });
+  // Exporting a snapshot is not an edit: keep the drafts in memory so the
+  // exported body and the editor document stay identical and nothing is
+  // written to disk behind the user's back.
+  flushNodeNoteDrafts({ persist: false });
   const markdown = String(knowledgeText(task));
   // Freeze every dependency before any async rendering or file dialog.
   const notes = knowledgeNotes().map(note => ({ ...structuredClone(note), notes: String(knowledgeText(note)) }));

@@ -77,7 +77,14 @@ async function prompt(id){await open(id);await page.locator('[data-action="knowl
       await app.evaluate(({BrowserWindow},s)=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(...s),size);
       await page.evaluate(theme=>{state.theme=theme;state.markdownMode='preview';render();},theme);await page.locator('.kn-reading mark').waitFor();const css=await page.locator('.kn-reading mark').evaluate(e=>({bg:getComputedStyle(e).backgroundColor,color:getComputedStyle(e).color}));assert.notEqual(css.bg,'rgba(0, 0, 0, 0)');assert.equal(await page.locator('.kn-reading .kn-wiki').evaluate(e=>getComputedStyle(e).textDecorationLine),'underline');await page.screenshot({path:path.join(out,`reading-${theme}-${size[0]}.png`)});
     }
-    await page.evaluate(()=>{state.markdownMode='edit';render()});await page.locator('[data-wb-action="mode"]').focus();await page.keyboard.press('Tab');await page.keyboard.press('Shift+Tab');assert.equal(await page.locator('[data-wb-action="mode"]').evaluate(e=>getComputedStyle(e).outlineStyle),'solid');
+    await page.evaluate(()=>{state.markdownMode='edit';render()});
+    // The view selector now lives in the document menu; its trigger keeps the
+    // neutral keyboard focus line and the menu exposes all three views.
+    const trigger=page.locator('[data-wb-action="more"]');await trigger.focus();await page.keyboard.press('Tab');await page.keyboard.press('Shift+Tab');
+    assert.equal(await trigger.evaluate(e=>getComputedStyle(e).outlineStyle),'solid');
+    await trigger.click();assert.deepEqual(await page.locator('.wb-more-menu [data-wb-mode]').evaluateAll(items=>items.map(item=>[item.dataset.wbMode,item.getAttribute('aria-checked')])),[['edit','true'],['source','false'],['preview','false']]);
+    await page.locator('.wb-more-menu [data-wb-mode="source"]').click();await page.waitForFunction(()=>knowledgeCurrentEntry()?.mode==='source');
+    await page.locator('[data-wb-action="more"]').click();await page.locator('.wb-more-menu [data-wb-mode="edit"]').click();await page.waitForFunction(()=>knowledgeCurrentEntry()?.mode==='edit');
   });
   await test('D13-portable-markdown-export',async()=>{
     await open('image');const md='文字\n\n![样本](task-image:report-image)\n',data='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=';

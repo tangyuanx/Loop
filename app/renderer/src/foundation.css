@@ -149,6 +149,14 @@ body :is(input, textarea, select, [contenteditable="true"], .cm-content, .cm-edi
   box-shadow: none;
 }
 
+/* The frozen phase22 sheet still defines --field22-focus as a green mix and
+ * several sheets draw field/search focus through it. The neutral contract wins
+ * here because foundation.css loads last with the same specificity, so no
+ * input, and no wrapper's :focus-within, can turn green again. */
+body[data-controls22-enabled] {
+  --field22-focus: var(--input-focus);
+}
+
 /* Ordinary fields keep a thin neutral boundary and a very quiet surface. */
 body :is(
   input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"])),

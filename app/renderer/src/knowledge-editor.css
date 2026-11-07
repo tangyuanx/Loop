@@ -3,7 +3,7 @@
 .kn-editor-host [hidden] { display:none!important; }
 .kn-editor-host .cm-editor { font-family:var(--sans); font-size:calc(15px * var(--font-scale,1)); line-height:1.8; background:transparent; color:inherit; outline:none; min-height:360px; }
 .kn-editor-host .cm-scroller {font-family:inherit;overflow:visible;}
-.kn-editor-host .cm-content {padding:0 0 80px;min-height:360px;caret-color:currentColor;overflow-wrap:anywhere;}
+.kn-editor-host .cm-content {padding:0 0 56px;min-height:360px;caret-color:currentColor;overflow-wrap:anywhere;}
 .kn-editor-host .cm-line {padding:0;}
 .kn-editor-host .cm-gutters {background:transparent;border:0;color:var(--muted,#929b95);font-size:.78em;}
 .kn-editor-host .cm-activeLine {background:color-mix(in srgb,currentColor 3%,transparent);}
@@ -76,10 +76,15 @@
 .kn-embed {display:block;border:1px solid color-mix(in srgb,currentColor 14%,transparent);border-radius:8px;padding:10px 15px;margin:10px 0;}
 .kn-embed-body {display:block;max-height:420px;overflow:auto;margin-top:8px;}.kn-embed small {opacity:.65;}
 .kn-embed input {pointer-events:none;}
+/* CodeMirror measures a block widget by its own border box; a child's margins
+   collapse through it and become invisible flow space, so the height map ends up
+   one line short and clicks below the widget land on the next line. A formatting
+   context keeps the widget's box equal to the space it really occupies. */
+.kn-live-widget.kn-block-widget {display:flow-root;}
 .kn-live-widget {max-width:100%;cursor:text;}.kn-live-widget>p {margin:0;}.kn-task-box,.kn-rendered input[type=checkbox] {accent-color:#638a70;cursor:pointer;width:14px;height:14px;margin-right:5px;}
 .kn-frontmatter {border:1px solid color-mix(in srgb,currentColor 14%,transparent);border-radius:6px;padding:8px 12px;margin:12px 0;color:var(--muted,#777);font-size:.9em;}
 .kn-frontmatter summary {cursor:pointer;}.kn-frontmatter pre {margin:8px 0 0;}
-.kn-reading {padding:0 0 80px;min-height:360px;outline:none;}
+.kn-reading {padding:0 0 56px;min-height:360px;outline:none;}
 .kn-mermaid {overflow:auto;max-width:100%;min-width:0;min-height:40px;}
 /* Diagrams own their geometry; the shell's 16px SVG rule is for controls. */
 .kn-mermaid>svg {display:block;width:var(--kn-diagram-width,auto);max-width:none;height:auto;fill:initial;stroke:initial;stroke-width:initial;stroke-linecap:initial;stroke-linejoin:initial;flex-shrink:0;}
@@ -176,9 +181,13 @@ body[data-notebook23-enabled] .knowledge-header {min-height:48px;padding:8px 24p
 .kn-switch-note svg {width:14px;height:14px;}
 .kn-insert-menu .button {justify-content:flex-start;gap:10px;}
 .kn-insert-menu .button svg {width:15px;height:15px;color:var(--secondary);}
-.knowledge-page {width:100%;padding:28px 32px 24px;}
-.knowledge-page.width-default {max-width:min(820px,90%);}
-.knowledge-page.width-wide {max-width:min(1120px,96%);}
+/* The document column shares the pane's 32px inset instead of adding a second,
+   centred gutter: at ordinary window widths the note must read as the pane's
+   content rather than as a card embedded in it. The measure still caps on very
+   wide windows, and the width menu offers 较宽/全宽 for tables and code. */
+.knowledge-page {width:100%;padding:18px 32px 20px;}
+.knowledge-page.width-default {max-width:min(920px,100%);}
+.knowledge-page.width-wide {max-width:min(1180px,100%);}
 .knowledge-page.width-full {max-width:100%;}
 .kn-editor-host .cm-scroller {position:relative;}
 .kn-editor-host[data-mode=edit] .cm-gutters {position:absolute!important;inset-inline-start:-24px!important;top:0;}

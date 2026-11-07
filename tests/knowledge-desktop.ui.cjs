@@ -22,7 +22,8 @@ const lineBreaks = ['测试知识笔记：检查逐行文字与图片','测试�
   '同行图片 ![行内图标](attachments/inline.svg) 后面文字','','硬换行  ','下一行','','反斜线换行\\','下一段',
   '','- 列表首行','  列表续行','','> 引用首行','> 引用续行','',
   '| 项目 | 内容 |','| --- | --- |','| 表格 | 原样保留 |','','```text','原样代码','下一行代码','```','',
-  '![[note:note-g]]',''].join('\r\n');
+  '![[note:note-g]]','表格与代码之后','结束行',
+  ...Array.from({length:8},(_,i)=>`尾部第${i+1}行`),''].join('\r\n');
 let app, page, run, out, files, profile;
 const results = [], errors = [];
 const pause = ms => new Promise(r => setTimeout(r, ms));
@@ -77,6 +78,8 @@ async function exportedWindow(file, fn) {
   await fs.writeFile(path.join(files,'attachments/inline.svg'),'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18"><circle cx="9" cy="9" r="7" fill="#387356"/></svg>');
   const bound=path.join(files,'bound.md');await fs.writeFile(bound,rich);const disk=await readKnowledgeDocument(bound);
   const linesFile=path.join(files,'line-breaks.md');await fs.writeFile(linesFile,lineBreaks);const linesDisk=await readKnowledgeDocument(linesFile);
+  const tableSource=['# 表格回归','','| 项目 | 内容 |','| --- | --- |','| 甲 | 一 |','| 乙 | 二 |','','表格后正文。',''].join('\n');
+  const tableFile=path.join(files,'table.md');await fs.writeFile(tableFile,tableSource);const tableDisk=await readKnowledgeDocument(tableFile);
   const stamp=new Date().toISOString();
   const task=(id,title,notes,note={})=>({id,title,notes,nodes:[],createdAt:stamp,updatedAt:stamp,knowledgeNote:{noteId:'note-'+id,title,documentState:'DRAFT',...note}});
   await writeTaskData(profile,{version:2,knowledgeSchemaVersion:1,taskFilter:'all',activeTaskId:'a',tasks:[
@@ -87,9 +90,10 @@ async function exportedWindow(file, fn) {
     task('e','简单图表','# 简单图表\n\n'+simple),
     task('f','编辑与阅读换行一致性',lineBreaks,{filePath:linesFile,documentState:'SAVED',dirty:false,...linesDisk}),
     task('g','换行嵌入目标','嵌入第一行\n嵌入第二行\n'),
+    task('h','表格回归',tableSource,{filePath:tableFile,documentState:'SAVED',dirty:false,...tableDisk}),
   ]});
   const env={...process.env,LOOP_USER_DATA_DIR:profile};delete env.ELECTRON_RUN_AS_NODE;
-  app=await _electron.launch({executablePath:process.env.LOOP_APP_EXECUTABLE||require('electron'),args:process.env.LOOP_APP_EXECUTABLE?[]:[source],cwd:source,env});
+  app=await _electron.launch({executablePath:process.env.LOOP_APP_EXECUTABLE||require('electron'),args:process.env.LOOP_APP_EXECUTABLE?[]:(process.env.LOOP_NO_SANDBOX?['--no-sandbox',source]:[source]),cwd:source,env});
   try{
     await until(()=>{page=app.windows().find(p=>p.url().endsWith('/app/renderer/index.html'));return page});
     page.setDefaultTimeout(12000);page.on('pageerror',e=>errors.push(e.message));await page.waitForSelector('.navigation');
@@ -193,6 +197,245 @@ async function exportedWindow(file, fn) {
         assert.equal(data.buttons,0);assert.equal(data.collapsed,0);assert.match(data.embedded,/旧嵌入内容/);assert.equal(data.ending,true);return {...data,requests};
       });await json('rich-offline-observation',observation);return {outputs,observation};
     });
+    /* 使用性回归：点击必须落在用户看到的那一行。判据不取自 CodeMirror 的
+       高度图（它正是可能出错的一方），而是 DOM 真值：caretRangeFromPoint →
+       posAtDOM 得到的源码行。块级控件（代码块、表格、提示框）与图片附近的
+       行都要覆盖，并且点击点取在行的下半部——这正是"点到某一行、光标却掉到
+       下一行"最容易出现的坐标。 */
+    const clickLine = async (label, side = 'text') => {
+      // The probe must see the line the way the user does: fully on screen. A line
+      // clipped by the footer would make a lower-half click land outside the
+      // editor surface, which says nothing about the editor's own mapping.
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const state = await page.evaluate(label => {
+          const view = knowledgeCurrentEntry().view;
+          const line = [...view.contentDOM.querySelectorAll('.cm-line')].find(el => el.textContent.trim() === label);
+          if (!line) return 'unrendered';
+          const r = line.getBoundingClientRect();
+          const body = (document.querySelector('.knowledge-body') || view.scrollDOM).getBoundingClientRect();
+          return r.top < body.top + 24 || r.bottom > body.bottom - 64 ? 'clipped' : 'visible';
+        }, label);
+        if (state === 'visible') break;
+        await page.evaluate(label => {
+          const entry = knowledgeCurrentEntry(), view = entry.view;
+          const el = [...view.contentDOM.querySelectorAll('.cm-line')].find(line => line.textContent.trim() === label);
+          if (el) { el.scrollIntoView({ block: 'center' }); return; }
+          // A line far outside the rendered viewport is not in the DOM at all:
+          // scroll to its source position so CodeMirror materializes it.
+          const index = view.state.doc.toString().split('\n').findIndex(line => line.trim() === label);
+          if (index >= 0) entry.locate(view.state.doc.line(index + 1).from);
+        }, label);
+        await page.waitForTimeout(180);
+      }
+      const box = await page.evaluate(([label, side]) => {
+        const view = knowledgeCurrentEntry().view;
+        const line = [...view.contentDOM.querySelectorAll('.cm-line')].find(el => el.textContent.trim() === label);
+        if (!line) return null;
+        const r = line.getBoundingClientRect(), content = view.contentDOM.getBoundingClientRect();
+        const source = view.state.doc.lineAt(view.posAtDOM(line, 0)).number;
+        const x = side === 'right' ? Math.min(content.right - 14, r.right + 60) : Math.min(r.left + 40, content.right - 24);
+        return { line: source, x, y: r.top + r.height * 0.75, top: r.top, bottom: r.bottom, screenX: x };
+      }, [label, side]);
+      assert.ok(box, `找不到渲染行「${label}」`);
+      const onLine = await page.evaluate(([x, y]) => {
+        const hit = document.elementFromPoint(x, y);
+        return Boolean(hit && (hit.closest('.cm-line') || hit.closest('.cm-content')));
+      }, [box.x, box.y]);
+      assert.ok(onLine, `点击坐标必须仍落在「${label}」这一行的 DOM 上`);
+      await page.mouse.click(box.x, box.y);
+      await page.waitForTimeout(150);
+      const actual = await page.evaluate(() => {
+        const entry = knowledgeCurrentEntry(), view = entry.view;
+        const pos = entry.getSelection().start, caret = view.coordsAtPos(pos);
+        return { line: view.state.doc.lineAt(pos).number, caretTop: caret?.top ?? null, caretBottom: caret?.bottom ?? null };
+      });
+      assert.equal(actual.line, box.line, `点击「${label}」后光标应落在第 ${box.line} 行，实际第 ${actual.line} 行`);
+      assert.ok(actual.caretTop !== null && actual.caretTop <= box.y + 2 && actual.caretBottom >= box.y - 2,
+        `「${label}」的光标绘制位置（${Math.round(actual.caretTop)}–${Math.round(actual.caretBottom)}）必须与点击位置 ${Math.round(box.y)} 同行`);
+      return { label, side, expected: box.line, actual: actual.line, caret: [Math.round(actual.caretTop), Math.round(actual.caretBottom)], y: Math.round(box.y) };
+    };
+    await test('E13-caret-lands-on-the-clicked-line-below-images-and-blocks', async () => {
+      await choose('f'); await mode('edit');
+      const observations = [];
+      // 图片、表格、代码块之后的行：这些行此前会被块级替换装饰整体上移一行。
+      for (const label of ['现在在哪里？', '测试第四行', '测试第五行', '下一行', '下一段', '列表续行', '引用续行', '表格与代码之后', '结束行']) {
+        if (!await page.locator('.cm-content').getByText(label, { exact: true }).count()) continue;
+        observations.push(await clickLine(label));
+      }
+      for (const label of ['测试第五行', '列表续行', '表格与代码之后']) {
+        if (!await page.locator('.cm-content').getByText(label, { exact: true }).count()) continue;
+        observations.push(await clickLine(label, 'right'));
+      }
+      // 图片所在行之后的第一行正文，必须仍能点中它自己。
+      assert.ok(observations.length >= 9, '点击探针过少，说明目标行没有渲染出来');
+      assert.equal(await page.evaluate(() => knowledgeCurrentEntry().getMarkdown()), lineBreaks, '点击本身不得改写源文件');
+      return observations;
+    });
+    /* 滚动之后重建视口装饰，是这个编辑器另一处高风险路径：控件在视口内重新生成，
+       高度图与 DOM 更容易错位。判据同上，全部使用 DOM 真值。 */
+    await test('E14-caret-follows-the-clicked-line-after-scrolling', async () => {
+      await choose('f'); await mode('edit');
+      const body = page.locator('.knowledge-body');
+      await body.evaluate(el => { el.scrollTop = el.scrollHeight; });
+      await page.waitForTimeout(900);
+      const visible = await page.evaluate(() => {
+        const view = knowledgeCurrentEntry().view;
+        const content = view.contentDOM.getBoundingClientRect();
+        const widgets = [...view.contentDOM.querySelectorAll('.kn-live-widget')].map(w => w.getBoundingClientRect());
+        return [...view.contentDOM.querySelectorAll('.cm-line')]
+          .map(el => ({ el, text: el.textContent.trim(), r: el.getBoundingClientRect() }))
+          .filter(({ el, text, r }) => text.length > 1 && r.height > 8 && r.top > content.top + 30 && r.bottom < content.bottom - 70 &&
+            !el.querySelector('.kn-live-widget,input,img,.kn-task-box'))
+          // Lines below a rendered block are exactly the ones the height map
+          // used to misplace after the viewport rebuilt while scrolling.
+          .filter(({ r }) => widgets.some(w => w.bottom <= r.top + 1))
+          .map(({ text }) => text);
+      });
+      assert.ok(visible.length >= 6, `滚动后块控件下方应有足够多的行可测，实际 ${visible.length} 行`);
+      const observations = [];
+      for (const text of visible.slice(0, 6)) observations.push(await clickLine(text));
+      // 再滚回上部并重复一次，覆盖相反的滚动方向。
+      await body.evaluate(el => { el.scrollTop = 0; });
+      await page.waitForTimeout(700);
+      for (const label of ['下一段', '引用续行', '表格与代码之后']) observations.push(await clickLine(label));
+      return observations;
+    });
+    /* 表格行列操作回归：增删行列后 Markdown 形状、格子文本、保存与重开都一致；
+       空单元格写入必须保持 "| 值 |" 的标准间距；表格后紧跟的正文不得被吞掉。 */
+    await test('E15-table-row-and-column-edits-survive-save-and-reopen', async () => {
+      await choose('h'); await mode('edit');
+      await page.waitForSelector('.kn-table-widget table');
+      const shape = () => page.evaluate(() => {
+        const entry = knowledgeCurrentEntry(), markdown = entry.getMarkdown();
+        const table = LoopKnowledgeCore.tableAt(markdown, Math.max(0, markdown.search(/^\|/m)));
+        const widget = document.querySelector('.kn-table-widget');
+        return { markdown, rows: table?.rows.length ?? null, columns: table?.rows[0].length ?? null,
+          cells: table?.rows.map(row => row.join('|')) ?? null,
+          domRows: widget?.querySelectorAll('table tr').length ?? null, domColumns: widget?.querySelector('table tr')?.cells.length ?? null };
+      });
+      const initial = await shape();
+      assert.deepEqual({ rows: initial.rows, columns: initial.columns }, { rows: 4, columns: 2 }, JSON.stringify(initial));
+      // 单元格里 Ctrl+Enter：在下方插入行，并把焦点交给新行。
+      await page.locator('.kn-table-widget tbody tr').first().locator('td').first().click();
+      await page.locator('.kn-table-cell-editor').waitFor();
+      await page.keyboard.press('Control+Enter');
+      await page.waitForTimeout(400);
+      assert.match(await page.locator('.kn-table-cell-editor').getAttribute('aria-label'), /第2行，第1列/);
+      await page.keyboard.type('丙');
+      await page.keyboard.press('Tab');
+      await page.keyboard.type('三');
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(200);
+      let current = await shape();
+      assert.deepEqual({ rows: current.rows, columns: current.columns }, { rows: 5, columns: 2 }, JSON.stringify(current));
+      assert.match(current.markdown, /^\| 丙 \| 三 \|$/m, `新增行必须保持标准单元格间距\n${current.markdown}`);
+      // 悬停 + 按钮增加一列。
+      await page.locator('.kn-table-widget th').first().hover();
+      await page.locator('.kn-table-add-column').click({ force: true });
+      await page.waitForTimeout(400);
+      current = await shape();
+      assert.deepEqual({ rows: current.rows, columns: current.columns }, { rows: 5, columns: 3 }, JSON.stringify(current));
+      assert.match(current.markdown, /^\| 项目 \| 内容 \|  \|$/m, `新增列必须补齐表头\n${current.markdown}`);
+      // 行菜单删除一行，列菜单删除一列。
+      await page.locator('.kn-table-widget tbody tr').last().locator('td').first().click({ button: 'right' });
+      await page.locator('.kn-table-menu [data-table-command="row-menu"]').click();
+      await page.locator('.kn-table-menu [data-table-command="row-delete"]').click();
+      await page.waitForTimeout(400);
+      assert.deepEqual((({ rows, columns }) => ({ rows, columns }))(await shape()), { rows: 4, columns: 3 });
+      await page.locator('.kn-table-widget th').last().click({ button: 'right' });
+      await page.locator('.kn-table-menu [data-table-command="column-menu"]').click();
+      await page.locator('.kn-table-menu [data-table-command="column-delete"]').click();
+      await page.waitForTimeout(400);
+      current = await shape();
+      assert.deepEqual({ rows: current.rows, columns: current.columns }, { rows: 4, columns: 2 }, JSON.stringify(current));
+      assert.ok(!current.markdown.includes('乙'), '删除的行不得残留');
+      // 空行之后的正文必须仍是正文行，并且可以点击定位。
+      const following = page.locator('.cm-content').getByText('表格后正文。', { exact: true }).first();
+      assert.equal(await following.count(), 1, '表格后紧跟的正文必须仍然渲染为正文行');
+      await following.click();
+      assert.equal(await page.evaluate(() => { const e = knowledgeCurrentEntry(); return e.view.state.doc.lineAt(e.getSelection().start).text; }), '表格后正文。');
+      // 保存到文件：磁盘字节与重新解析出的表格形状都必须一致。
+      const saved = current.markdown;
+      assert.equal((await page.evaluate(() => saveKnowledgeTask('h'))).success, true);
+      const diskText = await fs.readFile(tableFile, 'utf8');
+      assert.equal(diskText, saved, '保存必须逐字节写入本次编辑结果');
+      const reparsed = await page.evaluate(text => {
+        const table = LoopKnowledgeCore.tableAt(text, Math.max(0, text.search(/^\|/m)));
+        return { rows: table?.rows.length ?? null, columns: table?.rows[0].length ?? null, cells: table?.rows.map(row => row.join('|')) ?? null };
+      }, diskText);
+      assert.deepEqual({ rows: reparsed.rows, columns: reparsed.columns }, { rows: 4, columns: 2 }, JSON.stringify(reparsed));
+      // 关闭并重新打开笔记：编辑器重新挂载后必须渲染同样的表格与正文。
+      await page.evaluate(() => {
+        const session = state.knowledgeWorkspace;
+        session.openIds = session.openIds.filter(id => id !== 'h');
+        if (session.activeId === 'h') session.activeId = '';
+        render();
+      });
+      await page.evaluate(() => knowledgeAttach(knowledgeFindDocument('h')));
+      await page.waitForSelector('.kn-table-widget table');
+      await page.waitForTimeout(300);
+      const reopened = await shape();
+      assert.equal(reopened.markdown, saved, '重新打开后的正文必须与保存时一致');
+      assert.deepEqual({ rows: reopened.rows, columns: reopened.columns }, { rows: 4, columns: 2 }, JSON.stringify(reopened));
+      return { initial: { rows: initial.rows, columns: initial.columns }, saved, reparsed: { rows: reparsed.rows, columns: reparsed.columns }, reopened: { rows: reopened.rows, columns: reopened.columns } };
+    });
+    /* 长期界面规则：输入控件（含搜索、标题改名、富文本、表格单元格）不得出现
+       绿色 border/outline/外圈/光晕，外层容器的 :focus-within 也不能间接加回；
+       明暗主题都要成立。判据取渲染后的计算样式。 */
+    await test('E16-inputs-never-show-a-green-focus-ring', async () => {
+      const greenish = value => {
+        const match = String(value).match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (!match) return false;
+        const [r, g, b] = [Number(match[1]), Number(match[2]), Number(match[3])];
+        return g > r + 12 && g > b + 8;
+      };
+      const audit = async label => page.evaluate(({ label, greenish }) => {
+        const green = new Function('value', `return (${greenish})(value)`);
+        const rows = [];
+        const check = (el, role) => {
+          if (!el) return;
+          const style = getComputedStyle(el);
+          const shadows = style.boxShadow === 'none' ? [] : style.boxShadow.match(/rgba?\([^)]*\)/g) || [];
+          const borders = ['borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor']
+            .filter(k => parseFloat(style[k.replace('Color', 'Width')]) > 0 && green(style[k])).map(k => k + '=' + style[k]);
+          if (borders.length || green(style.outlineColor) && style.outlineStyle !== 'none' || shadows.some(green)) {
+            rows.push({ label, role, cls: String(el.className).slice(0, 60), borders, outline: style.outlineStyle + ' ' + style.outlineColor, shadow: style.boxShadow });
+          }
+        };
+        for (const el of document.querySelectorAll('input, textarea, select, [contenteditable="true"], .cm-content, .kn-table-cell-editor')) check(el, 'control');
+        for (const el of document.querySelectorAll('.list-search, .kn-find-field, .kn-switcher-search, .widget-capture, .recovery26-search, .control22-field')) check(el, 'wrapper');
+        return rows;
+      }, { label, greenish: greenish.toString() });
+      const violations = [];
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate(theme => { state.theme = theme; render(); }, theme);
+        await page.waitForTimeout(250);
+        await choose('f');
+        await page.locator('.list-search input').focus();
+        violations.push(...await audit(`${theme}-search`));
+        await page.locator('[data-kn-action="find"]').click();
+        await page.locator('.kn-find input').first().focus();
+        violations.push(...await audit(`${theme}-find`));
+        await page.keyboard.press('Escape');
+        await page.locator('.kn-table-widget tbody td').first().click();
+        await page.locator('.kn-table-cell-editor').waitFor();
+        violations.push(...await audit(`${theme}-table-cell`));
+        await page.keyboard.press('Escape');
+        await page.locator('[data-wb-action="more"]').click();
+        await page.locator('.wb-more-menu [data-kn-action="rename"]').click();
+        await page.locator('#kn-rename-title').focus();
+        violations.push(...await audit(`${theme}-rename`));
+        await page.keyboard.press('Escape');
+        await page.locator('[data-action="toggle-settings"]').click();
+        await page.waitForTimeout(400);
+        violations.push(...await audit(`${theme}-settings`));
+        await page.locator('[data-action="toggle-settings"]').click();
+        await page.waitForTimeout(250);
+      }
+      assert.deepEqual(violations, [], '输入控件不得出现绿色焦点：' + JSON.stringify(violations));
+      await page.evaluate(() => { state.theme = 'light'; render(); });
+      return { auditedThemes: ['light', 'dark'], surfaces: ['search', 'find', 'table-cell', 'rename', 'settings'] };
+    });
     await test('E08-snapshot-cancel-failure',async()=>{
       await choose('a');const original=await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown());
       await nativeSave(null);await openExport('html');await page.locator('#knowledge-export-download').click();assert.equal(await page.locator('#knowledge-export-download').count(),1);
@@ -255,7 +498,7 @@ async function exportedWindow(file, fn) {
       }return outputs;
     });
     await test('E03-restart',async()=>{
-      await app.close();app=await _electron.launch({executablePath:process.env.LOOP_APP_EXECUTABLE||require('electron'),args:process.env.LOOP_APP_EXECUTABLE?[]:[source],cwd:source,env});
+      await app.close();app=await _electron.launch({executablePath:process.env.LOOP_APP_EXECUTABLE||require('electron'),args:process.env.LOOP_APP_EXECUTABLE?[]:(process.env.LOOP_NO_SANDBOX?['--no-sandbox',source]:[source]),cwd:source,env});
       await until(()=>{page=app.windows().find(p=>p.url().endsWith('/app/renderer/index.html'));return page});await page.waitForSelector('.navigation');
       await choose('e');await mode('preview');await page.waitForSelector('.kn-reading .kn-mermaid svg',{state:'attached'});
       const rect=await page.locator('.kn-reading .kn-mermaid svg').evaluate(e=>({width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height}));assert.ok(rect.width>=240&&rect.height>=40);return rect;

@@ -96,7 +96,7 @@ document.addEventListener('pointerover',event=>{
 });
 document.addEventListener('contextmenu',event=>{
   const host=event.target.closest('.knowledge-pane .kn-editor-host');
-  if(!host||event.target.closest('input,textarea,select,a,img')||event.isComposing)return;
+  if(!host||event.target.closest('.kn-vditor,input,textarea,select,a,img')||event.isComposing)return;
   const entry=knowledgeCurrentEntry();if(!entry||entry.view.composing)return;
   const widget=event.target.closest('.kn-table-widget'),cell=event.target.closest('td,th');
   if(widget&&cell&&entry.mode!=='preview'){
@@ -131,11 +131,16 @@ document.addEventListener('click',event=>{
   if(action==='mode'){
     shellMountSurface(`<div class="surface-popover wb-mode-menu" role="menu" aria-label="笔记视图">${[['edit','实时预览（编辑）'],['source','Markdown 源码'],['preview','阅读']].map(([value,label])=>`<button class="button" type="button" role="menuitemradio" data-wb-mode="${value}" aria-checked="${shellKnowledgeMode()===value}">${label}</button>`).join('')}</div>`,button,192);return;
   }
-  if(action==='format'){const entry=knowledgeCurrentEntry();shellCloseOverlay({restoreFocus:false});workbenchFormatMenu(entry.root);return;}
+  if(action==='format'){
+    const entry=knowledgeCurrentEntry();if(!entry)return;
+    shellCloseOverlay({restoreFocus:false});
+    if(entry.rich&&entry.mode==='edit')knowledgeSetMode('source');
+    workbenchFormatMenu(entry.root);return;
+  }
   if(action==='properties'){shellCloseOverlay({restoreFocus:false});knowledgeSetMode('source');requestAnimationFrame(()=>knowledgeCurrentEntry()?.locate(0));return;}
   if(action==='link'||action==='wiki'){workbenchLinkDialog(action==='wiki');return;}
   const context=Workbench.context,entry=workbenchRestore();if(!entry)return;
-  if(action==='find-selection'){const query=context.reading||entry.view.state.sliceDoc(entry.view.state.selection.main.from,entry.view.state.selection.main.to);workbenchClose(false);entry.openSearch();if(query){entry.find.input.value=query;entry.find.apply();}return;}
+  if(action==='find-selection'){const query=context.reading||window.getSelection()?.toString()||'';workbenchClose(false);entry.openSearch(query);return;}
   if(action==='select-all'){workbenchClose(false);if(entry.mode==='preview'){const range=document.createRange();range.selectNodeContents(entry.readHost);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);}else{entry.view.dispatch({selection:{anchor:0,head:entry.view.state.doc.length}});entry.view.focus();}return;}
   if(action==='clear-format'){workbenchClose(false);workbenchClearFormat(entry);entry.view.focus();return;}
   if(action==='math'||action==='diagram'){workbenchClose(false);entry.insertText(action==='math'?'\n\n$$\nx^2 + y^2 = z^2\n$$\n\n':'\n\n```mermaid\nflowchart LR\n  A --> B\n```\n\n');return;}
@@ -168,7 +173,7 @@ window.addEventListener('keydown',event=>{
       items[event.key==='Home'?0:event.key==='End'?items.length-1:i<0?(event.key==='ArrowDown'?0:items.length-1):(i+(event.key==='ArrowDown'?1:items.length-1))%items.length]?.focus();return;
     }
   }
-  if((event.shiftKey&&event.key==='F10'||event.key==='ContextMenu')&&event.target.closest('.knowledge-pane .kn-editor-host')){event.preventDefault();event.stopImmediatePropagation();const entry=knowledgeCurrentEntry(),coords=entry.view.coordsAtPos(entry.view.state.selection.main.head);workbenchFormatMenu(entry.root,coords?{x:coords.left,y:coords.bottom}:null);return;}
+  if((event.shiftKey&&event.key==='F10'||event.key==='ContextMenu')&&event.target.closest('.knowledge-pane .kn-editor-host')&&!event.target.closest('.kn-vditor')){event.preventDefault();event.stopImmediatePropagation();const entry=knowledgeCurrentEntry(),coords=entry.view.coordsAtPos(entry.view.state.selection.main.head);workbenchFormatMenu(entry.root,coords?{x:coords.left,y:coords.bottom}:null);return;}
   if(event.key==='Escape'&&Workbench.focus&&!shellOverlayIsOpen()&&!knowledgeCurrentEntry()?.find?.active){event.preventDefault();workbenchSetFocus(false);}
 },true);
 window.addEventListener('resize',()=>{if(Workbench.context&&document.querySelector('.wb-context-menu'))workbenchClose(false);});

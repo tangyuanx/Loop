@@ -1,6 +1,6 @@
 {
   "name": "loop",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "Loop is a local-first personal task flow tracker for closing work from creation to completion.",
   "private": true,
   "license": "UNLICENSED",
@@ -16,7 +16,9 @@
   "main": "app/main/main.cjs",
   "scripts": {
     "dev": "electron .",
+    "predev": "npm run build:knowledge",
     "start": "electron .",
+    "prestart": "npm run build:knowledge",
     "postinstall": "npm --prefix services/bug-report ci",
     "build:milkdown": "node tools/build-milkdown.cjs",
     "test:ui:group-menu": "node tests/group-context-menu.ui.cjs",
@@ -117,7 +119,9 @@
     "@codemirror/search": "^6.7.2",
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "6.43.4",
+    "@lezer/highlight": "^1.2.3",
     "@milkdown/crepe": "^7.21.3",
+    "diff-match-patch": "1.0.5",
     "dompurify": "^3.4.17",
     "electron": "^42.7.0",
     "electron-builder": "^26.15.3",
@@ -131,7 +135,7 @@
     "markdown-it-texmath": "^1.0.0",
     "mermaid": "^12.2.0",
     "playwright-core": "1.62.1",
-    "@lezer/highlight": "^1.2.3"
+    "vditor": "4.0.1"
   },
   "dependencies": {
     "electron-updater": "6.8.9",

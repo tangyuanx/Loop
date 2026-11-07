@@ -10,8 +10,10 @@ async function minimizeTaskInfo(page){
 }
 async function mode(page,value){
   await minimizeTaskInfo(page);
-  await page.locator('[data-wb-action="mode"]').click();
-  await page.locator(`[data-wb-mode="${value}"]`).click();
+  // The note view lives in the document menu, not in the header: one hidden
+  // entry point for 编辑/源码/阅读.
+  await page.locator('[data-wb-action="more"]').click();
+  await page.locator(`.wb-more-menu [data-wb-mode="${value}"]`).click();
   await page.waitForFunction(value=>knowledgeCurrentEntry()?.mode===value,value);
 }
 async function more(page){await minimizeTaskInfo(page);await page.locator('[data-wb-action="more"]').click();}

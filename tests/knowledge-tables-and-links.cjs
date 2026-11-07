@@ -57,18 +57,18 @@ module.exports=async({page,profile,fs,readTaskData,choose,mode,markdown,append,p
 
  console.log('Note audit: independent creation, tabs, shared editing, close/reopen, files, persistence and task deletion.');
  await choose('b');const count=await page.evaluate(()=>state.tasks.length),originalB=await markdown();
- await page.locator('[data-kn-action="new-note"]').click();await page.waitForFunction(()=>knowledgeActiveDocument()?.title==='未命名'&&knowledgeCurrentEntry());await page.evaluate(()=>knowledgeRename(knowledgeActiveDocument()));await page.locator('#kn-rename-title').fill('任务方案与表格');await page.locator('#kn-rename-commit').click();await append('# 任务方案与表格\n');
+ await wb.more(page);await page.locator('.wb-more-menu [data-kn-action="new-note"]').click();await page.waitForFunction(()=>knowledgeActiveDocument()?.title==='未命名'&&knowledgeCurrentEntry());await page.evaluate(()=>knowledgeRename(knowledgeActiveDocument()));await page.locator('#kn-rename-title').fill('任务方案与表格');await page.locator('#kn-rename-commit').click();await append('# 任务方案与表格\n');
  await page.waitForFunction(()=>knowledgeActiveDocument()?.title==='任务方案与表格'&&knowledgeCurrentEntry()?.getMarkdown().includes('任务方案与表格'));
  const noteId=await page.evaluate(()=>knowledgeActiveDocument().id);assert.equal(await page.evaluate(()=>state.activeTaskId),'b');assert.equal(await page.evaluate(()=>state.tasks.length),count);
  assert.equal(await page.locator('.kn-switch-note>span').innerText(),'任务方案与表格');
  assert.doesNotMatch(await page.locator('.kn-document-tabs').innerText(),/本任务创建|其他笔记/);
  await append('\n独立笔记第一次修改');await page.locator('[data-kn-document="b"]').click();assert.equal(await markdown(),originalB);
  await page.locator(`[data-kn-document="${noteId}"]`).click();assert.match(await markdown(),/第一次修改/);
- await choose('a');await page.locator('[data-kn-action="recent"]').click();await page.locator(`[data-kn-note="${noteId}"]`).click();
+ await choose('a');await wb.more(page);await page.locator('.wb-more-menu [data-kn-action="recent"]').click();await page.locator(`[data-kn-note="${noteId}"]`).click();
  assert.equal(await page.evaluate(()=>state.activeTaskId),'a');assert.equal(await page.evaluate(()=>knowledgeActiveDocument().id),noteId);
  await append('\n跨任务共享修改');const firstTab=await page.locator('.kn-document-tabs [role=tab]').first().getAttribute('data-kn-document');await page.locator('.kn-document-tabs [aria-selected=true]').focus();await page.keyboard.press('Home');assert.equal(await page.evaluate(()=>knowledgeActiveDocument().id),firstTab);await page.keyboard.press('End');assert.equal(await page.evaluate(()=>knowledgeActiveDocument().id),noteId);
  await page.locator(`[data-kn-detach="${noteId}"]`).click();assert.equal(await page.evaluate(id=>state.knowledgeWorkspace.openIds.includes(id),noteId),false);assert.equal(await page.evaluate(id=>knowledgeFindDocument(id).notes.includes('跨任务共享修改'),noteId),true);
- await choose('b');await page.locator('[data-kn-action="recent"]').click();await page.locator(`[data-kn-note="${noteId}"]`).click();assert.match(await markdown(),/跨任务共享修改/);
+ await choose('b');await wb.more(page);await page.locator('.wb-more-menu [data-kn-action="recent"]').click();await page.locator(`[data-kn-note="${noteId}"]`).click();assert.match(await markdown(),/跨任务共享修改/);
  // Native-file picker result is the only substitution; actual read/write/gate
  // services handle this new document and survive a process-style reload.
  const file=path.join(profile,'独立外部文件.md');await fs.writeFile(file,'# 外部方案\n\n原始内容');await setChosenPath(file);

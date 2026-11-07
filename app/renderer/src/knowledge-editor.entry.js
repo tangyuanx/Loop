@@ -45,7 +45,8 @@ class RenderWidget extends WidgetType {
   eq(other) { return this.html===other.html && this.from===other.from && this.kind===other.kind; }
   toDOM(view) {
     const el=document.createElement(this.kind==='block'?'div':'span');
-    el.className='kn-live-widget kn-rendered'; el.dataset.sourcePos=String(this.from); el.innerHTML=this.html;
+    el.className='kn-live-widget kn-rendered'+(this.kind==='block'?' kn-block-widget':'');
+    el.dataset.sourcePos=String(this.from); el.innerHTML=this.html;
     el.addEventListener('mousedown',event=>{
       // An image inside a callout or embedded note must not unfold the entire
       // containing block and move the caret into unrelated reference syntax.
@@ -243,14 +244,28 @@ class KnowledgeEditor {
   }
   buildDecorations(state) {
     if(this.mode!=='edit')return Decoration.none;
-    const ranges=[]; const add=(from,to,deco)=>{if(to>=from)ranges.push(deco.range(from,to));};
+    const ranges=[]; let blockEnd=0;
+    const add=(from,to,deco)=>{if(to>=from)ranges.push(deco.range(from,to));};
+    const addBlock=(from,to,deco)=>{if(to>blockEnd)blockEnd=to;add(from,to,deco);};
     const {from,to}=this.range;
     const source=()=>state.doc.toString();
     const widget=(node,inline=false)=>{
       const text=state.doc.sliceString(node.from,node.to),key=node.name+':'+text;
       let html=this.renderCache.get(key);if(!html){html=this.renderer.render(text,{noteId:this.options.noteId,stack:[this.options.noteId]});if(this.renderCache.size>160)this.renderCache.clear();this.renderCache.set(key,html);}
       const Type=node.name==='Image'?ImageWidget:node.name==='Table'?TableWidget:RenderWidget;
-      add(node.from,node.to,Decoration.replace({widget:new Type(html,this,node.from,inline?'inline':'block',node.to),block:!inline,inclusive:false}));
+      // A block replacement must consume the line breaks that enclose it.
+      // Otherwise CodeMirror keeps an empty line box for the first and the last
+      // line of the block: the note gains a blank line above and below every
+      // rendered block, and the height map drifts one line behind the DOM, so
+      // clicks below the block land on the next line. Inline widgets stay inside
+      // their own line box and must never eat a line break.
+      const line=state.doc.lineAt(node.from);
+      // Two replacements must never share the boundary newline: overlapping
+      // ranges make the decoration order ambiguous.
+      const start=inline||line.number<=1||state.doc.line(line.number-1).to<blockEnd?node.from:state.doc.line(line.number-1).to;
+      const end=inline?node.to:Math.min(state.doc.length,node.to+(state.doc.sliceString(node.to,node.to+1)==='\n'?1:0));
+      const deco=Decoration.replace({widget:new Type(html,this,node.from,inline?'inline':'block',node.to),block:!inline,inclusive:false});
+      if(inline)add(start,end,deco);else addBlock(start,end,deco);
     };
     syntaxTree(state).iterate({from,to,enter:node=>{
       if(node.to<from||node.from>to)return false;
@@ -362,6 +377,10 @@ class KnowledgeEditor {
       return {from:row.to,to:row.to,prefix:(trailing?' ':' | ')+(' | '.repeat(Math.max(0,column-ranges.length))),suffix:trailing?' |':''};
     }
     const raw=state.doc.sliceString(range.from,range.to),leading=raw.match(/^[ \t]*/)[0].length;
+    // An empty cell keeps no inner text to replace, so writing at the trimmed
+    // offset would produce "| 值|" and erode the padding of every new row or
+    // column. Swap the cell's padding for canonical "| 值 |" instead.
+    if(!raw.trim())return {from:range.from,to:range.to,prefix:' ',suffix:' '};
     return {from:range.from+leading,to:range.from+Math.max(leading,raw.trimEnd().length),prefix:'',suffix:''};
   }
   finishTableCell() {
@@ -378,7 +397,10 @@ class KnowledgeEditor {
     this.view.dispatch({selection:{anchor:range.from},scrollIntoView:false});
     const input=document.createElement('textarea');input.rows=1;input.className='kn-table-cell-editor';
     input.setAttribute('aria-label',`${row===0?'表头':'第'+row+'行'}，第${column+1}列`);
-    input.spellcheck=false;input.value=this.view.state.doc.sliceString(range.from,range.to).replace(/<br\s*\/?>/gi,'\n');
+    input.spellcheck=false;
+    // An empty cell's range covers its padding; show it as an empty field so the
+    // first keystroke is not appended to invisible spaces.
+    input.value=this.view.state.doc.sliceString(range.from,range.to).replace(/<br\s*\/?>/gi,'\n').trim();
     const content=document.createElement('span');content.className='kn-table-cell-content';content.setAttribute('aria-hidden','true');content.textContent=input.value||'\u200b';
     const active={widget,cell,input,content,renderedHTML:cell.innerHTML,row,column,...range,composing:false,writing:false};this.activeTableCell=active;
     cell.classList.add('kn-cell-editing');cell.replaceChildren(content,input);

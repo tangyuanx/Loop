@@ -55,7 +55,7 @@ export class KnowledgeFind {
       }else if(name==='toggleReplace') {
         const row=this.dom.querySelector('.kn-replace-row'),button=this.dom.querySelector('[name=toggleReplace]');row.hidden=!row.hidden;
         button.setAttribute('aria-expanded',String(!row.hidden));button.setAttribute('aria-label',row.hidden?'展开替换':'收起替换');button.title=row.hidden?'展开替换':'收起替换';
-        if(!row.hidden){if(this.owner.mode==='preview')this.owner.options.onEditForSearch?.();this.replacement.focus();}
+        if(!row.hidden){if(this.renderedRoot())this.owner.options.onEditForSearch?.();this.replacement.focus();}
       }else if(name==='next'||name==='previous')this.move(name==='next'?1:-1);
       else if(name==='close')this.clear();
       else if(name==='replaceNext'||name==='replaceAll')this.replace(name==='replaceAll');
@@ -77,16 +77,22 @@ export class KnowledgeFind {
     const enabled=name=>this.dom.querySelector(`[name=${name}]`).getAttribute('aria-pressed')==='true';
     return new SearchQuery({search:this.input.value,replace:this.replacement.value,caseSensitive:enabled('caseSensitive'),wholeWord:enabled('wholeWord'),regexp:enabled('regexp'),literal:true});
   }
+  renderedRoot() {
+    if(this.owner.mode==='preview')return this.owner.readHost;
+    if(this.owner.mode==='edit')return this.owner.rich?.editable;
+    return null;
+  }
   open() {
     this.dom.hidden=false;
     this.attach();
-    const selected=this.owner.view.state.sliceDoc(this.owner.view.state.selection.main.from,this.owner.view.state.selection.main.to);
+    const selected=this.renderedRoot() ? window.getSelection().toString()
+      : this.owner.view.state.sliceDoc(this.owner.view.state.selection.main.from,this.owner.view.state.selection.main.to);
     if(selected&&!selected.includes('\n')&&selected.length<=200)this.input.value=selected;
     this.apply(false);this.input.focus({preventScroll:true});this.input.select();
   }
   apply(navigate=true) {
     this.active=true;const query=this.query(),view=this.owner.view;
-    openSearchPanel(view);view.dispatch({effects:setSearchQuery.of(query)});
+    if(!this.renderedRoot()){openSearchPanel(view);view.dispatch({effects:setSearchQuery.of(query)});}
     this.update();
     if(navigate&&query.valid&&this.matches.length) {
       // Include a currently selected occurrence when updating the query.
@@ -95,11 +101,12 @@ export class KnowledgeFind {
   }
   update(force=false) {
     const query=this.query(),owner=this.owner,view=owner.view;
-    const cached=!force&&this.active&&this.cachedQuery?.eq(query)&&this.cachedDoc===view?.state.doc&&this.cachedMode===owner.mode&&this.cachedReading===owner.readHost.firstChild;
+    const rendered=this.renderedRoot();
+    const cached=!force&&this.active&&this.cachedQuery?.eq(query)&&this.cachedDoc===view?.state.doc&&this.cachedMode===owner.mode&&this.cachedReading===rendered?.firstChild;
     if(!cached)this.matches=[];this.index=-1;
     if(query.valid&&view&&this.active) {
-      if(owner.mode==='preview') {
-        if(!cached)this.matches=renderedMatches(owner.readHost,query);
+      if(rendered) {
+        if(!cached)this.matches=renderedMatches(rendered,query);
         this.index=Math.min(this.readIndex??0,this.matches.length-1);this.highlightReading();
       }else {
         if(!cached){const cursor=query.getCursor(view.state);
@@ -111,18 +118,18 @@ export class KnowledgeFind {
         this.setHighlights(widgets.map(m=>m.range));
       }
     }else this.clearHighlights();
-    this.cachedDoc=view?.state.doc;this.cachedQuery=query;this.cachedMode=owner.mode;this.cachedReading=owner.readHost.firstChild;
+    this.cachedDoc=view?.state.doc;this.cachedQuery=query;this.cachedMode=owner.mode;this.cachedReading=rendered?.firstChild;
     const invalid=Boolean(this.input.value&&!query.valid);
     this.input.setAttribute('aria-invalid',String(invalid));
     this.count.textContent=invalid?'无效正则':!this.input.value?'':!this.matches.length?'无结果':`${this.index<0?0:this.index+1}/${this.matches.length}`;
     this.count.title=invalid?'请检查正则表达式':this.matches.length?`共 ${this.matches.length} 处匹配`:'没有匹配结果';
     this.dom.dataset.empty=String(Boolean(this.input.value&&!this.matches.length));
     for(const name of ['previous','next','replaceNext','replaceAll'])this.dom.querySelector(`[name=${name}]`).disabled=!this.matches.length||invalid;
-    this.dom.querySelector('[name=toggleReplace]').title=this.owner.mode==='preview'?'展开替换（切换到源码）':this.dom.querySelector('.kn-replace-row').hidden?'展开替换':'收起替换';
+    this.dom.querySelector('[name=toggleReplace]').title=rendered?'展开替换（切换到源码）':this.dom.querySelector('.kn-replace-row').hidden?'展开替换':'收起替换';
   }
   move(direction,includeCurrent=false) {
     if(!this.matches.length)return;
-    if(this.owner.mode==='preview') {
+    if(this.renderedRoot()) {
       this.readIndex=includeCurrent?0:((this.index+direction+this.matches.length)%this.matches.length);this.index=this.readIndex;this.highlightReading();
       const range=this.matches[this.index].range;range.startContainer.parentElement.scrollIntoView({block:'center',behavior:'instant'});this.update();
     }else {
@@ -138,8 +145,8 @@ export class KnowledgeFind {
     if(!this.matches.length||this.composing)return;
     // Replacements operate on Markdown and its single undo history. Reading
     // remains read-only until the user explicitly requests a replacement.
-    if(this.owner.mode==='preview')this.owner.options.onEditForSearch?.();
-    if(this.owner.mode==='preview')return;
+    if(this.renderedRoot())this.owner.options.onEditForSearch?.();
+    if(this.renderedRoot())return;
     this.apply(false);(all?replaceAll:replaceNext)(this.owner.view);this.update();
   }
   highlightReading() {
@@ -156,7 +163,8 @@ export class KnowledgeFind {
     this.active=false;this.dom.hidden=true;this.attach();this.input.value='';this.replacement.value='';this.readIndex=0;
     this.dom.querySelector('.kn-replace-row').hidden=true;const toggle=this.dom.querySelector('[name=toggleReplace]');toggle.setAttribute('aria-expanded','false');toggle.setAttribute('aria-label','展开替换');toggle.title='展开替换';
     this.owner.view.dispatch({effects:setSearchQuery.of(this.query())});closeSearchPanel(this.owner.view);this.update();
-    if(this.owner.mode==='preview')this.owner.readHost.focus({preventScroll:true});else this.owner.view.focus();
+    const rendered=this.renderedRoot();
+    if(rendered)rendered.focus({preventScroll:true});else this.owner.view.focus();
   }
   destroy(){this.clearHighlights();this.style?.remove();this.dom.remove();}
 }

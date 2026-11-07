@@ -139,7 +139,14 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
     pageWidths.push(await page.locator('.knowledge-page').evaluate(el=>el.getBoundingClientRect().width));
     assert.equal(await markdown(),workspaceOriginal);
   }
-  assert.ok(pageWidths[0]<pageWidths[1]&&pageWidths[1]<pageWidths[2],pageWidths.join(','));
+  // The three widths are caps: on a narrow pane the default already fills the
+  // available space, so only the wider window proves the tiers stay distinct.
+  assert.ok(pageWidths[0]<pageWidths[1]&&pageWidths[1]<=pageWidths[2],pageWidths.join(','));
+  await page.setViewportSize({width:1700,height:1000});await page.waitForTimeout(120);
+  const wideWidths=[];
+  for(const width of ['default','wide','full']){await wb.width(page,width);wideWidths.push(await page.locator('.knowledge-page').evaluate(el=>el.getBoundingClientRect().width));}
+  assert.ok(wideWidths[0]<wideWidths[1]&&wideWidths[1]<wideWidths[2],wideWidths.join(','));
+  await page.setViewportSize({width:1440,height:1000});await page.waitForTimeout(120);
   await wb.width(page,'default');
   console.log('UI global settings: all notes share width and view across restart; shortcuts stay synchronized.');
   await page.locator('[data-action="toggle-settings"]').click();
@@ -287,7 +294,9 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   assert.equal(await markdown(),sparseSource.replace('\n一\n','\n一 |  | 补全\n'));
   await page.locator('.kn-table-widget').nth(1).locator('tbody td').nth(1).click();
   await page.locator('.kn-table-cell-editor').fill('第二表');
-  assert.match(await markdown(),/\| 二 \| 第二表\| \|/);
+  // Empty cells are written with canonical padding instead of being appended
+  // against the delimiter ("| 第二表|" eroded one space per edit).
+  assert.match(await markdown(),/\| 二 \| 第二表 \| \|/);
   await page.locator('.kn-table-cell-editor').press(process.platform==='darwin'?'Meta+s':'Control+s');
   assert.equal(await page.locator('.kn-table-cell-editor').evaluate(el=>el===document.activeElement),true);
   await choose('a');await mode('source');
