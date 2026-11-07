@@ -9,10 +9,9 @@ body .workspace.knowledge-workspace {
 }
 body.wb-focus:has(.knowledge-pane) .app::before { left: 0; }
 body.wb-focus:has(.knowledge-pane) .task-info-card { display: none; }
-body[data-notebook23-enabled] .knowledge-header { padding-inline: 32px; gap: 8px 16px; }
+body[data-notebook23-enabled] .knowledge-header { padding-inline: 32px; gap: 8px 16px; border-bottom-color: transparent; background: var(--canvas); }
 body .workspace .knowledge-header .tabs-bar { gap: 26px; }
 .knowledge-header .knowledge-header-actions { gap: 6px; }
-.knowledge-header :is([data-wb-action="mode"],.kn-switch-note) { min-height: 30px; }
 .knowledge-header [data-wb-action="focus"][aria-pressed="true"] { color: var(--text); background: var(--selected); }
 .knowledge-header [data-wb-action="more"][aria-expanded="true"] { color: var(--text); }
 .knowledge-pane .knowledge-body { background: var(--canvas); scrollbar-color: color-mix(in srgb,var(--text) 20%,transparent) transparent; }
@@ -34,7 +33,96 @@ body[data-notebook23-enabled] .knowledge-footer { min-height: 38px; padding-inli
 .knowledge-pane .knowledge-notice { padding-inline: 32px; gap: 8px 16px; flex-wrap: wrap; }
 .knowledge-pane .knowledge-notice>span { min-width: 0; overflow-wrap: anywhere; }
 .knowledge-pane .knowledge-notice>div { flex-shrink: 0; }
+
+.kn-document-bar {
+  --kn-tab-max-width: 216px;
+  --kn-tab-min-width: 40px;
+  display: flex;
+  align-items: flex-end;
+  flex-shrink: 0;
+  gap: 3px;
+  min-width: 0;
+  min-height: 41px;
+  padding: 5px 16px 0;
+  background: var(--canvas);
+  box-shadow: inset 0 -1px var(--line);
+}
+.kn-document-tabs {
+  display: flex;
+  align-items: stretch;
+  flex: 0 1 auto;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.kn-document-tab {
+  display: flex;
+  align-items: center;
+  flex: 0 0 var(--kn-tab-width, var(--kn-tab-max-width));
+  width: var(--kn-tab-width, var(--kn-tab-max-width));
+  min-width: 0;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+}
+.kn-document-tab:has([aria-selected="true"]) { border-color: var(--line); background: var(--canvas); }
+.kn-document-tab:not(:has([aria-selected="true"])):hover { background: var(--hover); }
+body .knowledge-pane .kn-document-tab > button { border: 0; background: transparent; color: var(--secondary); cursor: pointer; }
+.kn-document-tab [role="tab"] {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex: 1;
+  width: 0;
+  min-width: 0;
+  min-height: 35px;
+  padding: 6px 10px;
+  border-radius: 9px 0 0;
+  font: inherit;
+  font-size: var(--type-12);
+  user-select: none;
+}
+body .kn-document-tab [role="tab"][aria-selected="true"] { color: var(--text); font-weight: var(--ui-emphasis-weight); }
+.kn-document-tab [role="tab"] > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kn-document-close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 25px;
+  min-height: 25px;
+  margin-right: 4px;
+  padding: 3px;
+  border-radius: 5px;
+}
+.kn-document-close svg { width: 12px; height: 12px; }
+body .kn-document-tab .kn-document-close:hover { color: var(--text); }
+.kn-document-bar[data-compact] [role="tab"] { padding-inline: 0; }
+.kn-document-bar[data-compact] [role="tab"] > span { opacity: 0; }
+.kn-document-bar[data-compact] .kn-document-close { margin-right: 2px; }
+.kn-document-bar > button {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  margin-bottom: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--secondary);
+  cursor: pointer;
+}
+.kn-document-bar > button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.kn-document-bar > .kn-document-scroll { width: 25px; }
+.kn-document-scroll[hidden] { display: none; }
+.kn-document-scroll:disabled { opacity: .35; cursor: default; }
+.kn-document-scroll[data-kn-scroll="-1"] svg { transform: rotate(180deg); }
+.kn-document-bar > button svg { width: 16px; height: 16px; }
 @container (max-width: 700px) {
+  .kn-document-bar { --kn-tab-max-width: 156px; padding-inline: 12px; }
   body[data-notebook23-enabled] .knowledge-header { padding-inline: 24px; }
   body .workspace .knowledge-header .tabs-bar { gap: 18px; }
   .knowledge-pane :is(.knowledge-tools,.knowledge-notice) { padding-inline: 24px; }

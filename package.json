@@ -1,6 +1,6 @@
 {
   "name": "loop",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "description": "Loop is a local-first personal task flow tracker for closing work from creation to completion.",
   "private": true,
   "license": "UNLICENSED",
@@ -32,6 +32,7 @@
     "test:ui:widget-draft": "node tests/today-widget-draft.ui.cjs",
     "test:ui:continuity": "node tests/continuity28.ui.cjs",
     "test:ui:knowledge-save": "node tests/knowledge-editor.ui.cjs",
+    "test:ui:knowledge-tabs": "node tests/knowledge-tabs.ui.cjs",
     "test:ui:knowledge-input": "node tests/knowledge-editor.ui.cjs",
     "test": "node --test tests/node-share.test.cjs tests/release-draft.test.cjs tests/knowledge-core.test.cjs tests/knowledge-reliability.test.cjs tests/knowledge-export.test.cjs tests/desktop.test.cjs tests/bug-report-client.test.cjs tests/updater.test.cjs tests/deadline-reminders.test.cjs tests/data-continuity.test.cjs tests/work-navigation-model.test.cjs tests/work-rhythm-ui.test.cjs tests/pointer-continuity.test.cjs tests/continuity28-renderer.test.cjs tests/window25-renderer.test.cjs && npm --prefix services/bug-report test",
     "check:pointer": "node --check app/main/pointer-continuity.cjs && node --check app/main/pointer-adapter.cjs && node --check app/renderer/src/continuity28.js && node --check tools/build-native-pointer.cjs && node --check tests/pointer-continuity.test.cjs && node --check tests/continuity28-renderer.test.cjs",

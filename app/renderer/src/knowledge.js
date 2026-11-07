@@ -98,29 +98,36 @@ function shellKnowledgeRecoveryText(task) {
 
 function renderKnowledgeTabs(task) {
   const active=knowledgeActiveDocument(task),notes=state.knowledgeWorkspace.openIds.map(knowledgeFindDocument).filter(note=>note&&!note.knowledgeNote?.isDeleted);
-  if(notes.length<2)return '';
-  return `<div class="kn-document-bar"><div class="kn-document-tabs" role="tablist" aria-label="已打开的笔记">${notes.map(note=>`<div class="kn-document-tab"><button type="button" role="tab" tabindex="${active?.id===note.id?0:-1}" aria-selected="${active?.id===note.id}" data-kn-document="${escAttr(note.id)}" title="${escAttr(note.knowledgeNote.filePath||LoopKnowledgeCore.noteTitle(note))}"><span>${esc(LoopKnowledgeCore.noteTitle(note))}</span></button><button type="button" class="kn-document-close" data-kn-detach="${escAttr(note.id)}" aria-label="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}" title="关闭笔记，草稿仍保留">${shellIcon('close')}</button></div>`).join('')}</div></div>`;
+  if(active&&!notes.some(note=>note.id===active.id))notes.unshift(active);
+  const scrollButton=(direction,label)=>`<button type="button" class="kn-document-scroll" data-kn-scroll="${direction}" aria-label="${label}" title="${label}" hidden>${shellIcon('chevron')}</button>`;
+  return `<div class="kn-document-bar"><div class="kn-document-tabs" role="tablist" aria-label="已打开的笔记">${notes.map(note=>`<div class="kn-document-tab"><button type="button" role="tab" tabindex="${active?.id===note.id?0:-1}" aria-selected="${active?.id===note.id}" aria-label="${escAttr(LoopKnowledgeCore.noteTitle(note))}" aria-keyshortcuts="F2" data-kn-document="${escAttr(note.id)}" title="${escAttr(knowledgeTabTitle(note))}"><span>${esc(LoopKnowledgeCore.noteTitle(note))}</span></button><button type="button" class="kn-document-close" data-kn-detach="${escAttr(note.id)}" aria-label="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}" title="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}（草稿仍保留）">${shellIcon('close')}</button></div>`).join('')}</div>
+    ${scrollButton(-1,'向左滚动页签')}${scrollButton(1,'向右滚动页签')}
+    <button type="button" class="kn-document-new" data-kn-action="new-note" aria-label="新建笔记" title="新建笔记">${shellIcon('plus')}</button>
+  </div>`;
+}
+
+function knowledgeTabTitle(note) {
+  const file=shellKnowledgeFileName(note.knowledgeNote);
+  return [LoopKnowledgeCore.noteTitle(note),shellKnowledgeState(note).label,note.knowledgeNote.filePath||file.text,'双击或按 F2 重命名'].join('\n');
 }
 
 function renderKnowledgeFileActions() {
-  return `<div class="kn-file-actions"><button type="button" class="text-button" data-kn-action="new-note" title="新建空白笔记">${shellIcon('plus')}新建</button><button type="button" class="text-button" data-kn-action="open-file" title="打开本地笔记（Ctrl/Cmd+O）">打开…</button><button type="button" class="icon-button" data-kn-action="recent" title="最近打开" aria-label="最近打开的笔记" aria-haspopup="dialog">${shellIcon('down')}</button></div>`;
+  return `<div class="kn-file-actions"><button type="button" class="text-button" data-kn-action="open-file" title="打开本地笔记（Ctrl/Cmd+O）">打开…</button><button type="button" class="icon-button" data-kn-action="recent" title="最近打开" aria-label="最近打开的笔记" aria-haspopup="dialog">${shellIcon('down')}</button></div>`;
 }
 
 function renderShellKnowledge(task) {
   const owner = task;
   task = knowledgeActiveDocument(task);
-  if(!task)return `<section class="knowledge-pane task-knowledge-pane" aria-label="知识笔记"><header class="knowledge-header"><div class="wb-tabs">${renderShellTabs(owner)}</div>${renderKnowledgeFileActions()}</header><div class="kn-empty-document"><p>打开一篇笔记，或从空白开始</p><div><button class="button" data-kn-action="new-note">新建笔记</button><button class="button" data-kn-action="open-file">打开本地笔记…</button><button class="button" data-kn-action="switcher">切换笔记…</button><button class="text-button" data-kn-action="recent">最近打开</button></div></div></section>`;
+  if(!task)return `<section class="knowledge-pane task-knowledge-pane" aria-label="知识笔记"><header class="knowledge-header"><div class="wb-tabs">${renderShellTabs(owner)}</div>${renderKnowledgeFileActions()}</header>${renderKnowledgeTabs(owner)}<div class="kn-empty-document"><p>打开一篇笔记，或从空白开始</p><div><button class="button" data-kn-action="new-note">新建笔记</button><button class="button" data-kn-action="open-file">打开本地笔记…</button><button class="button" data-kn-action="switcher">切换笔记…</button><button class="text-button" data-kn-action="recent">最近打开</button></div></div></section>`;
   const noteState = shellKnowledgeState(task);
   const mode = shellKnowledgeMode();
   const width = shellNoteWidth();
   const stats = markdownStats(task.notes);
-  const file = shellKnowledgeFileName(noteState.note);
   return `
     <section class="knowledge-pane task-knowledge-pane" data-task-id="${escAttr(task.id)}" data-knowledge-state="${escAttr(noteState.key)}" aria-label="知识笔记">
       <header class="knowledge-header">
         <div class="wb-tabs">${renderShellTabs(owner)}</div>
         <div class="knowledge-header-actions">
-          <button class="text-button kn-switch-note kn-note-title" type="button" data-kn-action="rename" aria-label="重命名笔记" title="${escAttr(noteState.label)} · ${escAttr(file.text)} · ${escAttr(file.title)} · 重命名笔记"><span>${esc(LoopKnowledgeCore.noteTitle(task))}</span></button>
           <button class="icon-button" type="button" data-kn-action="find" aria-label="查找当前笔记" title="查找当前笔记（Ctrl/Cmd+F）" aria-expanded="false">${shellIcon("search")}</button>
           <button class="icon-button" type="button" data-wb-action="focus" aria-label="${Workbench.focus ? "退出" : "进入"}专注模式" title="专注模式" aria-pressed="${Workbench.focus}">${shellIcon(Workbench.focus ? "restoreRecord" : "expandRecord")}</button>
           <button class="icon-button" type="button" data-wb-action="more" data-action="knowledge-file-menu" data-knowledge-action="file-menu" aria-label="更多笔记操作" title="更多笔记操作" aria-haspopup="menu" aria-expanded="false">${shellIcon("more")}</button>
