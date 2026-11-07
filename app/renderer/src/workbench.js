@@ -85,9 +85,10 @@ function workbenchLinkDialog(internal=false) {
   document.querySelector('#wb-link-insert').onclick=insert;input.onkeydown=e=>{if(e.key==='Enter'&&!e.isComposing&&e.keyCode!==229){e.preventDefault();insert();}};
 }
 function workbenchClearFormat(entry) {
-  const range=entry.view.state.selection.main,doc=entry.view.state.doc,text=doc.sliceString(range.from,range.to);
-  let insert=text;for(let i=0;i<8;i++){const next=insert.replace(/^(\*\*|\*|~~|==|`)([\s\S]*)\1$/,'$2');if(next===insert)break;insert=next;}
-  if(insert!==text){entry.view.dispatch({changes:{from:range.from,to:range.to,insert},selection:{anchor:range.from,head:range.from+insert.length},userEvent:'input.format'});return;}
+  // Mixed spans inside one selection: strip every inline marker pair, not only a
+  // wrapper around the whole range.
+  if(typeof entry.clearInlineFormat==='function'&&entry.clearInlineFormat())return;
+  const range=entry.view.state.selection.main,doc=entry.view.state.doc;
   for(const [action,token] of [['bold','**'],['italic','*'],['strike','~~'],['highlight','=='],['inline','`']])if(range.from>=token.length&&doc.sliceString(range.from-token.length,range.from)===token&&doc.sliceString(range.to,range.to+token.length)===token){entry.format(action);return;}
 }
 document.addEventListener('pointerover',event=>{

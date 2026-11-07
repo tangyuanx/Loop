@@ -109,7 +109,7 @@ function renderKnowledgeFileActions() {
 function renderShellKnowledge(task) {
   const owner = task;
   task = knowledgeActiveDocument(task);
-  if(!task)return `<section class="knowledge-pane task-knowledge-pane" aria-label="知识笔记"><header class="knowledge-header"><div class="wb-tabs">${renderShellTabs(owner)}</div>${renderKnowledgeFileActions()}</header><div class="kn-empty-document"><p>打开一篇笔记，或从空白开始</p><div><button class="button" data-kn-action="new-note">新建笔记</button><button class="button" data-kn-action="open-file">打开本地笔记…</button><button class="text-button" data-kn-action="recent">最近打开</button></div></div></section>`;
+  if(!task)return `<section class="knowledge-pane task-knowledge-pane" aria-label="知识笔记"><header class="knowledge-header"><div class="wb-tabs">${renderShellTabs(owner)}</div>${renderKnowledgeFileActions()}</header><div class="kn-empty-document"><p>打开一篇笔记，或从空白开始</p><div><button class="button" data-kn-action="new-note">新建笔记</button><button class="button" data-kn-action="open-file">打开本地笔记…</button><button class="button" data-kn-action="switcher">切换笔记…</button><button class="text-button" data-kn-action="recent">最近打开</button></div></div></section>`;
   const noteState = shellKnowledgeState(task);
   const mode = shellKnowledgeMode();
   const width = shellNoteWidth();
@@ -216,6 +216,7 @@ function shellKnowledgeFileMenu(trigger) {
       ${["edit", "source", "preview"].map(value => `<button class="button" type="button" role="menuitemradio" aria-checked="${shellKnowledgeMode() === value}" data-wb-mode="${value}">${SHELL_NOTE_MODE_NAMES[value]}</button>`).join("")}
       <div class="menu-divider"></div>
       <div class="note23-menu-label">笔记</div>
+      <button class="button" type="button" role="menuitem" data-kn-action="switcher" data-note23-menu-label>切换笔记…</button>
       <button class="button" type="button" role="menuitem" data-kn-action="new-note">新建笔记</button>
       <button class="button" type="button" role="menuitem" data-kn-action="open-file">打开 Markdown 文件…</button>
       <button class="button" type="button" role="menuitem" data-kn-action="recent">最近打开…</button>
@@ -270,7 +271,7 @@ function shellKnowledgeExportNote(task) {
     ? note23FileName(task, { path: task.knowledgeNote?.filePath }).replace(/\.md$/i, "")
     : task.title || "未命名笔记";
   shellKnowledgeDialog("导出笔记",
-    `<p class="knowledge-dialog-copy">导出打开此窗口时的笔记快照；不改变文件关联。</p><div class="export-format-row"><label for="knowledge-export-format">格式</label><select id="knowledge-export-format"><option value="md">Markdown</option><option value="html">HTML</option><option value="pdf">PDF（桌面应用）</option></select></div><p id="knowledge-export-status" role="status">正在生成导出预览…</p><article id="knowledge-export-preview" class="kn-rendered knowledge-export-preview"></article><div id="knowledge-export-issues" class="knowledge-export-issues" hidden><ul></ul><label><input type="checkbox" id="knowledge-export-incomplete">保留图表源码与缺失资源说明，继续导出</label></div><p class="knowledge-demo-boundary">HTML 与 PDF 内嵌公式字体、本地图片及静态图表，可离线阅读。Markdown 保留原文，并内嵌 Loop 中的图片以便分享。</p><p class="error" id="knowledge-export-error" role="alert" hidden></p><button class="button" id="knowledge-export-retry" hidden>重新生成预览</button>`,
+    `<p class="knowledge-dialog-copy">导出打开此窗口时的笔记快照；不改变文件关联。</p><div class="export-format-row"><label for="knowledge-export-format">格式</label><select id="knowledge-export-format"><option value="md">Markdown</option><option value="html">HTML</option><option value="pdf">PDF（桌面应用）</option></select></div><p id="knowledge-export-status" role="status">正在生成导出预览…</p><article id="knowledge-export-preview" class="kn-rendered knowledge-export-preview"></article><div id="knowledge-export-issues" class="knowledge-export-issues" hidden><ul></ul><label><input type="checkbox" id="knowledge-export-incomplete">保留图表源码与缺失资源说明，继续导出</label></div><p class="knowledge-demo-boundary">HTML 与 PDF 内嵌公式字体、本地图片及静态图表，可离线阅读。Markdown 保留原文与相对附件路径（Loop 内的图片会内嵌），如需独立分享请连同附件目录一起复制。${knowledgeLocalAttachmentCount(markdown)?`<br>本笔记引用了 ${knowledgeLocalAttachmentCount(markdown)} 个本地附件，Markdown 导出只保留它们的相对路径。`:''}</p><p class="error" id="knowledge-export-error" role="alert" hidden></p><button class="button" id="knowledge-export-retry" hidden>重新生成预览</button>`,
     '<button class="button" data-action="close-dialog">取消</button><button class="button primary" id="knowledge-export-download">导出</button>', 680);
   const button = document.querySelector("#knowledge-export-download");
   const dialog = button.closest('[role="dialog"]');
@@ -330,9 +331,9 @@ function shellKnowledgeExportNote(task) {
   });
 }
 
-function shellKnowledgeDialog(title, body, footer = "", width = 520) {
+function shellKnowledgeDialog(title, body, footer = "", width = 520, returnFocus = "[data-action='knowledge-file-menu']") {
   const overlay = shellOverlay();
-  overlay.innerHTML = `<div class="dialog-backdrop" data-return-focus="[data-action='knowledge-file-menu']">
+  overlay.innerHTML = `<div class="dialog-backdrop" data-return-focus="${escAttr(returnFocus)}">
     <section class="dialog knowledge-dialog" role="dialog" aria-modal="true" aria-labelledby="knowledge-dialog-title" style="width:min(${width}px, calc(100vw - 48px))">
       <div class="dialog-head"><h2 id="knowledge-dialog-title">${esc(title)}</h2><button class="icon-button" type="button" data-action="close-dialog" aria-label="关闭">${shellIcon("close")}</button></div>
       ${body}
@@ -369,6 +370,20 @@ async function shellRunKnowledgeConflictAction(data, operation) {
   const surface = shellOverlay()?.querySelector("[data-knowledge-conflict]");
   const task = knowledgeAllDocuments().find(item => item.id === data.taskId);
   const noteId = task?.knowledgeNote?.noteId;
+  // Overwriting is bound to the version the user saw. If the disk changed again
+  // while the dialog was open, refresh it and ask for confirmation again.
+  if (data.action === "save-knowledge-overwrite" && surface && task?.knowledgeNote?.filePath && desktopKnowledgeFile?.read) {
+    const previewHash = surface.dataset.previewHash || "";
+    const current = await desktopKnowledgeFile.read({ filePath: task.knowledgeNote.filePath }).catch(() => null);
+    if (current?.success && previewHash && current.lastSavedHash !== previewHash) {
+      knowledgeExternalSnapshots.set(noteId, current);
+      task.knowledgeNote = knowledgeDocument.markDocumentExternalChanged(task.knowledgeNote);
+      shellKnowledgeConflict(task);
+      const error = shellOverlay()?.querySelector("[data-conflict-error]");
+      if (error) error.textContent = "文件在你确认前又发生了变化，预览已刷新，请重新确认。";
+      return { success: false, code: "EXTERNAL_CHANGE_REFRESHED" };
+    }
+  }
   if (!surface || surface.dataset.taskId !== data.taskId || surface.dataset.noteId !== noteId) {
     const result = await operation();
     if (!result?.canceled) render();
@@ -442,6 +457,8 @@ function shellKnowledgeConflict(task) {
   surface.dataset.knowledgeConflict = id("knowledge-conflict");
   surface.dataset.taskId = task.id;
   surface.dataset.noteId = note.noteId;
+  // Version actually shown to the user; "仍然覆盖" must not overwrite a newer one.
+  surface.dataset.previewHash = knowledgeExternalSnapshots.get(note.noteId)?.lastSavedHash || note.lastSavedHash || "";
   document.querySelector("#overlay [autofocus]")?.focus();
 }
 
@@ -682,6 +699,9 @@ window.addEventListener('keydown', event => {
   }
 }, true);
 
+// Markdown export stays the note's own text: only images Loop itself manages
+// (task-image:) are inlined. Local relative attachments keep their path, so the
+// export is byte-identical to the source and the dialog says what that means.
 function knowledgePortableMarkdown(markdown, images) {
   let result=markdown;
   for(const ref of LoopKnowledgeCore.imageReferences(markdown).reverse()){
@@ -691,4 +711,10 @@ function knowledgePortableMarkdown(markdown, images) {
     result=result.slice(0,ref.from)+data+result.slice(ref.to);
   }
   return result;
+}
+// Relative images that live next to the note: Markdown export keeps their path.
+function knowledgeLocalAttachmentCount(markdown) {
+  return new Set(LoopKnowledgeCore.imageReferences(markdown)
+    .map(ref=>ref.url)
+    .filter(url=>!/^[a-z][a-z0-9+.-]*:/i.test(url)&&!url.startsWith('/'))).size;
 }

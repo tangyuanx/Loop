@@ -98,7 +98,11 @@ export function createRenderer(options) {
       if(t.type==='inline' && t.map) {
         const marker=/\[[ xX]\]/.exec(state.src.slice(offsets[t.map[0]],offsets[t.map[0]+1]));
         if(marker) for(const child of t.children||[]) if(child.type==='html_inline' && child.content.includes('task-list-item-checkbox')) {
-          child.content=child.content.replace('<input','<input data-task-pos="'+(offsets[t.map[0]]+marker.index+1)+'"');
+          // Name the checkbox after its item so two checkboxes can be told apart
+          // (KN-36); the visible item text stays a separate node.
+          const itemText=String(state.src.slice(offsets[t.map[0]],offsets[t.map[0]+1])).replace(/^\s*(?:[-+*]|\d+[.)])\s+\[[ xX]\]\s*/,'').trim().slice(0,120);
+          const label=itemText?' aria-label="'+itemText.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;')+'"':'';
+          child.content=child.content.replace('<input','<input data-task-pos="'+(offsets[t.map[0]]+marker.index+1)+'"'+label);
         }
       }
       if(t.type!=='blockquote_open') continue;

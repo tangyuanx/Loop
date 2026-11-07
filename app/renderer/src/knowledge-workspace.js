@@ -13,6 +13,20 @@ let knowledgeIndexTimer = 0;
 // Global mode/page width preferences use the v0.1.246 task-data save path.
 
 function knowledgeNotes() { return knowledgeAllDocuments().filter(task => task.knowledgeNote && !task.knowledgeNote.isDeleted && (knowledgeText(task).length || task.knowledgeNote.filePath || !state.tasks.includes(task))); }
+// Paths and titles are compared with one normalisation so links, backlinks and
+// note identity agree.
+function knowledgeNormalizePath(value) {
+  const parts=[];
+  for(const part of String(value||'').replaceAll('\\','/').split('/')){
+    if(part==='..')parts.pop();else if(part&&part!=='.')parts.push(part);
+  }
+  return parts.join('/');
+}
+function knowledgeNormalizeTitle(value) { return String(value??'').normalize('NFC').trim().replace(/\.md$/i,'').toLocaleLowerCase(); }
+function knowledgeAbsolutePath(from, relative) {
+  const base=String(from||'').replaceAll('\\','/').split('/').slice(0,-1).join('/');
+  return knowledgeNormalizePath(base?base+'/'+relative:relative);
+}
 function knowledgeText(task) { return nodeNoteDrafts.get(noteDraftKey(task.id, ''))?.markdown ?? task.notes ?? ''; }
 function knowledgeCurrentEntry(taskId = knowledgeActiveDocument()?.id) { return milkdownEditors.get(noteDraftKey(taskId, ''))?.instance; }
 function knowledgeAttach(note,anchor='') {
@@ -263,13 +277,43 @@ function knowledgeRefreshPanels(task) {
   if(!open){aside?.remove();return;}
   if(!aside){aside=document.createElement('aside');aside.className='kn-side-panel';aside.id='kn-side-panel';aside.setAttribute('aria-label','大纲与关联笔记');body.append(aside);}
   const headings=LoopKnowledgeCore.headings(knowledgeText(task));
-  const backlinks=[];
   const notes=knowledgeNotes();
+  // Index titles and paths once: resolving every link against every note made a
+  // 1,100-reference panel block for about half a second (KN-39).
+  const byTitle=new Map(), byId=new Map(), byPath=new Map();
   for(const note of notes){
-    if(note.id===task.id)continue;
+    byId.set(note.id,note);
+    // Stable links address the note's own identifier, which may differ from the
+    // task id when a note is shared between tasks.
+    byId.set(LoopKnowledgeCore.noteId(note),note);
+    const filePath=note.knowledgeNote?.filePath;
+    if(filePath)byPath.set(knowledgeNormalizePath(filePath),note);
+    for(const title of [LoopKnowledgeCore.noteTitle(note),note.title,...(note.knowledgeNote?.aliases||[])]){
+      const key=knowledgeNormalizeTitle(title||'');
+      if(!key)continue;
+      if(!byTitle.has(key))byTitle.set(key,[]);
+      byTitle.get(key).push(note);
+    }
+  }
+  const targetPath=task.knowledgeNote?.filePath?knowledgeNormalizePath(task.knowledgeNote.filePath):null;
+  const backlinks=[];const seen=new Set();
+  for(const note of notes){
+    if(note.id===task.id||seen.has(note.id))continue;
     const text=knowledgeText(note);let cached=knowledgeBacklinkCache.get(note.id);
-    if(cached?.text!==text){cached={text,links:LoopKnowledgeCore.links(text)};knowledgeBacklinkCache.set(note.id,cached);}
-    if(cached.links.some(link=>LoopKnowledgeCore.resolve(link.target,notes,note).note?.id===task.id))backlinks.push(note);
+    if(cached?.text!==text){cached={text,links:LoopKnowledgeCore.links(text),relatives:LoopKnowledgeCore.relativeLinks(text)};knowledgeBacklinkCache.set(note.id,cached);}
+    let hit=false;
+    for(const link of cached.links){
+      const target=link.target||'';
+      if(target.startsWith('note:')){hit=byId.get(target.slice(5))?.id===task.id;}
+      else{const matches=byTitle.get(knowledgeNormalizeTitle(target))||[];hit=matches.length===1&&matches[0].id===task.id;}
+      if(hit)break;
+    }
+    if(!hit&&targetPath&&note.knowledgeNote?.filePath){
+      for(const reference of cached.relatives){
+        if(knowledgeAbsolutePath(note.knowledgeNote.filePath,reference.dest)===targetPath){hit=true;break;}
+      }
+    }
+    if(hit){seen.add(note.id);backlinks.push(note);}
   }
   const base=Math.min(...headings.map(h=>h.level),6);
   const html=`<header><strong>大纲</strong><button type="button" class="icon-button" data-kn-action="panels" aria-label="关闭关联面板">${shellIcon('close')}</button></header><nav aria-label="笔记大纲">${headings.length?headings.map((h,i)=>`<button type="button" class="kn-outline-link" style="padding-left:${8+(h.level-base)*12}px" data-kn-heading="${i}" title="${escAttr(h.text)}">${esc(h.text)}</button>`).join(''):'<p>添加标题后会显示在这里</p>'}</nav><h4>反向链接 <small>${backlinks.length}</small></h4>${backlinks.map(note=>`<button type="button" class="kn-backlink" data-kn-note="${escAttr(note.id)}">${esc(LoopKnowledgeCore.noteTitle(note))}<small>${esc(knowledgeDetail(note))}</small></button>`).join('')||'<p>暂无笔记引用</p>'}`;
@@ -310,12 +354,14 @@ function knowledgeOpenLink(link,origin) {
   document.querySelector('[data-kn-action="create-missing"]').onclick=()=>knowledgeCreate(link.target,origin,link.anchor);
 }
 function knowledgeOpenRelative(url,origin) {
-  let decoded;try{decoded=decodeURIComponent(url);}catch{decoded=url;}
-  const [path,anchor='']=decoded.split('#');
+  // Split the fragment before decoding: a %23 inside the path is part of the
+  // file name, not a heading separator (KN-10).
+  const [rawPath,rawAnchor='']=String(url).split('#');
+  const decode=value=>{try{return decodeURIComponent(value);}catch{return value;}};
+  const path=decode(rawPath),anchor=decode(rawAnchor);
   if(!path){knowledgeCurrentEntry(origin.id)?.locateAnchor(anchor);return;}
-  const normalize=value=>{const parts=[];for(const p of value.replaceAll('\\','/').split('/')){if(p==='..')parts.pop();else if(p&&p!=='.')parts.push(p);}return parts.join('/');};
-  const parent=origin.knowledgeNote.filePath?.replaceAll('\\','/').split('/').slice(0,-1).join('/');
-  const expected=parent?normalize(parent+'/'+path):null;
+  const normalize=knowledgeNormalizePath;
+  const expected=knowledgeAbsolutePath(origin.knowledgeNote.filePath,path);
   const byPath=expected?knowledgeNotes().filter(note=>normalize(note.knowledgeNote.filePath||'')===expected):[];
   if(byPath.length===1){knowledgeAttach(byPath[0],anchor);return;}
   knowledgeOpenLink({target:path.replace(/\.md$/i,''),anchor},origin);
@@ -360,8 +406,10 @@ function knowledgeShowRecent() {
   const notes=ids.map(knowledgeFindDocument).filter(note=>note&&!note.knowledgeNote?.isDeleted).slice(0,40);
   shellKnowledgeDialog('最近打开',`<div class="kn-switcher-list" aria-label="最近打开的笔记">${notes.map(note=>`<button class="kn-switcher-row" type="button" data-kn-note="${escAttr(note.id)}"><strong>${esc(LoopKnowledgeCore.noteTitle(note))}</strong><small>${esc(note.knowledgeNote.filePath||'尚未保存为文件 · 草稿已保留')}</small></button>`).join('')||'<p class="knowledge-dialog-copy">还没有打开记录</p>'}</div>`,'<button class="button" data-kn-action="open-file">打开本地笔记…</button><button class="button" data-action="close-dialog">关闭</button>');
 }
-function knowledgeRename(task) {
-  shellKnowledgeDialog('重命名笔记',`<label class="knowledge-dialog-copy" for="kn-rename-title">笔记名称</label><input id="kn-rename-title" value="${escAttr(LoopKnowledgeCore.noteTitle(task))}" maxlength="200" aria-describedby="kn-rename-error"><p id="kn-rename-error" class="kn-rename-error" role="alert"></p>`,'<button class="button" data-action="close-dialog">取消</button><button class="button primary" id="kn-rename-commit">保存名称</button>');
+function knowledgeRename(task,trigger) {
+  // Escape/cancel must return to the control the dialog was opened from.
+  const returnFocus=trigger?.closest?.('.wb-more-menu')?'[data-wb-action="more"]':'[data-kn-action="rename"]';
+  shellKnowledgeDialog('重命名笔记',`<label class="knowledge-dialog-copy" for="kn-rename-title">笔记名称</label><input id="kn-rename-title" value="${escAttr(LoopKnowledgeCore.noteTitle(task))}" maxlength="200" aria-describedby="kn-rename-error"><p id="kn-rename-error" class="kn-rename-error" role="alert"></p>`,'<button class="button" data-action="close-dialog">取消</button><button class="button primary" id="kn-rename-commit">保存名称</button>',520,returnFocus);
   const field=document.querySelector('#kn-rename-title'),button=document.querySelector('#kn-rename-commit'),error=document.querySelector('#kn-rename-error'),surface=field.closest('[role="dialog"]');
   const noteId=task.knowledgeNote.noteId;let busy=false,composing=false;
   field.focus();field.select();
@@ -429,7 +477,7 @@ function knowledgeTableMenu({widget,row=0,column=0,scope='table',trigger,point})
     if(command==='column-menu'){knowledgeTableMenu({...next,scope:'column'});return;}
     if(command==='details'){knowledgeTableTools();return;}
     if(command==='copy'){try{await navigator.clipboard.writeText(editor.getEditorText().slice(table.from,table.to));shellToast('已复制表格 Markdown');}catch{shellToast('无法复制，请在源码模式选择表格后复制。');}editor.view.focus();return;}
-    if(command==='fit'||command==='auto-width'){editor.fitTableWidth(command==='fit'?widget.closest('.knowledge-page').clientWidth:0);editor.view.focus();return;}
+    if(command==='fit'||command==='auto-width'){editor.fitTableWidth(0,widget);editor.view.focus();return;}
     if(!editor.table(command,column,button.dataset.value))shellToast('当前行列无法执行这项操作。');
   });
   menu.addEventListener('keydown',event=>{
@@ -507,7 +555,7 @@ document.addEventListener('click',event=>{
   if(action==='insert-format')shellApplyNoteFormat(button.dataset.knFormat);
   if(action==='switcher')knowledgeShowSwitcher();
   if(action==='panels'){const closing=button.closest('.kn-side-panel');if(knowledgePanels.has(task.id))knowledgePanels.delete(task.id);else knowledgePanels.add(task.id);knowledgeRefreshPanels(task);if(closing)(document.querySelector('.knowledge-header [data-kn-action="panels"]')||document.querySelector('[data-wb-action="more"]'))?.focus({preventScroll:true});}
-  if(action==='rename')knowledgeRename(task);
+  if(action==='rename')knowledgeRename(task,button);
   if(action==='find')knowledgeCurrentEntry()?.openSearch();
   if(action==='table-tools')knowledgeTableTools();
   if(action==='upload'){const input=document.createElement('input');input.type='file';input.accept='image/png,image/jpeg,image/gif,image/webp,image/avif,image/bmp';input.multiple=true;const editor=knowledgeCurrentEntry();input.onchange=()=>{for(const file of input.files)void editor?.upload(file);};input.click();}

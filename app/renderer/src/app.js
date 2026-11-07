@@ -1192,9 +1192,9 @@ async function stageKnowledgeAssetsForTask(task, content) {
   }
 }
 
-function rememberKnowledgeAssetFiles(assetFiles = [], noteId = "") {
+function rememberKnowledgeAssetFiles(assetFiles = [], noteId = "", { replace = false } = {}) {
   state.knowledgeAssetScopes ||= {};
-  if (noteId) state.knowledgeAssetScopes[noteId] ||= {};
+  if (noteId) state.knowledgeAssetScopes[noteId] = replace ? {} : (state.knowledgeAssetScopes[noteId] || {});
   if (!Array.isArray(assetFiles)) return;
   assetFiles.forEach((asset) => {
     const relativePath = String(asset?.relativePath || "").trim();
@@ -1208,6 +1208,12 @@ function rememberKnowledgeAssetFiles(assetFiles = [], noteId = "") {
 
 function rememberKnowledgeAssetDiagnostics(noteId, result) {
   if (!noteId) return;
+  // A missing attachment must stop resolving to the cached image, so the view
+  // reflects the disk instead of showing a stale picture.
+  for (const missing of result?.missingAssetFiles || []) {
+    const key = String(missing?.relativePath || missing?.fileName || "").trim();
+    if (key && state.knowledgeAssetScopes?.[noteId]) delete state.knowledgeAssetScopes[noteId][key];
+  }
   if (Array.isArray(result?.missingAssetFiles) && result.missingAssetFiles.length) {
     state.knowledgeFileIssues[noteId] = {
       code: "MISSING_ATTACHMENTS",
@@ -1357,7 +1363,7 @@ async function restoreKnowledgeRecoveryDrafts() {
       continue;
     }
 
-    rememberKnowledgeAssetFiles(currentFile.assetFiles, task.knowledgeNote.noteId);
+    rememberKnowledgeAssetFiles(currentFile.assetFiles, task.knowledgeNote.noteId, { replace: true });
     applyKnowledgeRecoveryDraft(task, record);
   }
 }
@@ -1504,7 +1510,7 @@ async function reloadKnowledgeTask(taskId) {
   }
 
   discardMountedKnowledgeEditor(task.id);
-  rememberKnowledgeAssetFiles(result.assetFiles, task.knowledgeNote.noteId);
+  rememberKnowledgeAssetFiles(result.assetFiles, task.knowledgeNote.noteId, { replace: true });
   rememberKnowledgeAssetDiagnostics(note.noteId, result);
   delete state.knowledgeFileIssues[note.noteId];
   try {
@@ -1539,7 +1545,7 @@ async function relocateKnowledgeTask(taskId) {
   if (!knowledgeHasDocument(task) || task.notes !== contentAtChoose) return { success: false, code: "DRAFT_CHANGED_DURING_READ", message: "选择文件期间笔记发生修改，已保留当前输入。" };
   discardMountedKnowledgeEditor(task.id);
   task.notes = result.content;
-  rememberKnowledgeAssetFiles(result.assetFiles, task.knowledgeNote.noteId);
+  rememberKnowledgeAssetFiles(result.assetFiles, task.knowledgeNote.noteId, { replace: true });
   rememberKnowledgeAssetDiagnostics(note.noteId, result);
   task.knowledgeNote = knowledgeDocument.markDocumentSaved(note, result);
   if (result.readOnly) task.knowledgeNote = knowledgeDocument.markDocumentReadOnly(task.knowledgeNote);
@@ -1627,8 +1633,18 @@ async function handleKnowledgeFileChange(event) {
 
   if (event.type === "baseline") {
     rememberKnowledgeAssetDiagnostics(note.noteId, event);
-    rememberKnowledgeAssetFiles(event.assetFiles, task.knowledgeNote.noteId);
-    if (note.documentState === "SAVED") {
+    rememberKnowledgeAssetFiles(event.assetFiles, task.knowledgeNote.noteId, { replace: true });
+    // The file returned at its path with the content we last wrote: there is no
+    // unsaved input, so the note is saved again instead of blocking further saves
+    // behind a FILE_MISSING state.
+    const hasLocalDraft = nodeNoteDrafts.has(noteDraftKey(task.id, ""))
+      || (typeof knowledgeAutosaveTimers !== "undefined" && knowledgeAutosaveTimers.has(task.id))
+      || (typeof knowledgeFileWriteBusy !== "undefined" && knowledgeFileWriteBusy.has(task.id));
+    const restored = (note.documentState === "FILE_MISSING" || note.documentState === "DIRTY")
+      && !hasLocalDraft
+      && Boolean(event.lastSavedHash)
+      && event.lastSavedHash === note.lastSavedHash;
+    if (note.documentState === "SAVED" || restored) {
       task.knowledgeNote = knowledgeDocument.markDocumentSaved(note, event);
       save();
       // Self-write baselines must never detach a focused CodeMirror/IME host.
@@ -1742,6 +1758,9 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
       filePath: saveAs ? "" : note.filePath,
       saveAs,
       title: task.title,
+      // "Save as" carries the note's existing relative attachments into the new
+      // directory so the copy still resolves its images.
+      sourceFilePath: saveAs ? (note.filePath || "") : "",
       content: contentToSave,
       assets: stagedAssets.assets,
       expectedLastSavedHash: saveAs ? null : sessionBeforeSave.lastSavedHash,
@@ -2239,7 +2258,12 @@ function nodeDetailViewKey(taskId, nodeId) {
 }
 
 function knowledgeViewKey(task = activeTask()) {
-  return JSON.stringify([knowledgeActiveDocument(task)?.id || task?.id || "", "notes"]);
+  const documentId = knowledgeActiveDocument(task)?.id || task?.id || "";
+  // Discarding an editor bumps its generation. Including it here makes the
+  // retained-pane check fail so the pane is rebuilt with a mountable host
+  // (removing another task's note, or reloading, used to leave it blank).
+  const generation = typeof knowledgeGenerations !== "undefined" ? knowledgeGenerations.get(documentId) || 0 : 0;
+  return JSON.stringify([documentId, "notes", generation]);
 }
 
 // Delayed stabilization must yield to a newer render or physical input. View

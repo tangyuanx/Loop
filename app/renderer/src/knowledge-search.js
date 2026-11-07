@@ -1,4 +1,6 @@
 import {Text} from '@codemirror/state';
+import {EditorView} from '@codemirror/view';
+import {syntaxTree} from '@codemirror/language';
 import {SearchQuery,setSearchQuery,openSearchPanel,closeSearchPanel,findNext,findPrevious,replaceNext,replaceAll} from '@codemirror/search';
 
 const paths={expand:'m9 5 7 7-7 7',up:'m6 15 6-6 6 6',down:'m6 9 6 6 6-6',close:'m6 6 12 12M6 18 18 6',search:'M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0'};
@@ -147,7 +149,40 @@ export class KnowledgeFind {
     // remains read-only until the user explicitly requests a replacement.
     if(this.renderedRoot())this.owner.options.onEditForSearch?.();
     if(this.renderedRoot())return;
-    this.apply(false);(all?replaceAll:replaceNext)(this.owner.view);this.update();
+    this.apply(false);
+    const view=this.owner.view,state=view.state,query=this.query();
+    // A pipe in a replacement inside a table cell would split the cell and
+    // silently drop the neighbouring value, so escape it for table matches.
+    if(query.valid&&String(query.replace||'').includes('|')){
+      const engine=query.create();
+      const inTable=from=>{let node=syntaxTree(state).resolveInner(from,1);for(;node;node=node.parent)if(node.name==='Table')return true;return false;};
+      const escape=text=>String(text).replace(/(?<!\\)\|/g,'\\|');
+      const text=all?this.replaceAllInTables(query,engine,inTable,escape):this.replaceNextInTables(query,engine,inTable,escape);
+      if(text!==false){this.update();return;}
+    }
+    (all?replaceAll:replaceNext)(view);this.update();
+  }
+  replaceAllInTables(query,engine,inTable,escape) {
+    const {state}=this.owner.view,changes=[],cursor=query.getCursor(state);let step;
+    while(!(step=cursor.next()).done){const match=step.value;const insert=engine.getReplacement(match);changes.push({from:match.from,to:match.to,insert:inTable(match.from)?escape(insert):insert});}
+    if(!changes.length)return false;
+    this.owner.view.dispatch({changes,userEvent:'input.replace'});return true;
+  }
+  replaceNextInTables(query,engine,inTable,escape) {
+    const view=this.owner.view,state=view.state,selection=state.selection.main;
+    let match=engine.nextMatch(state,selection.from,selection.from);
+    if(!match)return false;
+    if(!match.precise)match=engine.nextMatch(state,match.from,match.to);
+    if(!(match.from===selection.from&&match.to===selection.to)){
+      // First press selects the match, exactly like the built-in command.
+      const after=engine.nextMatch(state,match.from,match.to);
+      view.dispatch({selection:{anchor:match.from,head:match.to},effects:after?EditorView.scrollIntoView(match.from,{y:'nearest'}):[]});
+      return true;
+    }
+    const insert=engine.getReplacement(match);
+    const text=inTable(match.from)?escape(insert):insert;
+    view.dispatch({changes:{from:match.from,to:match.to,insert:text},selection:{anchor:match.from+text.length},userEvent:'input.replace'});
+    return true;
   }
   highlightReading() {
     this.setHighlights(this.matches.map(m=>m.range),this.matches[this.index]?[this.matches[this.index].range]:[]);

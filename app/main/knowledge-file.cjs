@@ -8,6 +8,8 @@ const saveQueues = new Map();
 
 function createFsOperations(overrides = {}) {
   return {
+    lstat: overrides.lstat || ((...args) => fs.lstat(...args)),
+    realpath: overrides.realpath || ((...args) => fs.realpath(...args)),
     mkdir: overrides.mkdir || ((...args) => fs.mkdir(...args)),
     open: overrides.open || ((...args) => fs.open(...args)),
     readFile: overrides.readFile || ((...args) => fs.readFile(...args)),
@@ -15,6 +17,7 @@ function createFsOperations(overrides = {}) {
     rename: overrides.rename || ((...args) => fs.rename(...args)),
     rm: overrides.rm || ((...args) => fs.rm(...args)),
     stat: overrides.stat || ((...args) => fs.stat(...args)),
+    writeFile: overrides.writeFile || ((...args) => fs.writeFile(...args)),
     access: overrides.access || ((...args) => fs.access(...args)),
   };
 }
@@ -81,10 +84,13 @@ async function recoverInterruptedReplacement(filePath, fsOps) {
     throw error;
   }
 
+  // Only replace-file backups written by this app (name.bak-<pid>-<uuid>) may be
+  // restored. A user's own copy such as `note.md.bak-manual` must never be moved
+  // onto the document path.
   const backupPrefix = `${path.basename(filePath)}.bak-`;
   const backups = entries
     .map((entry) => String(entry))
-    .filter((entry) => entry.startsWith(backupPrefix))
+    .filter((entry) => entry.startsWith(backupPrefix) && /^\d+-[0-9a-f-]{36}$/i.test(entry.slice(backupPrefix.length)))
     .sort()
     .reverse();
   for (const backupName of backups) {
@@ -106,7 +112,12 @@ async function readKnowledgeDocument(filePath, { fsOps: injectedFsOps } = {}) {
   try {
     await recoverInterruptedReplacement(normalizedPath, fsOps);
     const rawBuffer = await fsOps.readFile(normalizedPath);
-    const rawContent = Buffer.isBuffer(rawBuffer) ? rawBuffer.toString("utf8") : String(rawBuffer || "");
+    const rawBytes = Buffer.isBuffer(rawBuffer) ? rawBuffer : Buffer.from(String(rawBuffer || ""), "utf8");
+    const rawContent = rawBytes.toString("utf8");
+    // Loose UTF-8 decoding replaces undecodable bytes with U+FFFD; saving the
+    // re-encoded text would rewrite the original bytes. Tell the caller so the
+    // file is protected instead of silently transcoded.
+    const unsupportedEncoding = !Buffer.from(rawContent, "utf8").equals(rawBytes);
     // Preserve source bytes, including line separators. Hash the same text we
     // return so a formatting-only external change is also a real CAS conflict.
     const content = rawContent;
@@ -130,6 +141,7 @@ async function readKnowledgeDocument(filePath, { fsOps: injectedFsOps } = {}) {
       encoding: "UTF-8",
       lineEnding: rawContent.includes("\r\n") ? "CRLF" : "LF",
       readOnly,
+      unsupportedEncoding,
       assetFiles: assetRead.assetFiles,
       missingAssetFiles: assetRead.missingAssetFiles,
     };
@@ -216,15 +228,35 @@ async function replaceFile(tempPath, targetPath, { fsOps, platform }) {
   return "windows-backup-replace";
 }
 
-async function atomicWriteFile(filePath, content, { fsOps, platform }) {
+async function atomicWriteFile(filePath, content, { fsOps, platform, beforeReplace } = {}) {
   const tempPath = temporaryFilePath(filePath);
   let handle = null;
+  // Keep the existing access mode: an atomic replace must not silently turn a
+  // shared 0644 document into 0600.
+  let mode = null;
   try {
-    handle = await fsOps.open(tempPath, "wx", 0o600);
+    const stats = await fsOps.stat(filePath);
+    if (stats) mode = stats.mode & 0o777;
+  } catch {
+    // A new file keeps the secure default.
+  }
+  try {
+    handle = await fsOps.open(tempPath, "wx", mode === null ? 0o600 : mode);
     await handle.writeFile(content, "utf8");
     await handle.sync();
+    if (mode !== null) {
+      try {
+        await handle.chmod(mode);
+      } catch {
+        // Best effort: some platforms do not expose POSIX modes.
+      }
+    }
     await handle.close();
     handle = null;
+    // The hash was checked before the attachments and the temp write. Check it
+    // once more immediately before the rename so an external write in that
+    // window is reported instead of overwritten.
+    if (beforeReplace) await beforeReplace();
     const replacement = await replaceFile(tempPath, filePath, { fsOps, platform });
     return { replacement };
   } catch (error) {
@@ -238,6 +270,42 @@ async function atomicWriteFile(filePath, content, { fsOps, platform }) {
     await removeTemporaryFile(tempPath, fsOps);
     throw error;
   }
+}
+
+// Relative image destinations that live next to the Markdown file.
+function relativeImageDestinations(content) {
+  const out=[];const regex=/!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;let m;
+  while((m=regex.exec(String(content||'')))){
+    let dest=String(m[1]).replace(/^<|>$/g,'').split('#')[0];
+    if(!dest||/^[a-z][a-z0-9+.-]*:/i.test(dest)||dest.startsWith('/'))continue;
+    try{dest=decodeURIComponent(dest);}catch{}
+    if(dest)out.push(dest);
+  }
+  return out;
+}
+
+// "Save as" into another directory must carry the note's own attachments so the
+// copy is not a document full of broken images. Relative destinations keep their
+// path, so the Markdown itself does not change (KN-11).
+async function copyRelativeAssets(content, sourceFilePath, targetPath, fsOps) {
+  const sourceDir=path.resolve(path.dirname(String(sourceFilePath)));
+  const targetDir=path.resolve(path.dirname(targetPath));
+  const copied=[];
+  if(sourceDir===targetDir)return copied;
+  for(const dest of new Set(relativeImageDestinations(content))){
+    const from=path.resolve(sourceDir,dest),to=path.resolve(targetDir,dest);
+    if(!from.startsWith(sourceDir+path.sep)||!to.startsWith(targetDir+path.sep))continue;
+    try{
+      const bytes=await fsOps.readFile(from);
+      await fsOps.mkdir(path.dirname(to),{recursive:true});
+      await fsOps.writeFile(to,bytes);
+      copied.push(to);
+    }catch(error){
+      if(error?.code==='ENOENT'||error?.code==='EISDIR')continue;
+      throw error;
+    }
+  }
+  return copied;
 }
 
 function saveErrorMessage(error) {
@@ -320,8 +388,27 @@ async function saveKnowledgeDocument(payload, {
   const queueKey = canonicalFilePath(filePath, platform);
   return enqueueSave(queueKey, async () => {
     try {
+      // Write through symlinks so the link itself survives; replacing the link
+      // path would turn a symlink into an ordinary file (KN-13).
+      let targetPath = filePath;
+      try {
+        const linkStats = await fsOps.lstat(filePath);
+        if (linkStats?.isSymbolicLink()) targetPath = await fsOps.realpath(filePath);
+      } catch {
+        // Missing target: the save creates it.
+      }
+      // An existing file that is not writable must not be bypassed by replacing
+      // its directory entry: report READ_ONLY and keep the original untouched.
+      try {
+        await fsOps.access(targetPath, fsNative.constants.W_OK);
+      } catch (error) {
+        if (["EACCES", "EPERM", "EROFS"].includes(error?.code)) {
+          return { canceled: false, success: false, code: "READ_ONLY", filePath, message: "文件不可写，请先在系统中恢复写入权限或另存为。" };
+        }
+        if (error?.code !== "ENOENT") throw error;
+      }
       if (safePayload.expectedLastSavedHash && safePayload.allowExternalOverwrite !== true) {
-        const currentFile = await readKnowledgeDocument(filePath, { fsOps });
+        const currentFile = await readKnowledgeDocument(targetPath, { fsOps });
         if (!currentFile?.success) return currentFile;
         if (currentFile.lastSavedHash !== safePayload.expectedLastSavedHash) {
           return {
@@ -335,17 +422,64 @@ async function saveKnowledgeDocument(payload, {
           };
         }
       }
-      await fsOps.mkdir(path.dirname(filePath), { recursive: true });
+      await fsOps.mkdir(path.dirname(targetPath), { recursive: true });
+      // Save-as into another directory carries the note's relative attachments.
+      let copiedAssets = [];
+      if (safePayload.sourceFilePath) {
+        try {
+          copiedAssets = await copyRelativeAssets(content, String(safePayload.sourceFilePath), targetPath, fsOps);
+        } catch (error) {
+          return { canceled: false, success: false, code: "ASSET_MIGRATION_FAILED", filePath, message: `附件复制失败：${saveErrorMessage(error)}` };
+        }
+      }
+      // Refuse to transcode a document whose original bytes are not valid UTF-8.
+      try {
+        const existing = await fsOps.readFile(targetPath);
+        const bytes = Buffer.isBuffer(existing) ? existing : Buffer.from(String(existing || ""), "utf8");
+        if (!Buffer.from(bytes.toString("utf8"), "utf8").equals(bytes)) {
+          return { canceled: false, success: false, code: "UNSUPPORTED_ENCODING", filePath, message: "文件含非 UTF-8 字节，保存会改写原始字节；请另存为或先转码。" };
+        }
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
       let migrated = { content, assetFiles: [], attachmentsDirectory: null };
       if (Array.isArray(safePayload.assets) && safePayload.assets.length) {
         try {
-          migrated = await migrateKnowledgeAssets(filePath, content, safePayload.assets, { fsOps });
+          migrated = await migrateKnowledgeAssets(targetPath, content, safePayload.assets, { fsOps });
         } catch (error) {
           return assetMigrationFailure(error, filePath);
         }
       }
-      const { replacement } = await atomicWriteFile(filePath, migrated.content, { fsOps, platform });
-      const stats = await fsOps.stat(filePath);
+      let written;
+      try {
+        written = await atomicWriteFile(targetPath, migrated.content, {
+          fsOps,
+          platform,
+          beforeReplace: async () => {
+            if (!safePayload.expectedLastSavedHash || safePayload.allowExternalOverwrite === true) return;
+            const current = await readKnowledgeDocument(targetPath, { fsOps });
+            if (!current?.success) throw Object.assign(new Error(current?.message || "文件在保存提交前不可用"), { code: "EXTERNAL_CHANGE_BEFORE_COMMIT" });
+            if (current.lastSavedHash !== safePayload.expectedLastSavedHash) {
+              throw Object.assign(new Error("文件在保存提交前被外部修改"), { code: "EXTERNAL_CHANGE_BEFORE_COMMIT" });
+            }
+          },
+        });
+      } catch (error) {
+        // The Markdown never landed: remove attachments this save created so no
+        // unreferenced file is left behind (pre-existing assets are kept).
+        if (Array.isArray(migrated.createdFiles) && migrated.createdFiles.length) {
+          await Promise.all(migrated.createdFiles.map((created) => removeTemporaryFile(created, fsOps)));
+        }
+        if (copiedAssets.length) {
+          await Promise.all(copiedAssets.map((copied) => removeTemporaryFile(copied, fsOps)));
+        }
+        if (error?.code === "EXTERNAL_CHANGE_BEFORE_COMMIT") {
+          return { canceled: false, success: false, code: "EXTERNAL_CHANGE_REQUIRES_CONFIRMATION", filePath, message: error.message };
+        }
+        throw error;
+      }
+      const { replacement } = written;
+      const stats = await fsOps.stat(targetPath);
       const lastSavedHash = crypto.createHash("sha256").update(Buffer.from(migrated.content, "utf8")).digest("hex");
       return {
         canceled: false,

@@ -3,7 +3,11 @@
 .kn-editor-host [hidden] { display:none!important; }
 .kn-editor-host .cm-editor { font-family:var(--sans); font-size:calc(15px * var(--font-scale,1)); line-height:1.8; background:transparent; color:inherit; outline:none; min-height:360px; }
 .kn-editor-host .cm-scroller {font-family:inherit;overflow:visible;}
-.kn-editor-host .cm-content {padding:0 0 56px;min-height:360px;caret-color:currentColor;overflow-wrap:anywhere;}
+.kn-editor-host .cm-content {padding:0 0 56px;min-height:360px;caret-color:currentColor;overflow-wrap:anywhere;
+  /* A flex item's automatic min-width is its min-content width: one wide table
+     then stretched the whole document. Keep the content at the pane width and
+     let the table's own scroll container handle the overflow (KN-08). */
+  min-width:0;}
 .kn-editor-host .cm-line {padding:0;}
 .kn-editor-host .cm-gutters {background:transparent;border:0;color:var(--muted,#929b95);font-size:.78em;}
 .kn-editor-host .cm-activeLine {background:color-mix(in srgb,currentColor 3%,transparent);}
@@ -38,9 +42,12 @@
 .kn-rendered th,.kn-rendered td {border:1px solid color-mix(in srgb,currentColor 18%,transparent);padding:7px 13px;min-width:80px;}
 .kn-rendered th {font-weight:600;background:color-mix(in srgb,currentColor 4%,transparent);}
 /* CodeMirror measures block widget bounds without vertical margins. Keep the
-   same table spacing inside those bounds so later text uses the correct Y. */
-.knowledge-rich-host.kn-editor-host .kn-table-widget {overflow-x:auto;padding:32px 24px 28px 22px;margin:0 -24px 0 0;max-width:calc(100% + 24px);}
-.kn-table-stage {position:relative;width:max-content;max-width:100%;min-width:100px;}
+   same table spacing inside those bounds so later text uses the correct Y.
+   The stage fills the widget instead of growing with the table: CodeMirror
+   turns a wider last child into the editor's min-width, which used to scroll the
+   whole document horizontally around a wide table (KN-08). */
+.knowledge-rich-host.kn-editor-host .kn-table-widget {overflow-x:auto;padding:32px 24px 28px 22px;max-width:100%;}
+.kn-table-stage {position:relative;width:100%;max-width:100%;min-width:0;overflow:visible;}
 .knowledge-rich-host.kn-editor-host .kn-table-stage>table {margin:0;}
 .kn-table-controls-layer {position:absolute;inset:0;pointer-events:none;}
 .kn-table-controls-layer button {position:absolute;pointer-events:auto;display:flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;color:var(--secondary);border-radius:3px;cursor:pointer;opacity:0;font:inherit;}
@@ -162,7 +169,7 @@
 /* One quiet document header, one compact editing row. Container queries use
    the actual workbench width, including Loop's resizable task repository. */
 .knowledge-pane {container-type:inline-size;}
-body[data-notebook23-enabled] .knowledge-header {min-height:48px;padding:8px 24px;gap:12px;flex-wrap:nowrap;}
+body[data-notebook23-enabled] .knowledge-header {min-height:48px;padding:8px 24px;gap:12px;flex-wrap:wrap;min-width:0;}
 .knowledge-file-meta {flex:1;overflow:hidden;}
 .knowledge-header-actions {gap:6px;}
 .knowledge-header-actions .icon-button[aria-expanded=true] {color:var(--green);background:var(--selected);}

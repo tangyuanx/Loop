@@ -157,6 +157,21 @@ body[data-controls22-enabled] {
   --field22-focus: var(--input-focus);
 }
 
+/* The shell's frozen minimum size assumed 100% page zoom. When the page is
+ * zoomed (or a screen reports a smaller CSS viewport) the app must reflow to the
+ * visible width instead of pushing the note toolbar off screen (KN-38). */
+html, body {
+  min-width: min(1024px, 100vw);
+  min-height: min(680px, 100vh);
+}
+
+/* A floating task card must not intercept the note toolbar underneath it. */
+body .knowledge-header {
+  position: relative;
+  z-index: 92;
+  background: var(--canvas);
+}
+
 /* Ordinary fields keep a thin neutral boundary and a very quiet surface. */
 body :is(
   input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"])),

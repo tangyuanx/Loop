@@ -265,7 +265,9 @@ async function migrateKnowledgeAssets(markdownPath, content, assets = [], { fsOp
     throw error;
   }
 
-  return { content: migratedContent, assetFiles, attachmentsDirectory: directory };
+  // Callers that commit the Markdown afterwards can roll back these files when
+  // that commit fails (KN-34).
+  return { content: migratedContent, assetFiles, attachmentsDirectory: directory, createdFiles };
 }
 
 module.exports = {

@@ -46,7 +46,8 @@ export function installTableControls(owner,widget) {
     controls.querySelectorAll('[data-drop-target]').forEach(el=>el.removeAttribute('data-drop-target'));
     if(current.kind==='resize') {
       if(cancel){owner.applyTableWidths(widget,Number(widget.dataset.sourcePos));return;}
-      owner.resizeTableColumn(current.index,current.width);
+      // The gesture knows which table it belongs to (KN-06).
+      owner.resizeTableColumn(current.index,current.width,widget);
     }else if(current.moved&&current.target!==current.index&&!cancel){
       if(tablePosition(owner,widget,current.kind==='row'?current.index:0,current.kind==='column'?current.index:0))
         owner.table(current.kind+'-move',current.kind==='column'?current.index:0,current.kind==='row'?current.target+1:current.target);

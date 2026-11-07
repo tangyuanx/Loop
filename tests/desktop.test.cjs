@@ -1906,13 +1906,19 @@ test("Windows replacement fallback keeps a rollback path for existing targets", 
 test("knowledge reads recover an interrupted Windows replacement backup", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "personal-task-track-windows-recovery-"));
   const filePath = path.join(directory, "note.md");
-  const backupPath = `${filePath}.bak-crashed-replacement`;
+  // The app names its replacement backup note.md.bak-<pid>-<uuid>; a crashed
+  // write leaves exactly that behind. A user's own note.md.bak-manual must never
+  // be moved onto the document path (KN-31).
+  const backupPath = `${filePath}.bak-4321-0f8fad5b-d9cb-469f-a165-70867728950e`;
+  const userBackupPath = `${filePath}.bak-manual`;
   try {
+    await fs.writeFile(userBackupPath, "用户自留备份", "utf8");
     await fs.writeFile(backupPath, "原始正文", "utf8");
     const restored = await knowledgeFile.readKnowledgeDocument(filePath);
     assert.equal(restored.success, true);
     assert.equal(restored.content, "原始正文");
     assert.equal(await fs.readFile(filePath, "utf8"), "原始正文");
+    assert.equal(await fs.readFile(userBackupPath, "utf8"), "用户自留备份");
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }
@@ -4954,7 +4960,10 @@ test("four scrollable regions use isolated task and node view keys", async () =>
   assert.equal(result.repositoryStableAcrossTaskSelection, true);
   assert.deepEqual(result.flow, ["view_task_a", "flow"]);
   assert.deepEqual(result.detail, ["view_task_a", "view_node_a"]);
-  assert.deepEqual(result.knowledge, ["view_task_a", "notes"]);
+  // The third element is the discard generation, which invalidates the retained
+  // pane after an editor is removed (KN-28).
+  assert.deepEqual(result.knowledge.slice(0, 2), ["view_task_a", "notes"]);
+  assert.equal(typeof result.knowledge[2], "number");
   assert.match(app, /data-processing-flow-scroll data-processing-flow-view="\$\{escAttr\(processingFlowViewKey\(task\)\)\}"/);
   assert.match(app, /class="node-detail-scroll" data-node-detail-scroll data-node-detail-view="\$\{escAttr\(nodeDetailViewKey\(taskId, node\.id\)\)\}"/);
   assert.match(app, /class="milkdown-editor-host"[^>]*data-knowledge-scroll data-knowledge-view="\$\{escAttr\(knowledgeViewKey\(task\)\)\}"/);

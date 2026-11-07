@@ -160,6 +160,47 @@
     const end = hs.slice(at+1).find(h => h.level <= hs[at].level)?.offset ?? text.length;
     return text.slice(hs[at].offset,end);
   }
+  // Click navigation must resolve anchors with the same rules as embeds:
+  // fenced code and comments never define a block id, and heading matching is
+  // case/Unicode insensitive on both sides.
+  function anchorOffset(text, anchor) {
+    text=String(text??''); anchor=String(anchor??'').trim();
+    if(!anchor) return 0;
+    const lines=text.split('\n'), excluded=excludedRanges(text);
+    const covered=offset=>excluded.some(([a,b])=>offset>=a&&offset<b);
+    let offset=0;
+    if(anchor.startsWith('^')) {
+      const block=anchor.slice(1);
+      for(const line of lines) {
+        if((line.trimEnd().endsWith(' ^'+block)||line.trim()==='^'+block)&&!covered(offset)) return offset;
+        offset+=line.length+1;
+      }
+      return null;
+    }
+    const target=normalized(anchor);
+    for(const line of lines) {
+      const m=line.match(/^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+      if(m&&!covered(offset)&&normalized(m[2].replace(/[*`]/g,''))===target) return offset;
+      offset+=line.length+1;
+    }
+    return null;
+  }
+  // Relative Markdown links that can point at another note on disk. Used for
+  // backlinks alongside wiki links; images, code and comments are excluded.
+  function relativeLinks(text) {
+    text=String(text??''); const masks=excludedRanges(text), out=[]; let cursor=0;
+    const regex=/!?\[([^\]\n]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g; let m;
+    while((m=regex.exec(text))) {
+      const start=m.index;
+      while(cursor<masks.length&&masks[cursor][1]<=start) cursor++;
+      if(escaped(text,start)||(masks[cursor]&&masks[cursor][0]<=start)||m[0].startsWith('!')) continue;
+      let dest=String(m[2]).replace(/^<|>$/g,'').replace(/#.*$/,'');
+      if(!dest||/^(?:[a-z][a-z0-9+.-]*:|#)/i.test(dest)) continue;
+      try{dest=decodeURIComponent(dest);}catch{}
+      out.push({dest, from:start, to:regex.lastIndex});
+    }
+    return out;
+  }
   function splitRow(line) {
     let raw = line.trim(); if (raw.startsWith('|')) raw=raw.slice(1); if (raw.endsWith('|') && !escaped(raw,raw.length-1)) raw=raw.slice(0,-1);
     const cells=[]; let start=0, tick=0;
@@ -182,7 +223,10 @@
   function editTable(text,pos,operation,index=0,value='') {
     const table=tableAt(text,pos); if(!table) return null;
     let rows=table.rows.map(r=>r.slice()), count=rows[0].length;
-    rows=rows.map(r=>Array.from({length:count},(_,i)=>r[i] || ''));
+    // Pad short rows to the header width but never truncate: a row may carry
+    // extra fields the rendered table does not show, and an unrelated edit
+    // (adding a row, editing one cell) must not rewrite them away.
+    rows=rows.map(r=>{const next=r.slice();while(next.length<count)next.push('');return next;});
     const row=Math.max(0,Math.min(rows.length-1,table.row)); index=Math.max(0,Math.min(count-1,index));
     if(operation==='delete')return {from:table.from,to:table.to,insert:''};
     if(operation==='row-add'||operation==='row-before') rows.splice(Math.max(2,row+(operation==='row-add'?1:0)),0,Array(count).fill(''));
@@ -190,12 +234,14 @@
     else if(operation==='column-add'||operation==='column-before') rows.forEach((r,i)=>r.splice(index+(operation==='column-add'?1:0),0,i===1?'---':''));
     else if(operation==='column-delete') { if(count<=1) return null; rows.forEach(r=>r.splice(index,1)); }
     else if(operation==='row-duplicate') {if(row<2)return null;rows.splice(row+1,0,rows[row].slice());}
-    else if(operation==='row-clear') {if(row===1)return null;rows[row]=Array(count).fill('');}
+    else if(operation==='row-clear') {if(row===1)return null;rows[row]=rows[row].map(()=>'');}
     else if(operation==='column-duplicate') rows.forEach(r=>r.splice(index+1,0,r[index]));
     else if(operation==='column-clear') rows.forEach((r,i)=>{if(i!==1)r[index]='';});
     else if(operation==='cell-clear') {if(row===1)return null;rows[row][index]='';}
     else if(operation==='row-move') {const target=Number(value);if(row<2||!Number.isInteger(target)||target<2||target>=rows.length||row===target)return null;rows.splice(target,0,rows.splice(row,1)[0]);}
-    else if(operation==='column-move') {const target=Number(value);if(!Number.isInteger(target)||target<0||target>=count||target===index)return null;rows.forEach(r=>r.splice(target,0,r.splice(index,1)[0]));}
+    else if(operation==='column-move') {const target=Number(value);if(!Number.isInteger(target)||target<0||target>=count||target===index)return null;
+      // Move inside the header width only; cells beyond it keep their place.
+      rows.forEach(r=>{const cells=r.slice(0,count);cells.splice(target,0,cells.splice(index,1)[0]);r.splice(0,count,...cells);});}
     else if(operation==='cell') { if(row===1) return null; rows[row][index]=String(value).replace(/\n/g,'<br>').replace(/(?<!\\)\|/g,'\\|'); }
     else if(operation==='align') rows[1][index]=value==='center'?':---:':value==='right'?'---:':':---';
     else return null;
@@ -222,5 +268,5 @@
       return next.finally(()=>{ if(this.queues.get(key)===next) this.queues.delete(key); });
     }
   }
-  return {sourceFormat,serializeSource,excludedRanges,escaped,parseTarget,links,imageReferences,noteId,noteTitle,resolve,stableLink,headings,fragment,splitRow,tableAt,editTable,pasteTable,SerialQueue};
+  return {sourceFormat,serializeSource,excludedRanges,escaped,parseTarget,links,imageReferences,noteId,noteTitle,resolve,stableLink,headings,anchorOffset,fragment,relativeLinks,splitRow,tableAt,editTable,pasteTable,SerialQueue};
 });

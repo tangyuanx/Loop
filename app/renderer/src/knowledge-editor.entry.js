@@ -41,8 +41,8 @@ const loopHighlight=HighlightStyle.define([
 
 
 class RenderWidget extends WidgetType {
-  constructor(html,owner,from,kind='block') { super(); Object.assign(this,{html,owner,from,kind}); }
-  eq(other) { return this.html===other.html && this.from===other.from && this.kind===other.kind; }
+  constructor(html,owner,from,kind='block',to=from,nodeName='') { super(); Object.assign(this,{html,owner,from,kind,nodeName,to}); }
+  eq(other) { return this.html===other.html && this.from===other.from && this.kind===other.kind && this.nodeName===other.nodeName; }
   toDOM(view) {
     const el=document.createElement(this.kind==='block'?'div':'span');
     el.className='kn-live-widget kn-rendered'+(this.kind==='block'?' kn-block-widget':'');
@@ -53,6 +53,14 @@ class RenderWidget extends WidgetType {
       if(event.target.closest('img')){event.preventDefault();event.stopPropagation();return;}
       if(event.target.closest('button,a,input,textarea')) return;
       event.preventDefault(); let pos=Number(el.dataset.sourcePos);
+      // A rendered code block is replaced by a single widget, so the caret must
+      // be mapped back to the code line and column the user actually clicked.
+      // Otherwise mousedown unfolds the fence at its first character and the
+      // next keystroke rewrites the opening fence.
+      if(this.kind==='block'&&this.nodeName==='FencedCode'){
+        const mapped=this.owner.codePositionAt(this.from,event);
+        if(mapped!==null) pos=mapped;
+      }
       const cell=event.target.closest('td,th');
       if(cell) {
         const table=core.tableAt(view.state.doc.toString(),pos);
@@ -98,11 +106,28 @@ class TableWidget extends RenderWidget {
     el.dataset.sourcePos=String(this.from);el.innerHTML=this.html;
     installTableControls(this.owner,el);
     requestAnimationFrame(()=>{if(el.isConnected)this.owner.applyTableWidths(el,this.from);});
+    // The widget itself is the keyboard entry point for existing cells: Tab
+    // reaches it, Enter/ArrowDown opens the first body cell, and nothing has to
+    // add or restructure a row first.
+    el.tabIndex=0;el.setAttribute('role','group');
+    const table=el.querySelector('table');
+    el.setAttribute('aria-label',`表格 ${Math.max(0,(table?.rows.length||1)-1)} 行 ${table?.rows[0]?.cells.length||0} 列，回车编辑`);
+    el.addEventListener('keydown',event=>{
+      if(event.isComposing||event.keyCode===229)return;
+      // Keys typed in the cell field (notably the space key) belong to the field.
+      if(event.target!==el&&event.target.closest?.('.kn-table-cell-editor'))return;
+      if(!['Enter',' ','ArrowDown','ArrowUp','ArrowLeft','ArrowRight'].includes(event.key))return;
+      const body=el.querySelector('table tbody td')||el.querySelector('table th');
+      if(!body)return;
+      event.preventDefault();event.stopPropagation();
+      this.owner.editTableCell(el,body,true);
+    });
     el.addEventListener('mousedown',event=>{
       if(event.button!==0||event.target.closest('button,a,input,textarea'))return;
       const cell=event.target.closest('td,th');
       if(!cell||cell.closest('table')!==el.querySelector('table'))return;
-      event.preventDefault();event.stopPropagation();this.owner.editTableCell(el,cell);
+      event.preventDefault();event.stopPropagation();
+      this.owner.editTableCell(el,cell,false,this.owner.cellCaretAt(cell,event));
     });
     el.addEventListener('click',event=>this.owner.handleRenderedClick(event,this.from));return el;
   }
@@ -130,10 +155,11 @@ class TableWidget extends RenderWidget {
   ignoreEvent(){return true;}
 }
 class TaskWidget extends WidgetType {
-  constructor(checked,pos) { super(); this.checked=checked; this.pos=pos; }
-  eq(other) {return this.checked===other.checked&&this.pos===other.pos;}
+  constructor(checked,pos,label='') { super(); this.checked=checked; this.pos=pos; this.label=label; }
+  eq(other) {return this.checked===other.checked&&this.pos===other.pos&&this.label===other.label;}
   toDOM(view) {
-    const box=document.createElement('input'); box.type='checkbox'; box.checked=this.checked; box.className='kn-task-box';box.setAttribute('aria-label','切换任务完成状态');
+    const box=document.createElement('input'); box.type='checkbox'; box.checked=this.checked; box.className='kn-task-box';
+    box.setAttribute('aria-label',this.label?`切换任务：${this.label}`:'切换任务完成状态');
     box.addEventListener('mousedown',event=>event.preventDefault());
     box.addEventListener('click',event=>{event.stopPropagation();view.dispatch({changes:{from:this.pos,to:this.pos+1,insert:this.checked?' ':'x'},userEvent:'input'});});
     return box;
@@ -148,6 +174,23 @@ class BulletWidget extends WidgetType {
   ignoreEvent(){return false;}
 }
 function selected(state,from,to) {return state.selection.ranges.some(r=>r.from<=to && r.to>=from);}
+// CodeMirror's keymap claims Home/End on the editor DOM before a key pressed in
+// the cell textarea can reach the field. Handle those two keys for the cell
+// field at the document capture phase so a click mid-cell still allows
+// Home/End navigation.
+document.addEventListener('keydown',event=>{
+  const input=event.target;
+  if(!(input instanceof HTMLTextAreaElement)||!input.classList.contains('kn-table-cell-editor'))return;
+  if(event.isComposing||event.keyCode===229||(event.key!=='Home'&&event.key!=='End'))return;
+  event.preventDefault();event.stopPropagation();
+  const at=event.key==='Home'?0:input.value.length;
+  try{input.setSelectionRange(at,at);}catch{}
+},true);
+// A code span must be wrapped in a fence longer than any backtick run inside it.
+function inlineFence(text) {
+  const runs=(String(text).match(/`+/g)||[]).map(run=>run.length);
+  return '`'.repeat(Math.max(1,...runs.map(n=>n+1)));
+}
 
 class KnowledgeEditor {
   constructor(options) {
@@ -264,7 +307,7 @@ class KnowledgeEditor {
       // ranges make the decoration order ambiguous.
       const start=inline||line.number<=1||state.doc.line(line.number-1).to<blockEnd?node.from:state.doc.line(line.number-1).to;
       const end=inline?node.to:Math.min(state.doc.length,node.to+(state.doc.sliceString(node.to,node.to+1)==='\n'?1:0));
-      const deco=Decoration.replace({widget:new Type(html,this,node.from,inline?'inline':'block',node.to),block:!inline,inclusive:false});
+      const deco=Decoration.replace({widget:new Type(html,this,node.from,inline?'inline':'block',node.to,node.name),block:!inline,inclusive:false});
       if(inline)add(start,end,deco);else addBlock(start,end,deco);
     };
     syntaxTree(state).iterate({from,to,enter:node=>{
@@ -300,7 +343,10 @@ class KnowledgeEditor {
         for(const c of markers)add(c.from,c.to,Decoration.replace({inclusive:false}));
         add(node.from,node.to,Decoration.mark({class:'kn-external-link'}));
       }
-      if(node.name==='TaskMarker'&&!active){const value=state.doc.sliceString(node.from,node.to);add(node.from,node.to,Decoration.replace({widget:new TaskWidget(/[xX]/.test(value),node.from+1),inclusive:false}));return false;}
+      if(node.name==='TaskMarker'&&!active){
+        const value=state.doc.sliceString(node.from,node.to);
+        const label=state.doc.lineAt(node.from).text.replace(/^\s*(?:[-+*]|\d+[.)])\s+\[[ xX]\]\s*/,'').trim().slice(0,120);
+        add(node.from,node.to,Decoration.replace({widget:new TaskWidget(/[xX]/.test(value),node.from+1,label),inclusive:false}));return false;}
       if(node.name==='ListMark'&&!active && /^[-+*]$/.test(state.doc.sliceString(node.from,node.to))) {
         const task=/^\s+\[[ xX]\]/.test(state.doc.sliceString(node.to,Math.min(node.to+5,state.doc.length)));
         add(node.from,node.to,Decoration.replace(task?{inclusive:false}:{widget:new BulletWidget(),inclusive:false}));
@@ -357,6 +403,32 @@ class KnowledgeEditor {
     if(update.selectionSet)this.options.onSelectionChange?.();
     if(update.docChanged||update.selectionSet||update.transactions.some(tr=>tr.effects.length))this.find?.update();
   }
+  // Map a click inside a rendered fenced code block to its source line/column.
+  codePositionAt(from,event) {
+    const range=document.caretRangeFromPoint?.(event.clientX,event.clientY);
+    if(!range||!this.view.state.doc.toString())return null;
+    const node=range.startContainer;
+    const pre=node.nodeType===3?node.parentElement?.closest('pre'):node.closest?.('pre');
+    if(!pre)return null;
+    const walker=document.createTreeWalker(pre,NodeFilter.SHOW_TEXT);
+    let offset=0,current;
+    while((current=walker.nextNode())){if(current===node){offset+=range.startOffset;break;}offset+=current.textContent.length;}
+    const before=(pre.textContent||'').slice(0,offset);
+    const lineIndex=(before.match(/\n/g)||[]).length;
+    const column=offset-(before.lastIndexOf('\n')+1);
+    const doc=this.view.state.doc,first=doc.lineAt(from),target=doc.line(Math.min(doc.lines,first.number+1+lineIndex));
+    if(target.number<=first.number)return from;
+    return Math.min(target.to,target.from+Math.max(0,column));
+  }
+  // Character offset of a click inside a rendered table cell.
+  cellCaretAt(cell,event) {
+    const range=document.caretRangeFromPoint?.(event.clientX,event.clientY);
+    if(!range||!cell.contains(range.startContainer))return null;
+    const walker=document.createTreeWalker(cell,NodeFilter.SHOW_TEXT);
+    let offset=0,current;
+    while((current=walker.nextNode())){if(current===range.startContainer)return offset+range.startOffset;offset+=current.textContent.length;}
+    return null;
+  }
   tableCellRange(widget,rowIndex,column) {
     const state=this.view.state;
     let node=syntaxTree(state).resolveInner(Number(widget.dataset.sourcePos),1);
@@ -388,7 +460,7 @@ class KnowledgeEditor {
     this.activeTableCell=null;active.cell.classList.remove('kn-cell-editing');active.input.remove();
     active.content.innerHTML=active.renderedHTML;active.content.replaceWith(...active.content.childNodes);
   }
-  editTableCell(widget,cell,reveal=false) {
+  editTableCell(widget,cell,reveal=false,caret=null) {
     if(this.activeTableCell?.cell===cell)return;
     this.finishTableCell();
     const row=cell.parentElement.rowIndex,column=cell.cellIndex,range=this.tableCellRange(widget,row,column);
@@ -421,9 +493,15 @@ class KnowledgeEditor {
         if(this.activeTableCell===active&&input.isConnected){input.focus({preventScroll:true});input.setSelectionRange(displayCaret,displayCaret);}
       }
     };
+    active.commit=commit;
     input.addEventListener('paste',event=>{
       const text=event.clipboardData?.getData('text/plain')||'';
       if(!/[\t\r\n]/.test(text))return;
+      // Grid paste is only for tab-delimited rectangles. Plain multi-line text
+      // inside a cell is cell content (newlines become <br>), and any selection
+      // means "replace this text" — never fill the neighbouring cells silently.
+      const replacing=(input.selectionStart??0)!==(input.selectionEnd??0);
+      if(replacing||!text.includes('\t'))return;
       const change=core.pasteTable(this.getEditorText(),active.from,active.column,text);
       if(!change)return;
       event.preventDefault();event.stopPropagation();
@@ -446,6 +524,9 @@ class KnowledgeEditor {
     });
     input.addEventListener('keydown',event=>{
       if(event.isComposing||active.composing||event.keyCode===229)return;
+      if((event.ctrlKey||event.metaKey)&&['b','i'].includes(event.key.toLowerCase())){
+        event.preventDefault();this.format(event.key.toLowerCase()==='b'?'bold':'italic');return;
+      }
       if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();event.stopPropagation();commit();this.table('row-add',column);return;}
       if(event.shiftKey&&event.key==='Enter'){event.preventDefault();event.stopPropagation();input.setRangeText('\n',input.selectionStart,input.selectionEnd,'end');commit();return;}
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'){
@@ -470,7 +551,9 @@ class KnowledgeEditor {
       const block=core.tableAt(this.getEditorText(),active.from);
       this.finishTableCell();this.view.dispatch({selection:{anchor:Math.min(this.view.state.doc.length,(event.shiftKey?block?.from-1:block?.to+1)||0)},scrollIntoView:false});this.view.focus();
     });
-    input.focus({preventScroll:true});input.setSelectionRange(input.value.length,input.value.length);
+    input.focus({preventScroll:true});
+    const at=caret===null?input.value.length:Math.max(0,Math.min(input.value.length,caret));
+    input.setSelectionRange(at,at);
     if(reveal)cell.scrollIntoView({block:'nearest',inline:'nearest'});
   }
   complete(context) {
@@ -547,7 +630,9 @@ class KnowledgeEditor {
     }
   }
   locateAnchor(anchor) {
-    const doc=this.getEditorText();const target=anchor.startsWith('^')?doc.indexOf(anchor):core.headings(doc).find(h=>h.text===anchor)?.offset;
+    // Same rules as embeds: block ids inside code/comments are not anchors, and
+    // heading matching ignores case and Unicode form on both sides.
+    const target=core.anchorOffset(this.getEditorText(),anchor);
     if(typeof target==='number'&&target>=0)this.locate(target);
   }
   locate(pos) {
@@ -563,6 +648,21 @@ class KnowledgeEditor {
     const view=this.view,{from,to}=view.state.selection.main,doc=view.state.doc,text=doc.sliceString(from,to);
     if(action==='undo'||action==='redo'){const applied=(action==='undo'?undo:redo)(view);view.focus();return applied;}
     const wraps={bold:'**',italic:'*',strike:'~~',inline:'`',highlight:'=='};
+    // A focused table cell owns its own selection: format the textarea text and
+    // commit it, instead of wrapping the (collapsed) CodeMirror selection at the
+    // cell's first character.
+    const activeCell=this.activeTableCell;
+    if(activeCell&&activeCell.commit&&wraps[action]){
+      const input=activeCell.input,start=input.selectionStart??input.value.length,end=input.selectionEnd??start;
+      const chosen=input.value.slice(start,end),token=action==='inline'?inlineFence(chosen):wraps[action];
+      const inner=action==='inline'&&/^`|`$/.test(chosen)?' '+chosen+' ':chosen;
+      const wrapped=chosen.length>=2*token.length&&chosen.startsWith(token)&&chosen.endsWith(token);
+      const next=wrapped?chosen.slice(token.length,-token.length):token+inner+token;
+      input.setRangeText(next,start,end,'preserve');
+      input.setSelectionRange(start+next.length,start+next.length);
+      activeCell.commit();input.focus({preventScroll:true});
+      return true;
+    }
     if(wraps[action]){
       const token=wraps[action],changes=[],ranges=[];
       const first=doc.lineAt(from),last=doc.lineAt(to>from?to-1:to);
@@ -573,10 +673,15 @@ class KnowledgeEditor {
         let a=Math.max(from,line.from+prefix.length),b=Math.min(to,line.to);
         if(from===to)a=b=from;
         if(a>b || (a===b&&from!==to))continue;
-        const text=doc.sliceString(a,b);let insert,offset=0,length;
-        if(text.startsWith(token)&&text.endsWith(token)&&text.length>=2*token.length){insert=text.slice(token.length,-token.length);length=insert.length;}
-        else if(a>=token.length&&doc.sliceString(a-token.length,a)===token&&doc.sliceString(b,b+token.length)===token){a-=token.length;b+=token.length;insert=text;length=text.length;}
-        else {insert=token+text+token;offset=token.length;length=text.length;}
+        const text=doc.sliceString(a,b);
+        // A longer fence is required when the selection itself contains backticks,
+        // otherwise the first inner backtick closes the span early.
+        const fence=action==='inline'?inlineFence(text):token;
+        const inner=action==='inline'&&/^`|`$/.test(text)?' '+text+' ':text;
+        let insert,offset=0,length;
+        if(text.startsWith(fence)&&text.endsWith(fence)&&text.length>=2*fence.length){insert=text.slice(fence.length,-fence.length);length=insert.length;}
+        else if(a>=fence.length&&doc.sliceString(a-fence.length,a)===fence&&doc.sliceString(b,b+fence.length)===fence){a-=fence.length;b+=fence.length;insert=text;length=text.length;}
+        else {insert=fence+inner+fence;offset=fence.length;length=inner.length;}
         const delta=changes.reduce((sum,c)=>sum+c.insert.length-(c.to-c.from),0);
         ranges.push({from:a+delta+offset,to:a+delta+offset+length});
         changes.push({from:a,to:b,insert});
@@ -591,7 +696,10 @@ class KnowledgeEditor {
       for(let n=first.number;n<=last.number;n++){
         const line=doc.line(n);const clean=line.text.replace(/^(\s*)(?:#{1,6}\s+|[-+*]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+|>\s*)/,'$1');
         const indent=clean.match(/^\s*/)[0],body=clean.slice(indent.length);
-        const prefix=action==='heading'?'#'.repeat(Math.max(0,Math.min(6,Number(value)||0)))+(Number(value)?' ':''):action==='ordered'?`${n-first.number+1}. `:action==='task'?'- [ ] ':action==='quote'?'> ':'- ';
+        // Re-applying a format must not clear state the user already has: an
+        // existing task item keeps its checked mark.
+        const existing=action==='task'?/^\s*(?:[-+*]|\d+[.)])\s+\[([ xX])\]\s+/.exec(line.text):null;
+        const prefix=action==='heading'?'#'.repeat(Math.max(0,Math.min(6,Number(value)||0)))+(Number(value)?' ':''):action==='ordered'?`${n-first.number+1}. `:action==='task'?(existing?`- [${existing[1]}] `:'- [ ] '):action==='quote'?'> ':'- ';
         changes.push({from:line.from,to:line.to,insert:indent+prefix+body});
       }
       view.dispatch({changes,annotations:isolateHistory.of('full'),userEvent:'input.format'});view.focus();return true;
@@ -600,7 +708,10 @@ class KnowledgeEditor {
       code:'```text\n'+text+'\n```',
       diagram:'```mermaid\nflowchart LR\n  A[开始] --> B[处理]\n  B --> C[完成]\n```',
       table:'| 项目 | 内容 |\n| --- | --- |\n|  |  |',
-      rule:'---',image:value||'![图片](https://)',link:`[${text||'链接'}](${safeURL(value)||'https://'})`
+      rule:'---',image:value||'![图片](https://)',
+      // Link labels may not contain raw brackets; escaping keeps the label the
+      // user selected instead of ending the link early.
+      link:`[${String(text||'链接').replace(/[\\\[\]]/g,'\\$&')}](${safeURL(value)||'https://'})`
     };
     if(!(action in blocks))return false;
     const insert=action==='link'||action==='image'?blocks[action]:'\n\n'+blocks[action]+'\n\n';
@@ -624,6 +735,31 @@ class KnowledgeEditor {
     }
     return true;
   }
+  // Remove inline markers inside a selection, including several independent
+  // spans, while keeping the surrounding literal text. Outer wrappers around the
+  // whole selection are removed as well, matching "clear format" expectations.
+  clearInlineFormat() {
+    if(this.mode==='preview')return false;
+    const view=this.view,{from,to}=view.state.selection.main;
+    if(from===to)return false;
+    const original=view.state.doc.sliceString(from,to);
+    let text=original;
+    for(let pass=0;pass<4;pass++){
+      const next=text
+        .replace(/(`+)([^`]+?)\1/g,'$2')
+        .replace(/\*\*([^*\n]+?)\*\*/g,'$1')
+        .replace(/__([^_\n]+?)__/g,'$1')
+        .replace(/~~([^~\n]+?)~~/g,'$1')
+        .replace(/==([^=\n]+?)==/g,'$1')
+        .replace(/\*([^*\n]+?)\*/g,'$1')
+        .replace(/(^|[^\w_])_([^_\n]+?)_(?=[^\w_]|$)/g,'$1$2');
+      if(next===text)break;
+      text=next;
+    }
+    if(text===original)return false;
+    view.dispatch({changes:{from,to,insert:text},selection:{anchor:from,head:from+text.length},userEvent:'input.format'});
+    view.focus();return true;
+  }
   insertText(text) {this.view.dispatch(this.view.state.replaceSelection(text));this.view.focus();return true;}
   getEditorText(){return this.view.state.doc.toString();}
   getMarkdown(){return core.serializeSource(this.getEditorText(),this.view.state.field(this.lineEndings));}
@@ -643,8 +779,12 @@ class KnowledgeEditor {
     table.style.tableLayout=custom?'fixed':'';
     for(const row of table.rows)for(let c=0;c<row.cells.length;c++)row.cells[c].style.width=custom?widths[c]+'px':'';
   }
-  resizeTableColumn(column,width) {
-    const block=core.tableAt(this.getEditorText(),this.view.state.selection.main.head);width=Math.round(Number(width));
+  resizeTableColumn(column,width,widget=null) {
+    // Resize the table the gesture actually belongs to, not the table of the
+    // current selection: dragging a second table while a first one is being
+    // edited must not commit to the first table.
+    const block=core.tableAt(this.getEditorText(),widget?Number(widget.dataset.sourcePos):this.view.state.selection.main.head);
+    width=Math.round(Number(width));
     if(!block||!Number.isFinite(width)||width<80||width>1600||column<0||column>=block.rows[0].length)return false;
     const index=this.tableIndex(block.from),tables=(this.options.tableColumnWidths||[]).map(row=>row.slice());
     while(tables.length<=index)tables.push([]);
@@ -652,10 +792,20 @@ class KnowledgeEditor {
     this.view.dispatch({annotations:isolateHistory.of('full'),effects:tableWidthsEffect.of(tables),userEvent:'input.table-width'});
     return true;
   }
-  fitTableWidth(width) {
-    const block=core.tableAt(this.getEditorText(),this.view.state.selection.main.head);if(!block)return false;
+  // Width available to a table inside the note viewport, independent of the
+  // page padding: fitting to the page's clientWidth left wide tables wider than
+  // the visible area and scrolled the whole document horizontally.
+  tableViewportWidth(widget=null) {
+    const host=this.mode==='preview'?this.readHost:this.view.contentDOM;
+    const measured=widget?.parentElement?.clientWidth||host?.clientWidth||0;
+    return Math.max(240,Math.floor(measured||640));
+  }
+  fitTableWidth(width,widget=null) {
+    const block=core.tableAt(this.getEditorText(),widget?Number(widget.dataset.sourcePos):this.view.state.selection.main.head);if(!block)return false;
     const tables=this.view.state.field(this.tableWidths).map(row=>row.slice()),idx=this.tableIndex(block.from);while(tables.length<=idx)tables.push([]);
-    tables[idx]=width?Array(block.rows[0].length).fill(Math.max(80,Math.min(1600,Math.floor(width/block.rows[0].length)))):[];
+    const columns=block.rows[0].length;
+    const available=Math.floor(Number(width)||this.tableViewportWidth(widget));
+    tables[idx]=width||widget?Array(columns).fill(Math.max(80,Math.min(1600,Math.floor(available/columns)))):[];
     this.view.dispatch({annotations:isolateHistory.of('full'),effects:tableWidthsEffect.of(tables),userEvent:'input.table-width'});return true;
   }
   table(operation,index=0,value){
