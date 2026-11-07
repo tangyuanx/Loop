@@ -67,7 +67,7 @@ async function release() {await app.evaluate(()=>{global.__s2Release?.();global.
   tasks.push({id:'delete-task',title:'删除回归',notes:'',nodes:[{id:'delete-node',title:'删除节点回归',children:[]}]});
   await writeTaskData(profile,{version:2,knowledgeSchemaVersion:1,taskFilter:'all',activeTaskId:'cancel',tasks});
   const env={...process.env,LOOP_USER_DATA_DIR:profile};delete env.ELECTRON_RUN_AS_NODE;
-  app=await _electron.launch({executablePath:process.env.LOOP_APP_EXECUTABLE||require('electron'),args:process.env.LOOP_APP_EXECUTABLE?[]:[source],cwd:source,env});
+  app=await _electron.launch({executablePath:process.env.LOOP_APP_EXECUTABLE||require('electron'),args:process.env.LOOP_APP_EXECUTABLE?[]:(process.env.LOOP_NO_SANDBOX?['--no-sandbox',source]:[source]),cwd:source,env});
   try {
     await until(()=>{page=app.windows().find(p=>p.url().endsWith('/app/renderer/index.html'));return page});
     page.setDefaultTimeout(12000);page.on('pageerror',e=>errors.push(e.message));await page.waitForSelector('.navigation');

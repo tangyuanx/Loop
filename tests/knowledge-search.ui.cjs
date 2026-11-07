@@ -13,7 +13,7 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
  const profile=path.join(run,'user-data'),stamp=new Date().toISOString();await fs.access(path.join(profile,'task-data.json')).then(()=>{throw Error('Refusing existing data')},()=>{});
  await writeTaskData(profile,{version:2,taskFilter:'all',activeTaskId:'a',tasks:[['a','行内查找与跳转',original],['b','第二篇笔记','# 第二篇\n\n独立内容与独立查找。\n']].map(([id,title,notes])=>({id,title,notes,nodes:[],createdAt:stamp,updatedAt:stamp,knowledgeNote:{noteId:'search-'+id,title,documentState:'DRAFT'}}))});
  const env={...process.env,LOOP_USER_DATA_DIR:profile};delete env.ELECTRON_RUN_AS_NODE;
- app=await _electron.launch({executablePath:process.env.LOOP_APP_EXECUTABLE||require('electron'),args:process.env.LOOP_APP_EXECUTABLE?[]:[source],cwd:source,env});
+ app=await _electron.launch({executablePath:process.env.LOOP_APP_EXECUTABLE||require('electron'),args:process.env.LOOP_APP_EXECUTABLE?[]:(process.env.LOOP_NO_SANDBOX?['--no-sandbox',source]:[source]),cwd:source,env});
  try{
   const runtime=await app.evaluate(async({app})=>{await app.whenReady();return {version:app.getVersion(),appPath:app.getAppPath(),userData:app.getPath('userData')};});
   assert.equal(runtime.version,require('../package.json').version);assert.equal(path.resolve(runtime.userData),profile);
@@ -25,7 +25,12 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
   const input=page.locator('.kn-find [name=search]'),count=page.locator('.kn-find-count');
   const openFind=async()=>{await wb.minimizeTaskInfo(page);if(!await input.isVisible())await page.locator('[data-kn-action=find]').click();};
   await test('S01-one-inline-entry-and-live-matches',async()=>{
-   assert.equal(await page.locator('[data-kn-action=find]').count(),1);assert.equal(await page.locator('.knowledge-header [data-kn-action=open-file]').count(),1);assert.equal(await page.locator('[data-kn-action=recent]').getAttribute('aria-label'),'最近打开的笔记');
+   assert.equal(await page.locator('[data-kn-action=find]').count(),1);
+   // New/open/recent live in the document menu; the header keeps one find entry.
+   await page.locator('[data-wb-action=more]').click();
+   assert.equal(await page.locator('.wb-more-menu [data-kn-action=open-file]').count(),1);
+   assert.equal((await page.locator('.wb-more-menu [data-kn-action=recent]').innerText()).trim(),'最近打开…');
+   await page.keyboard.press('Escape');
    assert.equal(await input.isVisible(),false);assert.equal(await page.locator('[data-kn-action=find]').getAttribute('aria-expanded'),'false');
    await mode('source');assert.equal(await input.isVisible(),false);await openFind();assert.equal(await page.locator('[data-kn-action=find]').getAttribute('aria-expanded'),'true');
    await input.fill('测试');assert.equal(await count.innerText(),'1/4');assert.ok(await page.locator('.cm-searchMatch').count()>=3);assert.equal(await page.locator('[role=dialog]').count(),0);
