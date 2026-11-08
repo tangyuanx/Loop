@@ -5,7 +5,8 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const {spawnSync} = require('node:child_process');
-const {requiredNames, createManifest, validateManifests, validateRemoteRelease, findRelease, resolveReleaseTag, ensureReleaseTag} = require('../tools/release-draft.cjs');
+const {requiredNames, createManifest, validateManifests, validateRemoteRelease, findRelease, resolveReleaseTag, ensureReleaseTag, shouldMakeLatest} = require('../tools/release-draft.cjs');
+const {maintainReleaseDrafts, statusMarker} = require('../tools/maintain-release-drafts.cjs');
 const version = '0.1.239', sha = 'a'.repeat(40), tag = 'v' + version;
 
 function fixture(t) {
@@ -117,4 +118,95 @@ test('release branches reuse matching tags but never move another commit or igno
   await assert.rejects(ensureReleaseTag(async () => ({object:{type:'commit',sha:'b'.repeat(40)}}), tag, sha), /refusing to replace/);
   await assert.rejects(ensureReleaseTag(async () => {throw Object.assign(Error('denied'), {status:403});}, tag, sha), /denied/);
   await ensureReleaseTag(async route => ({object:{type:route.startsWith('git/tags/')?'commit':'tag',sha}}), tag, sha);
+});
+
+test('retrying an older release cannot take Latest from a newer published version', () => {
+  assert.equal(shouldMakeLatest('0.2.8','v0.2.11'),false);
+  assert.equal(shouldMakeLatest('0.2.12','v0.2.11'),true);
+  assert.equal(shouldMakeLatest('0.2.11','v0.2.11'),true);
+  assert.equal(shouldMakeLatest('0.2.12-beta.1','v0.2.11'),false);
+  assert.equal(shouldMakeLatest('0.2.12',null),true);
+  assert.throws(()=>shouldMakeLatest('0.2.12','unknown'),/Invalid/);
+});
+
+function draftMaintenance({tag='v0.2.8',assets=[],draft=true,author='github-actions[bot]',runStatus='completed',freshDraft=draft}={}) {
+  const release={id:1,tag_name:tag,name:tag,draft,assets,author:{login:author},target_commitish:sha,body:'Original release notes'};
+  const calls=[];
+  const api=async(route,method='GET',body)=>{
+    calls.push({route,method,body});
+    if(method==='DELETE')return null;
+    if(method==='PATCH'){Object.assign(release,body);return {...release};}
+    if(route==='releases/latest')return {tag_name:'v0.2.11',draft:false};
+    if(route.startsWith('releases?'))return [{...release}];
+    if(route==='releases/1')return {...release,draft:freshDraft};
+    if(route.startsWith('actions/runs?'))return {workflow_runs:[{
+      name:'Release Desktop Apps',head_sha:sha,head_branch:tag,status:runStatus,
+      conclusion:'failure',updated_at:'2026-11-07T15:07:00Z',html_url:'https://github.com/owner/repo/actions/runs/1',
+    }]};
+    throw Error('Unexpected request '+route);
+  };
+  return {release,calls,api};
+}
+
+test('maintenance only removes a superseded, empty, failed automation draft', async()=>{
+  const fixture=draftMaintenance();
+  const changes=await maintainReleaseDrafts(fixture.api);
+  assert.equal(changes[0].action,'removed empty failed draft');
+  assert.deepEqual(fixture.calls.filter(call=>call.method==='DELETE').map(call=>call.route),['releases/1']);
+  assert.equal(fixture.calls.filter(call=>call.route.startsWith('actions/runs?')).length,2);
+  assert.equal(fixture.calls.some(call=>call.route.startsWith('git/')),false);
+});
+
+test('published, manually authored and active release drafts are preserved',async()=>{
+  for(const options of [{draft:false},{author:'maintainer'},{runStatus:'in_progress'},{freshDraft:false}]){
+    const fixture=draftMaintenance(options);
+    assert.deepEqual(await maintainReleaseDrafts(fixture.api),[]);
+    assert.equal(fixture.calls.some(call=>call.method!=='GET'),false);
+  }
+});
+
+test('failed current drafts and partial uploads are labeled for retry with their notes intact',async()=>{
+  for(const options of [{tag:'v0.2.12'},{assets:[{name:'partial.zip'}]}]){
+    const fixture=draftMaintenance(options);
+    const changes=await maintainReleaseDrafts(fixture.api);
+    assert.equal(changes[0].action,'marked failed draft');
+    assert.match(fixture.release.name,/发布失败/);
+    assert.ok(fixture.release.body.startsWith('Original release notes'));
+    assert.ok(fixture.release.body.includes(statusMarker));
+    assert.equal(fixture.calls.some(call=>call.method==='DELETE'),false);
+    assert.deepEqual(await maintainReleaseDrafts(fixture.api),[]);
+  }
+});
+
+test('a retry starting during maintenance keeps its empty draft',async()=>{
+  const fixture=draftMaintenance();
+  let reads=0;
+  const api=async(route,...args)=>{
+    const result=await fixture.api(route,...args);
+    if(route.startsWith('actions/runs?')&&++reads===2)result.workflow_runs[0].status='in_progress';
+    return result;
+  };
+  assert.deepEqual(await maintainReleaseDrafts(api),[]);
+  assert.equal(fixture.calls.some(call=>call.method==='DELETE'),false);
+});
+
+test('maintenance refuses to treat access failures as missing release state',async()=>{
+  await assert.rejects(maintainReleaseDrafts(async()=>{throw Object.assign(Error('denied'),{status:403});}),/denied/);
+});
+
+test('maintenance restores Latest after a historical workflow publishes an older version',async()=>{
+  const releases=[
+    {id:8,tag_name:'v0.2.8',draft:false,prerelease:false},
+    {id:11,tag_name:'v0.2.11',draft:false,prerelease:false,html_url:'https://github.com/owner/repo/releases/tag/v0.2.11'},
+    {id:12,tag_name:'v0.2.12-beta.1',draft:false,prerelease:true},
+  ];
+  const writes=[];
+  const changes=await maintainReleaseDrafts(async(route,method='GET',body)=>{
+    if(method==='PATCH'){writes.push({route,body});return {};}
+    if(route==='releases/latest')return releases[0];
+    if(route.startsWith('releases?'))return releases;
+    throw Error('Unexpected request');
+  });
+  assert.deepEqual(writes,[{route:'releases/11',body:{make_latest:'true'}}]);
+  assert.equal(changes[0].tag,'v0.2.11');
 });

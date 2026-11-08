@@ -153,6 +153,9 @@ jobs:
   publish:
     name: Publish complete verified release
     needs: [prepare, build]
+    concurrency:
+      group: release-publication
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       contents: write

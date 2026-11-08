@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const {execFileSync} = require('node:child_process');
+const semver = require('semver');
 const {parseUpdateMetadata} = require('./verify-update-artifacts.cjs');
 
 function requiredNames(platform, version) {
@@ -94,6 +95,11 @@ function resolveReleaseTag(ref, refType, version) {
   throw Error('Release ref does not match the package version');
 }
 
+function shouldMakeLatest(version, latestTag) {
+  if (!semver.valid(version) || (latestTag && !semver.valid(latestTag))) throw Error('Invalid release version');
+  return !semver.prerelease(version) && (!latestTag || semver.gte(version, latestTag));
+}
+
 async function ensureReleaseTag(api, tag, sha) {
   let ref;
   try { ref = await api('git/ref/tags/' + encodeURIComponent(tag)); }
@@ -141,6 +147,12 @@ async function run(command) {
         ...(fs.existsSync(notes) ? {body: fs.readFileSync(notes, 'utf8')} : {generate_release_notes: true})});
     }
     if (release.tag_name !== tag || !release.draft) throw Error('Release is already published; use a new version');
+    const marker='<!-- loop-release-status -->';
+    if (String(release.body || '').includes(marker)) {
+      release=await api('releases/' + release.id, 'PATCH', {
+        name:tag, body:String(release.body).split(marker)[0].trimEnd(),
+      });
+    }
     fs.appendFileSync(process.env.GITHUB_OUTPUT, `release_id=${release.id}\n`);
     console.log(`Prepared draft ${tag}; it stays unpublished until all platform gates succeed.`);
   } else if (command === 'upload') {
@@ -160,11 +172,14 @@ async function run(command) {
     const manifests = ['macOS', 'Windows'].map(platform => JSON.parse(fs.readFileSync(path.join('release-manifests', platform + '.json'), 'utf8')));
     const assets = validateManifests(manifests, version, sha), release = await getRelease();
     validateRemoteRelease(release, assets, tag);
-    const published = await api('releases/' + release.id, 'PATCH', {draft: false, make_latest: version.includes('-') ? 'false' : 'true'});
+    let latest;
+    try { latest=await api('releases/latest'); }
+    catch (error) { if(error.status!==404)throw error; }
+    const published = await api('releases/' + release.id, 'PATCH', {draft: false, make_latest: shouldMakeLatest(version,latest?.tag_name) ? 'true' : 'false'});
     if (published.draft) throw Error('Release is still a draft');
     console.log(`Published ${tag}: ${assets.size} verified assets; ${published.html_url}`);
   } else throw Error('Expected prepare, upload or publish');
 }
 
-module.exports = {requiredNames, createManifest, validateManifests, validateRemoteRelease, findRelease, resolveReleaseTag, ensureReleaseTag};
+module.exports = {requiredNames, createManifest, validateManifests, validateRemoteRelease, findRelease, resolveReleaseTag, ensureReleaseTag, shouldMakeLatest};
 if (require.main === module) run(process.argv[2]).catch(error => {console.error(error.message); process.exitCode = 1;});

@@ -1,0 +1,38 @@
+name: Maintain Release Drafts
+
+on:
+  workflow_run:
+    workflows: ["Release Desktop Apps"]
+    types: [completed]
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/release-status.yml"
+      - "tools/maintain-release-drafts.cjs"
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: release-draft-maintenance
+  cancel-in-progress: false
+
+jobs:
+  maintain:
+    runs-on: ubuntu-latest
+    steps:
+      # Use trusted main, including when a historical release run is retried.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Mark failed drafts and remove superseded empty drafts
+        run: node tools/maintain-release-drafts.cjs
+        env:
+          GH_TOKEN: ${{ github.token }}
