@@ -373,7 +373,8 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   await page.reload();await page.waitForFunction(()=>state.tasks?.some(t=>t.id==='c'));await choose('c');assert.match(await markdown(),/重启恢复内容/);
   await require('./knowledge-tables-and-links.cjs')({page,profile,fs,readTaskData,choose,mode,markdown,append,pause,wb,setChosenPath:p=>chosenPath=p});
 
-  await require('./knowledge-table-design.cjs')({page,choose,mode,markdown});  await choose('c');
+  await require('./knowledge-table-design.cjs')({page,choose,mode,markdown});
+  await require('./knowledge-editor-boundaries.cjs')({page,choose,mode,markdown});await choose('c');
   console.log('UI check 15: Long document: no editor replacement, no input-triggered shell render.');
   // Long document: no editor replacement, no input-triggered shell render.
   await page.evaluate(()=>{const e=knowledgeCurrentEntry();window.__longDOM=e.view.contentDOM;window.__renderCount=0;const before=render;render=function(){window.__renderCount++;return before();};e.view.dispatch({changes:{from:0,to:e.view.state.doc.length,insert:('# 长文\n\n正文 **强调** 与 `代码`。\n\n').repeat(3000)}});});

@@ -20,7 +20,8 @@ export function installTableControls(owner,widget) {
     const active=owner.activeTableCell;
     if(active?.composing)return;
     const row=active?.widget===widget?active.row:0,column=active?.widget===widget?active.column:0;
-    if(tablePosition(owner,widget,row,column))owner.options.onTableMenu?.({widget,row,column,scope:'table',trigger:main});
+    const cellSelection=active?.widget===widget?{start:active.input.selectionStart,end:active.input.selectionEnd,direction:active.input.selectionDirection}:null;
+    if(tablePosition(owner,widget,row,column))owner.options.onTableMenu?.({widget,row,column,cellSelection,scope:'table',trigger:main});
   };
   const addRow=button('添加行','plus','kn-table-edge kn-table-add-row'),addColumn=button('添加列','plus','kn-table-edge kn-table-add-column');
   addRow.dataset.tableAction='row-add';addColumn.dataset.tableAction='column-add';controls.append(addRow,addColumn);

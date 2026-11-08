@@ -134,7 +134,7 @@
       const m = line.match(/^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
       if (!(excluded[i] && excluded[i][0] <= offset)) {
         if (m) out.push({level:m[1].length,text:m[2].replace(/[*`]/g,''),offset});
-        else if (line.trim() && !/^\s*(?:[-+*#>`]|\d+[.)]\s)/.test(line) && /^ {0,3}(?:={3,}|-{3,})\s*$/.test(lines[lineIndex+1]||'')) out.push({level:lines[lineIndex+1].trim()[0]==='='?1:2,text:line.trim().replace(/[*`]/g,''),offset});
+        else if (line.trim() && !/^\s*(?:[-+*](?:\s|$)|[#>`]|\d+[.)]\s)/.test(line) && /^ {0,3}(?:={3,}|-{3,})\s*$/.test(lines[lineIndex+1]||'')) out.push({level:lines[lineIndex+1].trim()[0]==='='?1:2,text:line.trim().replace(/[*`]/g,''),offset});
       }
       offset += line.length + 1;
     }
@@ -178,12 +178,7 @@
       return null;
     }
     const target=normalized(anchor);
-    for(const line of lines) {
-      const m=line.match(/^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
-      if(m&&!covered(offset)&&normalized(m[2].replace(/[*`]/g,''))===target) return offset;
-      offset+=line.length+1;
-    }
-    return null;
+    return headings(text).find(heading=>normalized(heading.text)===target)?.offset ?? null;
   }
   // Relative Markdown links that can point at another note on disk. Used for
   // backlinks alongside wiki links; images, code and comments are excluded.

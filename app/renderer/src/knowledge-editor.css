@@ -72,6 +72,8 @@
 .kn-table-menu kbd {font:inherit;font-size:var(--type-10);color:var(--secondary);}
 .kn-table-menu button[aria-checked=true] {background:var(--selected);}
 .knowledge-rich-host.kn-editor-host .kn-rendered th,.knowledge-rich-host.kn-editor-host .kn-rendered td {height:42px;box-sizing:border-box;min-width:100px;vertical-align:top;}
+/* Keep the same line box before and during editing of an entirely empty row. */
+.knowledge-rich-host.kn-editor-host .kn-rendered :is(th,td):empty::before {content:'\200b';}
 .kn-table-widget .kn-cell-editing {position:relative;}
 .kn-table-cell-content {visibility:hidden;white-space:pre-wrap;overflow-wrap:anywhere;}
 .knowledge-pane .kn-table-widget .kn-table-cell-editor {position:absolute;inset:0;width:100%;height:100%;min-width:0;min-height:0;margin:0;box-sizing:border-box;padding:7px 13px;border:0;border-radius:0;outline:none;box-shadow:none;color:inherit;background:transparent;font:inherit;text-align:inherit;white-space:pre-wrap;overflow-wrap:anywhere;resize:none;overflow:hidden;z-index:1;}

@@ -100,6 +100,19 @@ test('headings ignore YAML and code and preserve source offsets',()=>{
  headings.forEach(h=>assert.equal(text[h.offset],'#'));
  assert.deepEqual(core.headings('一级\n===\n\n二级\n---\n').map(h=>h.level),[1,2]);
 });
+test('heading anchors share outline rules for Setext, ATX and excluded syntax',()=>{
+ const text='---\ntitle: YAML\n---\n\n```md\n隐藏标题\n===\n```\n\n<!-- 注释标题\n===\n-->\n\n**Étage** 一级\n===\n\n二级标题\n---\n\n## ATX 标题\n\n正文 ^block\n';
+ for(const heading of core.headings(text)) {
+  assert.equal(core.anchorOffset(text,heading.text),heading.offset);
+  assert.ok(core.fragment(text,heading.text).startsWith(text.slice(heading.offset).split('\n')[0]));
+ }
+ assert.equal(core.anchorOffset(text,'e\u0301TAGE 一级'),text.indexOf('**Étage**'));
+ assert.equal(core.anchorOffset(text,'隐藏标题'),null);
+ assert.equal(core.anchorOffset(text,'注释标题'),null);
+ assert.equal(core.anchorOffset(text,'^block'),text.indexOf('正文'));
+ assert.equal(core.anchorOffset(text,'不存在'),null);
+ assert.equal(core.headings('* 列表项\n---\n').length,0);
+});
 test('table editing preserves alignment, escaped pipes and surrounding Markdown',()=>{
  const text='前文\n\n| A | B |\n| :--- | ---: |\n| a\\|b | `x|y` |\n| c | d |\n\n后文';
  const pos=text.indexOf('a\\|b'),table=core.tableAt(text,pos);

@@ -20,7 +20,9 @@ module.exports=async({page,profile,fs,readTaskData,choose,mode,markdown,append,p
   let display=await painted();assert.deepEqual(display.visible,[],'the transparent field must be the only painted cell text');assert.equal(display.font,display.parentFont);assert.equal(display.align,display.parentAlign);assert.equal(display.background,'rgba(0, 0, 0, 0)');
   await page.locator('.kn-table-cell-editor').fill('项目与负责人，检查较长中文在输入期间能完整换行显示。');display=await painted();assert.equal(display.clipped,false,JSON.stringify(display));assert.deepEqual(display.visible,[]);
   await page.keyboard.press('Escape');await reset(empty);
+  const initialHeight=await page.locator('.kn-table-widget table').evaluate(table=>table.getBoundingClientRect().height);
   const cell=page.locator('.kn-table-widget tbody td').first();await cell.click();
+  assert.ok(Math.abs(await page.locator('.kn-table-widget table').evaluate(table=>table.getBoundingClientRect().height)-initialHeight)<=1,'entering an empty row preserves the table height');
   const geometry=await cell.evaluate(cell=>{const input=cell.querySelector('.kn-table-cell-editor'),r=cell.getBoundingClientRect(),i=input.getBoundingClientRect(),style=getComputedStyle(input);return {h:r.height,inside:i.bottom<=r.bottom+1&&i.right<=r.right+1&&i.top>=r.top-1,border:style.borderColor,shadow:style.boxShadow};});
   assert.ok(geometry.h>=38&&geometry.inside,JSON.stringify(geometry));
   for(const color of [geometry.border,...geometry.shadow.match(/rgba?\([^)]*\)/g)||[]]){const rgb=color.match(/[\d.]+/g)?.map(Number)||[];assert.ok(!(rgb[1]>rgb[0]+12&&rgb[1]>rgb[2]+8),color);}
@@ -60,7 +62,7 @@ module.exports=async({page,profile,fs,readTaskData,choose,mode,markdown,append,p
  await wb.more(page);await page.locator('.wb-more-menu [data-kn-action="new-note"]').click();await page.waitForFunction(()=>knowledgeActiveDocument()?.title==='未命名'&&knowledgeCurrentEntry());await page.evaluate(()=>knowledgeRename(knowledgeActiveDocument()));await page.locator('#kn-rename-title').fill('任务方案与表格');await page.locator('#kn-rename-commit').click();await append('# 任务方案与表格\n');
  await page.waitForFunction(()=>knowledgeActiveDocument()?.title==='任务方案与表格'&&knowledgeCurrentEntry()?.getMarkdown().includes('任务方案与表格'));
  const noteId=await page.evaluate(()=>knowledgeActiveDocument().id);assert.equal(await page.evaluate(()=>state.activeTaskId),'b');assert.equal(await page.evaluate(()=>state.tasks.length),count);
- assert.equal(await page.locator('.kn-switch-note>span').innerText(),'任务方案与表格');
+ assert.equal(await page.locator('.kn-document-tabs [role=tab][aria-selected=true]>span').innerText(),'任务方案与表格');
  assert.doesNotMatch(await page.locator('.kn-document-tabs').innerText(),/本任务创建|其他笔记/);
  await append('\n独立笔记第一次修改');await page.locator('[data-kn-document="b"]').click();assert.equal(await markdown(),originalB);
  await page.locator(`[data-kn-document="${noteId}"]`).click();assert.match(await markdown(),/第一次修改/);

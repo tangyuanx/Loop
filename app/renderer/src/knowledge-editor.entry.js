@@ -476,7 +476,7 @@ class KnowledgeEditor {
     const content=document.createElement('span');content.className='kn-table-cell-content';content.setAttribute('aria-hidden','true');content.textContent=input.value||'\u200b';
     const active={widget,cell,input,content,renderedHTML:cell.innerHTML,row,column,...range,composing:false,writing:false};this.activeTableCell=active;
     cell.classList.add('kn-cell-editing');cell.replaceChildren(content,input);
-    const commit=()=>{
+    const commit=(formatting=false)=>{
       if(active.composing||this.activeTableCell!==active)return;
       const raw=input.value.replace(/\r\n?/g,'\n'),caret=input.selectionStart??raw.length;let value='',before=0;
       for(let i=0;i<raw.length;i++){const part=raw[i]==='\n'?'<br>':raw[i]==='|'&&!core.escaped(raw,i)?'\\|':raw[i];value+=part;if(i<caret)before+=part.length;}
@@ -485,7 +485,7 @@ class KnowledgeEditor {
       content.textContent=(input.value||'\u200b')+(input.value.endsWith('\n')?'\u200b':'');
       if(this.view.state.doc.sliceString(from,to)===insert)return;
       active.from=from+active.prefix.length;active.to=active.from+value.length;active.prefix='';active.suffix='';active.writing=true;
-      try{this.view.dispatch({changes:{from,to,insert},selection:{anchor:active.from+before},userEvent:'input.table-cell'});}
+      try{this.view.dispatch({changes:{from,to,insert},selection:{anchor:active.from+before},annotations:formatting?isolateHistory.of('full'):[],userEvent:formatting?'input.format':'input.table-cell'});}
       finally{
         active.writing=false;
         // CodeMirror may move a reused widget DOM when its source length changes.
@@ -584,8 +584,11 @@ class KnowledgeEditor {
     const prior=this.mode;this.mode=mode;this.root.dataset.mode=mode;
     this.editHost.hidden=mode==='preview';this.readHost.hidden=mode!=='preview';
     if(mode==='preview'){
-      const pos=this.view?.state.selection.main.head||0;this.renderReading();
+      const doc=this.view?.state.doc,pos=this.view?.state.selection.main.head||0;this.renderReading();
       requestAnimationFrame(()=>{
+        // A file reload or a quick mode switch can replace this document before
+        // the frame runs. Its old offset must not be resolved in the new text.
+        if(this.destroyed||this.mode!=='preview'||this.view?.state.doc!==doc)return;
         const anchors=[...this.readHost.querySelectorAll('[data-source-line]')];
         const line=this.view.state.doc.lineAt(pos).number-1;
         anchors.filter(el=>Number(el.dataset.sourceLine)<=line).at(-1)?.scrollIntoView({block:'nearest'});
@@ -606,7 +609,10 @@ class KnowledgeEditor {
   handleRenderedClick(event,base) {
     const target=event.target;
     if(target.closest('.kn-code-copy')){
-      event.preventDefault();event.stopPropagation();const button=target.closest('button'),code=button.parentElement.querySelector('pre code')?.textContent||'';
+      event.preventDefault();event.stopPropagation();const button=target.closest('button');
+      // The rendered fence includes one structural newline before its closing
+      // marker. Keep intentional blank lines, without copying that terminator.
+      const code=(button.parentElement.querySelector('pre code')?.textContent||'').replace(/\n$/,'');
       navigator.clipboard.writeText(code).then(()=>{button.textContent='已复制';}).catch(()=>{button.textContent='复制失败';});return;
     }
     const callout=target.closest('.kn-callout-title');if(callout){event.preventDefault();const block=callout.closest('.kn-callout');block.classList.toggle('is-collapsed');callout.setAttribute('aria-expanded',String(!block.classList.contains('is-collapsed')));return;}
@@ -654,13 +660,20 @@ class KnowledgeEditor {
     const activeCell=this.activeTableCell;
     if(activeCell&&activeCell.commit&&wraps[action]){
       const input=activeCell.input,start=input.selectionStart??input.value.length,end=input.selectionEnd??start;
-      const chosen=input.value.slice(start,end),token=action==='inline'?inlineFence(chosen):wraps[action];
+      const chosen=input.value.slice(start,end),token=action==='inline'?inlineFence(chosen):wraps[action],direction=input.selectionDirection;
       const inner=action==='inline'&&/^`|`$/.test(chosen)?' '+chosen+' ':chosen;
       const wrapped=chosen.length>=2*token.length&&chosen.startsWith(token)&&chosen.endsWith(token);
-      const next=wrapped?chosen.slice(token.length,-token.length):token+inner+token;
-      input.setRangeText(next,start,end,'preserve');
-      input.setSelectionRange(start+next.length,start+next.length);
-      activeCell.commit();input.focus({preventScroll:true});
+      const surrounding=start>=token.length&&input.value.slice(start-token.length,start)===token&&input.value.slice(end,end+token.length)===token;
+      let from=start,to=end,next,selectionStart,selectionEnd;
+      if(wrapped){next=chosen.slice(token.length,-token.length);selectionStart=from;selectionEnd=from+next.length;}
+      else if(surrounding){from-=token.length;to+=token.length;next=chosen;selectionStart=from;selectionEnd=from+next.length;}
+      else {next=token+inner+token;selectionStart=from+token.length;selectionEnd=selectionStart+inner.length;}
+      input.setRangeText(next,from,to,'preserve');
+      input.setSelectionRange(selectionStart,selectionEnd,direction);
+      activeCell.commit(true);input.focus({preventScroll:true});
+      // Committing maps the caret into Markdown and collapses the native field.
+      // Keep the user's text selected so the same command can remove its marks.
+      input.setSelectionRange(selectionStart,selectionEnd,direction);
       return true;
     }
     if(wraps[action]){
@@ -788,7 +801,10 @@ class KnowledgeEditor {
     if(!block||!Number.isFinite(width)||width<80||width>1600||column<0||column>=block.rows[0].length)return false;
     const index=this.tableIndex(block.from),tables=(this.options.tableColumnWidths||[]).map(row=>row.slice());
     while(tables.length<=index)tables.push([]);
-    tables[index]=Array.from({length:block.rows[0].length},(_,c)=>tables[index][c]||120);tables[index][column]=width;
+    const target=widget||this.root.querySelector(`.kn-table-widget[data-source-pos="${block.from}"]`);
+    const table=target?.matches('table')?target:target?.querySelector('table');
+    const measured=Array.from(table?.rows[0]?.cells||[],cell=>Math.round(cell.getBoundingClientRect().width));
+    tables[index]=Array.from({length:block.rows[0].length},(_,c)=>tables[index][c]||measured[c]||120);tables[index][column]=width;
     this.view.dispatch({annotations:isolateHistory.of('full'),effects:tableWidthsEffect.of(tables),userEvent:'input.table-width'});
     return true;
   }
@@ -797,7 +813,7 @@ class KnowledgeEditor {
   // the visible area and scrolled the whole document horizontally.
   tableViewportWidth(widget=null) {
     const host=this.mode==='preview'?this.readHost:this.view.contentDOM;
-    const measured=widget?.parentElement?.clientWidth||host?.clientWidth||0;
+    const measured=widget?.querySelector('.kn-table-stage')?.clientWidth||host?.clientWidth||0;
     return Math.max(240,Math.floor(measured||640));
   }
   fitTableWidth(width,widget=null) {

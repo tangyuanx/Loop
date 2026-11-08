@@ -604,7 +604,16 @@ function knowledgeRename(task,trigger) {
   };
   button.onclick=()=>void commit();field.onkeydown=event=>{if(event.key==='Enter'&&!event.isComposing&&event.keyCode!==229&&!composing){event.preventDefault();void commit();}};
 }
-function knowledgeTableMenu({widget,row=0,column=0,scope='table',trigger,point}) {
+function knowledgeFocusTableCell(editor,widget,row,column,selection=null) {
+  if(editor!==knowledgeCurrentEntry()||editor.destroyed)return;
+  const cell=widget?.isConnected&&widget.querySelector('table')?.rows[row]?.cells[column];
+  if(cell){
+    editor.editTableCell(widget,cell,false,selection?.start??null);
+    if(selection)editor.activeTableCell?.input.setSelectionRange(selection.start,selection.end,selection.direction);
+  }else if(widget?.isConnected)widget.focus({preventScroll:true});
+  else editor.view.focus();
+}
+function knowledgeTableMenu({widget,row=0,column=0,cellSelection=null,scope='table',trigger,point}) {
   const editor=knowledgeCurrentEntry();if(!editor||editor.mode==='preview')return;
   const from=Number(widget.dataset.sourcePos),source=editor.view.state.doc;
   const table=LoopKnowledgeCore.tableAt(editor.getEditorText(),from);if(!table)return;
@@ -631,13 +640,20 @@ function knowledgeTableMenu({widget,row=0,column=0,scope='table',trigger,point})
   menu.addEventListener('click',async event=>{
     const button=event.target.closest('[data-table-command]');if(!button||button.disabled)return;
     event.preventDefault();event.stopPropagation();if(!restore())return;
-    const command=button.dataset.tableCommand;const next={widget,row,column,trigger};
+    const command=button.dataset.tableCommand;const next={widget,row,column,cellSelection,trigger};
     shellCloseOverlay({restoreFocus:false});
     if(command==='row-menu'){knowledgeTableMenu({...next,scope:'row'});return;}
     if(command==='column-menu'){knowledgeTableMenu({...next,scope:'column'});return;}
-    if(command==='details'){knowledgeTableTools();return;}
-    if(command==='copy'){try{await navigator.clipboard.writeText(editor.getEditorText().slice(table.from,table.to));shellToast('已复制表格 Markdown');}catch{shellToast('无法复制，请在源码模式选择表格后复制。');}editor.view.focus();return;}
-    if(command==='fit'||command==='auto-width'){editor.fitTableWidth(0,widget);editor.view.focus();return;}
+    if(command==='details'){knowledgeTableTools(next);return;}
+    if(command==='copy'){try{await navigator.clipboard.writeText(editor.getEditorText().slice(table.from,table.to));shellToast('已复制表格 Markdown');}catch{shellToast('无法复制，请在源码模式选择表格后复制。');}knowledgeFocusTableCell(editor,widget,row,column,cellSelection);return;}
+    if(command==='fit'||command==='auto-width'){
+      if(command==='fit')editor.fitTableWidth(0,widget);
+      else editor.fitTableWidth(0);
+      // The main editor represents a table as one block widget. Focusing it
+      // here paints a block-height caret at the table edge instead of the cell.
+      knowledgeFocusTableCell(editor,widget,row,column,cellSelection);
+      return;
+    }
     if(!editor.table(command,column,button.dataset.value))shellToast('当前行列无法执行这项操作。');
   });
   menu.addEventListener('keydown',event=>{
@@ -647,10 +663,11 @@ function knowledgeTableMenu({widget,row=0,column=0,scope='table',trigger,point})
   });
   menu.querySelector('button:not(:disabled)')?.focus({preventScroll:true});
 }
-function knowledgeTableTools() {
+function knowledgeTableTools(context=null) {
   const editor=knowledgeCurrentEntry();if(!editor)return;
   const table=LoopKnowledgeCore.tableAt(editor.getEditorText(),editor.view.state.selection.main.head);
   if(!table){shellToast('请先点击需要编辑的表格单元格。');return;}
+  const widget=context?.widget||editor.root.querySelector(`.kn-table-widget[data-source-pos="${table.from}"]`);
   shellKnowledgeDialog('编辑表格',`<div class="kn-table-controls"><label>列 <select id="kn-table-column">${table.rows[0].map((_,i)=>`<option value="${i}" ${i===(editor.tableColumn||0)?'selected':''}>${i+1}</option>`).join('')}</select></label><label>单元格 <input id="kn-table-value" value="${escAttr(table.rows[table.row]?.[editor.tableColumn||0]||'')}"></label><button class="button" data-kn-table="cell">更新单元格</button><button class="button" data-kn-table="row-add">在下方插入行</button><button class="button" data-kn-table="row-delete">删除当前行</button><button class="button" data-kn-table="column-add">在右侧插入列</button><button class="button" data-kn-table="column-delete">删除当前列</button><label>对齐 <select id="kn-table-align"><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option></select></label><button class="button" data-kn-table="align">应用对齐</button></div>`,'<button class="button" data-action="close-dialog">关闭</button>');
   const column=document.querySelector('#kn-table-column'),value=document.querySelector('#kn-table-value');
   const controls=document.querySelector('.kn-table-controls'),rowLabel=document.createElement('label');rowLabel.textContent='行 ';
@@ -662,7 +679,13 @@ function knowledgeTableTools() {
   row.onchange=refresh;column.onchange=refresh;refresh();
   const widthLabel=document.createElement('label');widthLabel.textContent='列宽（px） ';
   const width=document.createElement('input');width.type='number';width.min='80';width.max='1600';width.value=editor.options.tableColumnWidths?.[editor.tableIndex(table.from)]?.[Number(column.value)]||120;widthLabel.append(width);controls.append(widthLabel);
-  const resize=document.createElement('button');resize.type='button';resize.className='button';resize.textContent='设置列宽';resize.onclick=()=>{if(!width.reportValidity())return;shellCloseOverlay({restoreFocus:false});editor.resizeTableColumn(Number(column.value),width.value);editor.view.focus();};controls.append(resize);
+  const resize=document.createElement('button');resize.type='button';resize.className='button';resize.textContent='设置列宽';resize.onclick=()=>{
+    if(!width.reportValidity())return;
+    const targetRow=Number(row.value)===0?0:Number(row.value)-1,targetColumn=Number(column.value);
+    const selection=context?.row===targetRow&&context?.column===targetColumn?context.cellSelection:null;
+    shellCloseOverlay({restoreFocus:false});editor.resizeTableColumn(targetColumn,width.value,widget);
+    knowledgeFocusTableCell(editor,widget,targetRow,targetColumn,selection);
+  };controls.append(resize);
   column.addEventListener('change',()=>{width.value=editor.options.tableColumnWidths?.[editor.tableIndex(table.from)]?.[Number(column.value)]||120;});
   document.querySelectorAll('[data-kn-table]').forEach(button=>button.onclick=()=>{const operation=button.dataset.knTable,idx=Number(column.value),v=operation==='align'?document.querySelector('#kn-table-align').value:value.value;
     const pos=table.from+editor.getEditorText().slice(table.from,table.to).split('\n').slice(0,Number(row.value)).reduce((sum,line)=>sum+line.length+1,0);

@@ -3,6 +3,7 @@ const fsNative = require("node:fs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { migrateKnowledgeAssets, readKnowledgeAssetFiles } = require("./knowledge-assets.cjs");
+const { imageReferences } = require("../renderer/src/knowledge-core.js");
 
 const saveQueues = new Map();
 
@@ -274,38 +275,100 @@ async function atomicWriteFile(filePath, content, { fsOps, platform, beforeRepla
 
 // Relative image destinations that live next to the Markdown file.
 function relativeImageDestinations(content) {
-  const out=[];const regex=/!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;let m;
-  while((m=regex.exec(String(content||'')))){
-    let dest=String(m[1]).replace(/^<|>$/g,'').split('#')[0];
-    if(!dest||/^[a-z][a-z0-9+.-]*:/i.test(dest)||dest.startsWith('/'))continue;
-    try{dest=decodeURIComponent(dest);}catch{}
-    if(dest)out.push(dest);
+  return imageReferences(content).flatMap(({ url }) => {
+    if (/^(?:[a-z][a-z0-9+.-]*:|\/|\\)/i.test(url)) return [];
+    try {
+      return [decodeURIComponent(url.split('#')[0])];
+    } catch {
+      return [];
+    }
+  });
+}
+
+function assertAssetInsideDirectory(root, filePath) {
+  const relative = path.relative(root, filePath);
+  if (relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) {
+    throw Object.assign(new Error("附件路径超出笔记目录，已停止复制"), { code: "ASSET_PATH_OUTSIDE_NOTE" });
   }
-  return out;
+}
+
+async function assetDestinationDirectory(root, directory, fsOps) {
+  // Check the existing ancestor before recursive mkdir can follow a symlink.
+  let ancestor = directory;
+  while (true) {
+    try {
+      assertAssetInsideDirectory(root, await fsOps.realpath(ancestor));
+      break;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      ancestor = path.dirname(ancestor);
+    }
+  }
+  await fsOps.mkdir(directory, { recursive: true });
+  const resolved = await fsOps.realpath(directory);
+  assertAssetInsideDirectory(root, resolved);
+  return resolved;
 }
 
 // "Save as" into another directory must carry the note's own attachments so the
 // copy is not a document full of broken images. Relative destinations keep their
 // path, so the Markdown itself does not change (KN-11).
 async function copyRelativeAssets(content, sourceFilePath, targetPath, fsOps) {
-  const sourceDir=path.resolve(path.dirname(String(sourceFilePath)));
-  const targetDir=path.resolve(path.dirname(targetPath));
-  const copied=[];
-  if(sourceDir===targetDir)return copied;
-  for(const dest of new Set(relativeImageDestinations(content))){
-    const from=path.resolve(sourceDir,dest),to=path.resolve(targetDir,dest);
-    if(!from.startsWith(sourceDir+path.sep)||!to.startsWith(targetDir+path.sep))continue;
-    try{
-      const bytes=await fsOps.readFile(from);
-      await fsOps.mkdir(path.dirname(to),{recursive:true});
-      await fsOps.writeFile(to,bytes);
-      copied.push(to);
-    }catch(error){
-      if(error?.code==='ENOENT'||error?.code==='EISDIR')continue;
-      throw error;
-    }
+  const destinations = new Set(relativeImageDestinations(content));
+  if (!destinations.size) return [];
+  let sourceDir;
+  try {
+    sourceDir = await fsOps.realpath(path.dirname(String(sourceFilePath)));
+  } catch (error) {
+    if (error?.code === "ENOENT") return [];
+    throw error;
   }
-  return copied;
+  const targetDir = await fsOps.realpath(path.dirname(targetPath));
+  const copied = [];
+  if (sourceDir === targetDir) return copied;
+  try {
+    for (const destination of destinations) {
+      const from = path.resolve(sourceDir, destination);
+      const to = path.resolve(targetDir, destination);
+      assertAssetInsideDirectory(sourceDir, from);
+      assertAssetInsideDirectory(targetDir, to);
+      let bytes;
+      try {
+        const source = await fsOps.realpath(from);
+        assertAssetInsideDirectory(sourceDir, source);
+        bytes = await fsOps.readFile(source);
+      } catch (error) {
+        if (error?.code === "ENOENT" || error?.code === "EISDIR") continue;
+        throw error;
+      }
+      const directory = await assetDestinationDirectory(targetDir, path.dirname(to), fsOps);
+      const filePath = path.join(directory, path.basename(to));
+      let handle;
+      try {
+        handle = await fsOps.open(filePath, "wx", 0o600);
+      } catch (error) {
+        if (error?.code !== "EEXIST") throw error;
+        const existingPath = await fsOps.realpath(filePath);
+        assertAssetInsideDirectory(targetDir, existingPath);
+        const existing = await fsOps.readFile(existingPath);
+        if (!Buffer.from(existing).equals(Buffer.from(bytes))) {
+          throw Object.assign(new Error("目标目录存在内容不同的同名附件，请选择其他保存位置"), { code: "ASSET_ALREADY_EXISTS" });
+        }
+        continue;
+      }
+      copied.push(filePath);
+      try {
+        await handle.writeFile(bytes);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+    }
+    return copied;
+  } catch (error) {
+    await Promise.all(copied.map(filePath => removeTemporaryFile(filePath, fsOps)));
+    throw error;
+  }
 }
 
 function saveErrorMessage(error) {
@@ -386,7 +449,9 @@ async function saveKnowledgeDocument(payload, {
   const content = String(safePayload.content ?? "");
   const fsOps = createFsOperations(injectedFsOps);
   const queueKey = canonicalFilePath(filePath, platform);
-  return enqueueSave(queueKey, async () => {
+  const save = async () => {
+    let copiedAssets = [];
+    let committed = false;
     try {
       // Write through symlinks so the link itself survives; replacing the link
       // path would turn a symlink into an ordinary file (KN-13).
@@ -423,15 +488,6 @@ async function saveKnowledgeDocument(payload, {
         }
       }
       await fsOps.mkdir(path.dirname(targetPath), { recursive: true });
-      // Save-as into another directory carries the note's relative attachments.
-      let copiedAssets = [];
-      if (safePayload.sourceFilePath) {
-        try {
-          copiedAssets = await copyRelativeAssets(content, String(safePayload.sourceFilePath), targetPath, fsOps);
-        } catch (error) {
-          return { canceled: false, success: false, code: "ASSET_MIGRATION_FAILED", filePath, message: `附件复制失败：${saveErrorMessage(error)}` };
-        }
-      }
       // Refuse to transcode a document whose original bytes are not valid UTF-8.
       try {
         const existing = await fsOps.readFile(targetPath);
@@ -441,6 +497,15 @@ async function saveKnowledgeDocument(payload, {
         }
       } catch (error) {
         if (error?.code !== "ENOENT") throw error;
+      }
+      // Copy only after validating the destination Markdown. Existing assets
+      // are reused only when byte-identical and never enter the rollback list.
+      if (safePayload.sourceFilePath) {
+        try {
+          copiedAssets = await copyRelativeAssets(content, String(safePayload.sourceFilePath), targetPath, fsOps);
+        } catch (error) {
+          return { canceled: false, success: false, code: "ASSET_MIGRATION_FAILED", errorCode: error?.code || "UNKNOWN", filePath, message: `附件复制失败：${saveErrorMessage(error)}` };
+        }
       }
       let migrated = { content, assetFiles: [], attachmentsDirectory: null };
       if (Array.isArray(safePayload.assets) && safePayload.assets.length) {
@@ -470,14 +535,12 @@ async function saveKnowledgeDocument(payload, {
         if (Array.isArray(migrated.createdFiles) && migrated.createdFiles.length) {
           await Promise.all(migrated.createdFiles.map((created) => removeTemporaryFile(created, fsOps)));
         }
-        if (copiedAssets.length) {
-          await Promise.all(copiedAssets.map((copied) => removeTemporaryFile(copied, fsOps)));
-        }
         if (error?.code === "EXTERNAL_CHANGE_BEFORE_COMMIT") {
           return { canceled: false, success: false, code: "EXTERNAL_CHANGE_REQUIRES_CONFIRMATION", filePath, message: error.message };
         }
         throw error;
       }
+      committed = true;
       const { replacement } = written;
       const stats = await fsOps.stat(targetPath);
       const lastSavedHash = crypto.createHash("sha256").update(Buffer.from(migrated.content, "utf8")).digest("hex");
@@ -497,8 +560,15 @@ async function saveKnowledgeDocument(payload, {
       };
     } catch (error) {
       return saveFailure(error, filePath);
+    } finally {
+      if (!committed) {
+        await Promise.all(copiedAssets.map(filePath => removeTemporaryFile(filePath, fsOps)));
+      }
     }
-  });
+  };
+  // A failed Save As must finish rolling back before another Save As can reuse
+  // the files it created. Ordinary per-document saves retain their own queue.
+  return enqueueSave(queueKey, () => safePayload.sourceFilePath ? enqueueSave("relative-assets", save) : save());
 }
 
 module.exports = {

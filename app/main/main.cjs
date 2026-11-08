@@ -414,6 +414,9 @@ function registerStorageHandlers() {
     if (!usesDialog && !(await knowledgeGate.isAllowed(payload.filePath))) {
       return deniedPathResult(payload?.filePath, "save");
     }
+    if (payload?.sourceFilePath && !(await knowledgeGate.isAllowed(payload.sourceFilePath))) {
+      return deniedPathResult(payload.sourceFilePath, "asset-source");
+    }
     const blockedAsset = assetSourcePaths(payload).find(
       (sourcePath) => !knowledgeGate.isRecoveryAssetPath(sourcePath),
     );
