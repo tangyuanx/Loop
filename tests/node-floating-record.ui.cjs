@@ -15,6 +15,7 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     const open = async id => {
       if (await page.locator(`.node-record-window[data-node-id="${id}"]`).count()) return;
       await title(id).click({ position: { x: 25, y: 20 } });
+      await page.locator(`.node-record-action[data-node-id="${id}"]`).click();
       await page.locator(`.node-record-window[data-node-id="${id}"]`).waitFor();
     };
     const editor = page.locator('[data-shell-node-record]');

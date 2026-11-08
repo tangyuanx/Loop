@@ -89,14 +89,15 @@ body .flow-empty .flow-tree:has(.node-draft) { padding-top:20px; }
    navigation focuses a different node from the selected inspector. */
 .flow-row.selected,
 .flow-row.selected:hover,
-.flow-row:has(> .node-title:focus-visible) {
+.flow-row:has(> .node-title:focus-visible, > .flow-node-main > .node-title:focus-visible) {
   background: color-mix(in srgb, var(--selected) 70%, var(--canvas));
 }
-.flow-row > .node-title:focus {
+.flow-row > .node-title:focus,
+.flow-row > .flow-node-main > .node-title:focus {
   outline: none;
   box-shadow: none;
 }
-.flow-row:has(> .node-title:focus-visible) {
+.flow-row:has(> .node-title:focus-visible, > .flow-node-main > .node-title:focus-visible) {
   box-shadow: inset 2px 0 0 var(--focus-line, var(--secondary));
 }
 

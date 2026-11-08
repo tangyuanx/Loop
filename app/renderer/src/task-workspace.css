@@ -81,27 +81,58 @@ body .flow-tools .text-button { padding-inline: 7px; }
 body .flow-toolbar .text-button { color: var(--secondary); font-size: var(--type-11); }
 body .flow-toolbar .text-button:hover { color: var(--text); background: var(--hover); }
 body .flow-scroll { padding: 0 24px 24px; }
-body .flow-tree { --row: 38px; }
-body .flow-row { border-radius: 5px; min-height: 38px; height: auto; gap: 8px; --row: 38px; }
+body .flow-outline {
+  --flow-indent: 24px;
+  --flow-node-line: calc(var(--type-13) * 1.65);
+  --flow-columns: minmax(calc(260px + var(--flow-depth) * var(--flow-indent)), .85fr) minmax(240px, 1.15fr) 66px;
+  min-width: calc(590px + var(--flow-depth) * var(--flow-indent));
+}
+body .flow-column-head, body .flow-row { display: grid; grid-template-columns: var(--flow-columns); column-gap: 12px; }
+body .flow-column-head { position: sticky; top: 0; z-index: 2; min-height: 38px; align-items: center; background: var(--canvas); border-bottom: 1px solid var(--line); color: var(--secondary); font-size: var(--type-12); }
+body .flow-column-head > :first-child { padding-left: 8px; }
+body .flow-tree { --row: 44px; min-width: 0; }
+body .flow-row { border-radius: 0; min-height: 44px; height: auto; padding: 0; align-items: start; --row: 44px; border-bottom: 1px solid transparent; }
+body .flow-tree > .flow-item + .flow-item { margin-top: 8px; padding-top: 8px; border-top: 1px solid color-mix(in srgb, var(--line) 55%, var(--canvas)); }
 body .flow-row:hover { background: var(--list); }
 body .flow-row.selected, body .flow-row.selected:hover { background: var(--selected); }
-body .flow-row.selected > .node-title { color: var(--text); }
-body .flow-row > .node-title { font-size: var(--type-12); white-space: normal; overflow-wrap: anywhere; line-height: 1.65; padding-block: 8px; }
-body .flow-row.done > .node-title { color: var(--secondary); }
-body .flow-row > .node-badge { font-size: var(--type-11); color: var(--secondary); flex-shrink: 0; }
-body .flow-row > .node-badge.todo { display: none; }
-body .flow-row .node-status { color: var(--secondary); }
-body .flow-row .node-status.done { color: var(--green); }
-body .flow-row .node-status.blocked { color: var(--orange); }
-body .flow-children, body .flow-children > .flow-item::before { border-color: var(--line); }
+body .flow-row.selected .node-title { color: var(--text); }
+body .flow-node-main { min-width: 0; display: flex; align-items: start; gap: 8px; padding: 10px 0 10px calc(8px + var(--node-depth) * var(--flow-indent)); }
+body .flow-row .node-title { height: auto; font-size: var(--type-13); white-space: normal; overflow-wrap: anywhere; line-height: var(--flow-node-line); padding: 0; }
+body .flow-row.done .node-title { color: var(--secondary); }
+body .flow-row.done .flow-conclusion:not(.editing) { color: color-mix(in srgb, var(--text) 40%, var(--secondary)); }
+body .flow-row .node-badge { display: none; }
+body .flow-row .collapse, body .flow-row .node-status { flex: 0 0 17px; height: var(--flow-node-line); color: var(--secondary); }
+body .flow-row .node-status.done { color: var(--secondary); }
+body .flow-row .node-status svg { width: 16px; height: 16px; }
+body .flow-row .node-status.done svg { background: var(--secondary); color: var(--canvas); border-radius: 3px; }
+body .flow-children { position: relative; margin-left: 0; padding-left: 0; border-left: 0; }
+body .flow-children .flow-row { margin-left: 0; }
+body .flow-children::before { content: ""; position: absolute; z-index: 1; pointer-events: none; left: calc(16px + var(--node-depth) * var(--flow-indent)); top: 0; bottom: 0; border-left: 1px solid var(--line); }
+body .flow-children > .flow-item::before { z-index: 1; top: calc(10px + var(--flow-node-line) / 2); left: calc(16px + (var(--node-depth) - 1) * var(--flow-indent)); width: var(--flow-indent); border-color: var(--line); }
+body .flow-children > .flow-hidden-parent::before { display: none; }
 body .flow-branch { display: grid; grid-template-rows: 1fr; }
 body .flow-branch[data-expanded="false"] { grid-template-rows: 0fr; }
 body .flow-branch > .flow-children { overflow: hidden; min-height: 0; }
-body .node-add { color: var(--secondary); }
-body .node-share-action { width: 26px; height: 26px; padding: 5px; margin-top: 6px; flex-shrink: 0; color: var(--secondary); opacity: 0; pointer-events: none; border-radius: 4px; }
+body .flow-row .node-add { display: inline-flex; flex: 0 0 22px; width: 22px; height: var(--flow-node-line); color: var(--secondary); }
+body .flow-node-actions { display: flex; gap: 4px; padding-top: calc(10px + (var(--flow-node-line) - 26px) / 2); align-items: center; opacity: 0; pointer-events: none; }
+body .flow-row:is(:hover,:focus-within,.selected) .flow-node-actions { opacity: 1; pointer-events: auto; }
+body .node-record-action { height: 26px; padding: 0 3px; font-size: var(--type-11); color: var(--secondary); white-space: nowrap; }
+body .node-share-action { width: 26px; height: 26px; padding: 5px; margin-top: 0; flex-shrink: 0; color: var(--secondary); opacity: 1; pointer-events: inherit; border-radius: 4px; }
 body .node-share-action svg { width: 14px; height: 14px; }
-body .flow-row:is(:hover,:focus-within,.selected) .node-share-action { opacity: 1; pointer-events: auto; }
 body .node-share-action:hover { color: var(--text); background: var(--hover); }
+body .flow-conclusion { min-width: 0; padding-block: 10px; color: var(--text); font-size: var(--type-13); line-height: 1.65; }
+body .node-conclusion-text { display: block; width: 100%; min-height: 22px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; border-radius: 2px; }
+body .node-conclusion-text.empty { color: color-mix(in srgb, var(--secondary) 70%, var(--canvas)); font-size: var(--type-12); line-height: calc(var(--type-13) * 1.65); }
+body .node-conclusion-text:focus-visible { outline: none; box-shadow: inset 0 -1px var(--input-focus); }
+body .node-conclusion-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+body .flow-conclusion.expanded .node-conclusion-preview { display: block; -webkit-line-clamp: unset; }
+body .conclusion-expand { padding: 0; height: 22px; font-size: var(--type-11); color: var(--secondary); text-decoration: underline; text-underline-offset: 3px; }
+body .conclusion-expand[hidden] { display: none; }
+body .node-conclusion-editor { display: block; width: 100%; min-height: 22px; max-height: 260px; padding: 0; margin: 0; resize: none; overflow-y: auto; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--text); font: inherit; line-height: inherit; overflow-wrap: anywhere; }
+body .node-conclusion-editor:focus { outline: none; border-bottom-color: var(--input-focus); box-shadow: none; }
+body .flow-row .draft-status { flex: 0 0 17px; height: var(--flow-node-line); }
+body .flow-row .node-title-input,
+body .flow-row .node-title-input.control22-inline { height: var(--flow-node-line); min-height: var(--flow-node-line); padding: 0; line-height: var(--flow-node-line); }
 
 /* Node actions inherit the shared menu mechanics; this surface owns density. */
 body .node-context-menu { width: 234px; padding: 6px; border: 0; border-radius: 8px; box-shadow: var(--surface-shadow); }

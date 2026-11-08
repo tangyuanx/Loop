@@ -14,8 +14,6 @@
 const SHELL_STATUS_HINTS = {
   todo: "等待继续推进",
   done: "本步骤已完成",
-  blocked: "需要先解决阻碍",
-  later: "留到之后处理",
 };
 
 // ------------------------------------------------------------
@@ -873,7 +871,7 @@ let shellLocatorQuery = "";
 function shellLocatorResults() {
   const task = shellActiveTask();
   const query = shellLocatorQuery.trim().toLowerCase();
-  const list = shellNodeList(task).filter((node) => shellFlowNodeVisible(node) && (!query || `${node.title} ${node.note}`.toLowerCase().includes(query)));
+  const list = shellNodeList(task).filter((node) => shellFlowNodeVisible(node) && (!query || `${node.title} ${node.note} ${node.conclusion}`.toLowerCase().includes(query)));
   if (!list.length) {
     return `<div class="flow-locator-empty"><span>没有匹配节点</span><button class="text-button" type="button" data-action="clear-locator">清空</button></div>`;
   }
@@ -901,17 +899,6 @@ function shellFlowLocator(trigger) {
     const host = document.querySelector(".flow-locator-results");
     if (host) host.innerHTML = shellLocatorResults();
   });
-}
-
-function shellFocusNextPending() {
-  const task = shellActiveTask();
-  if (!task) return;
-  const list = shellNodeList(task);
-  const start = list.findIndex((node) => node.id === state.selectedNodeId);
-  const next = list.slice(start + 1).find((node) => node.status === "todo" || node.status === "blocked")
-    || list.find((node) => node.status === "todo" || node.status === "blocked");
-  if (!next) return;
-  selectNodeForInspector(task.id, next.id);
 }
 
 // ------------------------------------------------------------
@@ -1440,6 +1427,17 @@ async function shellAction(data, event) {
   const trigger = event?.currentTarget || event?.target;
   const task = shellActiveTask();
   switch (data.action) {
+    case "edit-node-conclusion":
+      shellStartNodeConclusionEdit(data.taskId, data.nodeId);
+      return true;
+    case "toggle-node-conclusion": {
+      const key = shellConclusionKey(data.taskId, data.nodeId);
+      if (shellExpandedConclusions.has(key)) shellExpandedConclusions.delete(key);
+      else shellExpandedConclusions.add(key);
+      shellReplaceNodeConclusion(data.taskId, data.nodeId);
+      document.querySelector(`.flow-conclusion[data-conclusion-node="${CSS.escape(data.nodeId)}"] .conclusion-expand`)?.focus({ preventScroll: true });
+      return true;
+    }
     case "toggle-completed-nodes":
       shellHideCompletedNodes = !shellHideCompletedNodes;
       try { localStorage.setItem(SHELL_HIDE_COMPLETED_KEY, shellHideCompletedNodes ? "1" : "0"); } catch {}
@@ -1601,9 +1599,6 @@ async function shellAction(data, event) {
         if (host) host.innerHTML = shellLocatorResults();
         document.querySelector("#flow-locator-query")?.focus({ preventScroll: true });
       }
-      return true;
-    case "focus-next-pending":
-      shellFocusNextPending();
       return true;
     case "toggle-node-reading":
       state.nodeDetailFullscreen = !state.nodeDetailFullscreen;
@@ -1874,7 +1869,7 @@ function shellFinishNodeTitleEdit(commit, { restoreFocus = false } = {}) {
     input.outerHTML = renderShellNodeTitle(task, node);
     const collapse = row.querySelector(".collapse");
     collapse?.setAttribute("aria-label", `${node.collapsed ? "展开" : "收起"} ${node.title}`);
-    row.querySelector(".node-status")?.setAttribute("aria-label", `${node.title}：${shellNodeStatusLabel(node.status)}，选择状态`);
+    row.querySelector(".node-status")?.setAttribute("aria-label", `${node.title}：${shellNodeStatusLabel(node.status)}，${node.status === "done" ? "标记未完成" : "标记已完成"}`);
     row.querySelector(".node-add")?.setAttribute("aria-label", `给 ${node.title} 添加子节点`);
     bindTaskRepositoryRows(row);
     if (restoreFocus) row.querySelector(".node-title")?.focus({ preventScroll: true });
@@ -1909,6 +1904,87 @@ function shellBindInlineNodeTitles() {
   });
 }
 
+function shellReplaceNodeConclusion(taskId, nodeId) {
+  const task = state.tasks.find(item => item.id === taskId);
+  const node = task && findNode(task.nodes, nodeId);
+  const cell = taskId === state.activeTaskId && document.querySelector(`.flow-conclusion[data-conclusion-node="${CSS.escape(nodeId)}"]`);
+  if (!cell || !node) return;
+  const row = cell.closest(".flow-row");
+  cell.outerHTML = renderShellNodeConclusion(task, node);
+  retainedRegionMarkup.delete("workspace");
+  bindTaskRepositoryRows(row);
+  shellBindNodeConclusions();
+  shellSyncConclusionLayout();
+}
+
+function shellStartNodeConclusionEdit(taskId, nodeId) {
+  if (shellConclusionDraft?.taskId === taskId && shellConclusionDraft.nodeId === nodeId) return;
+  shellFinishNodeConclusionEdit(true);
+  const task = state.tasks.find(item => item.id === taskId);
+  const node = task && findNode(task.nodes, nodeId);
+  if (!node || taskId !== state.activeTaskId) return;
+  if (state.selectedNodeId) {
+    flushNodeNoteDrafts({ persist: true });
+    exitNodeDetail();
+    render();
+  }
+  shellConclusionDraft = { taskId, nodeId, original: node.conclusion || "", value: node.conclusion || "" };
+  shellReplaceNodeConclusion(taskId, nodeId);
+  const editor = shellConclusionDraft.editor;
+  editor?.focus({ preventScroll: true });
+  editor?.setSelectionRange(editor.value.length, editor.value.length);
+}
+
+function shellFinishNodeConclusionEdit(commit, { restoreFocus = false } = {}) {
+  const draft = shellConclusionDraft;
+  if (!draft) return;
+  shellConclusionDraft = null;
+  const task = state.tasks.find(item => item.id === draft.taskId);
+  const node = task && findNode(task.nodes, draft.nodeId);
+  // Each edit is saved through the normal persistence queue. Escape restores
+  // only our own current value, never a value replaced by another operation.
+  if (!commit && node && node.conclusion === draft.value && node.conclusion !== draft.original) {
+    node.conclusion = draft.original;
+    node.updatedAt = task.updatedAt = now();
+    save();
+  }
+  shellReplaceNodeConclusion(draft.taskId, draft.nodeId);
+  if (restoreFocus) document.querySelector(`.flow-conclusion[data-conclusion-node="${CSS.escape(draft.nodeId)}"] .node-conclusion-text`)?.focus({ preventScroll: true });
+}
+
+function shellBindNodeConclusions() {
+  let editor = document.querySelector("[data-shell-node-conclusion]");
+  const draft = shellConclusionDraft;
+  if (!editor || !draft) return;
+  if (draft.rendering && draft.editor && editor !== draft.editor) {
+    editor.replaceWith(draft.editor);
+    editor = draft.editor;
+  }
+  draft.editor = editor;
+  if (!bindRenderElement(editor, "node-conclusion-editor")) return;
+  shellBindTextareaHistory(editor, () => {
+    const task = state.tasks.find(item => item.id === draft.taskId);
+    const node = task && findNode(task.nodes, draft.nodeId);
+    if (!node || shellConclusionDraft !== draft) return;
+    draft.value = editor.value;
+    if (node.conclusion !== editor.value) {
+      node.conclusion = editor.value;
+      node.updatedAt = task.updatedAt = now();
+      save();
+    }
+    shellSyncConclusionLayout();
+  }, () => {
+    if (shellConclusionDraft === draft && editor.isConnected && !draft.rendering) shellFinishNodeConclusionEdit(true);
+  });
+  editor.addEventListener("keydown", event => {
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key !== "Escape" && !(event.key === "Enter" && (event.metaKey || event.ctrlKey))) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    shellFinishNodeConclusionEdit(event.key !== "Escape", { restoreFocus: true });
+  });
+}
+
 function shellBindNodeDraft() {
   if (typeof document.addEventListener === "function" && !document.__loopNodeDraftDismissBound) {
     document.__loopNodeDraftDismissBound = true;
@@ -1921,14 +1997,19 @@ function shellBindNodeDraft() {
     };
     document.addEventListener("click", dismissEmptyDraft, true);
     document.addEventListener("contextmenu", dismissEmptyDraft, true);
+    window.addEventListener("blur", () => {
+      const input = document.querySelector("[data-shell-node-draft]");
+      if (input && !input.value.trim()) shellCancelNodeDraft({ renderView: false });
+    });
   }
   document.querySelectorAll("[data-shell-node-draft]").forEach((input) => {
+    if (!bindRenderElement(input, "shell-node-draft")) return;
     const taskId = shellActiveTask()?.id;
     const nodeId = state.focusNodeTitleId;
     input.addEventListener("input", () => {
-      const task = shellActiveTask();
-      const node = shellNodeList(task).find((item) => item.id === state.focusNodeTitleId);
-      if (node) node.title = input.value;
+      const task = state.tasks.find(item => item.id === taskId);
+      const node = task && findNode(task.nodes, nodeId);
+      if (node && state.focusNodeTitleId === nodeId) node.title = input.value;
     });
     input.addEventListener("keydown", (event) => {
       if (event.isComposing || event.keyCode === 229) return;
@@ -1942,10 +2023,9 @@ function shellBindNodeDraft() {
     });
     input.addEventListener("blur", () => {
       window.setTimeout(() => {
-        if (document.activeElement === input) return;
+        if (!input.isConnected || document.activeElement === input) return;
         if (state.focusNodeTitleId !== nodeId || shellActiveTask()?.id !== taskId) return;
-        // Outside clicks cancel blanks in place; blur continues to save titles.
-        if (!shellNodeList(shellActiveTask()).find((item) => item.id === nodeId)?.title.trim()) return;
+        if (!input.value.trim()) { shellCancelNodeDraft({ renderView: false }); return; }
         shellCommitNodeDraft();
       }, 0);
     });
@@ -1955,10 +2035,10 @@ function shellBindNodeDraft() {
 function shellCommitNodeDraft() {
   const task = shellActiveTask();
   const node = shellNodeList(task).find((item) => item.id === state.focusNodeTitleId);
-  if (node) {
-    if (!node.title.trim()) node.title = "新节点";
-    node.updatedAt = now();
-  }
+  if (!task || !node) return;
+  if (!node.title.trim()) { shellCancelNodeDraft(); return; }
+  node.title = node.title.trim();
+  node.updatedAt = now();
   task.updatedAt = now();
   state.focusNodeTitleId = "";
   save();
@@ -1986,9 +2066,7 @@ function shellCancelNodeDraft({ renderView = true } = {}) {
       if (count) count.textContent = String(nodes.length);
       const progress = document.querySelector(".flow-toolbar > span");
       if (progress) progress.textContent = `${shellCountDoneNodes(task)} / ${nodes.length} 已完成`;
-      document.querySelector(".flow-tree")?.style.setProperty("--flow-depth", shellFlowDepth(task.nodes || []));
-      const next = document.querySelector('[data-action="focus-next-pending"]');
-      if (next) next.disabled = !nodes.some((node) => node.status === "todo" || node.status === "blocked");
+      document.querySelector(".flow-outline")?.style.setProperty("--flow-depth", shellFlowDepth(task.nodes || []));
       // The cached markup still contains the removed draft. A new empty draft
       // can otherwise match it and reuse a workspace with no input remaining.
       retainedRegionMarkup.delete("workspace");
@@ -2053,10 +2131,7 @@ function shellBindNodeRecordWindow() {
   });
 }
 
-function shellBindNodeRecord() {
-  shellBindNodeRecordWindow();
-  const editor = document.querySelector("[data-shell-node-record]");
-  if (!editor || !bindRenderElement(editor, "shell-node-record")) return;
+function shellBindTextareaHistory(editor, onInput, onBlur = () => {}) {
   // Chromium drops its document-wide native undo stack when a retained region
   // is detached. Keep a bounded edit journal on this reused record control.
   const history = { undo: [], redo: [], type: "", at: 0, after: null };
@@ -2089,17 +2164,13 @@ function shellBindNodeRecord() {
     history.redo.length = 0; history.type = event.inputType; history.at = stamp;
   });
   editor.addEventListener("input", () => {
-    const task = shellActiveTask();
-    const node = shellNodeList(task).find((item) => item.id === editor.dataset.shellNodeRecord);
-    if (!node) return;
-    updateNodeNoteDraft(task.id, node.id, editor.value);
-    shellSyncNodeRecordMeta(editor, now());
+    onInput();
     history.after = snapshot();
   });
   editor.addEventListener("blur", () => {
     history.at = 0;
     history.after = null;
-    flushNodeNoteDrafts?.({ persist: true });
+    onBlur();
   });
   editor.addEventListener("keydown", (event) => {
     if (event.isComposing || event.keyCode === 229) return;
@@ -2109,6 +2180,19 @@ function shellBindNodeRecord() {
     event.preventDefault();
     restore(key === "y" || event.shiftKey);
   });
+}
+
+function shellBindNodeRecord() {
+  shellBindNodeRecordWindow();
+  const editor = document.querySelector("[data-shell-node-record]");
+  if (!editor || !bindRenderElement(editor, "shell-node-record")) return;
+  shellBindTextareaHistory(editor, () => {
+    const task = shellActiveTask();
+    const node = shellNodeList(task).find(item => item.id === editor.dataset.shellNodeRecord);
+    if (!node) return;
+    updateNodeNoteDraft(task.id, node.id, editor.value);
+    shellSyncNodeRecordMeta(editor, now());
+  }, () => flushNodeNoteDrafts?.({ persist: true }));
 }
 
 const SHELL_OVERLAY_TRIGGERS = [
@@ -2269,6 +2353,7 @@ function shellBindOverlay() {
   shellBindOverlayDismissal();
   shellBindNodeDraft();
   shellBindInlineNodeTitles();
+  shellBindNodeConclusions();
   shellBindBriefDrafts();
   shellBindNodeRecord();
 }

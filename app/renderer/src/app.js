@@ -261,7 +261,7 @@ const reviewDateFieldLabels = {
 };
 
 const taskStatusValues = new Set(["active", "done"]);
-const nodeStatusValues = new Set(["todo", "done", "blocked", "later"]);
+const nodeStatusValues = new Set(["todo", "done"]);
 const appUpdateStatuses = new Set(["idle", "unsupported", "checking", "latest", "available", "downloading", "downloaded", "preparing", "installing", "error"]);
 
 let state = {
@@ -2006,13 +2006,25 @@ function updateLocalSaveReceipt() {
  * Save current state. In Electron environment, queues an async write.
  * In browser environment, writes directly to individual localStorage keys.
  */
+function tasksWithoutBlankNodeDraft() {
+  const draftId = state.focusNodeTitleId;
+  if (!draftId) return state.tasks;
+  return state.tasks.map(task => {
+    const draft = findNode(task.nodes, draftId);
+    if (!draft || draft.title.trim() || draft.children.length || draft.note.trim() || draft.conclusion.trim()) return task;
+    const nodes = removeNode(task.nodes, draftId);
+    reorder(draft.parentId ? findNode(nodes, draft.parentId).children : nodes);
+    return { ...task, nodes };
+  });
+}
+
 function save() {
   if (dataProtectionMessage || dataTransferInProgress) { updateLocalSaveReceipt(); return; }
   state.knowledgeWorkspace.visible=state.taskPane==='notes';
   const payload = {
     version: DATA_VERSION,
     knowledgeSchemaVersion: KNOWLEDGE_MIGRATION_VERSION,
-    tasks: state.tasks,
+    tasks: tasksWithoutBlankNodeDraft(),
     knowledgeDocuments: state.knowledgeDocuments,
     knowledgeWorkspace: state.knowledgeWorkspace,
     taskGroups: state.taskGroups,
@@ -2041,7 +2053,7 @@ function save() {
 
   if (!desktopStorage?.write) {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.tasks));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload.tasks));
       localStorage.setItem('loop-knowledge-documents-v1', JSON.stringify(state.knowledgeDocuments));
       localStorage.setItem('loop-knowledge-workspace-v1', JSON.stringify(state.knowledgeWorkspace));
       localStorage.setItem(TASK_GROUPS_KEY, JSON.stringify(state.taskGroups));
@@ -2114,7 +2126,7 @@ function persistedStateRevision() {
     for (const node of flatten(task.nodes)) {
       parts.push(
         `d${node.id}\u0001${node.title}\u0001${node.status}\u0001${node.order}\u0001`
-        + `${node.updatedAt}\u0001${node.note.length}\u0001${node.collapsed ? 1 : 0}`,
+        + `${node.updatedAt}\u0001${node.note.length}\u0001${node.conclusion.length}\u0001${node.collapsed ? 1 : 0}`,
       );
     }
   }
@@ -2679,7 +2691,7 @@ function globalSearchMatches() {
       else taskMatches.push(task);
     }
     flatten(task.nodes).forEach((node) => {
-      if (`${node.title || ""} ${node.note || ""}`.toLowerCase().includes(query)) {
+      if (`${node.title || ""} ${node.note || ""} ${node.conclusion || ""}`.toLowerCase().includes(query)) {
         nodeMatches.push({ task, node });
       }
     });
@@ -3702,10 +3714,8 @@ function renderNodeDetailPage(taskId, node) {
   const previousNode = nodeIndex > 0 ? orderedNodes[nodeIndex - 1] : null;
   const nextNode = nodeIndex < orderedNodes.length - 1 ? orderedNodes[nodeIndex + 1] : null;
   const statusOptions = [
-    ["todo", "待处理"],
-    ["later", "进行中"],
+    ["todo", "未完成"],
     ["done", "已完成"],
-    ["blocked", "已阻塞"],
   ];
   return `
     <aside class="node-detail-page" data-task-id="${escAttr(taskId)}" data-node-id="${escAttr(node.id)}" aria-label="节点详情页面">
@@ -3758,9 +3768,7 @@ function orderedFlowNodes(nodes) {
 
 function nodeDetailStatusText(status) {
   if (status === "done") return "已完成";
-  if (status === "blocked") return "已阻塞";
-  if (status === "later") return "进行中";
-  return "待处理";
+  return "未完成";
 }
 
 function nodeDetailPositionStyle() {
@@ -4065,7 +4073,7 @@ function computeFilteredTasks({ includeQuery = true, at = loopNow() } = {}) {
       if (!isNote && !repositoryTypes.includeTask) return false;
       if (includeQuery && q) {
         const taskText = `${task.title} ${task.description} ${task.hypothesis} ${task.conclusion}`.toLowerCase();
-        const nodeHit = flatten(task.nodes).some((node) => `${node.title} ${node.note}`.toLowerCase().includes(q));
+        const nodeHit = flatten(task.nodes).some((node) => `${node.title} ${node.note} ${node.conclusion}`.toLowerCase().includes(q));
         return taskText.includes(q) || nodeHit;
       }
       return true;
@@ -7457,6 +7465,7 @@ function selectNodeForInspector(taskId, nodeId) {
   const task = state.tasks.find((item) => item.id === taskId);
   const node = task ? findNode(task.nodes, nodeId) : null;
   if (!node) return;
+  shellFlowSelectionOnly = false;
   state.activeTaskId = taskId;
   state.selectedNodeId = nodeId;
   state.recordDraft = node.note || "";
@@ -8151,7 +8160,7 @@ async function action(data, event = null) {
   // recognises is executed there and re-rendered, the legacy chain below
   // keeps handling the remaining project commands.
   if (typeof shellAction === "function" && await shellAction(data, event)) {
-    if (!["note-format", "note-heading", "toggle-task-list", "toggle-task-info"].includes(data.action)) render();
+    if (!["note-format", "note-heading", "toggle-task-list", "toggle-task-info", "edit-node-conclusion", "toggle-node-conclusion"].includes(data.action)) render();
     return;
   }
   state.contextMenu = null;
@@ -8621,10 +8630,11 @@ async function action(data, event = null) {
   if (data.action === "toggle-all-nodes") toggleAllNodes(data.taskId);
   if (data.action === "mark-node-status") markNodeStatus(data.taskId, data.nodeId, data.status);
   if (data.action === "cycle-node-status") cycleNodeStatus(data.taskId, data.nodeId);
-  if (data.action === "open-node-detail") {
+  if (data.action === "open-node-detail" || data.action === "select-flow-node") {
     const fromLocator = event?.target?.closest?.(".flow-locator .flow-result");
     if (fromLocator) shellCloseOverlay({ restoreFocus: false });
     selectNodeForInspector(data.taskId, data.nodeId);
+    shellFlowSelectionOnly = data.action === "select-flow-node";
     render();
     if (fromLocator) document.querySelector(".node-record-window-close")?.focus({ preventScroll: true });
     return;
@@ -8726,6 +8736,9 @@ function nodeMarkdownLines(node, depth) {
   const prefix = `${"  ".repeat(depth)}-`;
   const status = node.status === "done" ? "已完成" : nodeStatusText(node.status);
   const lines = [`${prefix} ${node.title || "未命名节点"}（${status}）`];
+  if ((node.conclusion || "").trim()) {
+    lines.push("", `${"  ".repeat(depth + 1)}结论：`, indentMarkdown(node.conclusion.trim(), depth + 1), "");
+  }
   if ((node.note || "").trim()) {
     lines.push("", `${"  ".repeat(depth + 1)}记录：`, indentMarkdown(node.note.trim(), depth + 1), "");
   }
@@ -8824,6 +8837,7 @@ function openTaskFromGlobalList(taskId, nodeId = "", options = {}) {
   state.activeGroupId = fromPage ? ALL_TASKS_GROUP_ID : task.groupId || UNGROUPED_TASKS_GROUP_ID;
   state.activeTaskId = task.id;
   state.selectedNodeId = nodeId;
+  shellFlowSelectionOnly = false;
   state.recordDraft = nodeId ? findNode(task.nodes, nodeId)?.note || "" : "";
   state.nodeDetailFullscreen = false;
   state.nodeDetailPosition = null;
@@ -9611,9 +9625,7 @@ function cycleNodeStatus(taskId, nodeId) {
   const task = state.tasks.find((item) => item.id === taskId);
   const node = task ? findNode(task.nodes, nodeId) : null;
   if (!node) return;
-  const statusCycle = ["todo", "later", "done", "blocked"];
-  const currentIndex = statusCycle.indexOf(node.status);
-  markNodeStatus(taskId, nodeId, statusCycle[(currentIndex + 1) % statusCycle.length]);
+  markNodeStatus(taskId, nodeId, node.status === "done" ? "todo" : "done");
 }
 
 /**
@@ -9757,15 +9769,11 @@ function reorder(nodes) {
 
 function nodeStatusText(status) {
   if (status === "done") return "已完成";
-  if (status === "blocked") return "卡住";
-  if (status === "later") return "稍后";
   return "未完成";
 }
 
 function nodeStatusBadgeText(status) {
   if (status === "done") return "done";
-  if (status === "blocked") return "blocked";
-  if (status === "later") return "doing";
   return "todo";
 }
 

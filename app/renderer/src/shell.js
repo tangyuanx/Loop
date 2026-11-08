@@ -58,11 +58,12 @@ const SHELL_ICON_PATHS = {
   restoreRecord: "M3 8h5V3m8 0v5h5M8 21v-5H3m18 0h-5v5",
 };
 
-const SHELL_NODE_STATUS_LABELS = { todo: "待处理", done: "已完成", blocked: "卡住", later: "稍后" };
+const SHELL_NODE_STATUS_LABELS = { todo: "未完成", done: "已完成" };
+const SHELL_TASK_TAG_LABELS = { blocked: "卡住", later: "稍后" };
 const SHELL_WEEKDAY_NAMES = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
 function shellIcon(name, className = "") {
-  const sprite = { taskList: "columns", share: "share-2" }[name];
+  const sprite = { taskList: "columns", share: "share-2", nodeTodo: "square", nodeDone: "check" }[name];
   if (sprite) return `<svg${className ? ` class="${escAttr(className)}"` : ""} viewBox="0 0 24 24" aria-hidden="true"><use href="./src/assets/feather/feather-sprite.svg#${sprite}"></use></svg>`;
   const path = SHELL_ICON_PATHS[name] || SHELL_ICON_PATHS.circle;
   return `<svg${className ? ` class="${escAttr(className)}"` : ""} viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"></path></svg>`;

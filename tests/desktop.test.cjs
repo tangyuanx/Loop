@@ -4662,9 +4662,9 @@ test("processing flow matches the compact reference tree and opens details only 
   assert.match(result.tree, /flow-node-marker flow-status-bullet status-todo/);
   assert.match(result.tree, /feather-sprite\.svg#disc/);
   assert.match(result.tree, /flow-status-badge status-todo"[^>]*data-action="cycle-node-status"[^>]*>todo</);
-  assert.match(result.tree, /flow-status-badge status-later"[^>]*data-action="cycle-node-status"[^>]*>doing</);
+  assert.doesNotMatch(result.tree, /flow-status-badge status-(?:later|blocked)/);
   assert.match(result.tree, /flow-status-badge status-done"[^>]*data-action="cycle-node-status"[^>]*>done</);
-  assert.deepEqual(result.cycleStatuses, ["later", "done", "blocked", "todo"]);
+  assert.deepEqual(result.cycleStatuses, ["done", "todo", "done", "todo"]);
   assert.match(result.tree, /class="flow-tree-rail/);
   assert.match(result.tree, /class="flow-tree-elbow"/);
   assert.match(result.tree, /data-flow-select data-task-id="flow_reference" data-node-id="root_todo"/);
@@ -4675,7 +4675,8 @@ test("processing flow matches the compact reference tree and opens details only 
   assert.match(result.detail, /class="node-detail-header"[\s\S]*class="node-detail-scroll"/);
   assert.match(result.detail, /class="node-detail-info"[\s\S]*aria-label="查看节点路径"/);
   assert.match(result.detail, /class="node-detail-info-popover">[\s\S]*<span>路径<\/span>/);
-  assert.match(result.detail, /node-detail-status-trigger status-later"[^>]*>进行中/);
+  assert.match(result.detail, /node-detail-status-trigger status-todo"[^>]*>未完成/);
+  assert.doesNotMatch(result.detail, /data-status="(?:later|blocked)"/);
   assert.match(result.detail, /class="node-detail-status-options"/);
   assert.match(result.detail, /data-action="mark-node-status"[\s\S]*data-status="done"/);
   assert.match(result.detail, /<label for="node-detail-record-child_doing">详情<\/label>/);
@@ -4778,7 +4779,7 @@ test("shell node record input persists through autosave and blur after switching
   const nodes = JSON.parse(harness.storageValue("task-flow-sheet-prototype-v2"))[0].nodes;
   assert.equal(nodes[0].note, "切换前的新输入");
   assert.equal(nodes[0].title, "定位问题");
-  assert.equal(nodes[0].status, "later");
+  assert.equal(nodes[0].status, "todo", "legacy node states normalize to unfinished");
   assert.equal(nodes[1].note, "第二条记录");
 });
 

@@ -181,3 +181,7 @@ body .nav-collapsed .nav-section-heading > span:first-child { display: none; }
   body .shell-group-context { max-width: 160px; }
   body .shell-actions .task-share-action > span { display: none; }
 }
+@media (max-width: 760px) {
+  body .list-resizer { display: none; }
+  body[data-window25] .app::before { left: 56px; }
+}

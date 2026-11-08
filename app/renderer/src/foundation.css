@@ -328,6 +328,7 @@ body :is(
   .note-heading-select,
   .widget-title-input,
   .record-editor,
+  .node-conclusion-editor,
   #knowledge-source,
   .kn-table-cell-editor,
   .cm-content,
@@ -357,6 +358,7 @@ body :is(
   .note-heading-select,
   .widget-title-input,
   .record-editor,
+  .node-conclusion-editor,
   #knowledge-source,
   .kn-table-cell-editor,
   .ProseMirror,
@@ -430,9 +432,14 @@ body .wb-menu button:focus-visible {
   outline-offset: -2px;
 }
 
-body .flow-row:has(> .node-title:focus-visible) {
+body .flow-row:has(> .node-title:focus-visible, > .flow-node-main > .node-title:focus-visible) {
   background: color-mix(in srgb, var(--selected) 70%, var(--canvas));
   box-shadow: inset 2px 0 var(--focus-line);
+}
+
+body .node-conclusion-text:focus-visible {
+  outline: none;
+  box-shadow: inset 0 -1px 0 var(--focus-line);
 }
 
 body .node-title-rename:focus,

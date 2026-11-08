@@ -72,9 +72,7 @@ const settle = page => page.evaluate(async()=>{
   await page.locator('[data-recovery26="undo"]').click();
   await page.waitForFunction(()=>findNode(shellActiveTask().nodes,'parent'));
   assert.deepEqual(await page.evaluate(()=>findNode(shellActiveTask().nodes,'parent')),originalSubtree,'deletion Undo restores the exact subtree and records');
-  await page.locator('[data-action="focus-next-pending"]').click();await settle(page);
-  assert.equal(await page.evaluate(()=>Boolean(findNode(shellActiveTask().nodes,state.selectedNodeId))),true,'next pending remains reachable');
-  await page.locator('[data-action="close-node-detail"]').click();await settle(page);
+  assert.equal(await page.locator('[data-action="focus-next-pending"]').count(),0,'next-pending navigation has been removed');
   // Persist and compare the complete real tree, including parentId/order/notes.
   const saved=await page.evaluate(async()=>{flushNodeNoteDrafts({persist:true});await flushSave();return structuredClone(shellActiveTask().nodes)});
   const disk=JSON.parse(await fs.readFile(path.join(profile,'task-data.json'),'utf8'));assert.deepEqual(disk.tasks.find(t=>t.id==='work').nodes,saved);

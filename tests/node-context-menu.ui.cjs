@@ -127,6 +127,46 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
     await expectCancelled();
     assert.equal(await page.locator('.collapse[data-node-id="n44"]').isDisabled(), true);
 
+    assert.equal(await page.locator('[data-action="focus-next-pending"]').count(), 0);
+    assert.equal(await page.evaluate(() => typeof shellFocusNextPending), 'undefined');
+    for (const value of ['', '   ']) {
+      await page.locator('.add-node').click();
+      const draft = page.locator('[data-shell-node-draft]');
+      await draft.fill(value);
+      assert.equal(await page.locator('.draft-hint').count(), 0, 'new nodes have no keyboard hint');
+      const pendingId = await page.evaluate(() => state.focusNodeTitleId);
+      await page.evaluate(() => flushSave());
+      const savedWhileEditing = await page.evaluate(async id => {
+        const data = await personalTaskTrack.storage.read();
+        return Boolean(findNode(data.tasks[0].nodes, id));
+      }, pendingId);
+      assert.equal(savedWhileEditing, false, 'an empty draft is not written to disk');
+      await page.keyboard.press('Enter');
+      await expectCancelled();
+
+      await page.locator('.add-node').click();
+      await page.locator('[data-shell-node-draft]').fill(value);
+      await page.keyboard.press('Tab');
+      await expectCancelled();
+      assert.equal(await page.locator('.add-node').evaluate(el => el === document.activeElement), true, 'Tab keeps its next target');
+    }
+    await page.locator('.add-node').click();
+    await page.evaluate(() => render());
+    await page.waitForFunction(() => document.activeElement?.matches('[data-shell-node-draft]'));
+    assert.equal(await page.locator('[data-shell-node-draft]').count(), 1, 'rerendering preserves the focused draft');
+    await page.locator('[data-shell-node-draft]').evaluate(el => el.blur());
+    await expectCancelled();
+
+    await page.locator('.add-node').click();
+    await page.evaluate(() => { state.taskPane = 'history'; render(); });
+    assert.equal(await page.evaluate(() => state.focusNodeTitleId), '');
+    assert.deepEqual(await tree(), nodes, 'keyboard/programmatic navigation cannot leave an empty node');
+    await page.evaluate(() => { state.taskPane = 'flow'; render(); });
+    await page.locator('.add-node').click();
+    await page.evaluate(() => flushSave());
+    await page.reload(); await page.locator('.flow-scroll').waitFor();
+    assert.deepEqual(await tree(), nodes, 'a blank draft cannot return after restart');
+
     await page.locator('.add-node').click();
     const oldDraft = await page.evaluate(() => state.focusNodeTitleId);
     await page.locator('.add-node').click();
