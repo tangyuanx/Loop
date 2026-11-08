@@ -84,7 +84,11 @@ async function main(command) {
       method, headers: {Authorization: 'Bearer ' + process.env.GH_TOKEN, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json', 'Cache-Control': 'no-cache'},
       body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(30000),
     });
-    if (!response.ok) {const error = Error('GitHub ' + method + ' ' + route + ': HTTP ' + response.status); error.status = response.status; throw error;}
+    if (!response.ok) {
+      const detail=await response.json().catch(()=>({}));
+      const error = Error('GitHub ' + method + ' ' + route + ': HTTP ' + response.status + (detail.message?' · '+detail.message:''));
+      error.status = response.status; throw error;
+    }
     return response.json();
   };
   const candidate = await verifiedPublication(api, repo, process.env.RELEASE_REQUEST);
