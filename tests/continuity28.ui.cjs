@@ -74,7 +74,7 @@ const { _electron: electron } = require('playwright-core');
     await page.evaluate(() => document.querySelector('[data-action="close-node-detail"]').click()); await settle();
     // DOM-only synthetic click has no trusted pointer intent; Escape does.
     await page.evaluate(() => { state.selectedNodeId = 'node4'; render(); }); await settle();
-    assert.equal(await page.evaluate(() => document.querySelector('.inspector')?.dataset.nodeId), 'node4');
+    assert.equal(await page.evaluate(() => document.querySelector('.node-record-window')?.dataset.nodeId), 'node4');
     // Dispatch from a DOM target, like a real key. Dispatching at Window itself
     // does not traverse the capture phase and is a different event lifecycle.
     await page.evaluate(() => { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); }); await settle();

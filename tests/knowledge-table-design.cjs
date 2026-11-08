@@ -9,7 +9,7 @@ module.exports=async({page,choose,mode,markdown})=>{
  const menu=async(scope,index)=>{await (scope==='row'?row(index):scope==='column'?column(index):widget.locator('[data-table-action=tools]')).click();await page.locator('.kn-table-menu').waitFor();};
  const command=async name=>{await page.locator(`[data-table-command="${name}"]:not(:disabled)`).first().click();await page.waitForTimeout(60);};
  const undo=async()=>{await page.evaluate(()=>knowledgeCurrentEntry().format('undo'));await page.waitForTimeout(50);};
- await page.locator('.knowledge-header').click({position:{x:20,y:10}});await page.mouse.move(700,100);assert.equal(await row(1).evaluate(el=>getComputedStyle(el).opacity),'0');await widget.hover();assert.equal(await row(1).evaluate(el=>getComputedStyle(el).opacity),'1');
+ await page.locator('.task-work-main > .tabs-bar').click({position:{x:20,y:10}});await page.mouse.move(700,100);assert.equal(await row(1).evaluate(el=>getComputedStyle(el).opacity),'0');await widget.hover();assert.equal(await row(1).evaluate(el=>getComputedStyle(el).opacity),'1');
  await menu('row',1);await command('row-duplicate');assert.equal(await widget.locator('tbody tr').count(),4);await undo();assert.equal(await markdown(),source);
  await menu('row',1);await command('row-move'); // first enabled match is "下移一行".
  assert.match(await markdown(),/\| B \| 2 \|\n\| A \| 1 \|/);await undo();

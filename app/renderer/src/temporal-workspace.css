@@ -16,17 +16,18 @@ body .work15-pill i { width: 4px; height: 4px; background: var(--secondary); }
 body .work15-pill[data-phase-type="work"] i,
 body .work15-pill[data-phase-type="growth"] i { background: var(--green); }
 body .work15-pill[data-phase-type="meeting"] i { background: var(--orange); }
+body .work15-dialog:has(> .work15-tabbar) { block-size: min(560px, calc(100dvh - 110px)); }
 body .work15-dialog .dialog-head { padding: 20px 24px 16px; }
 body .work15-dialog .dialog-head h2 { font-weight: var(--ui-emphasis-weight); }
 body .work15-tabbar { gap: 24px; }
 body .work15-tabbar button { font-size: var(--type-12); }
-body .work15-tabbar button.active { color: var(--text); border-bottom: 1px solid var(--text); }
+body .work15-tabbar button.active { color: var(--text); border-bottom-color: var(--text); }
 body .work15-tabbar .text-button { color: var(--secondary); }
-body .work15-body { padding: 24px; scrollbar-gutter: stable; }
+body .work15-body { flex: 1 1 auto; padding: 24px; scrollbar-gutter: stable; }
 body .work15-current-top { gap: 12px; flex-wrap: wrap; font-size: var(--type-11); }
 body .work15-current h3 { font-size: calc(21px * var(--font-scale,1)); line-height: 1.55; font-weight: var(--ui-emphasis-weight); overflow-wrap: anywhere; margin-block: 20px 12px; }
 body .work15-current p { font-size: var(--type-12); line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
-body .work15-dialog > footer { flex-wrap: wrap; gap: 8px; }
+body .work15-dialog > footer { flex: none; flex-wrap: wrap; gap: 8px; }
 body .work15-phase { gap: 16px; padding: 14px 10px; font-size: var(--type-12); }
 body .work15-phase.active { color: var(--text); background: var(--selected); }
 body .work15-phase time { flex-shrink: 0; }

@@ -53,6 +53,15 @@ function knowledgeBindToolbar() {
   if(!surface)return;
   const actions=surface.querySelector('.knowledge-note-actions');if(!actions)return;
   const controller=new AbortController();
+  const card=surface.closest('.task-work-area')?.querySelector('[data-task-info]');
+  const fitChrome=()=>{
+    surface.style.setProperty('--knowledge-actions-clearance',actions.offsetTop+actions.offsetHeight+8+'px');
+    if(!card?.getClientRects().length)return;
+    const clearance=Math.floor(actions.getBoundingClientRect().top-card.getBoundingClientRect().top-8);
+    const header=card.querySelector('.task-info-head').offsetHeight;
+    const limit=Math.max(header,clearance)+'px';
+    if(card.style.getPropertyValue('--task-info-max-height')!==limit)card.style.setProperty('--task-info-max-height',limit);
+  };
   const binding={surface,actions,controller,frame:0};
   const update=()=>{
     binding.frame=0;
@@ -60,12 +69,13 @@ function knowledgeBindToolbar() {
     actions.toggleAttribute('data-over-content',knowledgeToolbarContentUnder(actions,surface));
   };
   const schedule=()=>{if(!binding.frame)binding.frame=requestAnimationFrame(update);};
-  const resize=new ResizeObserver(schedule),mutations=new MutationObserver(schedule);
+  const resize=new ResizeObserver(()=>{fitChrome();schedule();}),mutations=new MutationObserver(schedule);
   Object.assign(binding,{schedule,resize,mutations});knowledgeToolbarBinding=binding;
   resize.observe(surface);resize.observe(actions);
   mutations.observe(surface,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['hidden','data-mode']});
   surface.addEventListener('scroll',schedule,{capture:true,passive:true,signal:controller.signal});
   document.fonts?.addEventListener('loadingdone',schedule,{signal:controller.signal});
+  fitChrome();
   schedule();
 }
 
@@ -416,7 +426,7 @@ function knowledgeSyncNotice(task,pane) {
   if(task.knowledgeNote.documentState==='EXTERNAL_CHANGED') {
     const resolve=document.createElement('button');resolve.type='button';resolve.className='text-button';resolve.textContent='处理冲突';resolve.onclick=()=>shellKnowledgeConflict(task);notice.append(resolve);
   }
-  pane.querySelector('.knowledge-header')?.after(notice);
+  pane.querySelector('.knowledge-note-surface')?.before(notice);
 }
 function knowledgeRefreshPanels(task) {
   const pane=document.querySelector('.knowledge-pane');if(pane?.dataset.taskId!==task?.id)return;

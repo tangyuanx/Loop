@@ -122,16 +122,13 @@ function renderKnowledgeToolbar(task) {
 function renderShellKnowledge(task) {
   const owner = task;
   task = knowledgeActiveDocument(task);
-  if(!task)return `<section class="knowledge-pane task-knowledge-pane" aria-label="知识笔记"><header class="knowledge-header"><div class="wb-tabs">${renderShellTabs(owner)}</div></header><div class="knowledge-note-surface">${renderKnowledgeToolbar(null)}<div class="kn-empty-document"><p>打开一篇笔记，或从空白开始</p><p>在右上角「⋯」菜单中新建、打开或选择最近的笔记</p></div></div></section>`;
+  if(!task)return `<section class="knowledge-pane task-knowledge-pane" aria-label="知识笔记"><div class="knowledge-note-surface">${renderKnowledgeToolbar(null)}<div class="kn-empty-document"><p>打开一篇笔记，或从空白开始</p><p>在右上角「⋯」菜单中新建、打开或选择最近的笔记</p></div></div></section>`;
   const noteState = shellKnowledgeState(task);
   const mode = shellKnowledgeMode();
   const width = shellNoteWidth();
   const stats = markdownStats(task.notes);
   return `
     <section class="knowledge-pane task-knowledge-pane" data-task-id="${escAttr(task.id)}" data-knowledge-state="${escAttr(noteState.key)}" aria-label="知识笔记">
-      <header class="knowledge-header">
-        <div class="wb-tabs">${renderShellTabs(owner)}</div>
-      </header>
       ${renderKnowledgeTabs(owner)}
       ${renderShellKnowledgeNotice(task, noteState)}
       <div class="knowledge-note-surface">

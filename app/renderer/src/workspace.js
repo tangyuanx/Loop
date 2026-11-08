@@ -670,7 +670,7 @@ function renderShellWorkspace(task) {
   return `<section class="task-work-area ${shellTaskInfoCollapsed.has(task.id) ? "task-info-collapsed" : ""}">
       <div class="task-work-main">
         ${renderShellBrief(task)}
-        ${pane === "notes" ? "" : renderShellTabs(task)}
+        ${renderShellTabs(task)}
         <div class="tab-content">
           ${pane === "flow" ? renderShellFlow(task) : pane === "notes" ? renderShellNotes(task) : renderShellHistory(task)}
         </div>

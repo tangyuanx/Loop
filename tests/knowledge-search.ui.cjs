@@ -100,7 +100,7 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
    for(const theme of ['light','dark']){
     await page.evaluate(({theme,short})=>{state.theme=theme;render();const e=knowledgeCurrentEntry();e.view.dispatch({changes:{from:0,to:e.view.state.doc.length,insert:short}});document.querySelector('.knowledge-body').scrollTop=0;window.__floatingView=e.view;},{theme,short});
     await frame();
-    assert.equal(await page.locator('.knowledge-header [data-kn-action=find]').count(),0);
+    assert.equal(await page.locator('.task-work-main > .tabs-bar [data-kn-action=find]').count(),0);
     assert.equal(await page.locator('.knowledge-note-actions').getAttribute('data-over-content'),null);
     const measure=()=>page.evaluate(()=>{
      const r=document.querySelector('.knowledge-body').getBoundingClientRect(),b=document.querySelector('[data-wb-action=focus]').getBoundingClientRect();

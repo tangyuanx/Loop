@@ -2527,8 +2527,7 @@ function render() {
   retainRegion("topbar", topbarMarkup);
   retainRegion("task-list", listMarkup);
   retainRegion("workspace", workspaceMarkup);
-  // A draft/status refresh may replace the note chrome while the tabs are in
-  // flight. Preserve that unchanged operation independently of the workspace.
+  // Preserve the shared pane controls across content-only redraws.
   if (regionReuse.get("workspace") !== "reused") {
     const tabs = document.querySelector(".workspace .tabs-bar");
     if (tabs) {
@@ -7418,8 +7417,9 @@ function startDetailResize(event) {
 // ============================================================
 // NODE DETAIL LIFECYCLE
 // ============================================================
-function exitNodeDetail() {
+function exitNodeDetail({ restoreFocus = false } = {}) {
   if (!state.selectedNodeId) return false;
+  const nodeId = state.selectedNodeId;
   // Closing ends the title-click gesture; a quick reopen is not a rename.
   flowNodeLastTitleClick = null;
   state.selectedNodeId = "";
@@ -7427,6 +7427,7 @@ function exitNodeDetail() {
   state.nodeDetailFullscreen = false;
   document.querySelector(".node-record-window, .node-detail, .node-detail-page")?.remove();
   document.querySelectorAll(".flow-row.selected").forEach((row) => row.classList.remove("selected"));
+  if (restoreFocus) document.querySelector(`.node-title[data-node-id="${CSS.escape(nodeId)}"]`)?.focus({ preventScroll: true });
   return true;
 }
 
@@ -8621,8 +8622,11 @@ async function action(data, event = null) {
   if (data.action === "mark-node-status") markNodeStatus(data.taskId, data.nodeId, data.status);
   if (data.action === "cycle-node-status") cycleNodeStatus(data.taskId, data.nodeId);
   if (data.action === "open-node-detail") {
+    const fromLocator = event?.target?.closest?.(".flow-locator .flow-result");
+    if (fromLocator) shellCloseOverlay({ restoreFocus: false });
     selectNodeForInspector(data.taskId, data.nodeId);
     render();
+    if (fromLocator) document.querySelector(".node-record-window-close")?.focus({ preventScroll: true });
     return;
   }
   if (data.action === "navigate-node-detail" && data.nodeId) {
@@ -10644,7 +10648,7 @@ window.addEventListener("keydown", (event) => {
     }
     if (state.selectedNodeId || state.settingsOpen || state.calendarOpen || state.reviewOpen || state.feedbackOpen || recurrencePopoverTaskId || taskGroupSelectTaskId || deadlinePopoverTaskId || repositoryGroupPickerOpen || repositoryFilterMenuOpen || taskPriorityMenu) {
       event.preventDefault();
-      exitNodeDetail();
+      exitNodeDetail({ restoreFocus: true });
       state.settingsOpen = false;
       state.calendarOpen = false;
       state.reviewOpen = false;

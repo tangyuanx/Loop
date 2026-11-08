@@ -105,6 +105,36 @@ async function until(check) {
     await start();
     await choose('main');
     await active('main');
+    await test('task pane controls stay below the brief and retain position across keyboard switches', async () => {
+      await size(1024);
+      await page.waitForFunction(() => window.LoopContinuity28);
+      const geometry = () => page.locator('.pane-tab').evaluateAll(buttons =>
+        buttons.map(button => {
+          const { x, y, width, height } = button.getBoundingClientRect();
+          return { x, y, width, height };
+        }));
+      const briefToggle = page.locator('[data-brief21-toggle]');
+      const initial = await briefToggle.getAttribute('aria-expanded');
+      for (const expanded of [initial === 'true' ? 'false' : 'true', initial]) {
+        await briefToggle.click();
+        await frame();
+        assert.equal(await briefToggle.getAttribute('aria-expanded'), expanded);
+        const brief = await page.locator(expanded === 'true' ? '.task-work-main > .brief' : '[data-brief21-toggle]').boundingBox();
+        const tabs = await page.locator('.task-work-main > .tabs-bar').boundingBox();
+        assert.ok(brief.y + brief.height <= tabs.y, 'the brief stays above the shared task pane tabs');
+        const before = await geometry();
+        assert.equal(before.length, 3);
+        for (const pane of ['flow', 'history', 'notes', 'history', 'flow', 'notes']) {
+          const button = page.locator(`.pane-tab[data-pane="${pane}"]`);
+          await button.press('Enter');
+          await frame();
+          assert.equal(await button.getAttribute('aria-pressed'), 'true');
+          assert.equal(await button.evaluate(el => el === document.activeElement), true);
+          assert.deepEqual(await geometry(), before);
+        }
+      }
+      await size(1280);
+    });
     await test('new, open and recent are only exposed in the more menu',async()=>{
       for(const action of ['new-note','open-file','recent']){
         assert.equal(await page.locator('.knowledge-pane [data-kn-action="'+action+'"]').count(),0);
@@ -142,7 +172,7 @@ async function until(check) {
           assert.equal(new Set(sample.widths).size, 1);
           assert.ok(sample.clipped);
           const colors = await page.locator('.knowledge-pane').evaluate(pane =>
-            ['.knowledge-header', '.kn-document-bar', '.knowledge-body'].map(selector => getComputedStyle(pane.querySelector(selector)).backgroundColor));
+            [pane.closest('.workspace'), pane.querySelector('.kn-document-bar'), pane.querySelector('.knowledge-body')].map(node => getComputedStyle(node).backgroundColor));
           assert.equal(new Set(colors).size, 1);
           await tab('main').hover();
           const backgrounds = await tab('main').evaluate(node => [...node.parentElement.children].map(button => getComputedStyle(button).backgroundColor));

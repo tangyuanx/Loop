@@ -165,13 +165,6 @@ html, body {
   min-height: min(680px, 100vh);
 }
 
-/* A floating task card must not intercept the note toolbar underneath it. */
-body .knowledge-header {
-  position: relative;
-  z-index: 92;
-  background: var(--canvas);
-}
-
 /* Ordinary fields keep a thin neutral boundary and a very quiet surface. */
 body :is(
   input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"])),

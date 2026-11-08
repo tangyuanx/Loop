@@ -31,21 +31,24 @@ body[data-window25] .topbar .brand { background: var(--repository-nav); }
 body[data-window25] .breadcrumb { min-width: 0; max-width: none; flex: 1 1 auto; padding-right: 12px; font-size: var(--type-11); }
 body[data-window25] .breadcrumb b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body[data-window25] .breadcrumb > svg { flex-shrink: 0; }
-body .shell-list-header { display: flex; align-items: center; justify-content: flex-end; flex: 0 0 var(--list-width); width: var(--list-width); height: 48px; padding: 0 12px; box-sizing: border-box; position: relative; }
+/* Topbar slots follow the expanded columns. Folding either column only
+   changes the grid below the titlebar. Reserve space for the title and caption
+   at high zoom before using the full list width for the header. */
+body .shell-list-header {
+  --list-header-width: clamp(40px, calc(100% - var(--shell-expanded-nav-width, 184px) - var(--window25-native-caption-width, 0px) - 188px), var(--list-width));
+  display: flex; align-items: center; justify-content: flex-end;
+  flex: 0 0 var(--list-header-width); width: var(--list-header-width); height: 48px;
+  padding: 0 12px; box-sizing: border-box; position: relative;
+}
 body .shell-list-header::after { content: ""; position: absolute; right: 0; top: 15px; width: 1px; height: 18px; background: var(--workspace-line); }
-body .app.list-collapsed .shell-list-header { flex-basis: 46px; width: 46px; padding-inline: 8px; }
 body .app.app-wide .shell-list-header { display: none; }
 body .shell-pane-toggle { width: 28px; height: 28px; padding: 6px; flex-shrink: 0; border-radius: 6px; color: var(--secondary); background: transparent; }
 body .shell-pane-toggle svg { width: 16px; height: 16px; }
 body .shell-pane-toggle:hover { background: var(--surface-navigation-hover); color: var(--workspace-text); }
 body .shell-pane-toggle[aria-expanded="false"] { color: var(--workspace-text); background: var(--workspace-selected); }
-body[data-window25] .topbar .brand { flex-basis: var(--nav-width); width: var(--nav-width); padding-inline: 10px; gap: 6px; }
-body[data-window25] .brand .nav-toggle { display: inline-flex; width: 26px; height: 28px; margin-left: auto; padding: 5px; }
-body[data-window25] .nav-collapsed .brand .brand-mark,
-body[data-window25] .nav-collapsed .brand strong { display: none; }
-body[data-window25="mac"] .nav-collapsed .topbar .brand { flex-basis: 104px; width: 104px; padding-inline: 8px; }
-body[data-window25="mac"] .nav-collapsed .shell-list-header { flex-basis: calc(var(--list-width) - 40px); width: calc(var(--list-width) - 40px); }
-body[data-window25="mac"] .nav-collapsed.list-collapsed .shell-list-header { flex-basis: 36px; width: 36px; padding-inline: 4px; }
+body[data-window25] .topbar .brand { flex-basis: var(--shell-expanded-nav-width, 184px); width: var(--shell-expanded-nav-width, 184px); justify-content: flex-start; padding-inline: 10px; gap: 6px; }
+body[data-window25] .topbar .brand strong { display: block; }
+body[data-window25] .topbar .brand .nav-toggle { display: inline-flex; width: 26px; height: 28px; margin-left: auto; padding: 5px; }
 body[data-window25] .breadcrumb { gap: 8px; padding-left: 16px; margin-left: 0; }
 body .shell-route-name { white-space: nowrap; flex-shrink: 0; }
 body .shell-task-path { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 45%; color: var(--workspace-secondary); font-size: var(--type-11); }
@@ -131,6 +134,9 @@ body .task-list-pane .list-search {
 
 body .list-search input { font-size: var(--type-11); }
 body .list-search kbd { border: 0; background: transparent; color: var(--secondary); }
+body .list-search-end { display: grid; place-items: center; flex: none; min-inline-size: 23px; }
+body .list-search-end > * { grid-area: 1 / 1; }
+body .list-search:has(input:not(:placeholder-shown)) .search-shortcut { visibility: hidden; }
 body .task-list-pane .list-heading { padding: 15px 20px 17px; border: 0; gap: 6px; }
 body .list-heading h2 { min-width: 0; font-size: var(--type-13); gap: 9px; }
 body .list-heading .list-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -145,6 +151,7 @@ body .heading-list-actions :is(.scope-filter, .icon-button) {
 }
 
 body .heading-list-actions :is(.scope-filter, .icon-button):hover { background: var(--hover); color: var(--text); }
+body .scope-filter .filter-indicator { display: grid; place-items: center; flex: none; width: 17px; height: 17px; }
 body .task-list-pane .tasks-scroll { padding: 2px 12px 20px; }
 body .task-list-pane .task-item { height: 44px; min-height: 44px; margin: 4px 0; border-radius: 8px; gap: 7px; padding-inline: 9px; }
 body .task-item.selected::before { display: none; }

@@ -90,11 +90,7 @@
     const viewportRevision = ++viewportEpoch;
     const click = bridge?.currentClick(), old = context();
     if (!click) bridge?.cancel(); // Background/later redraws cannot reuse a press.
-    const oldTabsElement = document.querySelector('.tabs-bar');
-    const oldContentElement = document.querySelector('.tab-content');
-    const oldBriefElement = document.querySelector('.workspace > .brief, .task-work-main > .brief');
     const oldGroup = click && one(click.selector);
-    const oldTabs = rect(oldTabsElement), oldContent = rect(document.querySelector('.tab-content'));
     const interaction = intent && performance.now() - intent.time < 500 ? intent : null;
     const anchorSelector = interaction?.action === 'toggle-node-collapse' && interaction.node ? `.collapse[data-node-id="${CSS.escape(interaction.node)}"]` : null;
     const anchor = anchorSelector && rect(one(anchorSelector));
@@ -127,27 +123,11 @@
       // The retained operation keeps its animation and preload sampler. Object
       // replacement or a changed context still ends the original transaction.
       const group = one(click.selector);
-      if (sameTask && old.pane === next.pane && old.node === next.node && group === oldGroup && group?.isConnected && oldTabsElement === document.querySelector('.tabs-bar')) {
-        // The note chrome can change without changing the tabs. Carry the
-        // content's existing animation phase to its replacement; otherwise it
-        // jumps underneath the tabs and the preload hit test correctly stops.
-        for (const a of [...animations]) {
-          const target = a.effect?.target;
-          if (target?.isConnected) continue;
-          const replacement = target === oldContentElement ? document.querySelector('.tab-content')
-            : target === oldBriefElement ? document.querySelector('.workspace > .brief, .task-work-main > .brief') : null;
-          if (replacement) {
-            const carried = animate(replacement, a.effect.getKeyframes(), a.playState === 'paused', a.effect.getTiming());
-            if (carried) { carried.currentTime = a.currentTime; if (a.playState === 'running') carried.startTime = a.startTime; }
-          }
-          a.cancel(); animations.delete(a);
-        }
+      if (sameTask && old.pane === next.pane && old.node === next.node && group === oldGroup && group?.isConnected) {
         intent = null; return;
       }
       cancelMotion(); bridge?.cancel(); intent = null; return;
     }
-    const tabs = document.querySelector('.tabs-bar'), content = document.querySelector('.tab-content');
-    const nextTabs = rect(tabs), nextContent = rect(content);
     let operation = null, target = null;
     if (click && enabled() && sameTask && Date.now() - click.time < 500) {
       const group = one(click.selector), button = one(click.buttonSelector), r = rect(group);
@@ -155,16 +135,9 @@
       const modal = [...document.querySelectorAll('#overlay > *,[aria-modal="true"]')].some(el => el.getClientRects().length && !el.contains(button));
       if (group && button && group.contains(button) && !modal && displacement >= 12 && displacement <= 300) { operation = group; target = r; }
     }
-    const moved = sameTask && oldTabs && nextTabs && Math.hypot(oldTabs.x - nextTabs.x, oldTabs.y - nextTabs.y) > 1;
-    if (moved && (old.pane !== next.pane || click || interaction)) {
-      animate(tabs, [{ transform: `translate(${oldTabs.x-nextTabs.x}px,${oldTabs.y-nextTabs.y}px)` }, { transform: 'translate(0,0)' }], !!operation);
-      if (oldContent && nextContent) animate(content, [{ transform: `translate(${oldContent.x-nextContent.x}px,${oldContent.y-nextContent.y}px)` }, { transform: 'translate(0,0)' }], !!operation);
-      const brief = document.querySelector('.workspace > .brief, .task-work-main > .brief');
-      if (brief && !brief.hidden) animate(brief, [{ opacity: 0 }, { opacity: 1 }], !!operation, { duration: 150, delay: 70 });
-    }
     if (operation) {
-      const carried = [...animations].some(a => a.effect?.target === operation || a.effect?.target?.contains(operation));
-      if (!carried) animate(operation, [{ transform: `translate(${click.rect.x-target.x}px,${click.rect.y-target.y}px)` }, { transform: 'translate(0,0)' }], true);
+      // Only the pressed operation group can move independently of layout.
+      animate(operation, [{ transform: `translate(${click.rect.x-target.x}px,${click.rect.y-target.y}px)` }, { transform: 'translate(0,0)' }], true);
       const play = () => { if (epoch === renderEpoch) animations.forEach(a => { if (a.playState === 'paused') a.play(); }); };
       bridge.follow({ key: click.key, rect: { x: target.x, y: target.y, width: target.width, height: target.height } }).then(play, play);
     }

@@ -15,7 +15,7 @@ const root=path.resolve(__dirname,'..');
   for(let i=0;i<150;i++){page=app.windows().find(p=>p.url().endsWith('/app/renderer/index.html'));if(page)break;await new Promise(r=>setTimeout(r,80));}
   page.setDefaultTimeout(10000);page.on('pageerror',e=>errors.push(e.message));await page.waitForSelector('.navigation');
   await page.evaluate(()=>knowledgeOpen(state.tasks.find(t=>t.id==='workbench')));await page.waitForFunction(()=>knowledgeCurrentEntry()?.view);
-  assert.equal(await page.locator('.knowledge-header .tabs-bar').count(),1);assert.equal(await page.locator('.knowledge-insert-toolbar').count(),0);assert.equal(await page.locator('.workspace-foot').count(),0);assert.equal(await page.locator('.kn-find').isVisible(),false);
+  assert.equal(await page.locator('.task-work-main > .tabs-bar').count(),1);assert.equal(await page.locator('.knowledge-insert-toolbar').count(),0);assert.equal(await page.locator('.workspace-foot').count(),0);assert.equal(await page.locator('.kn-find').isVisible(),false);
   await page.locator('[data-wb-action=details]').click();assert.equal(await page.locator('.wb-task-details [data-action=toggle-task-priority-menu]').count(),1);await page.locator('.brief21-input[aria-label="背景"]').fill('真实详情输入');await page.locator('[data-wb-action=details]').click();assert.equal(await page.evaluate(()=>state.tasks[0].description),'真实详情输入');assert.equal(await page.locator('.wb-task-context [data-action=toggle-deadline-picker]').count(),1);
   async function selection(text){await page.evaluate(text=>{const e=knowledgeCurrentEntry(),at=e.getEditorText().indexOf(text);e.view.dispatch({selection:{anchor:at,head:at+text.length}});e.view.focus();},text);}
   await selection('这段文字');

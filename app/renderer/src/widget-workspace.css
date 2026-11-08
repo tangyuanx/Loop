@@ -6,7 +6,7 @@ body :is(.today-widget, #surface-host) {
   color: var(--text);
 }
 body .today-widget { background: var(--canvas); border-color: var(--line); box-shadow: var(--surface-shadow); }
-body .widget12 .widget-header { padding: 11px 14px 9px; }
+body .today-widget.widget12 .widget-header { padding: 11px 14px 9px; }
 body .widget12 .widget-tabs { gap: 20px; }
 body .widget12 .widget-tabs button.active { border-bottom-color: var(--text); color: var(--text); font-weight: var(--ui-emphasis-weight); }
 body .widget12 .widget-body { padding: 6px 8px; }

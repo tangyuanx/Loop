@@ -385,7 +385,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   for(const theme of ['light','dark'])for(const width of [1024,1440]){
    await page.setViewportSize({width,height:900});await page.evaluate(theme=>{state.theme=theme;render();},theme);
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-   assert.equal(await page.locator('.knowledge-header').evaluate(el=>el.scrollWidth>el.clientWidth+1),false);
+   assert.equal(await page.locator('.task-work-main > .tabs-bar').evaluate(el=>el.scrollWidth>el.clientWidth+1),false);
    if(screenshots)await page.screenshot({path:path.join(screenshots,`knowledge-${theme}-${width}.png`)});
    await wb.panels(page);
    assert.equal(await page.locator('.knowledge-body').evaluate(el=>el.scrollWidth>el.clientWidth+1),false);

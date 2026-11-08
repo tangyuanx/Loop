@@ -41,7 +41,10 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
     });
     await open();
     assert.match(await page.locator('.work15-current h3').innerText(), /核对截止日期/);
+    const tabBoxes = () => Promise.all(['current','schedule','queue'].map(name => page.locator(`[data-work15="tab"][data-tab="${name}"]`).boundingBox()));
+    const fixedTabs = await tabBoxes();
     await tab('schedule');
+    assert.deepEqual(await tabBoxes(), fixedTabs, 'a longer tab does not move the dialog controls');
     await page.locator('[data-work15="phase"][data-phase="growth"]').click();
     assert.match(await page.locator('.work15-current h3').innerText(), /理解队列顺延/);
     assert.equal(await page.evaluate(() => state.workNavigation.runtime.manualPhaseId), 'growth');

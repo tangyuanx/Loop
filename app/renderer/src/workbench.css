@@ -44,7 +44,5 @@ body .workspace .knowledge-header .tabs-bar{border:0;padding:0;gap:22px;min-heig
 .wb-menu .menu-divider{margin:5px 7px}
 .wb-link-label{display:flex;flex-direction:column;gap:8px;font-size:var(--type-12)}
 .wb-link-label input{padding:8px;border:1px solid var(--line);background:var(--canvas);width:100%}
-body.wb-focus:has(.knowledge-pane) .app{grid-template-columns:0 0 minmax(0,1fr)}
 body.wb-focus:has(.knowledge-pane) .navigation,body.wb-focus:has(.knowledge-pane) .task-list-pane,body.wb-focus:has(.knowledge-pane) .workspace>.task-heading,body.wb-focus:has(.knowledge-pane) .wb-task-details{display:none}
-body.wb-focus:has(.knowledge-pane) .workspace{grid-column:3}
 @container(max-width:700px){body[data-notebook23-enabled] .knowledge-header{padding-inline:18px;gap:0 10px}.knowledge-header .kn-switch-note{max-width:120px}.wb-task-details{padding-inline:22px}.knowledge-header .knowledge-header-actions{gap:2px}body .workspace .knowledge-header .tabs-bar{gap:16px}}
