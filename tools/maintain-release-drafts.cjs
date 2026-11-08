@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const semver = require('semver');
+const {assertReleaseTag} = require('./release-draft.cjs');
 
 const statusMarker = '<!-- loop-release-status -->';
 const failedConclusions = new Set(['failure', 'cancelled', 'timed_out', 'startup_failure', 'action_required']);
@@ -64,7 +65,8 @@ async function maintainReleaseDrafts(api) {
       '\n\n此版本发布未完成，尚未公开。对应任务结果为 ' + run.conclusion +
       '。可从[发布任务](' + run.html_url + ')检查原因并重试。\n';
     if (current.name !== name || current.body !== body) {
-      await api('releases/' + current.id, 'PATCH', { tag_name: current.tag_name, target_commitish: current.target_commitish, draft: true, name, body });
+      await assertReleaseTag(api,current.tag_name,current.target_commitish);
+      await api('releases/' + current.id, 'PATCH', { tag_name: current.tag_name, draft: true, name, body });
       changes.push({ tag: current.tag_name, action: 'marked failed draft', run: run.html_url });
     }
   }

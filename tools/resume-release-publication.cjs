@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const {execFileSync} = require('node:child_process');
-const {findRelease, requiredNames, validateManifests, validateRemoteRelease, shouldMakeLatest} = require('./release-draft.cjs');
+const {findRelease, requiredNames, validateManifests, validateRemoteRelease, shouldMakeLatest, assertReleaseTag} = require('./release-draft.cjs');
 const {managedDraft, statusMarker} = require('./maintain-release-drafts.cjs');
 
 function orphanedCandidate(release, tag, sha) {
@@ -66,8 +66,12 @@ async function publishVerified(api, candidate, manifests, checkoutSha, checkoutV
   validateRemoteRelease(candidate.orphanedTag?{...release,tag_name:candidate.tag}:release, assets, candidate.tag);
   let latest;
   try { latest = await api('releases/latest'); } catch (error) { if (error.status !== 404) throw error; }
+  // Existing tags are independently verified. target_commitish is a tag-
+  // creation parameter; sending it here unnecessarily requests workflow-write
+  // authorization for historical commits whose workflow differs from main.
+  await assertReleaseTag(api,candidate.tag,candidate.sha);
   const result = await api('releases/' + release.id, 'PATCH', {
-    tag_name: candidate.tag, target_commitish: candidate.sha, draft: false, name: candidate.tag,
+    tag_name: candidate.tag, draft: false, name: candidate.tag,
     body: String(release.body || '').split(statusMarker)[0].trimEnd(),
     make_latest: shouldMakeLatest(candidate.version, latest?.tag_name) ? 'true' : 'false',
   });

@@ -92,11 +92,16 @@ test('publication recovery keeps a newer Latest release',async t=>{
   const f=publicationFixture(t),candidate=await verifiedPublication(f.api,f.repo,tag);f.state.latest='v1.0.0';
   await publishVerified(f.api,candidate,f.manifests,sha,version);assert.equal(f.writes[0].body.make_latest,'false');
 });
+test('publication recovery refuses a tag moved after manifest validation',async t=>{
+  const f=publicationFixture(t),candidate=await verifiedPublication(f.api,f.repo,tag);
+  const moved=async(route,...args)=>route==='git/ref/tags/'+tag?{object:{type:'commit',sha:'b'.repeat(40)}}:f.api(route,...args);
+  await assert.rejects(publishVerified(moved,candidate,f.manifests,sha,version),/Existing release tag/);assert.deepEqual(f.writes,[]);
+});
 test('publication recovery restores only a uniquely verified orphaned draft tag',async t=>{
   const f=publicationFixture(t);f.state.release.tag_name='untagged-a84c1a1a648a205f022a';f.state.release.name=tag+'（发布失败，未公开）';
   const candidate=await verifiedPublication(f.api,f.repo,tag);assert.equal(candidate.orphanedTag,true);
   const result=await publishVerified(f.api,candidate,f.manifests,sha,version);
-  assert.equal(result.tag_name,tag);assert.equal(f.writes[0].body.target_commitish,sha);assert.equal(f.writes.length,1);
+  assert.equal(result.tag_name,tag);assert.equal('target_commitish' in f.writes[0].body,false);assert.equal(f.writes.length,1);
 });
 test('publication recovery refuses orphaned drafts with mismatched files or identity',async t=>{
   const f=publicationFixture(t);f.state.release.tag_name='untagged-a84c1a1a648a205f022a';f.state.release.name=tag+'（发布失败，未公开）';
@@ -211,6 +216,7 @@ function draftMaintenance({tag='v0.2.8',assets=[],draft=true,author='github-acti
     if(route==='releases/latest')return {tag_name:'v0.2.11',draft:false};
     if(route.startsWith('releases?'))return [{...release}];
     if(route==='releases/1')return {...release,draft:freshDraft};
+    if(route.startsWith('git/ref/tags/'))return {object:{type:'commit',sha}};
     if(route.startsWith('actions/runs?'))return {workflow_runs:[{
       name:'Release Desktop Apps',head_sha:sha,head_branch:tag,status:runStatus,
       conclusion:'failure',updated_at:'2026-11-07T15:07:00Z',html_url:'https://github.com/owner/repo/actions/runs/1',
@@ -243,7 +249,7 @@ test('failed current drafts and partial uploads are labeled for retry with their
     const changes=await maintainReleaseDrafts(fixture.api);
     assert.equal(changes[0].action,'marked failed draft');
     assert.match(fixture.release.name,/发布失败/);
-    const write=fixture.calls.find(call=>call.method==='PATCH');assert.equal(write.body.tag_name,options.tag||'v0.2.8');assert.equal(write.body.target_commitish,sha);assert.equal(write.body.draft,true);
+    const write=fixture.calls.find(call=>call.method==='PATCH');assert.equal(write.body.tag_name,options.tag||'v0.2.8');assert.equal('target_commitish' in write.body,false);assert.equal(write.body.draft,true);
     assert.ok(fixture.release.body.startsWith('Original release notes'));
     assert.ok(fixture.release.body.includes(statusMarker));
     assert.equal(fixture.calls.some(call=>call.method==='DELETE'),false);

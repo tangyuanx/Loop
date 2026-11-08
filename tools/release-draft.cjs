@@ -100,6 +100,12 @@ function shouldMakeLatest(version, latestTag) {
   return !semver.prerelease(version) && (!latestTag || semver.gte(version, latestTag));
 }
 
+async function assertReleaseTag(api, tag, sha) {
+  let target=(await api('git/ref/tags/'+encodeURIComponent(tag))).object;
+  for(let depth=0;target?.type==='tag'&&depth<8;depth++)target=(await api('git/tags/'+target.sha)).object;
+  if(target?.type!=='commit'||target.sha!==sha)throw Error('Existing release tag does not match the verified candidate');
+}
+
 async function ensureReleaseTag(api, tag, sha) {
   let ref;
   try { ref = await api('git/ref/tags/' + encodeURIComponent(tag)); }
@@ -149,8 +155,9 @@ async function run(command) {
     if (release.tag_name !== tag || !release.draft) throw Error('Release is already published; use a new version');
     const marker='<!-- loop-release-status -->';
     if (String(release.body || '').includes(marker)) {
+      await assertReleaseTag(api,tag,sha);
       release=await api('releases/' + release.id, 'PATCH', {
-        tag_name:tag, target_commitish:sha, draft:true, name:tag, body:String(release.body).split(marker)[0].trimEnd(),
+        tag_name:tag, draft:true, name:tag, body:String(release.body).split(marker)[0].trimEnd(),
       });
     }
     fs.appendFileSync(process.env.GITHUB_OUTPUT, `release_id=${release.id}\n`);
@@ -175,11 +182,12 @@ async function run(command) {
     let latest;
     try { latest=await api('releases/latest'); }
     catch (error) { if(error.status!==404)throw error; }
-    const published = await api('releases/' + release.id, 'PATCH', {tag_name:tag, target_commitish:sha, draft: false, make_latest: shouldMakeLatest(version,latest?.tag_name) ? 'true' : 'false'});
+    await assertReleaseTag(api,tag,sha);
+    const published = await api('releases/' + release.id, 'PATCH', {tag_name:tag, draft: false, make_latest: shouldMakeLatest(version,latest?.tag_name) ? 'true' : 'false'});
     if (published.draft) throw Error('Release is still a draft');
     console.log(`Published ${tag}: ${assets.size} verified assets; ${published.html_url}`);
   } else throw Error('Expected prepare, upload or publish');
 }
 
-module.exports = {requiredNames, createManifest, validateManifests, validateRemoteRelease, findRelease, resolveReleaseTag, ensureReleaseTag, shouldMakeLatest};
+module.exports = {requiredNames, createManifest, validateManifests, validateRemoteRelease, findRelease, resolveReleaseTag, ensureReleaseTag, assertReleaseTag, shouldMakeLatest};
 if (require.main === module) run(process.argv[2]).catch(error => {console.error(error.message); process.exitCode = 1;});
