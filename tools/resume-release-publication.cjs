@@ -3,8 +3,18 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const {execFileSync} = require('node:child_process');
-const {findRelease, validateManifests, validateRemoteRelease, shouldMakeLatest} = require('./release-draft.cjs');
+const {findRelease, requiredNames, validateManifests, validateRemoteRelease, shouldMakeLatest} = require('./release-draft.cjs');
 const {managedDraft, statusMarker} = require('./maintain-release-drafts.cjs');
+
+function orphanedCandidate(release, tag, sha) {
+  if (!release.draft || release.prerelease || release.author?.login !== 'github-actions[bot]' ||
+      !/^untagged-[a-f0-9]+$/.test(release.tag_name) || release.target_commitish !== sha ||
+      release.name !== tag + '（发布失败，未公开）' || !String(release.body || '').includes(statusMarker)) return false;
+  const names = [...requiredNames('macOS',tag.slice(1)), ...requiredNames('Windows',tag.slice(1))].sort();
+  return Array.isArray(release.assets) && release.assets.length === names.length &&
+    release.assets.every(a=>a.state==='uploaded'&&a.size>0&&/^sha256:[a-f0-9]{64}$/.test(a.digest||'')) &&
+    JSON.stringify(release.assets.map(a=>a.name).sort()) === JSON.stringify(names);
+}
 
 async function verifiedPublication(api, repo, request) {
   const tag = String(request || '').replace(/^codex\/release-resume\//, '');
@@ -32,21 +42,32 @@ async function verifiedPublication(api, repo, request) {
     const matches = artifacts.filter(artifact => artifact.name === name);
     if (matches.length !== 1 || matches[0].expired || matches[0].size_in_bytes <= 0) throw Error('Missing original verification manifest: ' + name);
   }
-  const release = await findRelease(api, tag);
-  if (!release || !managedDraft(release) || release.prerelease || release.target_commitish !== sha) throw Error('Candidate is not the original unpublished managed draft');
-  return {tag, sha, version: tag.slice(1), runId: run.id, releaseId: release.id};
+  let release = await findRelease(api, tag), orphanedTag = false;
+  if (!release) {
+    const matches=[];
+    for(let page=1;page<=10;page++){
+      const batch=await api('releases?per_page=100&page='+page);
+      matches.push(...batch.filter(r=>orphanedCandidate(r,tag,sha)));
+      if(batch.length<100)break;
+      if(page===10)throw Error('Recovery draft pagination limit reached');
+    }
+    if(matches.length!==1)throw Error('No unique original unpublished draft');
+    release=matches[0];orphanedTag=true;
+  }
+  if (!orphanedTag && (!managedDraft(release) || release.prerelease || release.target_commitish !== sha)) throw Error('Candidate is not the original unpublished managed draft');
+  return {tag, sha, version: tag.slice(1), runId: run.id, releaseId: release.id, ...(orphanedTag?{orphanedTag:true}:{})};
 }
 
 async function publishVerified(api, candidate, manifests, checkoutSha, checkoutVersion) {
   if (checkoutSha !== candidate.sha || checkoutVersion !== candidate.version) throw Error('Candidate checkout does not match the original release');
   const assets = validateManifests(manifests, candidate.version, candidate.sha);
   const release = await api('releases/' + candidate.releaseId);
-  if (!managedDraft(release) || release.target_commitish !== candidate.sha) throw Error('Original draft identity changed');
-  validateRemoteRelease(release, assets, candidate.tag);
+  if (candidate.orphanedTag ? !orphanedCandidate(release,candidate.tag,candidate.sha) : (!managedDraft(release) || release.target_commitish !== candidate.sha)) throw Error('Original draft identity changed');
+  validateRemoteRelease(candidate.orphanedTag?{...release,tag_name:candidate.tag}:release, assets, candidate.tag);
   let latest;
   try { latest = await api('releases/latest'); } catch (error) { if (error.status !== 404) throw error; }
   const result = await api('releases/' + release.id, 'PATCH', {
-    draft: false, name: candidate.tag,
+    tag_name: candidate.tag, target_commitish: candidate.sha, draft: false, name: candidate.tag,
     body: String(release.body || '').split(statusMarker)[0].trimEnd(),
     make_latest: shouldMakeLatest(candidate.version, latest?.tag_name) ? 'true' : 'false',
   });

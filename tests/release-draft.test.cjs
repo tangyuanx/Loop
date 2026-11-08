@@ -24,7 +24,7 @@ function publicationFixture(t) {
     if(route.includes('/jobs?'))return {jobs};
     if(route.includes('/artifacts?'))return {artifacts};
     if(route.startsWith('releases?'))return [release];
-    if(route==='releases/tags/'+tag)return release;
+    if(route==='releases/tags/'+tag){if(release.tag_name===tag)return release;throw Object.assign(Error('not published'),{status:404});}
     if(route==='releases/9')return release;
     if(route==='releases/latest')return {tag_name:state.latest};
     throw Error('Unexpected API route: '+route);
@@ -91,6 +91,19 @@ test('publication recovery rejects substituted checkouts, manifests and server b
 test('publication recovery keeps a newer Latest release',async t=>{
   const f=publicationFixture(t),candidate=await verifiedPublication(f.api,f.repo,tag);f.state.latest='v1.0.0';
   await publishVerified(f.api,candidate,f.manifests,sha,version);assert.equal(f.writes[0].body.make_latest,'false');
+});
+test('publication recovery restores only a uniquely verified orphaned draft tag',async t=>{
+  const f=publicationFixture(t);f.state.release.tag_name='untagged-a84c1a1a648a205f022a';f.state.release.name=tag+'（发布失败，未公开）';
+  const candidate=await verifiedPublication(f.api,f.repo,tag);assert.equal(candidate.orphanedTag,true);
+  const result=await publishVerified(f.api,candidate,f.manifests,sha,version);
+  assert.equal(result.tag_name,tag);assert.equal(f.writes[0].body.target_commitish,sha);assert.equal(f.writes.length,1);
+});
+test('publication recovery refuses orphaned drafts with mismatched files or identity',async t=>{
+  const f=publicationFixture(t);f.state.release.tag_name='untagged-a84c1a1a648a205f022a';f.state.release.name=tag+'（发布失败，未公开）';
+  const originalName=f.state.release.assets[0].name;
+  f.state.release.assets[0].name='unexpected.yml';await assert.rejects(verifiedPublication(f.api,f.repo,tag),/unique original/);
+  f.state.release.assets[0].name=originalName;f.state.release.author.login='maintainer';await assert.rejects(verifiedPublication(f.api,f.repo,tag),/unique original/);
+  assert.deepEqual(f.writes,[]);
 });
 test('a missing or duplicated platform cannot publish', t => {
   const {manifests} = fixture(t);
@@ -230,6 +243,7 @@ test('failed current drafts and partial uploads are labeled for retry with their
     const changes=await maintainReleaseDrafts(fixture.api);
     assert.equal(changes[0].action,'marked failed draft');
     assert.match(fixture.release.name,/发布失败/);
+    const write=fixture.calls.find(call=>call.method==='PATCH');assert.equal(write.body.tag_name,options.tag||'v0.2.8');assert.equal(write.body.target_commitish,sha);assert.equal(write.body.draft,true);
     assert.ok(fixture.release.body.startsWith('Original release notes'));
     assert.ok(fixture.release.body.includes(statusMarker));
     assert.equal(fixture.calls.some(call=>call.method==='DELETE'),false);
@@ -266,6 +280,6 @@ test('maintenance restores Latest after a historical workflow publishes an older
     if(route.startsWith('releases?'))return releases;
     throw Error('Unexpected request');
   });
-  assert.deepEqual(writes,[{route:'releases/11',body:{make_latest:'true'}}]);
+  assert.deepEqual(writes,[{route:'releases/11',body:{tag_name:'v0.2.11',make_latest:'true'}}]);
   assert.equal(changes[0].tag,'v0.2.11');
 });

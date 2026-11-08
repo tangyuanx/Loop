@@ -150,7 +150,7 @@ async function run(command) {
     const marker='<!-- loop-release-status -->';
     if (String(release.body || '').includes(marker)) {
       release=await api('releases/' + release.id, 'PATCH', {
-        name:tag, body:String(release.body).split(marker)[0].trimEnd(),
+        tag_name:tag, target_commitish:sha, draft:true, name:tag, body:String(release.body).split(marker)[0].trimEnd(),
       });
     }
     fs.appendFileSync(process.env.GITHUB_OUTPUT, `release_id=${release.id}\n`);
@@ -175,7 +175,7 @@ async function run(command) {
     let latest;
     try { latest=await api('releases/latest'); }
     catch (error) { if(error.status!==404)throw error; }
-    const published = await api('releases/' + release.id, 'PATCH', {draft: false, make_latest: shouldMakeLatest(version,latest?.tag_name) ? 'true' : 'false'});
+    const published = await api('releases/' + release.id, 'PATCH', {tag_name:tag, target_commitish:sha, draft: false, make_latest: shouldMakeLatest(version,latest?.tag_name) ? 'true' : 'false'});
     if (published.draft) throw Error('Release is still a draft');
     console.log(`Published ${tag}: ${assets.size} verified assets; ${published.html_url}`);
   } else throw Error('Expected prepare, upload or publish');

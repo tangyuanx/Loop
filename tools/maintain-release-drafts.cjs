@@ -34,7 +34,7 @@ async function maintainReleaseDrafts(api) {
   const newest = releases.filter(release => !release.draft && !release.prerelease && semver.valid(release.tag_name))
     .sort((a, b) => semver.rcompare(a.tag_name, b.tag_name))[0];
   if (newest && (!latest || !semver.valid(latest.tag_name) || semver.gt(newest.tag_name, latest.tag_name))) {
-    await api('releases/' + newest.id, 'PATCH', { make_latest: 'true' });
+    await api('releases/' + newest.id, 'PATCH', { tag_name: newest.tag_name, make_latest: 'true' });
     latest = newest;
     changes.push({ tag: newest.tag_name, action: 'restored latest version', run: newest.html_url });
   }
@@ -64,7 +64,7 @@ async function maintainReleaseDrafts(api) {
       '\n\n此版本发布未完成，尚未公开。对应任务结果为 ' + run.conclusion +
       '。可从[发布任务](' + run.html_url + ')检查原因并重试。\n';
     if (current.name !== name || current.body !== body) {
-      await api('releases/' + current.id, 'PATCH', { name, body });
+      await api('releases/' + current.id, 'PATCH', { tag_name: current.tag_name, target_commitish: current.target_commitish, draft: true, name, body });
       changes.push({ tag: current.tag_name, action: 'marked failed draft', run: run.html_url });
     }
   }
