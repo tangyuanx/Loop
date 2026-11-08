@@ -7,7 +7,30 @@ const crypto = require('node:crypto');
 const {spawnSync} = require('node:child_process');
 const {requiredNames, createManifest, validateManifests, validateRemoteRelease, findRelease, resolveReleaseTag, ensureReleaseTag, shouldMakeLatest} = require('../tools/release-draft.cjs');
 const {maintainReleaseDrafts, statusMarker} = require('../tools/maintain-release-drafts.cjs');
+const {verifiedPublication, publishVerified} = require('../tools/resume-release-publication.cjs');
 const version = '0.1.239', sha = 'a'.repeat(40), tag = 'v' + version;
+
+function publicationFixture(t) {
+  const original = fixture(t), repo = 'owner/repo', writes = [];
+  const release = {...original.remote, id:9, author:{login:'github-actions[bot]'},target_commitish:sha,prerelease:false,body:'Original release notes\n'+statusMarker+'\nFailed publication'};
+  const run = {id:13,name:'Release Desktop Apps',path:'.github/workflows/release.yml',event:'push',head_repository:{full_name:repo},head_sha:sha,head_branch:tag,status:'completed',conclusion:'failure',updated_at:'2026-11-08T00:00:00Z'};
+  const jobs = ['Check source and prepare unpublished release','Release macOS','Release Windows','Publish complete verified release'].map(name=>({name,status:'completed',conclusion:name.startsWith('Publish')?'failure':'success'}));
+  const artifacts = ['macOS','Windows'].map(platform=>({name:'release-manifest-'+platform,expired:false,size_in_bytes:1000}));
+  const state = {release,run,jobs,artifacts,latest:'v0.1.238'};
+  const api = async (route,method='GET',body)=>{
+    if(method!=='GET'){writes.push({route,method,body});return {...release,...body,html_url:'https://github.com/owner/repo/releases/tag/'+tag};}
+    if(route==='git/ref/tags/'+tag)return {object:{type:'commit',sha}};
+    if(route.startsWith('actions/runs?'))return {workflow_runs:[run]};
+    if(route.includes('/jobs?'))return {jobs};
+    if(route.includes('/artifacts?'))return {artifacts};
+    if(route.startsWith('releases?'))return [release];
+    if(route==='releases/tags/'+tag)return release;
+    if(route==='releases/9')return release;
+    if(route==='releases/latest')return {tag_name:state.latest};
+    throw Error('Unexpected API route: '+route);
+  };
+  return {...original,repo,state,api,writes};
+}
 
 function fixture(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'loop-release-manifest-'));
@@ -32,6 +55,42 @@ function fixture(t) {
 
 test('both platforms provide all 12 real-byte-verified draft assets', t => {
   const {assets, remote} = fixture(t); assert.equal(assets.size, 12); validateRemoteRelease(remote, assets, tag);
+});
+test('publication recovery reuses the original verified candidate and cleans its failure label',async t=>{
+  const f=publicationFixture(t),candidate=await verifiedPublication(f.api,f.repo,'codex/release-resume/'+tag);
+  assert.deepEqual(candidate,{tag,sha,version,runId:13,releaseId:9});
+  const result=await publishVerified(f.api,candidate,f.manifests,sha,version);
+  assert.equal(result.draft,false);assert.equal(f.writes.length,1);
+  assert.equal(f.writes[0].body.name,tag);assert.equal(f.writes[0].body.body,'Original release notes');assert.equal(f.writes[0].body.make_latest,'true');
+});
+test('publication recovery refuses failed native gates and active retries',async t=>{
+  const f=publicationFixture(t);f.state.jobs.find(j=>j.name==='Release Windows').conclusion='failure';
+  await assert.rejects(verifiedPublication(f.api,f.repo,tag),/Required gate/);assert.deepEqual(f.writes,[]);
+  f.state.jobs.find(j=>j.name==='Release Windows').conclusion='success';f.state.run.status='in_progress';
+  await assert.rejects(verifiedPublication(f.api,f.repo,tag),/still active/);
+});
+test('publication recovery rejects foreign workflows, repositories and refs',async t=>{
+  const f=publicationFixture(t);
+  for(const [key,value] of [['path','other.yml'],['head_branch','main'],['event','pull_request']]){
+    const saved=f.state.run[key];f.state.run[key]=value;await assert.rejects(verifiedPublication(f.api,f.repo,tag),/No failed/);f.state.run[key]=saved;
+  }
+  f.state.run.head_repository.full_name='foreign/repo';await assert.rejects(verifiedPublication(f.api,f.repo,tag),/No failed/);
+  await assert.rejects(verifiedPublication(f.api,f.repo,'v1.2.3\nunsafe'),/stable release tag/);assert.deepEqual(f.writes,[]);
+});
+test('publication recovery requires original unexpired manifests and an unpublished bot draft',async t=>{
+  const f=publicationFixture(t);f.state.artifacts[0].expired=true;await assert.rejects(verifiedPublication(f.api,f.repo,tag),/original verification manifest/);
+  f.state.artifacts[0].expired=false;f.state.release.draft=false;await assert.rejects(verifiedPublication(f.api,f.repo,tag),/original unpublished/);
+  f.state.release.draft=true;f.state.release.target_commitish='b'.repeat(40);await assert.rejects(verifiedPublication(f.api,f.repo,tag),/original unpublished/);assert.deepEqual(f.writes,[]);
+});
+test('publication recovery rejects substituted checkouts, manifests and server bytes',async t=>{
+  const f=publicationFixture(t),candidate=await verifiedPublication(f.api,f.repo,tag);
+  await assert.rejects(publishVerified(f.api,candidate,f.manifests,'b'.repeat(40),version),/checkout/);
+  const changed=structuredClone(f.manifests);changed[0].sha='b'.repeat(40);await assert.rejects(publishVerified(f.api,candidate,changed,sha,version),/mismatch/);
+  f.state.release.assets[0].digest='sha256:'+'0'.repeat(64);await assert.rejects(publishVerified(f.api,candidate,f.manifests,sha,version),/digest/);assert.deepEqual(f.writes,[]);
+});
+test('publication recovery keeps a newer Latest release',async t=>{
+  const f=publicationFixture(t),candidate=await verifiedPublication(f.api,f.repo,tag);f.state.latest='v1.0.0';
+  await publishVerified(f.api,candidate,f.manifests,sha,version);assert.equal(f.writes[0].body.make_latest,'false');
 });
 test('a missing or duplicated platform cannot publish', t => {
   const {manifests} = fixture(t);

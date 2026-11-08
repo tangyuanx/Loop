@@ -16,7 +16,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: release-draft-maintenance
+  group: release-publication
   cancel-in-progress: false
 
 jobs:

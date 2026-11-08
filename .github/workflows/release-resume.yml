@@ -1,0 +1,56 @@
+name: Resume Verified Release
+
+on:
+  push:
+    branches: ["codex/release-resume/v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing stable release tag whose final publication failed"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: release-publication
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    runs-on: ubuntu-latest
+    steps:
+      # Publication tooling comes from trusted main; the candidate is a separate
+      # immutable checkout, never the recovery branch or a replacement tag.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --omit=dev --ignore-scripts
+      - name: Require successful source and native platform gates
+        id: candidate
+        run: node tools/resume-release-publication.cjs inspect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REQUEST: ${{ inputs.tag || github.ref_name }}
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.candidate.outputs.sha }}
+          path: release-candidate
+      - name: Collect original verified manifests
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ steps.candidate.outputs.run_id }}
+          github-token: ${{ github.token }}
+          pattern: release-manifest-*
+          path: release-manifests
+          merge-multiple: true
+      - name: Revalidate candidate, server digests and Latest before publication
+        run: node tools/resume-release-publication.cjs publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REQUEST: ${{ steps.candidate.outputs.tag }}
