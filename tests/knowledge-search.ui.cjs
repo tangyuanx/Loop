@@ -26,7 +26,7 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
   const openFind=async()=>{await wb.minimizeTaskInfo(page);if(!await input.isVisible())await page.locator('[data-kn-action=find]').click();};
   await test('S01-one-inline-entry-and-live-matches',async()=>{
    assert.equal(await page.locator('[data-kn-action=find]').count(),1);
-   // New/open/recent live in the document menu; the header keeps one find entry.
+   // New/open/recent live in the document menu; the note keeps one find entry.
    await page.locator('[data-wb-action=more]').click();
    assert.equal(await page.locator('.wb-more-menu [data-kn-action=open-file]').count(),1);
    assert.equal((await page.locator('.wb-more-menu [data-kn-action=recent]').innerText()).trim(),'最近打开…');
@@ -62,7 +62,7 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
    await mode('preview');assert.equal(await input.inputValue(),'测试');assert.match(await count.innerText(),/\/4$/);assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().view===window.__searchView),true);
    const n=await page.evaluate(()=>CSS.highlights.get(knowledgeCurrentEntry().find.highlightKey)?.size);assert.equal(n,4);
    await page.locator('.kn-find [name=next]').click();await page.screenshot({path:path.join(out,'reading-find.png')});
-   await input.press('Escape');assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().mode),'preview');assert.equal(await input.inputValue(),'');assert.equal(await input.isVisible(),false);assert.equal(await page.locator('.knowledge-search-only').isVisible(),false);
+   await input.press('Escape');assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().mode),'preview');assert.equal(await input.inputValue(),'');assert.equal(await input.isVisible(),false);assert.equal(await page.locator('.kn-find-mount').isVisible(),false);
    await openFind();await page.locator('.kn-find [name=close]').click();assert.equal(await input.isVisible(),false);
    await mode('source');assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),original);
   });
@@ -89,6 +89,51 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
    await page.locator('.kn-find [name=toggleReplace]').click();assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().mode),'source');
    await page.locator('.kn-find [name=replace]').fill('已替换单元格');await page.locator('.kn-find [name=replaceAll]').click();assert.match(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),/已替换单元格/);
    await page.evaluate(()=>knowledgeCurrentEntry().format('undo'));assert.match(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),/匹配单元格/);
+   assert.deepEqual(errors,[]);
+  });
+  await test('S08-floating-tools-inline-find-and-neutral-focus',async()=>{
+   if(await input.isVisible())await input.press('Escape');
+   await mode('edit');
+   await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(1280,820));
+   const frame=()=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+   const short='# 阅读记录\n\n短正文不会从工具下方经过。\n\n测试，测试。\n';
+   for(const theme of ['light','dark']){
+    await page.evaluate(({theme,short})=>{state.theme=theme;render();const e=knowledgeCurrentEntry();e.view.dispatch({changes:{from:0,to:e.view.state.doc.length,insert:short}});document.querySelector('.knowledge-body').scrollTop=0;window.__floatingView=e.view;},{theme,short});
+    await frame();
+    assert.equal(await page.locator('.knowledge-header [data-kn-action=find]').count(),0);
+    assert.equal(await page.locator('.knowledge-note-actions').getAttribute('data-over-content'),null);
+    const measure=()=>page.evaluate(()=>{
+     const r=document.querySelector('.knowledge-body').getBoundingClientRect(),b=document.querySelector('[data-wb-action=focus]').getBoundingClientRect();
+     return {top:r.top,height:r.height,focusX:b.x,focusY:b.y};
+    });
+    const before=await measure();
+    await openFind();await frame();
+    assert.equal(await page.locator('[data-kn-action=find]').isVisible(),false);
+    assert.deepEqual(await measure(),before);
+    const inline=await page.locator('.kn-find').evaluate(el=>{const r=el.getBoundingClientRect(),b=document.querySelector('[data-wb-action=focus]').getBoundingClientRect();return r.right<=b.left&&Math.abs(r.top-b.top)<2;});assert.equal(inline,true);
+    await input.evaluate(el=>el.blur());
+    const neutral=await page.locator('.kn-find-field').evaluate(el=>getComputedStyle(el).backgroundColor);
+    await input.focus();
+    const focused=await page.locator('.kn-find-field').evaluate(el=>{const s=getComputedStyle(el),i=getComputedStyle(el.querySelector('input'));return {background:s.backgroundColor,border:s.borderColor,shadow:s.boxShadow,inputBackground:i.backgroundColor,outline:i.outlineStyle};});
+    assert.equal(focused.background,neutral);assert.equal(focused.border,'rgba(0, 0, 0, 0)');assert.equal(focused.inputBackground,'rgba(0, 0, 0, 0)');assert.equal(focused.outline,'none');
+    const rgb=focused.shadow.match(/rgba?\((\d+), (\d+), (\d+)/);assert.ok(rgb&&rgb[1]===rgb[2]&&rgb[2]===rgb[3]);assert.match(focused.shadow,/inset/);
+    await input.fill('测试');assert.equal(await count.innerText(),'1/2');
+    await page.locator('.kn-find [name=toggleReplace]').click();await frame();assert.deepEqual(await measure(),before);
+    await page.screenshot({path:path.join(out,`floating-${theme}.png`)});
+    await input.press('Escape');assert.equal(await page.locator('[data-kn-action=find]').isVisible(),true);
+    assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().view===window.__floatingView),true);
+   }
+   await page.evaluate(()=>{const e=knowledgeCurrentEntry();e.view.dispatch({changes:{from:0,to:e.view.state.doc.length,insert:'# '+('宽正文从工具下方经过，显示轻微悬浮底色。'.repeat(6))+'\n\n'+Array.from({length:35},(_,i)=>`第 ${i+1} 段测试正文滚动。\n`).join('\n')}});document.querySelector('.knowledge-body').scrollTop=0;});
+   await page.waitForFunction(()=>document.querySelector('.knowledge-note-actions')?.hasAttribute('data-over-content'));
+   const anchored=await page.locator('.knowledge-note-actions').boundingBox();
+   await page.locator('.knowledge-body').hover();await page.mouse.wheel(0,200);await frame();
+   assert.ok(await page.locator('.knowledge-body').evaluate(el=>el.scrollTop>0));
+   assert.equal((await page.locator('.knowledge-note-actions').boundingBox()).y,anchored.y);
+   await page.evaluate(()=>window.__previousToolbarBinding=knowledgeToolbarBinding);
+   await page.locator('[data-task-row=b] .task-select').click();await page.waitForFunction(()=>knowledgeCurrentEntry()?.options.noteId==='search-b'&&document.querySelector('.knowledge-pane')?.dataset.taskId==='b'&&knowledgeToolbarBinding?.surface===document.querySelector('.knowledge-note-surface'));
+   assert.equal(await page.evaluate(()=>window.__previousToolbarBinding.controller.signal.aborted),true);
+   await page.locator('[data-task-row=a] .task-select').click();await page.waitForFunction(()=>knowledgeCurrentEntry()?.options.noteId==='search-a');
+   await page.evaluate(()=>render());await frame();assert.equal(await page.locator('.knowledge-pane [role=search]').count(),1);
    assert.deepEqual(errors,[]);
   });
  }finally{await fs.writeFile(path.join(out,'results.json'),JSON.stringify({source,run,results,errors},null,2));await app.close();}

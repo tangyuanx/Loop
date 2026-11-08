@@ -117,10 +117,7 @@
 .kn-switcher-search {display:flex;gap:10px;margin:10px 0;}.kn-switcher-search input {flex:1;min-width:0;font:inherit;padding:9px 10px;border-radius:6px;border:1px solid #8884;color:inherit;background:transparent;}
 .kn-switcher-list {max-height:380px;overflow:auto;}.kn-switcher-row {display:block;width:100%;text-align:left;color:inherit;font:inherit;background:transparent;border:0;border-radius:6px;padding:11px 12px;cursor:pointer;}.kn-switcher-row[aria-selected=true],.kn-switcher-row:hover {background:#638a7012;}.kn-switcher-row strong {font-weight:500;}.kn-switcher-row small {display:block;opacity:.5;font-size:11px;margin-top:3px;}
 .kn-table-controls {display:flex;flex-wrap:wrap;gap:12px;padding:14px;align-items:center;}.kn-table-controls input {max-width:220px;}
-.kn-file-actions {display:flex;align-items:center;gap:2px;flex-shrink:0;}
-.kn-file-actions .text-button {font-size:var(--type-12);white-space:nowrap;}
 .kn-empty-document {display:grid;place-content:center;gap:12px;flex:1;text-align:center;color:var(--secondary);padding:32px;}
-.kn-empty-document>div {display:flex;justify-content:center;gap:8px;flex-wrap:wrap;}
 .kn-switcher-row small {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 :root[data-theme=dark] .kn-editor-host .cm-panels,:root[data-theme=dark] .kn-editor-host .cm-tooltip {background:#272d29;color:#d2d9d3;}
 :root[data-theme=dark] .kn-editor-host .cm-panel input,:root[data-theme=dark] .kn-editor-host .cm-panel button {background:#323a34;color:inherit;}
@@ -202,7 +199,7 @@ body[data-notebook23-enabled] .knowledge-footer-meta {display:flex;margin-left:a
 .kn-editor-host .cm-searchMatch-selected {background:var(--kn-find-current)!important;outline:1px solid color-mix(in srgb,currentColor 35%,transparent);}
 .kn-find-mount {flex:0 1 380px;min-width:0;max-width:100%;margin-left:auto;}
 .kn-find-mount:not(:has(>.kn-find:not([hidden]))),.knowledge-search-only:not(:has(.kn-find:not([hidden]))),.kn-find[hidden] {display:none;}
-.kn-find {width:100%;font-size:var(--type-12);color:var(--text);}
+.kn-find {width:100%;font:var(--type-12)/1.4 var(--sans);color:var(--text);}
 .kn-find-row {display:flex;align-items:center;gap:2px;min-height:30px;}
 .kn-find button {display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-width:24px;height:28px;padding:3px;border:0;border-radius:4px;color:var(--secondary);background:transparent;font:inherit;cursor:pointer;}
 .kn-find button svg,.kn-find-field>svg {width:14px;height:14px;flex-shrink:0;}

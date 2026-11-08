@@ -105,6 +105,16 @@ async function until(check) {
     await start();
     await choose('main');
     await active('main');
+    await test('new, open and recent are only exposed in the more menu',async()=>{
+      for(const action of ['new-note','open-file','recent']){
+        assert.equal(await page.locator('.knowledge-pane [data-kn-action="'+action+'"]').count(),0);
+      }
+      await wb.more(page);
+      for(const action of ['new-note','open-file','recent']){
+        assert.equal(await page.locator('.wb-more-menu [data-kn-action="'+action+'"]').count(),1);
+      }
+      await page.keyboard.press('Escape');
+    });
     await test('double-click rename, keyboard cancel and persistence', async () => {
       await tab('long').dblclick();
       const input = page.locator('#kn-rename-title');
@@ -235,7 +245,17 @@ async function until(check) {
       await page.keyboard.press('Escape');
       await page.locator('[data-kn-detach=main]').click();
       await page.locator('.kn-empty-document').waitFor();
-      await page.locator('.kn-document-new').click();
+      assert.equal(await page.locator('.knowledge-pane [data-kn-action]').count(),0);
+      await page.waitForFunction(()=>document.activeElement.matches('[data-wb-action=more]'));
+      await wb.more(page);
+      for(const action of ['new-note','open-file','recent']){
+        assert.equal(await page.locator('.wb-more-menu [data-kn-action="'+action+'"]').count(),1);
+      }
+      await page.locator('.wb-more-menu [data-kn-action=switcher]').click();
+      await page.locator('#kn-switcher-query').waitFor();
+      await page.keyboard.press('Escape');
+      await wb.more(page);
+      await page.locator('.wb-more-menu [data-kn-action=new-note]').click();
       await page.waitForFunction(() => knowledgeCurrentEntry()?.view && knowledgeCurrentEntry().getMarkdown() === '');
       assert.equal(await page.locator('.kn-document-tabs [role=tab]').count(), 1);
     });

@@ -12,6 +12,62 @@ let knowledgeIndexTimer = 0;
 let knowledgeLastTabClick = null;
 let knowledgeTabsBinding = null;
 const knowledgeTabSessions = new WeakMap();
+let knowledgeToolbarBinding = null;
+
+function knowledgeToolbarContentUnder(actions, surface) {
+  const body=surface.querySelector('.knowledge-body'),content=body?.querySelector('.knowledge-rich-host');
+  if(!content)return false;
+  const bounds=actions.getBoundingClientRect(),viewport=body.getBoundingClientRect();
+  const hit={left:Math.max(bounds.left,viewport.left),right:Math.min(bounds.right,viewport.right),top:Math.max(bounds.top,viewport.top),bottom:Math.min(bounds.bottom,viewport.bottom)};
+  if(hit.right<=hit.left||hit.bottom<=hit.top)return false;
+  const intersects=rect=>rect.width>0&&rect.height>0&&rect.right>hit.left&&rect.left<hit.right&&rect.bottom>hit.top&&rect.top<hit.bottom;
+  for(const block of content.querySelectorAll('table,pre,img,.kn-mermaid,.kn-callout,.kn-frontmatter,.kn-embed,hr')){
+    if(block.getClientRects().length&&intersects(block.getBoundingClientRect()))return true;
+  }
+  // A CodeMirror line spans the whole column even when its text is short.
+  // Measure painted text ranges, so empty space never raises the toolbar.
+  const roots=content.querySelectorAll('.cm-line,.kn-reading>*,[contenteditable="true"]>*,.kn-live-widget');
+  const visited=new Set(),range=document.createRange();
+  for(const root of roots){
+    if(!intersects(root.getBoundingClientRect()))continue;
+    const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let node;
+    while((node=walker.nextNode())){
+      if(visited.has(node)||!node.nodeValue.trim()||node.parentElement.closest('button,svg,script,style,[hidden]'))continue;
+      visited.add(node);
+      if(getComputedStyle(node.parentElement).visibility==='hidden')continue;
+      range.selectNodeContents(node);
+      for(const rect of range.getClientRects())if(intersects(rect))return true;
+    }
+  }
+  return false;
+}
+
+function knowledgeBindToolbar() {
+  const surface=document.querySelector('.knowledge-note-surface');
+  if(surface===knowledgeToolbarBinding?.surface){knowledgeToolbarBinding.schedule();return;}
+  if(knowledgeToolbarBinding){
+    const old=knowledgeToolbarBinding;
+    old.resize.disconnect();old.mutations.disconnect();old.controller.abort();cancelAnimationFrame(old.frame);
+    knowledgeToolbarBinding=null;
+  }
+  if(!surface)return;
+  const actions=surface.querySelector('.knowledge-note-actions');if(!actions)return;
+  const controller=new AbortController();
+  const binding={surface,actions,controller,frame:0};
+  const update=()=>{
+    binding.frame=0;
+    if(!surface.isConnected)return;
+    actions.toggleAttribute('data-over-content',knowledgeToolbarContentUnder(actions,surface));
+  };
+  const schedule=()=>{if(!binding.frame)binding.frame=requestAnimationFrame(update);};
+  const resize=new ResizeObserver(schedule),mutations=new MutationObserver(schedule);
+  Object.assign(binding,{schedule,resize,mutations});knowledgeToolbarBinding=binding;
+  resize.observe(surface);resize.observe(actions);
+  mutations.observe(surface,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['hidden','data-mode']});
+  surface.addEventListener('scroll',schedule,{capture:true,passive:true,signal:controller.signal});
+  document.fonts?.addEventListener('loadingdone',schedule,{signal:controller.signal});
+  schedule();
+}
 
 function knowledgeUpdateTabScroll() {
   if(!knowledgeTabsBinding)return;
@@ -40,8 +96,7 @@ function knowledgeLayoutTabs() {
   const css=getComputedStyle(bar),gap=parseFloat(getComputedStyle(viewport).columnGap);
   const minimum=parseFloat(css.getPropertyValue('--kn-tab-min-width'));
   const maximum=parseFloat(css.getPropertyValue('--kn-tab-max-width'));
-  const available=bar.clientWidth-parseFloat(css.paddingLeft)-parseFloat(css.paddingRight)-
-    bar.querySelector('.kn-document-new').offsetWidth-parseFloat(css.columnGap);
+  const available=bar.clientWidth-parseFloat(css.paddingLeft)-parseFloat(css.paddingRight);
   const fitted=count?Math.floor((available-(count-1)*gap)/count):maximum;
   const width=Math.max(minimum,Math.min(maximum,fitted));
   bar.style.setProperty('--kn-tab-width',width+'px');
@@ -141,7 +196,7 @@ function knowledgeDetach(noteId) {
   session.lastByTask[task.id]=session.activeId;
   session.tabsByTask[task.id]=session.openIds.slice();
   save();render();
-  const focus=document.querySelector('.kn-document-tabs [aria-selected="true"]')||document.querySelector('.kn-document-new');
+  const focus=document.querySelector('.kn-document-tabs [aria-selected="true"]')||document.querySelector('.knowledge-pane [data-wb-action="more"]');
   focus?.focus({preventScroll:true});
 }
 function knowledgePreserveTaskNote(task) {
@@ -608,6 +663,7 @@ const knowledgePriorBind = shellBindKnowledge;
 shellBindKnowledge = function() {
   knowledgePriorBind();
   knowledgeBindTabs();
+  knowledgeBindToolbar();
   const task=knowledgeActiveDocument();if(!task||!document.querySelector('.knowledge-pane'))return;
   knowledgeCurrentEntry(task.id)?.setMode(shellKnowledgeMode());knowledgeUpdateChrome(task);knowledgeRefreshPanels(task);
 };
@@ -664,11 +720,11 @@ document.addEventListener('click',event=>{
   if(action==='new-note'){void knowledgeNewDialog();return;}
   if(action==='open-file'){shellCloseOverlay({restoreFocus:false});void knowledgeOpenFile();return;}
   if(action==='recent'){knowledgeShowRecent();return;}
+  if(action==='switcher'){knowledgeShowSwitcher();return;}
   const task=knowledgeActiveDocument();if(!task)return;
   if(button.closest('.kn-insert-menu'))shellCloseOverlay({restoreFocus:false});
   if(action==='insert-menu')knowledgeInsertMenu(button);
   if(action==='insert-format')shellApplyNoteFormat(button.dataset.knFormat);
-  if(action==='switcher')knowledgeShowSwitcher();
   if(action==='panels'){const closing=button.closest('.kn-side-panel');if(knowledgePanels.has(task.id))knowledgePanels.delete(task.id);else knowledgePanels.add(task.id);knowledgeRefreshPanels(task);if(closing)(document.querySelector('.knowledge-header [data-kn-action="panels"]')||document.querySelector('[data-wb-action="more"]'))?.focus({preventScroll:true});}
   if(action==='rename')knowledgeRename(task,button);
   if(action==='find')knowledgeCurrentEntry()?.openSearch();

@@ -28,18 +28,14 @@ const source=path.resolve(__dirname,'..'),pause=ms=>new Promise(resolve=>setTime
  const ready=async id=>page.waitForFunction(id=>knowledgeCurrentEntry()?.view&&knowledgeActiveDocument()?.id===id,id);
  const edit=async text=>{await page.locator('.cm-content[contenteditable=true]').click();await page.keyboard.type(text);};
  const flush=()=>page.evaluate(async()=>{captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});await flushPendingKnowledgeRecoveries({strict:true});save();await flushSave();});
- const showRecent=async()=>{
-  const emptyTrigger=page.locator('.knowledge-header [data-kn-action=recent]');
-  if(await emptyTrigger.count())await emptyTrigger.click();
-  else {await wb.more(page);await page.locator('.wb-more-menu [data-kn-action=recent]').click();}
- };
+ const showRecent=async()=>{await wb.more(page);await page.locator('.wb-more-menu [data-kn-action=recent]').click();};
  const recent=async id=>{await showRecent();await page.locator(`[data-kn-note="${id}"]`).click();await ready(id);};
  try{
   await start();await select('a');await ready('a');assert.equal(await page.locator('.kn-document-tabs [role=tab]').count(),1);
   await select('b');const firstB=await current();assert.notEqual(firstB,'a');await ready(firstB);assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),'');assert.equal(await page.evaluate(()=>state.tasks[1].notes),'');
   assert.equal(await page.locator('.kn-document-tabs [role=tab]').count(),1);assert.deepEqual(await page.evaluate(()=>state.knowledgeWorkspace.openIds),[firstB]);
   await select('a');await ready('a');await select('b');await ready(firstB);
-  await wb.minimizeTaskInfo(page);await page.locator('.kn-document-new').click();
+  await wb.more(page);await page.locator('.wb-more-menu [data-kn-action=new-note]').click();
   const d1=await current();assert.notEqual(d1,'a');await ready(d1);assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),'');assert.equal(await page.locator('[role=dialog]').count(),0);
   assert.equal(await page.locator('.kn-document-tabs [role=tab]').count(),2);await edit('未保存草稿一');
   await page.waitForFunction(()=>document.querySelector('[data-kn-receipt]')?.textContent==='草稿已保留 · 尚未保存为文件');
@@ -52,7 +48,7 @@ const source=path.resolve(__dirname,'..'),pause=ms=>new Promise(resolve=>setTime
   assert.equal(await page.evaluate(()=>LoopKnowledgeCore.noteTitle(knowledgeActiveDocument())),'第一份方案');
   await select('a');assert.equal(await current(),'a');assert.equal(await page.locator('.kn-document-tabs [role=tab]').count(),1);await recent(d1);
   await select('b');assert.equal(await current(),d1);
-  await wb.minimizeTaskInfo(page);await page.locator('.kn-document-new').click();const d2=await current();await ready(d2);await edit('第二篇仍是草稿');
+  await wb.more(page);await page.locator('.wb-more-menu [data-kn-action=new-note]').click();const d2=await current();await ready(d2);await edit('第二篇仍是草稿');
   await select('a');await ready(d1);await select('b');await ready(d2);
   await page.screenshot({path:path.join(out,'multiple-documents.png')});
   // Each first notebook visit starts blank, while existing tasks remember their document.
@@ -95,6 +91,11 @@ const source=path.resolve(__dirname,'..'),pause=ms=>new Promise(resolve=>setTime
   // Closing the final tab leaves an intentional empty workspace across restart.
   await page.evaluate(()=>knowledgeDetach(knowledgeActiveDocument().id));await page.locator('.kn-empty-document').waitFor();await page.screenshot({path:path.join(out,'empty-workspace.png')});await flush();await app.close();app=null;
   await start();await page.locator('.kn-empty-document').waitFor();assert.equal(await current(),'');
+  assert.equal(await page.locator('.knowledge-pane [data-kn-action]').count(),0);
+  await app.evaluate((_e,file)=>{global.__noteOpenPath=file;},file);
+  await wb.more(page);await page.locator('.wb-more-menu [data-kn-action=open-file]').click();await ready(external);
+  assert.match(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),/原始内容/);
+  await page.locator(`[data-kn-detach="${external}"]`).click();await page.locator('.kn-empty-document').waitFor();
   await recent(d2);assert.match(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),/第二篇仍是草稿/);await flush();
   assert.deepEqual(errors,[]);await fs.writeFile(path.join(out,'results.json'),JSON.stringify({status:'PASS',source,profile,checks:['legacy migration','no compulsory task note','direct blank creation','draft recovery','cancel and first file save','native open and duplicate prevention','recent reopen','per-task last document','restart restoration','single-tab visibility','intentional empty workspace restart','light/dark 1024/1280'],errors},null,2));
   console.log(JSON.stringify({status:'PASS',profile,out,errors}));

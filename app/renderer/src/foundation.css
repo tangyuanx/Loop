@@ -272,6 +272,27 @@ body :is(.kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, 
   box-shadow: inset 0 -1px 0 var(--focus-line);
 }
 
+/* The note's inline search uses the shared inset fill. Its keyboard focus is
+ * a single bottom line; a dark frame around this small floating field would
+ * compete with the document and the adjacent icon controls. */
+body .knowledge-note-actions .kn-find-field,
+body .knowledge-note-actions .kn-find-field:is(:hover, :focus-within) {
+  border-color: transparent;
+  background: var(--input-surface);
+  outline: none;
+  box-shadow: none;
+}
+body .knowledge-note-actions .kn-find-field:focus-within { box-shadow: inset 0 -1px 0 var(--focus-line); }
+body .knowledge-note-actions .kn-find-field:has([aria-invalid="true"]) { box-shadow: inset 0 -1px 0 var(--danger, #b3493f); }
+body .knowledge-note-actions .kn-replace-row input,
+body .knowledge-note-actions .kn-replace-row input:is(:hover, :focus, :focus-visible) {
+  border-color: transparent;
+  background: var(--input-surface);
+  outline: none;
+  box-shadow: none;
+}
+body .knowledge-note-actions .kn-replace-row input:focus { box-shadow: inset 0 -1px 0 var(--focus-line); }
+
 /* The composer already owns its divider; capture stays on that content plane. */
 body[data-foundation-enabled] .widget-capture {
   border: 0;
