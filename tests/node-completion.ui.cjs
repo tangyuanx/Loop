@@ -38,14 +38,13 @@ const node = (id, status, conclusion, children = []) => ({ id, title: id, status
     assert.equal((await model('legacy-later')).status, 'todo');
     const desktopRead = await page.evaluate(async () => (await personalTaskTrack.storage.read()).tasks[0].nodes.map(n => n.status));
     assert.deepEqual(desktopRead, ['todo', 'todo', 'todo', 'todo', 'todo'], 'desktop read normalization also has two states');
-    assert.equal(await checkbox('one').getAttribute('role'), 'checkbox');
-    assert.equal(await checkbox('one').getAttribute('aria-checked'), 'false');
-    assert.equal(await checkbox('one').locator('use').getAttribute('href'), './src/assets/feather/feather-sprite.svg#square');
+    assert.match(await checkbox('one').getAttribute('aria-label'), /未完成，切换为已完成$/);
+    assert.equal(await checkbox('one').innerText(), '未完成');
     const child = await model('child');
     await checkbox('one').click(); await settle();
     assert.equal((await model('one')).status, 'done');
-    assert.equal(await checkbox('one').getAttribute('aria-checked'), 'true');
-    assert.equal(await checkbox('one').locator('use').getAttribute('href'), './src/assets/feather/feather-sprite.svg#check');
+    assert.match(await checkbox('one').getAttribute('aria-label'), /已完成，切换为未完成$/);
+    assert.equal(await checkbox('one').innerText(), '已完成');
     assert.ok((await model('one')).completedAt);
     assert.deepEqual(await model('child'), child, 'checking a parent never changes its child');
     const completedColors = await page.evaluate(() => ({
@@ -74,10 +73,10 @@ const node = (id, status, conclusion, children = []) => ({ id, title: id, status
       await page.evaluate(config => { state.theme = config.theme; state.fontScale = config.fontScale; render(); }, config);
       await settle();
       const alignment = await row('one').evaluate(el => {
-        const t = el.querySelector('.node-title'), icon = el.querySelector('.node-status svg'), title = t.getBoundingClientRect(), box = icon.getBoundingClientRect();
+        const t = el.querySelector('.node-title'), status = el.querySelector('.node-status'), title = t.getBoundingClientRect(), box = status.getBoundingClientRect();
         return Math.abs(box.y + box.height / 2 - title.y - parseFloat(getComputedStyle(t).lineHeight) / 2);
       });
-      assert.ok(alignment <= .6, 'square checkbox aligns with the first text line at every font size');
+      assert.ok(alignment <= .6, 'status button aligns with the first text line at every font size');
       for (const id of ['one', 'two', 'empty']) {
         await cell(id).locator('.node-conclusion-text').scrollIntoViewIfNeeded(); await settle();
         const before = await snapshot(id);

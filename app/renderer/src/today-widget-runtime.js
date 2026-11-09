@@ -23,8 +23,8 @@
     close: "m6 6 12 12M6 18 18 6",
     note: "M5 3h14v18H5zM8 8h8M8 12h8M8 16h5",
     minus: "M5 12h14",
-    // from the frozen Demo's final path map: four corners outward = expand
-    expandRecord: "M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5",
+    // A compact window returns to its normal size; this is not full screen.
+    expandRecord: "M5 8h14v12H5zM8 8V4h14v12h-3",
     plus: "M12 5v14M5 12h14",
     down: "m5 9 7 7 7-7",
     up: "m5 15 7-7 7 7",
@@ -151,6 +151,7 @@
     if (!bridge) return "";
     const items = listItems();
     const counts = laneCounts();
+    const quickEmpty = lane === "quick" && !items.length;
     const header = '<header class="widget-header" tabindex="0" aria-label="移动浮窗" aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight" title="拖动移动 · 聚焦后方向键微调">'
       + '<img class="widget-logo" src="./src/assets/loop-icon.png" alt="Loop" draggable="false"><strong>今日</strong>'
       + (prefs.compact
@@ -164,19 +165,18 @@
         '<button data-widget-type="' + value + '" class="' + (lane === value ? "active" : "") + '" aria-pressed="' + (lane === value) + '">' + label + "<small>" + count + "</small></button>").join("")
       + "</nav>";
     const body = '<div class="widget-body"><ol class="widget-rows">' + items.map(row).join("") + "</ol>"
-      + (!items.length
-        ? '<p class="widget-empty">' + (lane === "task" && snapshot.completedToday ? "今日任务已完成" : "暂无" + (lane === "task" ? "今日任务" : "速记")) + "</p>"
+      + (lane === "task" && !items.length
+        ? '<p class="widget-empty">' + (snapshot.completedToday ? "今日任务已完成" : "暂无今日任务") + "</p>"
         : "")
       + "</div>";
     const capture = '<section class="widget-compose" aria-label="添加速记"><div class="widget-capture">'
-      + '<textarea id="widget-capture" rows="1" maxlength="4000" aria-label="快速记录内容" title="Enter 保存速记；Shift+Enter 换行；Command / Ctrl+Enter 加入今日" placeholder="记一条速记…">' + esc(captureDraft()) + "</textarea>"
+      + '<textarea id="widget-capture" rows="1" maxlength="4000" aria-label="快速记录内容" placeholder="添加速记…">' + esc(captureDraft()) + "</textarea>"
       + '<button data-widget12="submit" aria-label="保存速记" title="保存速记" ' + (captureDraft().trim() ? "" : "disabled") + ">" + icon("arrow") + "</button>"
-      + '</div><div class="widget-compose-foot">'
-      + '<span id="widget-feedback" class="widget-input-status ' + feedbackType + '" role="status" aria-live="polite">' + esc(feedback || "Enter 保存 · Shift+Enter 换行") + "</span>"
-      + '<span class="widget-shortcut" title="Command / Ctrl+Enter 保存并加入今日">' + (/Mac/.test(navigator.platform) ? "⌘" : "Ctrl") + " ↵ 今日</span>"
-      + "</div></section>";
+      + '</div>'
+      + '<div class="widget-compose-foot" '+(feedback?'':'hidden')+'><span id="widget-feedback" class="widget-input-status ' + feedbackType + '" role="status" aria-live="polite">' + esc(feedback) + '</span></div>'
+      + "</section>";
     const resize = (edge) => '<div class="widget13-resize ' + edge + '" data-widget-resize="' + edge + '" role="separator" tabindex="0" aria-orientation="horizontal" aria-valuemin="180" aria-valuemax="720" aria-label="从' + (edge === "top" ? "顶部" : "底部") + '调整浮窗高度" title="拖动调整高度 · ↑ / ↓ 微调"></div>';
-    return '<aside class="today-widget widget12 widget13 ' + (prefs.compact ? "compact" : "") + '" data-widget-lane="' + lane + '" data-position="' + esc(prefs.position) + '" aria-label="今日任务浮窗">'
+    return '<aside class="today-widget widget12 widget13 ' + (prefs.compact ? "compact" : quickEmpty ? "widget-quick-empty" : "") + '" data-widget-lane="' + lane + '" data-position="' + esc(prefs.position) + '" aria-label="今日任务浮窗">'
       + header
       + (prefs.compact ? "" : tabs + body + (lane === "quick" ? capture : "") + resize("top") + resize("bottom"))
       + "</aside>"
@@ -334,7 +334,7 @@
       if (barrier) host.append(barrier);
       syncSubmitState();
       const status = host.querySelector("#widget-feedback");
-      if (status) { status.textContent = feedback || "Enter 保存 · Shift+Enter 换行"; status.className = "widget-input-status " + feedbackType; }
+      if (status) { status.textContent = feedback; status.className = "widget-input-status " + feedbackType; status.closest('.widget-compose-foot').hidden=!feedback; }
     } else host.innerHTML = renderTodayWidget();
     applyAppearance();
     resizeCapture();
@@ -425,7 +425,7 @@
     syncSubmitState();
     host.querySelector("#widget-capture")?.setAttribute("readonly", "");
     const status = host.querySelector("#widget-feedback");
-    if (status) status.textContent = feedback;
+    if (status) {status.textContent = feedback;status.closest('.widget-compose-foot').hidden=false;}
     let result;
     try { result = await bridge.createTask({ title, description, addToToday: forceToday === true }); }
     catch { result = { success: false }; }
@@ -883,7 +883,7 @@
       persistCaptureDraft();
       syncSubmitState();
       const status = host.querySelector("#widget-feedback");
-      if (status) { status.textContent = "Enter 保存 · Shift+Enter 换行"; status.className = "widget-input-status"; }
+      if (status) { status.textContent = ''; status.className = "widget-input-status";status.closest('.widget-compose-foot').hidden=true; }
       fit();
     }
     if (event.target.id === "widget-title-input") {

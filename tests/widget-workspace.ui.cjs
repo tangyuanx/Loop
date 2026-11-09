@@ -20,11 +20,11 @@ const settle = p => p.evaluate(() => new Promise(r => requestAnimationFrame(() =
   let widget, surface;
   const check = text => { report.checks.push(text); console.log('PASS ' + text); };
   const shot = async (p, name) => { if (!process.env.LOOP_WIDGET_FUNCTIONAL_ONLY) { await settle(p); await p.screenshot({ path: path.join(evidence, name + '.png') }); } };
-  const native = async (which, action, value) => app.evaluate(({ BrowserWindow }, { which, action, value }) => {
+  const native = async (which, action, value) => app.evaluate(({ app, BrowserWindow }, { which, action, value }) => {
     const win = BrowserWindow.getAllWindows().find(w => w.webContents.getURL().endsWith(`/app/renderer/${which}.html`));
     if (action === 'bounds') return win.getBounds();
     if (action === 'hide') win.hide();
-    if (action === 'show') { win.show(); win.focus(); }
+    if (action === 'show') { app.focus({steal:true}); win.show(); win.focus(); }
     if (action === 'size') win.setSize(...value);
     if (action === 'front') return { topmost: win.isAlwaysOnTop(), visible: win.isVisible(), focused: win.isFocused() };
     return true;
@@ -115,7 +115,7 @@ const settle = p => p.evaluate(() => new Promise(r => requestAnimationFrame(() =
       assert.equal(await widget.locator('#widget-capture').inputValue(), '单次点击后直接输入');
       await open('row-menu', 'quick-a');
       await native('index', 'show');
-      await page.waitForTimeout(50);
+      await page.waitForFunction(async()=>(await personalTaskTrack.windowControls.getState())?.focused===true);
       assert.equal((await native('index', 'front')).focused, true, 'outside dismissal must not pull focus back to the widget');
       assert.equal((await native('widget-surface', 'front')).visible, false);
       // The two close sources can report the same outside gesture. Neither

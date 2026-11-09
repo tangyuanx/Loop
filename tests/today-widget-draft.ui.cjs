@@ -87,6 +87,15 @@ const { _electron: electron } = require("playwright-core");
     await storeDraft("");
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert.equal(await readDraft(), "", "an explicit clear must still reach the widget");
+
+    const field = widget.getByPlaceholder("添加速记…");
+    assert.equal(await widget.getByText("暂无速记", { exact: true }).count(), 0);
+    await field.click();
+    await widget.keyboard.insertText("点击提示直接输入");
+    assert.equal(await readDraft(), "点击提示直接输入");
+    await widget.keyboard.press("Enter");
+    await widget.locator(".widget-row").getByText("点击提示直接输入", { exact: true }).waitFor();
+    console.log("PASS empty quick lane accepts and saves input after one click; draft continuity preserved");
   } finally {
     await app?.close();
     await fs.rm(profile, { recursive: true, force: true });

@@ -37,8 +37,17 @@ contextBridge.exposeInMainWorld("personalTaskTrack", {
     onChange: (callback) => subscribe("knowledge-file:changed", callback),
   },
   clipboard: {
+    copyImage: (source) => ipcRenderer.invoke("clipboard:copy-image", source),
     readImageDataUrl: () => ipcRenderer.invoke("clipboard:read-image-data-url"),
     readImageDataUrlSync: () => ipcRenderer.sendSync("clipboard:read-image-data-url-sync"),
+  },
+  knowledgeResources: {
+    open: payload=>ipcRenderer.invoke('knowledge-resource:open',payload),
+    show: payload=>ipcRenderer.invoke('knowledge-resource:show',payload),
+    external: payload=>ipcRenderer.invoke('knowledge-resource:external',payload),
+    close: payload=>ipcRenderer.invoke('knowledge-resource:close',payload),
+    onChange: callback=>subscribe('knowledge-resource:changed',callback),
+    onNewLink: callback=>subscribe('knowledge-resource:new-link',callback),
   },
   export: {
     nodeDetailPdf: (payload) => ipcRenderer.invoke("node-detail:export-pdf", payload),

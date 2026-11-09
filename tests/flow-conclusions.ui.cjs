@@ -122,10 +122,10 @@ const edge = task('edge', { title: '长内容与深层级验收', nodes: [
       assert.equal(layout.titleOverflow, false, 'long and unbroken titles wrap');
       assert.equal(layout.overlap, false, 'titles never enter conclusion cells');
       const longAlignment = await page.locator('.flow-row[data-node-id="long"]').evaluate(el => {
-        const title = el.querySelector('.node-title'), icon = el.querySelector('.node-status svg'), t = title.getBoundingClientRect(), box = icon.getBoundingClientRect();
+        const title = el.querySelector('.node-title'), status = el.querySelector('.node-status'), t = title.getBoundingClientRect(), box = status.getBoundingClientRect();
         return Math.abs(box.y + box.height / 2 - t.y - parseFloat(getComputedStyle(title).lineHeight) / 2);
       });
-      assert.ok(longAlignment <= .6, 'multiline titles keep their checkbox on the first line');
+      assert.ok(longAlignment <= .6, 'multiline titles keep their status button on the first line');
       assert.ok(Math.max(...layout.lefts) - Math.min(...layout.lefts) < 1, 'all conclusions share a column');
       assert.equal(await conclusion('long').locator('.conclusion-expand').isVisible(), true);
       await shot('candidate-long-' + theme + '-' + width);

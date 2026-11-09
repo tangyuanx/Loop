@@ -135,8 +135,9 @@ async function until(check) {
       }
       await size(1280);
     });
-    await test('new, open and recent are only exposed in the more menu',async()=>{
-      for(const action of ['new-note','open-file','recent']){
+    await test('new has a tab-bar shortcut; open and recent remain in the more menu',async()=>{
+      assert.equal(await page.locator('.kn-document-bar [data-kn-action="new-note"]').count(),1);
+      for(const action of ['open-file','recent']){
         assert.equal(await page.locator('.knowledge-pane [data-kn-action="'+action+'"]').count(),0);
       }
       await wb.more(page);
@@ -275,7 +276,8 @@ async function until(check) {
       await page.keyboard.press('Escape');
       await page.locator('[data-kn-detach=main]').click();
       await page.locator('.kn-empty-document').waitFor();
-      assert.equal(await page.locator('.knowledge-pane [data-kn-action]').count(),0);
+      assert.equal(await page.locator('.knowledge-pane [data-kn-action]').count(),1);
+      assert.equal(await page.locator('.kn-document-new').isVisible(),true);
       await page.waitForFunction(()=>document.activeElement.matches('[data-wb-action=more]'));
       await wb.more(page);
       for(const action of ['new-note','open-file','recent']){

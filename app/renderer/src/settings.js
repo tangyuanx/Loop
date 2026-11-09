@@ -46,6 +46,7 @@ const SHELL_SETTINGS_CHOICE_LABELS = {
   "new-task-priority": "新任务优先级",
   "knowledge-width": "笔记页宽",
   "knowledge-mode": "笔记视图",
+  "resource-open-mode": "链接打开方式",
 };
 
 const SHELL_SETTINGS_CHOICE_DESCRIPTIONS = {
@@ -66,6 +67,7 @@ function shellSettingsChoiceOptions(key) {
   if (key === "new-task-priority") return priorityLabels;
   if (key === "knowledge-width") return SHELL_NOTE_WIDTH_NAMES;
   if (key === "knowledge-mode") return SHELL_NOTE_MODE_NAMES;
+  if (key === "resource-open-mode") return {internal:'Loop 内部页签',external:'系统默认应用／浏览器'};
   return {};
 }
 
@@ -78,6 +80,7 @@ function shellSettingsChoiceValue(key) {
   if (key === "new-task-priority") return state.newTaskPriority;
   if (key === "knowledge-width") return shellNoteWidth();
   if (key === "knowledge-mode") return shellKnowledgeMode();
+  if (key === "resource-open-mode") return state.knowledgeWorkspace.resourceOpenMode;
   return "";
 }
 
@@ -111,6 +114,8 @@ function shellSettingsTasks() {
     ${shellSettingsChoice("task-filter", SHELL_SETTINGS_CHOICE_DESCRIPTIONS["task-filter"], shellSettingsChoiceOptions("task-filter"), state.taskFilter)}
     ${shellSettingsChoice("priority-filter", SHELL_SETTINGS_CHOICE_DESCRIPTIONS["priority-filter"], shellSettingsChoiceOptions("priority-filter"), state.priorityFilter)}
     ${shellSettingsChoice("new-task-priority", SHELL_SETTINGS_CHOICE_DESCRIPTIONS["new-task-priority"], shellSettingsChoiceOptions("new-task-priority"), state.newTaskPriority)}
+    <h3 class="prefs-subheading">处理流</h3>
+    ${shellSettingsAction("节点状态", "新增、改名、改色或删除自定义状态。", "管理", 'data-action="manage-node-states" aria-label="管理节点状态" aria-haspopup="dialog"')}
     <h3 class="prefs-subheading">今日浮窗</h3>
     ${shellSettingsToggle("显示今日浮窗", "", todayWidgetWindowState.visible === true, `data-action="toggle-today-widget-visibility" ${desktopTodayWidget ? "" : "disabled"}`)}
     ${shellSettingsToggle("始终置顶", "", todayWidgetWindowState.alwaysOnTop === true, `data-action="toggle-today-widget-always-on-top" ${desktopTodayWidget ? "" : "disabled"}`)}
@@ -124,6 +129,7 @@ function shellSettingsKnowledge() {
   return `<h2>知识笔记</h2><p>对所有笔记生效。</p>
     ${shellSettingsChoice("knowledge-width", "", shellSettingsChoiceOptions("knowledge-width"), shellNoteWidth())}
     ${shellSettingsChoice("knowledge-mode", "与笔记内的视图切换同步。", shellSettingsChoiceOptions("knowledge-mode"), shellKnowledgeMode())}
+    ${shellSettingsChoice('resource-open-mode','网页与本地文件共用；代码预览为只读。',shellSettingsChoiceOptions('resource-open-mode'),state.knowledgeWorkspace.resourceOpenMode)}
     <p class="prefs-native-caption">笔记的字体与字号跟随「外观」设置。</p>`;
 }
 

@@ -28,7 +28,7 @@ function workbenchRestore(context=Workbench.context) {
   return context.entry;
 }
 function workbenchRow(label,attributes='',shortcut='') {
-  return `<button type="button" role="menuitem" ${attributes}><span>${esc(label)}</span>${shortcut?`<kbd>${esc(shortcut)}</kbd>`:''}</button>`;
+  return `<button type="button" role="menuitem" ${attributes}><span>${esc(label)}</span></button>`;
 }
 function workbenchBranch(label,group) {
   return `<button type="button" role="menuitem" data-wb-sub="${group}" aria-haspopup="menu" aria-expanded="false"><span>${esc(label)}</span>${shellIcon('chevron')}</button>`;
@@ -97,7 +97,7 @@ document.addEventListener('pointerover',event=>{
 });
 document.addEventListener('contextmenu',event=>{
   const host=event.target.closest('.knowledge-pane .kn-editor-host');
-  if(!host||event.target.closest('.kn-vditor,input,textarea,select,a,img')||event.isComposing)return;
+  if(!host||event.target.closest('.kn-vditor,input,textarea,select,a,img,.kn-external-link,[data-note-target]')||event.isComposing)return;
   const entry=knowledgeCurrentEntry();if(!entry||entry.view.composing)return;
   const widget=event.target.closest('.kn-table-widget'),cell=event.target.closest('td,th');
   if(widget&&cell&&entry.mode!=='preview'){

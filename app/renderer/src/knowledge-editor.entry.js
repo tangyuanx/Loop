@@ -4,7 +4,7 @@ import {defaultKeymap,history,historyKeymap,indentWithTab,indentMore,indentLess,
 import {markdown,markdownLanguage,insertNewlineContinueMarkupCommand,deleteMarkupBackward} from '@codemirror/lang-markdown';
 import {yamlFrontmatter} from '@codemirror/lang-yaml';
 import {languages} from '@codemirror/language-data';
-import {syntaxTree,syntaxHighlighting,HighlightStyle,foldGutter,foldKeymap,indentUnit,bracketMatching,foldService,forceParsing} from '@codemirror/language';
+import {syntaxTree,syntaxHighlighting,HighlightStyle,indentUnit,bracketMatching,forceParsing} from '@codemirror/language';
 import {closeBrackets,closeBracketsKeymap,autocompletion,completionKeymap} from '@codemirror/autocomplete';
 import {searchKeymap,highlightSelectionMatches,search} from '@codemirror/search';
 import {KnowledgeFind} from './knowledge-search.js';
@@ -225,18 +225,6 @@ class KnowledgeEditor {
       yamlFrontmatter({content:markdown({base:markdownLanguage,codeLanguages:languages,addKeymap:false,completeHTMLTags:false,extensions:[obsidianComments]})}),
       syntaxHighlighting(loopHighlight),indentUnit.of('    '),bracketMatching(),closeBrackets(),
       markdownLanguage.data.of({closeBrackets:{brackets:['(','[','{',"'",'"','`','*','~']}}),
-      foldGutter({markerDOM:open=>{
-        const button=document.createElement('button');button.type='button';button.className='kn-fold-toggle';
-        button.textContent=open?'⌄':'›';button.title=open?'折叠此节':'展开此节';
-        button.setAttribute('aria-label',button.title);button.setAttribute('aria-expanded',String(open));
-        button.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' ')event.stopPropagation();});
-        return button;
-      }}),foldService.of((state,start,end)=>{
-        const line=state.doc.lineAt(start); if(!/^\s*(?:[-+*]|\d+[.)])\s/.test(line.text)) return null;
-        const indent=line.text.match(/^\s*/)[0].length; let last=line.to;
-        for(let n=line.number+1;n<=state.doc.lines;n++){const next=state.doc.line(n);if(next.text.trim() && next.text.match(/^\s*/)[0].length<=indent)break;last=next.to;}
-        return last>end?{from:end,to:last}:null;
-      }),
       // An invisible CM panel enables its match decorations; the actual search
       // controls live in the workspace toolbar in every note mode.
       search({caseSensitive:false,createPanel:()=>{const dom=document.createElement('div');dom.hidden=true;return {dom};}}),highlightSelectionMatches(),
@@ -244,15 +232,13 @@ class KnowledgeEditor {
       // visible candidate even when it arrives less than 75ms before the key.
       autocompletion({override:[context=>this.complete(context)],interactionDelay:0}),
       Prec.high(keymap.of([
-        {key:'Mod-b',run:()=>this.format('bold')},{key:'Mod-i',run:()=>this.format('italic')},
-        {key:'Mod-k',run:()=>this.format('link','https://')},{key:'Mod-e',run:()=>{options.onToggleMode?.();return true;}},
         {key:'Mod-s',run:()=>{options.onSave?.();return true;}},
         {key:'Mod-f',run:()=>{this.openSearch();return true;}},
         {key:'Escape',run:()=>{if(!this.find?.active)return false;this.find.clear();return true;}},
         {key:'Enter',run:insertNewlineContinueMarkupCommand({nonTightLists:false})},
         {key:'Backspace',run:deleteMarkupBackward},
         {key:'Tab',run:indentMore},{key:'Shift-Tab',run:indentLess},
-      ])),keymap.of([...closeBracketsKeymap,...completionKeymap,...historyKeymap,...searchKeymap,...foldKeymap,...defaultKeymap,indentWithTab]),
+      ])),keymap.of([...closeBracketsKeymap,...completionKeymap,...historyKeymap,...searchKeymap,...defaultKeymap,indentWithTab]),
       this.decorations,
       // Skip hidden image syntax for keyboard navigation and deletion. Source
       // mode has no image decorations and remains fully editable as Markdown.
@@ -284,6 +270,66 @@ class KnowledgeEditor {
       }),
     ]})});
     this.find=new KnowledgeFind(this);this.setMode(this.mode);instances.set(options.root,this);
+    this.events=new AbortController();const signal=this.events.signal;
+    this.root.addEventListener('mousedown',event=>{
+      this.pointerLink=event.target.closest('a,[data-note-target],.kn-external-link');
+      this.selectedImage?.removeAttribute('data-kn-selected');
+      this.selectedImage=event.target.closest('img');
+      this.selectedImage?.setAttribute('data-kn-selected','true');
+      if(event.button===0&&event.target.closest('.kn-external-link')){event.preventDefault();event.stopPropagation();}
+    },{capture:true,signal});
+    this.root.addEventListener('click',event=>{if(event.target.closest('.kn-external-link'))this.handleRenderedClick(event,0);},{signal});
+    this.root.addEventListener('keydown',event=>{
+      if(event.isComposing||event.keyCode===229||this.view.composing)return;
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='c'&&this.selectedImage?.isConnected){event.preventDefault();event.stopImmediatePropagation();void this.copyImage(this.selectedImage);return;}
+      if(!['Control','Meta','Shift','Alt'].includes(event.key)){this.selectedImage?.removeAttribute('data-kn-selected');this.selectedImage=null;}
+      if((event.ctrlKey||event.metaKey)&&event.key==='Enter'&&!event.target.closest('.kn-table-cell-editor')){event.preventDefault();event.stopImmediatePropagation();this.openLinkAt();}
+    },{capture:true,signal});
+    this.root.addEventListener('contextmenu',event=>{
+      const image=event.target.closest('img');
+      if(image){event.preventDefault();event.stopPropagation();this.options.onImageMenu?.(image,{x:event.clientX,y:event.clientY},()=>this.copyImage(image));return;}
+      const link=event.target.closest('a,.kn-external-link');if(!link)return;
+      const href=link.classList.contains('kn-external-link')?this.linkAt(Number(link.dataset.knLinkFrom)+1)?.url:link.dataset.relativeNote||link.getAttribute('href');
+      if(!href||href.startsWith('#'))return;
+      event.preventDefault();event.stopPropagation();this.options.onResourceMenu?.(href,link,{x:event.clientX,y:event.clientY});
+    },{signal});
+  }
+  async copyImage(image) {
+    try{
+      let source=image.currentSrc||image.src;
+      if(!/^(?:data:image\/(?:png|jpeg|gif|webp|avif|bmp);|https?:\/\/)/i.test(source)){
+        await image.decode();const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
+        canvas.getContext('2d').drawImage(image,0,0);source=canvas.toDataURL('image/png');
+      }
+      const result=await window.personalTaskTrack?.clipboard?.copyImage(source);
+      if(result?.code==='RASTERIZE_SVG'){
+        const source=safeURL(result.source,true);if(!source)throw new Error('这张图片无法安全转换');
+        const raster=new Image();raster.src=source;await raster.decode();return this.copyImage(raster);
+      }
+      if(!result?.success)throw new Error(result?.message||'当前环境无法复制图片');
+      this.statusHost.textContent='';
+      this.options.onFeedback?.('已复制图片');return true;
+    }catch(error){this.statusHost.textContent=error.message;return false;}
+  }
+  linkAt(pos) {
+    forceParsing(this.view,Math.min(this.view.state.doc.length,pos+100));
+    const source=this.getEditorText(),wiki=core.links(source).find(link=>pos>link.from&&pos<link.to);
+    if(wiki)return {wiki};
+    let node=syntaxTree(this.view.state).resolveInner(pos,-1);
+    while(node&&node.name!=='Link'&&node.name!=='Autolink')node=node.parent;
+    if(!node||pos<=node.from||pos>=node.to)return null;
+    const raw=source.slice(node.from,node.to),match=/\]\(\s*(<[^>]*>|[^\s]+?)(?:\s+["'][\s\S]*["'])?\s*\)$/.exec(raw);
+    const url=(match?.[1]||(/^<.*>$/.test(raw)?raw.slice(1,-1):'')).replace(/^<|>$/g,'');
+    return url?{url}:null;
+  }
+  openLinkAt(pos=this.view.state.selection.main.empty?this.view.state.selection.main.head:this.view.state.selection.main.from+1) {
+    const link=this.linkAt(pos);if(!link)return false;
+    if(link.wiki){this.options.onOpenLink?.(link.wiki);return true;}
+    const {url}=link;
+    if(url.startsWith('#')){try{this.locateAnchor(decodeURIComponent(url.slice(1)));}catch{this.locateAnchor(url.slice(1));}}
+    else if(/^(https?:|mailto:)/i.test(url))this.options.onExternalLink?.(url);
+    else this.options.onRelativeLink?.(url);
+    return true;
   }
   buildDecorations(state) {
     if(this.mode!=='edit')return Decoration.none;
@@ -341,7 +387,7 @@ class KnowledgeEditor {
         const children=[];let child=node.node.firstChild;while(child){children.push(child);child=child.nextSibling;}
         const markers=children.filter(c=>c.name==='LinkMark'||c.name==='URL');
         for(const c of markers)add(c.from,c.to,Decoration.replace({inclusive:false}));
-        add(node.from,node.to,Decoration.mark({class:'kn-external-link'}));
+        add(node.from,node.to,Decoration.mark({class:'kn-external-link',attributes:{'data-kn-link-from':String(node.from)}}));
       }
       if(node.name==='TaskMarker'&&!active){
         const value=state.doc.sliceString(node.from,node.to);
@@ -524,10 +570,7 @@ class KnowledgeEditor {
     });
     input.addEventListener('keydown',event=>{
       if(event.isComposing||active.composing||event.keyCode===229)return;
-      if((event.ctrlKey||event.metaKey)&&['b','i'].includes(event.key.toLowerCase())){
-        event.preventDefault();this.format(event.key.toLowerCase()==='b'?'bold':'italic');return;
-      }
-      if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();event.stopPropagation();commit();this.table('row-add',column);return;}
+      if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();event.stopPropagation();commit();const prefix=input.value.slice(0,input.selectionStart||0).replace(/\n/g,'<br>').replace(/(?<!\\)\|/g,'\\|');this.openLinkAt(active.from+prefix.length);return;}
       if(event.shiftKey&&event.key==='Enter'){event.preventDefault();event.stopPropagation();input.setRangeText('\n',input.selectionStart,input.selectionEnd,'end');commit();return;}
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'){
         event.preventDefault();event.stopPropagation();commit();this.options.onSave?.();return;
@@ -544,6 +587,7 @@ class KnowledgeEditor {
       }
       if(!['Tab','Enter','Escape'].includes(event.key))return;
       event.preventDefault();event.stopPropagation();commit();
+      if(event.key==='Enter'){void this.finishTableInput(active);return;}
       const table=widget.querySelector('table'),cells=[...table.querySelectorAll('th,td')];
       const next=event.key==='Tab'?cells[cells.indexOf(cell)+(event.shiftKey?-1:1)]:event.key==='Enter'?table.rows[row+(event.shiftKey?-1:1)]?.cells[column]:null;
       if(next){this.editTableCell(widget,next,true);return;}
@@ -555,6 +599,17 @@ class KnowledgeEditor {
     const at=caret===null?input.value.length:Math.max(0,Math.min(input.value.length,caret));
     input.setSelectionRange(at,at);
     if(reveal)cell.scrollIntoView({block:'nearest',inline:'nearest'});
+  }
+  async finishTableInput(active) {
+    if(active.finishing)return;
+    active.finishing=true;const value=active.input.value;
+    try{
+      const saved=await this.options.onFinishInput?.();
+      if(saved===false)throw new Error('本地保存失败，请重试');
+      if(this.destroyed||this.activeTableCell!==active||active.input.value!==value)return;
+      this.finishTableCell();active.widget.focus({preventScroll:true});
+    }catch(error){this.statusHost.textContent=error.message;active.input.focus({preventScroll:true});}
+    finally{active.finishing=false;}
   }
   complete(context) {
     const match=context.matchBefore(/\[\[[^\]\n]*$/);if(!match)return null;
@@ -615,13 +670,22 @@ class KnowledgeEditor {
       const code=(button.parentElement.querySelector('pre code')?.textContent||'').replace(/\n$/,'');
       navigator.clipboard.writeText(code).then(()=>{button.textContent='已复制';}).catch(()=>{button.textContent='复制失败';});return;
     }
-    const callout=target.closest('.kn-callout-title');if(callout){event.preventDefault();const block=callout.closest('.kn-callout');block.classList.toggle('is-collapsed');callout.setAttribute('aria-expanded',String(!block.classList.contains('is-collapsed')));return;}
     const box=target.closest('input[data-task-pos]');
     if(box){
       if(box.closest('.kn-embed-body')){event.preventDefault();return;}
       const pos=base+Number(box.dataset.taskPos);const old=this.view.state.doc.sliceString(pos,pos+1);
       if(/[ xX]/.test(old))this.view.dispatch({changes:{from:pos,to:pos+1,insert:old===' '?'x':' '},userEvent:'input'});return;
     }
+    const hit=target.closest('a,[data-note-target],.kn-external-link');
+    if(hit){event.preventDefault();event.stopPropagation();}
+    if(hit&&event.detail>0){
+      // Editing may replace a cell between pointer down and click. The new
+      // link under the pointer must not inherit a click on ordinary cell text.
+      if(this.pointerLink!==hit)return;
+      const range=document.createRange();range.selectNodeContents(hit);
+      if(![...range.getClientRects()].some(r=>event.clientX>=r.left&&event.clientX<=r.right&&event.clientY>=r.top&&event.clientY<=r.bottom))return;
+    }
+    if(hit?.classList.contains('kn-external-link')){this.openLinkAt(Number(hit.dataset.knLinkFrom)+1);return;}
     const wiki=target.closest('[data-note-target]');if(wiki){event.preventDefault();event.stopPropagation();this.options.onOpenLink?.({target:wiki.dataset.noteTarget,anchor:wiki.dataset.noteAnchor});return;}
     const link=target.closest('a');
     if(link){event.preventDefault();event.stopPropagation();
@@ -895,6 +959,6 @@ class KnowledgeEditor {
     if(changes.length)this.view.dispatch({changes:changes.sort((a,b)=>a.from-b.from),annotations:Transaction.addToHistory.of(false),userEvent:'input.assets'});
   }
   refresh(){this.renderCache.clear();if(this.mode==='preview')this.renderReading();this.view.dispatch({effects:refreshEffect.of(null)});this.view.requestMeasure();}
-  destroy(){this.destroyed=true;this.find?.destroy();this.view.destroy();instances.delete(this.root);return Promise.resolve();}
+  destroy(){this.destroyed=true;this.events?.abort();this.find?.destroy();this.view.destroy();instances.delete(this.root);return Promise.resolve();}
 }
 window.LoopKnowledgeEditor={create:async options=>new KnowledgeEditor(options),createRenderer,safeURL,instances};

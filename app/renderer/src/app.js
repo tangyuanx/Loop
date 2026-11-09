@@ -327,6 +327,7 @@ let state = {
   markdownSelection: null,
   restoreMarkdownFocus: false,
   flowWidths: { ...defaultFlowWidths },
+  nodeStates: [],
   sidebarWidth: defaultSidebarWidth,
   detailHeight: defaultDetailHeight,
   attachments: { images: {} },
@@ -782,7 +783,7 @@ function normalizeNodes(nodes, taskId = "", parentId = null, seenNodeIds = new S
             order: normalizeOrder(node.order, index + 1),
             type: parentId ? "subtask" : "step",
             title: normalizeText(node.title),
-            status: nodeStatusValues.has(node.status) ? node.status : "todo",
+            status: LoopNodeStates.normalizeStatus(node.status),
             note: normalizeText(node.note),
             hypothesis: normalizeText(node.hypothesis),
             conclusion: normalizeText(node.conclusion),
@@ -1711,6 +1712,8 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
   }
 
   const note = task.knowledgeNote;
+  const saveDirectoryOwnerId = typeof knowledgeSaveOwner === 'function' ? knowledgeSaveOwner(task)?.id : '';
+  const defaultSaveDirectory = typeof knowledgeSaveDirectory === 'function' ? knowledgeSaveDirectory(task, saveDirectoryOwnerId) : '';
   if (note.documentState === "EXTERNAL_CHANGED" && !saveAs && !allowExternalOverwrite) {
     const result = {
       success: false,
@@ -1756,6 +1759,7 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
     const result = await desktopKnowledgeFile.save({
       noteId: note.noteId || task.id,
       filePath: saveAs ? "" : note.filePath,
+      defaultDirectory: defaultSaveDirectory,
       saveAs,
       title: task.title,
       // "Save as" carries the note's existing relative attachments into the new
@@ -1808,6 +1812,7 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
     }
     rememberKnowledgeAssetFiles(result.assetFiles, task.knowledgeNote.noteId);
     task.knowledgeNote = knowledgeDocument.markDocumentSaved(task.knowledgeNote, result);
+    if(typeof knowledgeRememberSaveDirectory==='function')knowledgeRememberSaveDirectory(task,result.filePath,saveDirectoryOwnerId);
     if(!sessionBeforeSave.filePath&&!state.tasks.includes(task)&&['未命名','未命名笔记'].includes(knowledgeDocument.normalizeKnowledgeNote(sessionBeforeSave).title)) {
       const title=result.filePath?.replace(/\\/g,'/').split('/').at(-1)?.replace(/\.md$/i,'');
       if(title){task.title=title;task.knowledgeNote=knowledgeDocument.updateDocumentTitle(task.knowledgeNote,title);}
@@ -1857,6 +1862,7 @@ async function loadAppData() {
     try {
       const stored = await desktopStorage.read();
       const tasks = stored && Array.isArray(stored.tasks) ? normalizeTasks(stored.tasks) : [];
+      const nodeStates = LoopNodeStates.normalizeDefinitions(stored?.nodeStates);
       const taskGroups = normalizeTaskGroups(stored?.taskGroups, tasks);
       const activeGroupId = stored && Object.hasOwn(stored, "activeGroupId")
         ? normalizeActiveGroupId(stored.activeGroupId, taskGroups)
@@ -1884,7 +1890,7 @@ async function loadAppData() {
       const recentlyDeleted = normalizeRecentlyDeleted(stored?.recentlyDeleted);
       const knowledgeDocuments = knowledgeDocument.normalizeDocuments(stored?.knowledgeDocuments, tasks);
       const knowledgeWorkspace = knowledgeDocument.normalizeWorkspace(stored?.knowledgeWorkspace,tasks,knowledgeDocuments);
-      return { tasks, knowledgeDocuments, knowledgeWorkspace, taskGroups, activeGroupId, flowWidths, sidebarWidth, detailHeight, attachments, theme, zhFont, enFont, fontScale, taskFilter, priorityFilter, captureSourceFilter, newTaskPriority, knowledgeWidth, markdownMode, uiPreferences, installationId, workNavigation, recentlyDeleted };
+      return { tasks, nodeStates, knowledgeDocuments, knowledgeWorkspace, taskGroups, activeGroupId, flowWidths, sidebarWidth, detailHeight, attachments, theme, zhFont, enFont, fontScale, taskFilter, priorityFilter, captureSourceFilter, newTaskPriority, knowledgeWidth, markdownMode, uiPreferences, installationId, workNavigation, recentlyDeleted };
     } catch (error) {
       console.error("Failed to read local task data.", error);
       // Electron only forwards the message of an error thrown inside an
@@ -1911,6 +1917,7 @@ async function loadAppData() {
       ? normalizeActiveGroupId(localStorage.getItem(ACTIVE_GROUP_KEY), taskGroups)
       : ALL_TASKS_GROUP_ID,
     flowWidths: loadBrowserFlowWidths(),
+    nodeStates: (()=>{try{return LoopNodeStates.normalizeDefinitions(JSON.parse(localStorage.getItem('loop-node-states-v1')||'[]'));}catch{return [];}})(),
     sidebarWidth: loadBrowserSidebarWidth(),
     detailHeight: loadBrowserDetailHeight(),
     attachments: loadBrowserAttachments(),
@@ -1987,6 +1994,7 @@ function updateLocalSaveReceipt() {
   }
   const status = document.querySelector("[data-workspace-status]");
   if (status) {
+    if(status.closest?.('.knowledge-footer'))status.hidden=!workspaceFeedback&&localSaveOutcome!=='failed';
     const markup = renderWorkspaceStatus();
     if (status.workspaceStatusMarkup !== markup) {
       if (status.innerHTML !== markup) status.innerHTML = markup;
@@ -2030,6 +2038,7 @@ function save() {
     taskGroups: state.taskGroups,
     activeGroupId: state.activeGroupId,
     flowWidths: state.flowWidths,
+    nodeStates: LoopNodeStates.normalizeDefinitions(state.nodeStates),
     sidebarWidth: state.sidebarWidth,
     detailHeight: state.detailHeight,
     attachments: state.attachments,
@@ -2054,6 +2063,7 @@ function save() {
   if (!desktopStorage?.write) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload.tasks));
+      localStorage.setItem('loop-node-states-v1', JSON.stringify(payload.nodeStates));
       localStorage.setItem('loop-knowledge-documents-v1', JSON.stringify(state.knowledgeDocuments));
       localStorage.setItem('loop-knowledge-workspace-v1', JSON.stringify(state.knowledgeWorkspace));
       localStorage.setItem(TASK_GROUPS_KEY, JSON.stringify(state.taskGroups));
@@ -3354,7 +3364,7 @@ function renderTaskHistory(task) {
           events.length
             ? events
                 .map(
-                  (node) => `<article class="task-history-item"><time>${formatShort(node.updatedAt)}</time><span>${esc(node.title || "未命名节点")}</span><b>${nodeStatusText(node.status)}</b></article>`,
+                  (node) => `<article class="task-history-item"><time>${formatShort(node.updatedAt)}</time><span>${esc(node.title || "未命名节点")}</span><b>${esc(nodeStatusText(node.status))}</b></article>`,
                 )
                 .join("")
             : `<div class="task-history-empty">暂无历史记录</div>`
@@ -3732,7 +3742,7 @@ function renderNodeDetailPage(taskId, node) {
             </div>
           </details>
           <details class="node-detail-status-menu">
-            <summary class="node-detail-status-trigger status-${node.status}" aria-label="修改节点状态">${nodeDetailStatusText(node.status)}${briefFieldIcon("chevron-down", "node-detail-status-chevron")}</summary>
+            <summary class="node-detail-status-trigger status-${node.status}" aria-label="修改节点状态">${esc(nodeDetailStatusText(node.status))}${briefFieldIcon("chevron-down", "node-detail-status-chevron")}</summary>
             <div class="node-detail-status-options" role="menu" aria-label="节点状态">
               ${statusOptions
                 .map(
@@ -3767,8 +3777,7 @@ function orderedFlowNodes(nodes) {
 }
 
 function nodeDetailStatusText(status) {
-  if (status === "done") return "已完成";
-  return "未完成";
+  return nodeStatusText(status);
 }
 
 function nodeDetailPositionStyle() {
@@ -3859,6 +3868,12 @@ function openNodeContextMenu(taskId, nodeId, event, row) {
   if (!task || !findNode(task.nodes, nodeId)) return;
   event.preventDefault();
   event.stopPropagation();
+  const statusTrigger = event.target?.closest?.(".node-status");
+  if (statusTrigger) {
+    closeContextMenu();
+    shellStatusMenu(statusTrigger, nodeId);
+    return;
+  }
   const keyboard = event.type === "keydown";
   const rect = keyboard ? row.getBoundingClientRect() : null;
   taskContextMenuReturnFocus = row.querySelector(".node-title") || row;
@@ -3937,6 +3952,7 @@ function renderContextMenu() {
         <button type="button" role="menuitem" data-action="add-child-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("indent")}<span>添加子节点</span></button>
       </div>
       <hr role="separator" />
+      <button type="button" role="menuitem" aria-haspopup="menu" data-action="open-node-status" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("circle")}<span>节点状态…</span></button>
       <button type="button" role="menuitem" aria-haspopup="dialog" data-action="share-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("share")}<span>分享此节点…</span></button>
       <hr role="separator" />
       <button type="button" role="menuitem" aria-haspopup="dialog" class="danger" data-action="delete-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("trash")}<span>删除节点…</span></button>
@@ -6201,6 +6217,11 @@ function bindFlowNodeDragAndDrop() {
   // Opening details can resize the flow and replace the first click's title.
   // Keep the gesture on the document so the second click survives that redraw.
   document.addEventListener("click", (event) => {
+    if (event.button === 0 && shellFlowSelectionOnly && state.selectedNodeId && Date.now() >= suppressFlowNodeClickUntil) {
+      const row = event.target.closest?.(".flow-row[data-node-id]");
+      // Clear the selection in place so the destination still receives this click.
+      if (row?.dataset.nodeId !== state.selectedNodeId || row?.dataset.taskId !== state.activeTaskId) exitNodeDetail();
+    }
     if (!event.detail) { flowNodeLastTitleClick = null; return; }
     let title = event.target.closest?.(".node-title");
     const previous = flowNodeLastTitleClick;
@@ -7166,6 +7187,7 @@ function applySetting(key, value) {
   if (key === "font-scale") state.fontScale = normalizeFontScale(value);
   if (key === "knowledge-width") state.knowledgeWidth = normalizeKnowledgeWidth(value);
   if (key === "knowledge-mode") state.markdownMode = normalizeKnowledgeMode(value);
+  if (key === 'resource-open-mode') state.knowledgeWorkspace.resourceOpenMode=value==='external'?'external':'internal';
   if (key === "task-filter") {
     state.globalListReturn = null;
     state.taskFilter = normalizeTaskFilter(value);
@@ -7430,11 +7452,16 @@ function exitNodeDetail({ restoreFocus = false } = {}) {
   const nodeId = state.selectedNodeId;
   // Closing ends the title-click gesture; a quick reopen is not a rename.
   flowNodeLastTitleClick = null;
+  shellFlowSelectionOnly = false;
   state.selectedNodeId = "";
   state.recordDraft = "";
   state.nodeDetailFullscreen = false;
   document.querySelector(".node-record-window, .node-detail, .node-detail-page")?.remove();
-  document.querySelectorAll(".flow-row.selected").forEach((row) => row.classList.remove("selected"));
+  document.querySelectorAll(".flow-row.selected").forEach((row) => {
+    row.classList.remove("selected");
+    row.querySelector(".node-title")?.setAttribute("aria-pressed", "false");
+  });
+  retainedRegionMarkup.delete("workspace");
   if (restoreFocus) document.querySelector(`.node-title[data-node-id="${CSS.escape(nodeId)}"]`)?.focus({ preventScroll: true });
   return true;
 }
@@ -8155,6 +8182,8 @@ async function pickEditorImageFile() {
  */
 async function action(data, event = null) {
   const nodeShareTrigger = data.action === "share-node" ? event?.currentTarget : null;
+  const cycleTrigger = data.action === "cycle-node-status" && event?.currentTarget?.matches(".node-status")
+    ? event.currentTarget : null;
   if (["toggle-calendar", "toggle-review", "toggle-settings"].includes(data.action)) state.globalListReturn = null;
   // The three-column shell owns the Demo's action vocabulary; anything it
   // recognises is executed there and re-rendered, the legacy chain below
@@ -8629,7 +8658,10 @@ async function action(data, event = null) {
   if (data.action === "toggle-node-collapse") toggleNodeCollapse(data.taskId, data.nodeId);
   if (data.action === "toggle-all-nodes") toggleAllNodes(data.taskId);
   if (data.action === "mark-node-status") markNodeStatus(data.taskId, data.nodeId, data.status);
-  if (data.action === "cycle-node-status") cycleNodeStatus(data.taskId, data.nodeId);
+  if (data.action === "cycle-node-status") {
+    if (document.querySelector("#overlay .status-menu")) shellCloseOverlay({ restoreFocus: false });
+    cycleNodeStatus(data.taskId, data.nodeId);
+  }
   if (data.action === "open-node-detail" || data.action === "select-flow-node") {
     const fromLocator = event?.target?.closest?.(".flow-locator .flow-result");
     if (fromLocator) shellCloseOverlay({ restoreFocus: false });
@@ -8662,6 +8694,10 @@ async function action(data, event = null) {
     saveNodeInspectorRecord();
   }
   render();
+  if (cycleTrigger && document.activeElement === document.body) {
+    const selector = `.node-status[data-task-id="${CSS.escape(data.taskId)}"][data-node-id="${CSS.escape(data.nodeId)}"]`;
+    (document.querySelector(selector) || document.querySelector(".flow-completed-toggle"))?.focus({ preventScroll: true });
+  }
 }
 
 /**
@@ -9580,7 +9616,6 @@ function toggleNodeDone(taskId, nodeId) {
   const task = state.tasks.find((item) => item.id === taskId);
   const node = task ? findNode(task.nodes, nodeId) : null;
   if (!task || !node) return;
-  if (node.status !== "todo" && node.status !== "done") return;
   const timestamp = now();
   node.status = node.status === "done" ? "todo" : "done";
   node.statusChangedAt = timestamp;
@@ -9611,7 +9646,7 @@ function toggleAllNodes(taskId) {
 function markNodeStatus(taskId, nodeId, status) {
   const task = state.tasks.find((item) => item.id === taskId);
   const node = task ? findNode(task.nodes, nodeId) : null;
-  if (!task || !node || !nodeStatusValues.has(status)) return;
+  if (!task || !node || !(nodeStatusValues.has(status)||state.nodeStates.some(item=>item.id===status))) return;
   if (node.status === status) return;
   const timestamp = now();
   node.status = status;
@@ -9621,11 +9656,20 @@ function markNodeStatus(taskId, nodeId, status) {
   task.updatedAt = timestamp;
 }
 
+function nodeStatusSequence() {
+  return ["todo", ...state.nodeStates.map(item => item.id), "done"];
+}
+
+function nextNodeStatus(status) {
+  const sequence = nodeStatusSequence();
+  return sequence[(sequence.indexOf(status) + 1) % sequence.length];
+}
+
 function cycleNodeStatus(taskId, nodeId) {
   const task = state.tasks.find((item) => item.id === taskId);
   const node = task ? findNode(task.nodes, nodeId) : null;
   if (!node) return;
-  markNodeStatus(taskId, nodeId, node.status === "done" ? "todo" : "done");
+  markNodeStatus(taskId, nodeId, nextNodeStatus(node.status));
 }
 
 /**
@@ -9769,7 +9813,7 @@ function reorder(nodes) {
 
 function nodeStatusText(status) {
   if (status === "done") return "已完成";
-  return "未完成";
+  return state.nodeStates?.find(item=>item.id===status)?.name||"未完成";
 }
 
 function nodeStatusBadgeText(status) {
@@ -10529,6 +10573,7 @@ async function bootstrap() {
     initializeDeadlineReminderBridge(),
   ]);
   state.tasks = data.tasks;
+  state.nodeStates = LoopNodeStates.normalizeDefinitions(data.nodeStates);
   state.knowledgeDocuments = data.knowledgeDocuments || [];
   state.knowledgeWorkspace = knowledgeDocument.normalizeWorkspace(data.knowledgeWorkspace,data.tasks,state.knowledgeDocuments);
   state.taskGroups = data.taskGroups;

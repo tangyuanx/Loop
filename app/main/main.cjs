@@ -8,7 +8,8 @@
  *   - Manage application menu
  */
 
-const { app, BrowserWindow, Menu, Notification, clipboard, dialog, globalShortcut, ipcMain, net, screen, shell } = require("electron");
+const { app, BrowserWindow, WebContentsView, Menu, Notification, clipboard, dialog, globalShortcut, ipcMain, nativeImage, net, screen, shell } = require("electron");
+const {registerKnowledgeResources}=require('./knowledge-resources.cjs');
 
 // Match the bundled Chinese outlines with grayscale coverage on Windows.
 // LCD color fringes make the dense CJK strokes look heavier than on macOS;
@@ -103,6 +104,7 @@ let updateController = null;
 let todayWidgetController = null;
 let deadlineReminderController = null;
 let mainWindow = null;
+let knowledgeResources = null;
 let pointerContinuity = null;
 let isQuitting = false;
 let updateInstallPrepared = false;
@@ -165,6 +167,7 @@ function createWindow() {
   });
   window.on("closed", () => {
     if (mainWindow !== window) return;
+    knowledgeResources?.closeAll();
     mainWindow = null;
     knowledgeWatcher.closeAll();
     if (!isQuitting && !updateInstallPrepared) app.quit();
@@ -320,6 +323,7 @@ function registerStorageHandlers() {
     userDataPath: app.getPath("userData"),
     dataFilePath: dataFilePath(app.getPath("userData")),
   });
+  knowledgeResources=registerKnowledgeResources({ipcMain,BrowserWindow,WebContentsView,shell,getWindow:()=>mainWindow,readData:()=>readTaskData(app.getPath('userData')),gate:knowledgeGate});
   ipcMain.on("app:version", (event) => {
     event.returnValue = app.getVersion();
   });
@@ -507,6 +511,26 @@ function registerStorageHandlers() {
   ipcMain.handle("clipboard:read-image-data-url", () => {
     const image = clipboard.readImage();
     return image.isEmpty() ? "" : image.toDataURL();
+  });
+  ipcMain.handle("clipboard:copy-image", async (_event, source) => {
+    try {
+      const limit=32*1024*1024;
+      let bytes;
+      if(typeof source!=='string'||source.length>limit*1.4)throw new Error('图片过大或地址无效');
+      if(/^data:image\/(?:png|jpeg|gif|webp|avif|bmp);base64,/i.test(source))bytes=Buffer.from(source.slice(source.indexOf(',')+1),'base64');
+      else if(/^https?:\/\//i.test(source)){
+        const response=await net.fetch(source,{signal:AbortSignal.timeout(15000)});
+        if(!response.ok)throw new Error('图片读取失败');
+        const reader=response.body.getReader(),chunks=[];let size=0;
+        try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>limit)throw new Error('图片超过32MB');chunks.push(Buffer.from(value));}}finally{await reader.cancel();}
+        bytes=Buffer.concat(chunks);
+      }else throw new Error('无法读取这张图片');
+      if(bytes.length>limit)throw new Error('图片超过32MB');
+      const image=nativeImage.createFromBuffer(bytes);
+      if(image.isEmpty()&&bytes.length<3*1024*1024&&/^\s*(?:<\?xml[^>]*>\s*)?<svg[\s>]/i.test(bytes.toString('utf8')))return {success:false,code:'RASTERIZE_SVG',source:'data:image/svg+xml;base64,'+bytes.toString('base64')};
+      if(image.isEmpty())throw new Error('图片格式无法复制');
+      clipboard.writeImage(image);return {success:true,...image.getSize()};
+    }catch(error){return {success:false,message:error.message||'图片复制失败'};}
   });
   ipcMain.on("clipboard:read-image-data-url-sync", (event) => {
     const image = clipboard.readImage();

@@ -306,7 +306,7 @@ body .widget-capture textarea {
   caret-color: var(--text);
 }
 
-body .widget-capture textarea:focus-visible {
+body[data-foundation-enabled] .widget-capture textarea:focus {
   outline: none;
   box-shadow: inset 0 -1px 0 var(--focus-line);
 }
@@ -496,6 +496,9 @@ body[data-foundation-enabled][data-controls22-enabled] .widget-capture:focus-wit
   outline: none;
   box-shadow: none;
 }
+
+body[data-foundation-enabled] .widget-quick-empty .widget-capture:focus-within { background: var(--list); }
+body[data-foundation-enabled] .widget-quick-empty .widget-capture textarea:focus { box-shadow: none; }
 
 body[data-foundation-enabled][data-brief21-enabled] .brief21-input:is(:focus, :focus-visible) {
   background: transparent;

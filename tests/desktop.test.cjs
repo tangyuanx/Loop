@@ -313,6 +313,7 @@ function rendererHarness(personalTaskTrack = undefined) {
   };
   const context = vm.createContext({
     LoopKnowledgeCore: require("../app/renderer/src/knowledge-core.js"),
+    LoopNodeStates: require("../app/renderer/src/node-states.js"),
     alert(message) { alerts.push(String(message)); },
     Blob,
     confirm: () => true,
@@ -3489,7 +3490,7 @@ test("Today widget is rebuilt from the frozen phase 12/13 widget layers", async 
   assert.match(runtime, /data-action="compact-widget"/);
   assert.match(runtime, /data-action="widget-preferences"/);
   assert.match(runtime, /data-action="toggle-widget"/);
-  assert.match(runtime, /placeholder="记一条速记…"/);
+  assert.match(runtime, /placeholder="添加速记…"/);
   assert.match(runtime, /data-widget12="submit"/);
   assert.match(runtime, /id="widget-feedback"/);
   // the Demo's own glyphs, not lookalikes
@@ -4260,7 +4261,7 @@ test("production Today widget uses its dedicated frontend and a sandboxed Electr
   assert.match(runtime, /id="widget-capture"/);
   assert.match(runtime, /data-widget12="submit"/);
   assert.match(runtime, /id="widget-feedback"/);
-  assert.match(runtime, /class="widget-shortcut"/);
+  assert.doesNotMatch(runtime, /class="widget-shortcut"/);
   assert.match(runtime, /data-widget-resize="' \+ edge/);
   assert.doesNotMatch(runtime, /quick-capture-add-today/);
   assert.doesNotMatch(runtime, /widget-menu|quick-capture-group-menu|today-context-menu/);

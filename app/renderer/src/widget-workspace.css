@@ -21,6 +21,21 @@ body .widget12 .widget-title-input { padding-inline: 0; }
 body .widget12 .widget-row-copy > small { margin-top: 2px; }
 body .widget12 :is(.widget-check, .widget-open, .widget13-more) { border-radius: 5px; }
 body .widget12 .widget-compose { padding: 9px 14px 11px; }
+body .widget-quick-empty .widget-body { order: 1; }
+body .widget-quick-empty:not(.widget13-sized) .widget-body { display: none; }
+body .widget-quick-empty .widget-compose { padding: 8px 10px 11px; border-top: 0; }
+body .widget-quick-empty .widget-capture { padding: 0 6px; border-radius: 6px; align-items: center; }
+body .widget-quick-empty .widget-capture textarea { padding-inline: 0; }
+body .widget-quick-empty .widget-capture button { margin-bottom: 0; }
+body .widget-quick-empty .widget-capture textarea::placeholder {
+  color: color-mix(in srgb, var(--secondary) 86%, var(--canvas));
+  opacity: 1;
+}
+[data-theme="dark"] body .widget-quick-empty .widget-capture textarea::placeholder {
+  color: color-mix(in srgb, var(--secondary) 72%, var(--canvas));
+}
+body .widget-quick-empty .widget-capture textarea:focus::placeholder { color: var(--secondary); }
+body .widget-quick-empty .widget-capture textarea:placeholder-shown + button:disabled { visibility: hidden; }
 body .widget12 .widget-compose-foot { align-items: flex-start; }
 body .widget12 :is(.widget-date, .widget-count, .widget-tabs small, .widget-shortcut),
 body .widget12-setting-row output { font-variant-numeric: tabular-nums; }
@@ -41,6 +56,7 @@ body .widget13-menu button small { white-space: nowrap; }
 body #surface-host .widget13-promote [role="menu"] { overscroll-behavior: contain; scrollbar-width: thin; }
 body #surface-host .widget13-delete-title { max-height: 130px; overflow-y: auto; line-height: 1.7; }
 body #surface-host .schedule-hint { color: var(--secondary); line-height: 1.7; }
+body .widget-compose-foot[hidden] { display: none; }
 body #surface-host .dialog footer { gap: 8px; flex-wrap: wrap; }
 body .widget-surface-feedback { margin: 10px 12px; color: var(--orange); font-size: calc(12px * var(--font-scale, 1)); line-height: 1.7; overflow-wrap: anywhere; }
 body .widget-surface-feedback:empty { display: none; }

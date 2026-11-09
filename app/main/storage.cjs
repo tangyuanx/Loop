@@ -16,6 +16,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const knowledgeDocument = require("../renderer/src/knowledge-document.js");
 const workNavigationModel = require("../renderer/src/work-navigation-model.js");
+const nodeStates = require("../renderer/src/node-states.js");
 
 const DATA_FILE = "task-data.json";
 const DATA_VERSION = 2;
@@ -35,7 +36,6 @@ const DEFAULT_GROUP = { id: "group_inbox", title: "默认", order: 1 };
 const ALL_TASKS_GROUP_ID = "group_all";
 const UNGROUPED_TASKS_GROUP_ID = "group_ungrouped";
 const TASK_STATUSES = new Set(["active", "done"]);
-const NODE_STATUSES = new Set(["todo", "done"]);
 const PRIORITIES = new Set(["high", "medium", "low"]);
 const RECURRENCE_FREQUENCIES = new Set(["none", "daily", "weekly"]);
 const DEADLINE_REMINDER_MINUTES = new Set([0, 5, 15, 30, 60, 120, 1440, 2880, 10080]);
@@ -167,6 +167,7 @@ function normalizeTaskData(data) {
     recentlyDeletedSchemaVersion: RECENTLY_DELETED_SCHEMA_VERSION,
     recentlyDeleted: normalizeRecentlyDeleted(safeData.recentlyDeleted),
     tasks,
+    nodeStates: nodeStates.normalizeDefinitions(safeData.nodeStates),
     knowledgeDocuments: knowledgeDocument.normalizeDocuments(safeData.knowledgeDocuments, tasks),
     knowledgeWorkspace: knowledgeDocument.normalizeWorkspace(safeData.knowledgeWorkspace, tasks, knowledgeDocument.normalizeDocuments(safeData.knowledgeDocuments, tasks)),
     taskGroups,
@@ -395,7 +396,7 @@ function normalizeTaskNodes(nodes, taskId = "", parentId = null, seenNodeIds = n
             order: normalizeOrder(node.order, index + 1),
             type: parentId ? "subtask" : "step",
             title: normalizeText(node.title),
-            status: NODE_STATUSES.has(node.status) ? node.status : "todo",
+            status: nodeStates.normalizeStatus(node.status),
             note: normalizeText(node.note),
             hypothesis: normalizeText(node.hypothesis),
             conclusion: normalizeText(node.conclusion),

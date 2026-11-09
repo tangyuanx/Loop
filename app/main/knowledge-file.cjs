@@ -433,7 +433,9 @@ async function saveKnowledgeDocument(payload, {
     if (!dialog?.showSaveDialog) throw new Error("Save dialog is unavailable.");
     const options = {
       title: safePayload.saveAs === true ? "另存为知识笔记" : "保存知识笔记",
-      defaultPath: defaultMarkdownFileName(safePayload.title),
+      defaultPath: typeof safePayload.defaultDirectory === 'string' && path.isAbsolute(safePayload.defaultDirectory)
+        ? path.join(safePayload.defaultDirectory, defaultMarkdownFileName(safePayload.title))
+        : defaultMarkdownFileName(safePayload.title),
       filters: [{ name: "Markdown", extensions: ["md"] }],
     };
     const result = parent ? await dialog.showSaveDialog(parent, options) : await dialog.showSaveDialog(options);

@@ -5,6 +5,7 @@ const knowledgeSaveQueue = new LoopKnowledgeCore.SerialQueue();
 const knowledgeAutosaveTimers = new Map();
 const knowledgeSaveResults = new Map();
 const knowledgePanels = new Set();
+const knowledgeBacklinkPanels = new Set();
 const knowledgeGenerations = new Map();
 const knowledgeBacklinkCache = new Map();
 const knowledgeDeferredFileEvents = new Map();
@@ -13,6 +14,91 @@ let knowledgeLastTabClick = null;
 let knowledgeTabsBinding = null;
 const knowledgeTabSessions = new WeakMap();
 let knowledgeToolbarBinding = null;
+const knowledgeResourceTabs=new Map(),knowledgeResourceActive=new Map(),knowledgeResourcePending=new Set();
+let knowledgeResourceEpoch=0,knowledgeResourceBinding=null,knowledgeResourceFrame=0,knowledgeResourcePlacement='';
+function knowledgeActiveResource(owner=shellActiveTask()) {
+  return (knowledgeResourceTabs.get(owner?.id)||[]).find(item=>item.id===knowledgeResourceActive.get(owner?.id));
+}
+function renderKnowledgeResourceTabs(owner) {
+  return (knowledgeResourceTabs.get(owner?.id)||[]).map(item=>`<div class="kn-document-tab"><button type="button" role="tab" tabindex="${knowledgeActiveResource(owner)?.id===item.id?0:-1}" aria-selected="${knowledgeActiveResource(owner)?.id===item.id}" data-kn-resource="${item.id}" title="${escAttr(item.url)}"><span>${esc(item.title)}</span></button><button type="button" class="kn-document-close" data-kn-resource-close="${item.id}" aria-label="关闭资源：${escAttr(item.title)}">${shellIcon('close')}</button></div>`).join('');
+}
+function knowledgeSelectResource(resourceId) {
+  knowledgeResourceEpoch++;knowledgeResourceActive.set(state.activeTaskId,resourceId);shellCloseOverlay({restoreFocus:false});render();requestAnimationFrame(knowledgeRevealActiveTab);
+}
+async function knowledgeCloseResource(resourceId) {
+  const owner=state.activeTaskId,tabs=knowledgeResourceTabs.get(owner)||[];
+  knowledgeResourceTabs.set(owner,tabs.filter(item=>item.id!==resourceId));
+  if(knowledgeResourceActive.get(owner)===resourceId)knowledgeResourceActive.delete(owner);
+  if(![...knowledgeResourceTabs.values()].some(items=>items.some(item=>item.id===resourceId)))await personalTaskTrack.knowledgeResources?.close({id:resourceId});
+  knowledgeResourceEpoch++;render();document.querySelector('.kn-document-tabs [aria-selected="true"]')?.focus({preventScroll:true});
+}
+async function knowledgeOpenResource(href,origin=knowledgeActiveDocument(),{external=false,internal=false}={}) {
+  const bridge=window.personalTaskTrack?.knowledgeResources;if(!bridge){shellToast('请在 Loop 桌面应用中打开资源链接');return;}
+  const ownerId=state.activeTaskId,epoch=knowledgeResourceEpoch,pending=ownerId+'\n'+href;if(knowledgeResourcePending.has(pending))return;
+  knowledgeResourcePending.add(pending);
+  try{
+    captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});save();if(!(await flushSave()))throw new Error('来源笔记未能保存，请重试');
+    const result=await bridge.open({href,noteId:origin?.id,external:external||(!internal&&state.knowledgeWorkspace.resourceOpenMode==='external')});
+    if(!result?.success)throw new Error(result?.message||'资源打开失败');if(result.external)return;
+    if(result.kind==='markdown'){
+      let note=knowledgeAllDocuments().find(n=>!n.knowledgeNote?.isDeleted&&n.knowledgeNote?.filePath&&knowledgeDocument.canonicalFilePath(n.knowledgeNote.filePath,desktopPlatform)===knowledgeDocument.canonicalFilePath(result.filePath,desktopPlatform));
+      if(!note){const stamp=now(),noteId=id('document');note={id:noteId,title:result.title.replace(/\.md(?:own)?$/i,''),notes:result.content,creatorTaskId:'',createdAt:stamp,updatedAt:stamp,knowledgeNote:knowledgeDocument.markDocumentSaved(knowledgeDocument.createKnowledgeNoteMetadata({taskId:noteId,title:result.title,createdAt:stamp}),result)};if(result.readOnly||result.unsupportedEncoding)note.knowledgeNote=knowledgeDocument.markDocumentReadOnly(note.knowledgeNote);state.knowledgeDocuments.push(note);rememberKnowledgeAssetFiles(result.assetFiles,note.knowledgeNote.noteId);await syncKnowledgeFileWatcher(note);}
+      if(ownerId===state.activeTaskId&&epoch===knowledgeResourceEpoch)knowledgeAttach(note,result.anchor);
+      else{const session=state.knowledgeWorkspace;session.tabsByTask[ownerId]=knowledgeDocument.normalizeNoteLinks([...(session.tabsByTask[ownerId]||[]),note.id]);save();}
+      return;
+    }
+    const tabs=knowledgeResourceTabs.get(ownerId)||[];if(!tabs.some(item=>item.id===result.id))tabs.push(result);knowledgeResourceTabs.set(ownerId,tabs);
+    if(ownerId===state.activeTaskId&&epoch===knowledgeResourceEpoch)knowledgeSelectResource(result.id);
+  }catch(error){
+    shellKnowledgeDialog('无法打开链接',`<p class="knowledge-dialog-copy" role="alert">${esc(error.message)}</p>`,'<button class="button" data-action="close-dialog">关闭</button><button class="button" type="button" data-resource-retry>重试</button>');
+    document.querySelector('[data-resource-retry]').onclick=()=>{shellCloseOverlay({restoreFocus:false});void knowledgeOpenResource(href,origin,{external,internal});};
+  }
+  finally{knowledgeResourcePending.delete(pending);}
+}
+function knowledgeScheduleResourceView() {
+  if(knowledgeResourceFrame)return;
+  knowledgeResourceFrame=requestAnimationFrame(()=>{
+    knowledgeResourceFrame=0;const bridge=window.personalTaskTrack?.knowledgeResources;if(!bridge)return;
+    const item=knowledgeActiveResource(),viewport=document.querySelector('.kn-resource-viewport');
+    const obscured=Boolean(document.querySelector('#overlay > *,#context-menu-root > *'));
+    const bounds=viewport?.getBoundingClientRect(),visible=item&&['web','pdf'].includes(item.kind)&&!obscured&&bounds?.width>0&&bounds?.height>0;
+    const payload=visible?{id:item.id,bounds:{x:bounds.x,y:bounds.y,width:bounds.width,height:bounds.height}}:{};
+    const key=JSON.stringify(payload);if(key===knowledgeResourcePlacement)return;knowledgeResourcePlacement=key;
+    void bridge.show(payload).catch(()=>{});
+  });
+}
+function knowledgeBindResources() {
+  const surface=document.querySelector('.knowledge-note-surface'),item=knowledgeActiveResource();
+  for(const el of surface?.querySelectorAll(':scope > .knowledge-body,:scope > .knowledge-note-actions,:scope > .knowledge-footer,:scope > .kn-empty-document')||[])el.toggleAttribute('hidden',Boolean(item));
+  let panel=surface?.querySelector('.kn-resource');
+  if(!item)panel?.remove();
+  else if(surface&&panel?.dataset.resourceId!==item.id){
+    panel?.remove();panel=document.createElement('section');panel.className='kn-resource';panel.dataset.resourceId=item.id;panel.setAttribute('aria-label',item.title);
+    panel.innerHTML=`<header><span class="kn-resource-location" title="${escAttr(item.url)}">${esc(item.url)}</span>${item.canExternal?'<button class="text-button" type="button" data-resource-external>使用系统'+(item.kind==='web'?'浏览器':'应用')+'打开</button>':''}</header>`+
+      (item.kind==='code'?`<pre class="kn-resource-code" tabindex="0" aria-label="只读文件预览"><code>${esc(item.content)}</code></pre>`:`<div class="kn-resource-viewport"><p class="kn-resource-message" role="status">${item.kind==='unsupported'?'此文件类型请使用系统应用打开。':'正在打开资源…'}</p></div>`);
+    surface.append(panel);panel.querySelector('[data-resource-external]')?.addEventListener('click',async()=>{const result=await personalTaskTrack.knowledgeResources.external({id:item.id});if(!result?.success)shellToast(result.message||'打开失败');});
+  }
+  if(panel){const message=panel.querySelector('.kn-resource-message');if(message)message.textContent=item.status==='failed'?'无法在 Loop 中预览，请使用系统应用打开。':item.kind==='unsupported'?'此文件类型请使用系统应用打开。':item.status==='ready'?'':'正在打开资源…';}
+  knowledgeResourceBinding?.disconnect();
+  if(surface&&typeof ResizeObserver==='function'){knowledgeResourceBinding=new ResizeObserver(knowledgeScheduleResourceView);knowledgeResourceBinding.observe(surface);const viewport=surface.querySelector('.kn-resource-viewport');if(viewport)knowledgeResourceBinding.observe(viewport);}
+  knowledgeScheduleResourceView();
+}
+function knowledgeResourceLinkMenu(href,origin,trigger,point) {
+  const label=/^https?:/i.test(href)?'使用默认浏览器打开':'使用系统应用打开';
+  const menu=shellMountSurface(`<div class="surface-popover wb-menu" role="menu" aria-label="链接操作"><div class="wb-menu-list"><button type="button" role="menuitem" data-resource-open-internal>在 Loop 页签打开</button><button type="button" role="menuitem" data-resource-open-external>${label}</button></div></div>`,trigger,220);
+  menu.style.left=Math.max(8,Math.min(point.x,innerWidth-menu.offsetWidth-8))+'px';menu.style.top=Math.max(8,Math.min(point.y,innerHeight-menu.offsetHeight-8))+'px';
+  menu.querySelector('[data-resource-open-internal]').onclick=()=>{shellCloseOverlay({restoreFocus:false});void knowledgeOpenResource(href,origin,{internal:true});};
+  menu.querySelector('[data-resource-open-external]').onclick=()=>{shellCloseOverlay({restoreFocus:false});void knowledgeOpenResource(href,origin,{external:true});};
+  menu.querySelector('button').focus();
+}
+window.personalTaskTrack?.knowledgeResources?.onChange(change=>{
+  for(const tabs of knowledgeResourceTabs.values())for(const item of tabs)if(item.id===change.id)Object.assign(item,change);
+  document.querySelectorAll('[data-kn-resource]').forEach(button=>{const item=(knowledgeResourceTabs.get(state.activeTaskId)||[]).find(item=>item.id===button.dataset.knResource);if(item)button.querySelector('span').textContent=item.title;});
+  knowledgeBindResources();
+});
+window.personalTaskTrack?.knowledgeResources?.onNewLink(event=>void knowledgeOpenResource(event.href));
+window.addEventListener('resize',knowledgeScheduleResourceView);document.addEventListener('scroll',knowledgeScheduleResourceView,true);
+if(typeof MutationObserver==='function')new MutationObserver(knowledgeScheduleResourceView).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class','hidden']});
 
 function knowledgeToolbarContentUnder(actions, surface) {
   const body=surface.querySelector('.knowledge-body'),content=body?.querySelector('.knowledge-rich-host');
@@ -66,7 +152,7 @@ function knowledgeBindToolbar() {
   const update=()=>{
     binding.frame=0;
     if(!surface.isConnected)return;
-    actions.toggleAttribute('data-over-content',knowledgeToolbarContentUnder(actions,surface));
+    for(const group of [actions,surface.querySelector('.knowledge-footer-meta')].filter(Boolean))group.toggleAttribute('data-over-content',knowledgeToolbarContentUnder(group,surface));
   };
   const schedule=()=>{if(!binding.frame)binding.frame=requestAnimationFrame(update);};
   const resize=new ResizeObserver(()=>{fitChrome();schedule();}),mutations=new MutationObserver(schedule);
@@ -106,7 +192,7 @@ function knowledgeLayoutTabs() {
   const css=getComputedStyle(bar),gap=parseFloat(getComputedStyle(viewport).columnGap);
   const minimum=parseFloat(css.getPropertyValue('--kn-tab-min-width'));
   const maximum=parseFloat(css.getPropertyValue('--kn-tab-max-width'));
-  const available=bar.clientWidth-parseFloat(css.paddingLeft)-parseFloat(css.paddingRight);
+  const available=bar.clientWidth-parseFloat(css.paddingLeft)-parseFloat(css.paddingRight)-(bar.querySelector('.kn-document-new')?.offsetWidth||0)-6;
   const fitted=count?Math.floor((available-(count-1)*gap)/count):maximum;
   const width=Math.max(minimum,Math.min(maximum,fitted));
   bar.style.setProperty('--kn-tab-width',width+'px');
@@ -121,6 +207,10 @@ function knowledgeLayoutTabs() {
 
 function knowledgeBindTabs() {
   const bar=document.querySelector('.kn-document-bar');
+  for(const close of bar?.querySelectorAll('[data-kn-detach]')||[]){
+    const note=knowledgeFindDocument(close.dataset.knDetach);
+    close.toggleAttribute('data-unsaved',Boolean(note&&(!note.knowledgeNote.filePath||note.knowledgeNote.dirty||nodeNoteDrafts.has(noteDraftKey(note.id,'')))));
+  }
   if(bar===knowledgeTabsBinding?.bar){
     // Retained regions briefly leave the document during render, which resets
     // their native scrollLeft even though the same nodes are mounted again.
@@ -183,8 +273,27 @@ function knowledgeAbsolutePath(from, relative) {
 }
 function knowledgeText(task) { return nodeNoteDrafts.get(noteDraftKey(task.id, ''))?.markdown ?? task.notes ?? ''; }
 function knowledgeCurrentEntry(taskId = knowledgeActiveDocument()?.id) { return milkdownEditors.get(noteDraftKey(taskId, ''))?.instance; }
+function knowledgeSaveOwner(task) {
+  const active=state.tasks.find(t=>t.id===state.activeTaskId);
+  if(active&&(active.id===task.id||state.knowledgeWorkspace.tabsByTask[active.id]?.includes(task.id)))return active;
+  return state.tasks.find(t=>t.id===task.creatorTaskId||t.id===task.id);
+}
+function knowledgeSaveDirectory(task,ownerId) {
+  const owner=ownerId?state.tasks.find(t=>t.id===ownerId):knowledgeSaveOwner(task);if(!owner)return '';
+  const remembered=state.knowledgeWorkspace.saveDirectoriesByTask?.[owner.id];if(remembered)return remembered;
+  const ids=new Set([owner.id,...state.knowledgeWorkspace.tabsByTask[owner.id]||[],...owner.knowledgeLinks||[]]);
+  const saved=knowledgeAllDocuments().filter(n=>(ids.has(n.id)||n.creatorTaskId===owner.id)&&n.knowledgeNote?.filePath&&n.knowledgeNote.lastSavedHash)
+    .sort((a,b)=>(b.knowledgeNote.lastSavedMtime||0)-(a.knowledgeNote.lastSavedMtime||0));
+  return saved[0]?.knowledgeNote.filePath.replace(/[\\/][^\\/]+$/,'')||'';
+}
+function knowledgeRememberSaveDirectory(task,filePath,ownerId) {
+  const owner=ownerId?state.tasks.find(t=>t.id===ownerId):knowledgeSaveOwner(task);if(!owner||!filePath)return;
+  const directories=state.knowledgeWorkspace.saveDirectoriesByTask||={};
+  directories[owner.id]=filePath.replace(/[\\/][^\\/]+$/,'');
+}
 function knowledgeAttach(note,anchor='') {
   const task=state.tasks.find(t=>t.id===state.activeTaskId);if(!task||!note)return;
+  knowledgeResourceActive.delete(task.id);knowledgeResourceEpoch++;
   captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});
   if(note.knowledgeNote?.isDeleted)return;
   knowledgeActiveDocument(task);
@@ -256,14 +365,22 @@ function knowledgeEditorOptions(task) {
       try{return scope[decodeURIComponent(source)]||'';}catch{return '';}
     },
     onSelectionChange: () => { shellRefreshNoteFormatState(); knowledgeUpdateOutlineActive(task); },
+    onFeedback: message=>shellToast(message),
+    onImageMenu: (image,point,copy) => {
+      const menu=shellMountSurface('<div class="surface-popover wb-menu" role="menu" aria-label="图片操作"><div class="wb-menu-list"><button type="button" role="menuitem" data-copy-image>复制图片</button></div></div>',image,180);
+      menu.style.left=Math.max(8,Math.min(point.x,innerWidth-menu.offsetWidth-8))+'px';menu.style.top=Math.max(8,Math.min(point.y,innerHeight-menu.offsetHeight-8))+'px';
+      menu.querySelector('button').onclick=()=>{shellCloseOverlay({restoreFocus:false});void copy();};menu.querySelector('button').focus();
+    },
     onSave: () => void saveKnowledgeTask(task.id),
+    onFinishInput: async () => {captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});save();return flushSave();},
     onTableTools: () => knowledgeTableTools(),
     onTableMenu: context => knowledgeTableMenu(context),
     onToggleMode: () => knowledgeSetMode(shellKnowledgeMode() === 'preview' ? 'edit' : 'preview'),
     onEditForSearch: () => knowledgeSetMode('source'),
     onOpenLink: link => knowledgeOpenLink(link, task),
     onRelativeLink: url => knowledgeOpenRelative(url, task),
-    onExternalLink: url => { if (/^(https?:|mailto:)/i.test(url)) window.open(url, '_blank', 'noopener,noreferrer'); },
+    onExternalLink: url => void knowledgeOpenResource(url,task),
+    onResourceMenu: (href,trigger,point)=>knowledgeResourceLinkMenu(href,task,trigger,point),
     uploadImage: async (dataUrl, fileName) => {
       if (!knowledgeHasDocument(task)) throw new Error('笔记已删除');
       const imageId = id('image'), reference = 'task-image:' + imageId;
@@ -323,14 +440,14 @@ function knowledgeUpdateChrome(task) {
     const title=LoopKnowledgeCore.noteTitle(task),close=button.parentElement.querySelector('[data-kn-detach]');
     button.querySelector('span').textContent=title;button.title=knowledgeTabTitle(task);button.setAttribute('aria-label',title);
     close?.setAttribute('aria-label','关闭笔记：'+title);
-    if(close)close.title='关闭笔记：'+title+'（草稿仍保留）';
+    if(close){close.title='关闭笔记：'+title+'（草稿仍保留）';close.toggleAttribute('data-unsaved',!task.knowledgeNote.filePath||task.knowledgeNote.dirty||nodeNoteDrafts.has(noteDraftKey(task.id,'')));}
   });
   const receipt = knowledgeReceipt(task), target = pane.querySelector('[data-kn-receipt]');
-  if (target) {target.textContent = receipt.text;target.dataset.state=receipt.state;target.title=knowledgeSaveStatus(task)?.error||receipt.text;}
+  if (target) {target.textContent = receipt.text;target.dataset.state=receipt.state;target.title=knowledgeSaveStatus(task)?.error||receipt.text;target.hidden=!['failed','conflict'].includes(receipt.state);}
   const saveButton = pane.querySelector('[data-note-save]');
   if (saveButton) {saveButton.hidden=receipt.state==='saved';saveButton.disabled=knowledgeFileWriteBusy.has(task.id); saveButton.title=receipt.shortcut;saveButton.innerHTML=shellIcon('check')+(knowledgeFileWriteBusy.has(task.id)?'保存中…':'保存');}
   const shortcut=document.querySelector('.workspace-foot .foot-shortcut');
-  if(shortcut)shortcut.textContent=receipt.shortcut;
+  if(shortcut)shortcut.textContent='';
   const menuSave=document.querySelector(`[data-knowledge-save-label][data-task-id="${CSS.escape(task.id)}"]`);
   if(menuSave){menuSave.textContent=receipt.menuLabel;menuSave.disabled=knowledgeFileWriteBusy.has(task.id);}
   const statsTarget=pane.querySelector('[data-note-stats]');
@@ -432,11 +549,18 @@ function knowledgeRefreshPanels(task) {
   const pane=document.querySelector('.knowledge-pane');if(pane?.dataset.taskId!==task?.id)return;
   const body=pane.querySelector('.knowledge-body');if(!body)return;
   let aside=pane.querySelector('.kn-side-panel');
-  const open=knowledgePanels.has(task.id);
+  const backlinksOpen=knowledgeBacklinkPanels.has(task.id),open=knowledgePanels.has(task.id)||backlinksOpen;
   pane.querySelector('.knowledge-header [data-kn-action="panels"]')?.setAttribute('aria-expanded',String(open));
   if(!open){aside?.remove();return;}
-  if(!aside){aside=document.createElement('aside');aside.className='kn-side-panel';aside.id='kn-side-panel';aside.setAttribute('aria-label','大纲与关联笔记');body.append(aside);}
+  if(!aside){aside=document.createElement('aside');aside.className='kn-side-panel';aside.id='kn-side-panel';body.append(aside);}
+  aside.setAttribute('aria-label',backlinksOpen?'反向链接':'笔记大纲');
   const headings=LoopKnowledgeCore.headings(knowledgeText(task));
+  if(!backlinksOpen){
+    const base=Math.min(...headings.map(h=>h.level),6);
+    const html=`<header><strong>大纲</strong><button type="button" class="icon-button" data-kn-action="panels" aria-label="关闭大纲">${shellIcon('close')}</button></header><nav aria-label="笔记大纲">${headings.length?headings.map((h,i)=>`<button type="button" class="kn-outline-link" style="padding-left:${8+(h.level-base)*12}px" data-kn-heading="${i}" title="${escAttr(h.text)}">${esc(h.text)}</button>`).join(''):'<p>添加标题后会显示在这里</p>'}</nav>`;
+    if(aside.knowledgeHTML!==html){aside.innerHTML=html;aside.knowledgeHTML=html;}
+    knowledgeUpdateOutlineActive(task);return;
+  }
   const notes=knowledgeNotes();
   // Index titles and paths once: resolving every link against every note made a
   // 1,100-reference panel block for about half a second (KN-39).
@@ -476,7 +600,7 @@ function knowledgeRefreshPanels(task) {
     if(hit){seen.add(note.id);backlinks.push(note);}
   }
   const base=Math.min(...headings.map(h=>h.level),6);
-  const html=`<header><strong>大纲</strong><button type="button" class="icon-button" data-kn-action="panels" aria-label="关闭关联面板">${shellIcon('close')}</button></header><nav aria-label="笔记大纲">${headings.length?headings.map((h,i)=>`<button type="button" class="kn-outline-link" style="padding-left:${8+(h.level-base)*12}px" data-kn-heading="${i}" title="${escAttr(h.text)}">${esc(h.text)}</button>`).join(''):'<p>添加标题后会显示在这里</p>'}</nav><h4>反向链接 <small>${backlinks.length}</small></h4>${backlinks.map(note=>`<button type="button" class="kn-backlink" data-kn-note="${escAttr(note.id)}">${esc(LoopKnowledgeCore.noteTitle(note))}<small>${esc(knowledgeDetail(note))}</small></button>`).join('')||'<p>暂无笔记引用</p>'}`;
+  const html=`<header><strong>反向链接 <small>${backlinks.length}</small></strong><button type="button" class="icon-button" data-kn-action="backlinks" aria-label="关闭反向链接">${shellIcon('close')}</button></header>${backlinks.map(note=>`<button type="button" class="kn-backlink" data-kn-note="${escAttr(note.id)}">${esc(LoopKnowledgeCore.noteTitle(note))}<small>${esc(knowledgeDetail(note))}</small></button>`).join('')||'<p>暂无笔记引用</p>'}`;
   if(aside.knowledgeHTML!==html){aside.innerHTML=html;aside.knowledgeHTML=html;}
   knowledgeUpdateOutlineActive(task);
 }
@@ -514,17 +638,7 @@ function knowledgeOpenLink(link,origin) {
   document.querySelector('[data-kn-action="create-missing"]').onclick=()=>knowledgeCreate(link.target,origin,link.anchor);
 }
 function knowledgeOpenRelative(url,origin) {
-  // Split the fragment before decoding: a %23 inside the path is part of the
-  // file name, not a heading separator (KN-10).
-  const [rawPath,rawAnchor='']=String(url).split('#');
-  const decode=value=>{try{return decodeURIComponent(value);}catch{return value;}};
-  const path=decode(rawPath),anchor=decode(rawAnchor);
-  if(!path){knowledgeCurrentEntry(origin.id)?.locateAnchor(anchor);return;}
-  const normalize=knowledgeNormalizePath;
-  const expected=knowledgeAbsolutePath(origin.knowledgeNote.filePath,path);
-  const byPath=expected?knowledgeNotes().filter(note=>normalize(note.knowledgeNote.filePath||'')===expected):[];
-  if(byPath.length===1){knowledgeAttach(byPath[0],anchor);return;}
-  knowledgeOpenLink({target:path.replace(/\.md$/i,''),anchor},origin);
+  return knowledgeOpenResource(url,origin);
 }
 async function knowledgeCreate(title='',origin=knowledgeAllDocuments().find(t=>t.id===state.activeTaskId),anchor='') {
   title=String(title).trim();if(title.startsWith('note:')){knowledgeShowSwitcher();return;}
@@ -621,7 +735,7 @@ function knowledgeTableMenu({widget,row=0,column=0,cellSelection=null,scope='tab
   const item=(operation,label,{disabled=false,value,checked,shortcut=''}={})=>`<button type="button" role="${checked===undefined?'menuitem':'menuitemradio'}" ${checked===undefined?'':`aria-checked="${checked}"`} data-table-command="${operation}" ${value===undefined?'':`data-value="${escAttr(String(value))}"`} ${disabled?'disabled':''}><span>${label}</span>${shortcut?`<kbd>${shortcut}</kbd>`:''}</button>`;
   const divider='<div class="menu-divider" role="separator"></div>';
   const align=table.rows[1][column]||'---',alignment=/^:.*:$/.test(align)?'center':/:$/.test(align)?'right':'left';
-  const rowItems=()=>item('row-before','上方插入行')+item('row-add','下方插入行',{shortcut:'⌘/Ctrl ↵'})+item('row-duplicate','复制一行',{disabled:row===0})+divider+
+  const rowItems=()=>item('row-before','上方插入行')+item('row-add','下方插入行')+item('row-duplicate','复制一行',{disabled:row===0})+divider+
     item('row-move','上移一行',{value:row,disabled:row<=1})+item('row-move','下移一行',{value:row+2,disabled:row===0||row>=rows.length-1})+divider+item('row-clear','清空这一行')+item('row-delete','删除这一行',{disabled:row===0});
   const columnItems=()=>item('column-before','左侧插入列')+item('column-add','右侧插入列')+item('column-duplicate','复制一列')+divider+
     item('column-move','向左移动',{value:column-1,disabled:column===0})+item('column-move','向右移动',{value:column+1,disabled:column>=rows[0].cells.length-1})+divider+
@@ -697,6 +811,7 @@ shellBindKnowledge = function() {
   knowledgePriorBind();
   knowledgeBindTabs();
   knowledgeBindToolbar();
+  knowledgeBindResources();
   const task=knowledgeActiveDocument();if(!task||!document.querySelector('.knowledge-pane'))return;
   knowledgeCurrentEntry(task.id)?.setMode(shellKnowledgeMode());knowledgeUpdateChrome(task);knowledgeRefreshPanels(task);
 };
@@ -725,6 +840,8 @@ function knowledgeInsertMenu(trigger) {
   });
 }
 document.addEventListener('click',event=>{
+  const resource=event.target.closest('[data-kn-resource]');if(resource){knowledgeSelectResource(resource.dataset.knResource);return;}
+  const resourceClose=event.target.closest('[data-kn-resource-close]');if(resourceClose){void knowledgeCloseResource(resourceClose.dataset.knResourceClose);return;}
   const tab=event.target.closest('[data-kn-document]');
   if(tab){
     const note=knowledgeFindDocument(tab.dataset.knDocument);if(!note)return;
@@ -734,7 +851,7 @@ document.addEventListener('click',event=>{
     const pair=event.detail>0&&knowledgeLastTabClick?.id===note.id&&
       (event.detail===2||(click.time-knowledgeLastTabClick.time<=500&&Math.hypot(click.x-knowledgeLastTabClick.x,click.y-knowledgeLastTabClick.y)<=6));
     knowledgeLastTabClick=event.detail>0&&!pair?click:null;
-    if(knowledgeActiveDocument()?.id!==note.id)knowledgeAttach(note);
+    if(knowledgeActiveResource()||knowledgeActiveDocument()?.id!==note.id)knowledgeAttach(note);
     if(pair)knowledgeRename(note,tab);
     return;
   }
@@ -758,7 +875,11 @@ document.addEventListener('click',event=>{
   if(button.closest('.kn-insert-menu'))shellCloseOverlay({restoreFocus:false});
   if(action==='insert-menu')knowledgeInsertMenu(button);
   if(action==='insert-format')shellApplyNoteFormat(button.dataset.knFormat);
-  if(action==='panels'){const closing=button.closest('.kn-side-panel');if(knowledgePanels.has(task.id))knowledgePanels.delete(task.id);else knowledgePanels.add(task.id);knowledgeRefreshPanels(task);if(closing)(document.querySelector('.knowledge-header [data-kn-action="panels"]')||document.querySelector('[data-wb-action="more"]'))?.focus({preventScroll:true});}
+  if(action==='panels'||action==='backlinks'){
+    const closing=button.closest('.kn-side-panel'),current=action==='panels'?knowledgePanels:knowledgeBacklinkPanels,other=action==='panels'?knowledgeBacklinkPanels:knowledgePanels;
+    if(current.has(task.id))current.delete(task.id);else{current.add(task.id);other.delete(task.id);}
+    shellCloseOverlay({restoreFocus:false});knowledgeRefreshPanels(task);if(closing)document.querySelector('[data-wb-action="more"]')?.focus({preventScroll:true});
+  }
   if(action==='rename')knowledgeRename(task,button);
   if(action==='find')knowledgeCurrentEntry()?.openSearch();
   if(action==='table-tools')knowledgeTableTools();
@@ -766,6 +887,10 @@ document.addEventListener('click',event=>{
 },true);
 document.addEventListener('keydown',event=>{
   const tab=event.target.closest('.kn-document-tabs [role=tab]');
+  if(tab?.dataset.knResource&&['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){
+    event.preventDefault();const tabs=[...tab.closest('[role=tablist]').querySelectorAll('[role=tab]')],index=tabs.indexOf(tab),next=tabs[event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:tabs.length-1))%tabs.length];
+    if(next.dataset.knResource)knowledgeSelectResource(next.dataset.knResource);else knowledgeAttach(knowledgeFindDocument(next.dataset.knDocument));document.querySelector('.kn-document-tabs [aria-selected=true]')?.focus();return;
+  }
   if(tab&&event.key==='F2'&&!event.isComposing){
     event.preventDefault();knowledgeLastTabClick=null;
     const note=knowledgeFindDocument(tab.dataset.knDocument);if(!note)return;
@@ -775,12 +900,11 @@ document.addEventListener('keydown',event=>{
   if(tab&&['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){
     event.preventDefault();const tabs=[...tab.closest('[role=tablist]').querySelectorAll('[role=tab]')],index=tabs.indexOf(tab);
     const next=tabs[event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:tabs.length-1))%tabs.length];
-    knowledgeAttach(knowledgeFindDocument(next.dataset.knDocument));document.querySelector('.kn-document-tabs [aria-selected=true]')?.focus();return;
+    if(next.dataset.knResource)knowledgeSelectResource(next.dataset.knResource);else knowledgeAttach(knowledgeFindDocument(next.dataset.knDocument));document.querySelector('.kn-document-tabs [aria-selected=true]')?.focus();return;
   }
   if(event.isComposing||!(event.ctrlKey||event.metaKey)||state.taskPane!=='notes'||shellOverlayIsOpen())return;
   const key=event.key.toLowerCase();
   if(key==='o'){event.preventDefault();event.stopImmediatePropagation();void knowledgeOpenFile();}
-  if(key==='e'){event.preventDefault();event.stopImmediatePropagation();knowledgeSetMode(shellKnowledgeMode()==='preview'?'edit':'preview');}
   if(key==='f'){event.preventDefault();event.stopImmediatePropagation();knowledgeCurrentEntry()?.openSearch();}
 },true);
 // Dismissing this formatting menu must not rerender the workspace and discard

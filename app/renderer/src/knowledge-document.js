@@ -255,8 +255,9 @@
     const taskId = tasks.some(task => task.id === source.taskId) ? source.taskId : '';
     const openIds = tabsByTask[taskId]?.slice() || [];
     const activeId = live.has(source.activeId) && openIds.includes(source.activeId) ? source.activeId : openIds.at(-1) || '';
-    return {openIds, activeId, recentIds: normalizeNoteLinks([...(Array.isArray(source.recentIds)?source.recentIds:[]),...(Array.isArray(source.openIds)?source.openIds:[])]).filter(id => live.has(id)).slice(0, 40),
-      taskId, lastByTask, tabsByTask, visible: source.visible === true};
+    const saveDirectoriesByTask=Object.fromEntries(tasks.filter(task=>typeof source.saveDirectoriesByTask?.[task.id]==='string'&&source.saveDirectoriesByTask[task.id].trim()).map(task=>[task.id,source.saveDirectoriesByTask[task.id]]));
+    return {openIds, activeId, saveDirectoriesByTask, recentIds: normalizeNoteLinks([...(Array.isArray(source.recentIds)?source.recentIds:[]),...(Array.isArray(source.openIds)?source.openIds:[])]).filter(id => live.has(id)).slice(0, 40),
+      taskId, lastByTask, tabsByTask, resourceOpenMode:source.resourceOpenMode==='external'?'external':'internal', visible: source.visible === true};
   }
 
   return Object.freeze({

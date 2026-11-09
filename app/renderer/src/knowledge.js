@@ -97,12 +97,12 @@ function shellKnowledgeRecoveryText(task) {
 // ------------------------------------------------------------
 
 function renderKnowledgeTabs(task) {
-  const active=knowledgeActiveDocument(task),notes=state.knowledgeWorkspace.openIds.map(knowledgeFindDocument).filter(note=>note&&!note.knowledgeNote?.isDeleted);
+  const active=knowledgeActiveDocument(task),resource=typeof knowledgeActiveResource==='function'?knowledgeActiveResource(task):null,notes=state.knowledgeWorkspace.openIds.map(knowledgeFindDocument).filter(note=>note&&!note.knowledgeNote?.isDeleted);
   if(active&&!notes.some(note=>note.id===active.id))notes.unshift(active);
-  if(!notes.length)return '';
   const scrollButton=(direction,label)=>`<button type="button" class="kn-document-scroll" data-kn-scroll="${direction}" aria-label="${label}" title="${label}" hidden>${shellIcon('chevron')}</button>`;
-  return `<div class="kn-document-bar"><div class="kn-document-tabs" role="tablist" aria-label="已打开的笔记">${notes.map(note=>`<div class="kn-document-tab"><button type="button" role="tab" tabindex="${active?.id===note.id?0:-1}" aria-selected="${active?.id===note.id}" aria-label="${escAttr(LoopKnowledgeCore.noteTitle(note))}" aria-keyshortcuts="F2" data-kn-document="${escAttr(note.id)}" title="${escAttr(knowledgeTabTitle(note))}"><span>${esc(LoopKnowledgeCore.noteTitle(note))}</span></button><button type="button" class="kn-document-close" data-kn-detach="${escAttr(note.id)}" aria-label="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}" title="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}（草稿仍保留）">${shellIcon('close')}</button></div>`).join('')}</div>
+  return `<div class="kn-document-bar"><div class="kn-document-tabs" role="tablist" aria-label="已打开的笔记">${notes.map(note=>`<div class="kn-document-tab"><button type="button" role="tab" tabindex="${!resource&&active?.id===note.id?0:-1}" aria-selected="${!resource&&active?.id===note.id}" aria-label="${escAttr(LoopKnowledgeCore.noteTitle(note))}" aria-keyshortcuts="F2" data-kn-document="${escAttr(note.id)}" title="${escAttr(knowledgeTabTitle(note))}"><span>${esc(LoopKnowledgeCore.noteTitle(note))}</span></button><button type="button" class="kn-document-close" data-kn-detach="${escAttr(note.id)}" aria-label="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}" title="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}（草稿仍保留）">${shellIcon('close')}</button></div>`).join('')}${typeof renderKnowledgeResourceTabs==='function'?renderKnowledgeResourceTabs(task):''}</div>
     ${scrollButton(-1,'向左滚动页签')}${scrollButton(1,'向右滚动页签')}
+    <button type="button" class="kn-document-new" data-kn-action="new-note" aria-label="新建笔记" title="新建笔记">${shellIcon('plus')}</button>
   </div>`;
 }
 
@@ -113,7 +113,7 @@ function knowledgeTabTitle(note) {
 
 function renderKnowledgeToolbar(task) {
   return `<div class="knowledge-note-actions" role="group" aria-label="当前笔记操作">
-    ${task ? `<div class="kn-find-mount"></div><button class="icon-button" type="button" data-kn-action="find" aria-label="查找当前笔记" title="查找当前笔记（Ctrl/Cmd+F）" aria-expanded="false">${shellIcon("search")}</button>
+    ${task ? `<div class="kn-find-mount"></div><button class="icon-button" type="button" data-kn-action="find" aria-label="查找当前笔记" title="查找当前笔记" aria-expanded="false">${shellIcon("search")}</button>
     <button class="icon-button" type="button" data-wb-action="focus" aria-label="${Workbench.focus ? "退出" : "进入"}专注模式" title="专注模式" aria-pressed="${Workbench.focus}">${shellIcon(Workbench.focus ? "restoreRecord" : "expandRecord")}</button>` : ''}
     <button class="icon-button" type="button" data-wb-action="more" data-action="knowledge-file-menu" data-knowledge-action="file-menu" aria-label="更多笔记操作" title="更多笔记操作" aria-haspopup="menu" aria-expanded="false">${shellIcon("more")}</button>
   </div>`;
@@ -122,7 +122,7 @@ function renderKnowledgeToolbar(task) {
 function renderShellKnowledge(task) {
   const owner = task;
   task = knowledgeActiveDocument(task);
-  if(!task)return `<section class="knowledge-pane task-knowledge-pane" aria-label="知识笔记"><div class="knowledge-note-surface">${renderKnowledgeToolbar(null)}<div class="kn-empty-document"><p>打开一篇笔记，或从空白开始</p><p>在右上角「⋯」菜单中新建、打开或选择最近的笔记</p></div></div></section>`;
+  if(!task)return `<section class="knowledge-pane task-knowledge-pane" aria-label="知识笔记">${renderKnowledgeTabs(owner)}<div class="knowledge-note-surface">${renderKnowledgeToolbar(null)}<div class="kn-empty-document"><p>打开一篇笔记，或从空白开始</p><p>点击页签栏「+」新建，或在右上角「⋯」菜单打开笔记</p></div></div></section>`;
   const noteState = shellKnowledgeState(task);
   const mode = shellKnowledgeMode();
   const width = shellNoteWidth();
@@ -138,15 +138,15 @@ function renderShellKnowledge(task) {
             <div id="knowledge-rich-host" class="knowledge-rich-host milkdown-editor-host" data-editor-kind="knowledge" data-task-id="${escAttr(task.id)}" aria-label="笔记编辑器"><p class="knowledge-loading">正在打开笔记…</p></div>
           </div>
         </div>
-      </div>
       <footer class="knowledge-footer">
         <span class="kn-save-receipt" role="status" data-kn-receipt>正在读取保存状态…</span>
         <div class="knowledge-footer-meta">
           <span data-note-stats>${stats.characters} 字 · ${stats.lines} 行</span>
         </div>
-        <span class="wb-global-status" data-workspace-status>${renderWorkspaceStatus()}</span>
-        <button class="button" type="button" data-note-save data-action="save-knowledge" data-task-id="${escAttr(task.id)}" title="保存笔记（Ctrl/Cmd+S）">${shellIcon("check")}保存</button>
+        <span class="wb-global-status" data-workspace-status ${!workspaceFeedback&&localSaveOutcome!=='failed'?'hidden':''}>${renderWorkspaceStatus()}</span>
+        <button class="button" type="button" data-note-save data-action="save-knowledge" data-task-id="${escAttr(task.id)}" title="保存笔记">${shellIcon("check")}保存</button>
       </footer>
+      </div>
     </section>`;
 }
 
@@ -230,7 +230,8 @@ function shellKnowledgeFileMenu(trigger) {
       ${renderKnowledgeDocumentActions()}
       <div class="menu-divider"></div>
       <button class="button" type="button" role="menuitem" data-wb-action="format">格式与插入…</button>
-      <button class="button" type="button" role="menuitem" data-kn-action="panels" aria-pressed="${knowledgePanels.has(task.id)}">大纲与关联笔记</button>
+      <button class="button" type="button" role="menuitem" data-kn-action="panels" aria-pressed="${knowledgePanels.has(task.id)}">笔记大纲</button>
+      <button class="button" type="button" role="menuitem" data-kn-action="backlinks" aria-pressed="${knowledgeBacklinkPanels.has(task.id)}">反向链接</button>
       ${renderShellKnowledgeWidthButton()}
       <button class="button" type="button" role="menuitem" data-action="open-knowledge-settings">全局笔记设置…</button>
       <button class="button" type="button" role="menuitem" data-kn-action="rename">重命名笔记…</button>

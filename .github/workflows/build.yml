@@ -59,3 +59,5 @@ jobs:
           node tests/node-completion.ui.cjs
           npm run test:ui:node-interactions
           npm run test:ui:flow-filter
+      - name: Verify memo improvements
+        run: npm run test:ui:memo

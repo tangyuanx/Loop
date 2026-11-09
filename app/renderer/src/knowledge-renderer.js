@@ -109,12 +109,12 @@ export function createRenderer(options) {
       const inline=state.tokens[i+2];
       const m=inline?.type==='inline' && /^\[!([\w-]+)\]([+-])?(?:[ \t]+([^\n]*))?(?:\n|$)/.exec(inline.content);
       if(!m) continue;
-      t.attrSet('class','kn-callout'+(m[2]==='-'?' is-collapsed':''));
+      t.attrSet('class','kn-callout');
       t.attrSet('data-callout',m[1].toLowerCase());
       inline.content=inline.content.slice(m[0].length);
       inline.children=md.parseInline(inline.content,state.env)[0].children;
       const title=new state.Token('html_inline','',0);
-      title.content=`<button type="button" class="kn-callout-title" aria-expanded="${m[2]!=='-'}">${escape(m[3]||m[1].toUpperCase())}</button>`;
+      title.content=`<span class="kn-callout-title">${escape(m[3]||m[1].toUpperCase())}</span>`;
       inline.children.unshift(title);
     }
   });
@@ -160,7 +160,7 @@ export function createRenderer(options) {
   };
   // task-image is a managed reference, resolved and validated by the image rule.
   const validate=md.validateLink.bind(md);
-  md.validateLink=url=>/^task-image:[\w-]+$/.test(url) || /^data:image\/(?:png|jpe?g|gif|webp|avif|bmp);base64,/i.test(url) || validate(url);
+  md.validateLink=url=>/^file:\/\//i.test(url)||/^[a-z]:[\\/]/i.test(url)||/^task-image:[\w-]+$/.test(url) || /^data:image\/(?:png|jpe?g|gif|webp|avif|bmp);base64,/i.test(url) || validate(url);
   function render(source,env={}) {
     try {
       let input=String(source ?? '');

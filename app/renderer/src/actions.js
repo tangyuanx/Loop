@@ -770,13 +770,71 @@ function shellStatusMenu(trigger, nodeId) {
   const overlay = shellOverlay();
   overlay.innerHTML = `<div class="status-menu" role="menu" aria-label="选择节点状态" data-return-focus="${selector}[data-node-id='${CSS.escape(nodeId)}']" style="left:${left}px;top:${rect.bottom + 5}px">
     <p class="status-menu-title">选择状态</p>
-    ${Object.entries(SHELL_NODE_STATUS_LABELS).map(([status, label]) => `<button class="status-option ${status}" type="button" role="menuitemradio" aria-checked="${node.status === status}" data-action="set-node-status" data-node-id="${escAttr(nodeId)}" data-status="${status}">${shellIcon(status === "todo" ? "circle" : status)}<span>${label}<small>${SHELL_STATUS_HINTS[status]}</small></span>${node.status === status ? shellIcon("check", "status-selected") : ""}</button>`).join("")}
+    ${nodeStatusSequence().map(status => `<button class="status-option ${status}" type="button" role="menuitemradio" aria-checked="${node.status === status}" data-action="set-node-status" data-node-id="${escAttr(nodeId)}" data-status="${escAttr(status)}"><span>${shellNodeStatusChip(status)}<small>${SHELL_STATUS_HINTS[status] || '仍属于未完成节点'}</small></span>${node.status === status ? shellIcon("check", "status-selected") : ""}</button>`).join("")}
   </div>`;
   const menu = overlay.querySelector(".status-menu");
   const height = menu.getBoundingClientRect().height;
   menu.style.top = `${rect.bottom + 5 + height < window.innerHeight ? rect.bottom + 5 : Math.max(8, rect.top - height - 5)}px`;
   trigger.setAttribute("aria-expanded", "true");
   menu.querySelector(".status-option[aria-checked='true']")?.focus({ preventScroll: true });
+  menu.addEventListener("keydown", event => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const options = [...menu.querySelectorAll("button:not(:disabled)")];
+    const index = options.indexOf(document.activeElement);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1
+      : (index + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+    event.preventDefault();
+    event.stopPropagation();
+    options[next]?.focus();
+  });
+}
+
+function shellNodeStatesManager() {
+  shellKnowledgeDialog('节点状态管理',`<div class="node-states-list"></div><div data-node-state-delete></div>
+    <form class="node-state-form"><input name="id" type="hidden"><label>状态名称<input name="name" maxlength="24" required autocomplete="off" placeholder="例如：等待中"></label><label>颜色<input name="color" type="color" value="#81735e"></label><div><button class="button" type="submit">新增状态</button><button class="button" type="button" data-cancel-state hidden>取消编辑</button></div></form><p class="node-state-error" role="alert"></p>`,
+    '<button class="button" data-action="close-dialog">关闭</button>',440,'[data-action="manage-node-states"]');
+  const form=document.querySelector('.node-state-form'),list=document.querySelector('.node-states-list'),error=document.querySelector('.node-state-error'),prompt=document.querySelector('[data-node-state-delete]');
+  const refresh=()=>{
+    list.innerHTML = nodeStatusSequence().map(status => `<div class="node-state-row">${shellNodeStatusChip(status)}${LoopNodeStates.customId(status)
+      ? `<button class="text-button" type="button" data-state-edit="${escAttr(status)}">编辑</button><button class="text-button" type="button" data-state-delete="${escAttr(status)}">删除</button>`
+      : '<small>默认</small>'}</div>`).join('');
+  };
+  const reset=()=>{form.reset();form.elements.id.value='';form.querySelector('[type=submit]').textContent='新增状态';form.querySelector('[data-cancel-state]').hidden=true;};
+  let busy=false;
+  const persist=async(change,done)=>{
+    if(busy)return;busy=true;error.textContent='';
+    form.elements.name.readOnly=true;form.elements.color.disabled=true;
+    for(const button of document.querySelectorAll('.node-state-form button,.node-states-list button'))button.disabled=true;
+    try{change();save();if(!(await flushSave()))throw new Error('保存失败，请重试');render();if(form.isConnected){done?.();refresh();}}
+    catch(failure){if(error.isConnected)error.textContent=failure.message;}
+    finally{busy=false;if(form.isConnected){form.elements.name.readOnly=false;form.elements.color.disabled=false;for(const button of document.querySelectorAll('.node-state-form button,.node-states-list button'))button.disabled=false;}}
+  };
+  form.onsubmit=event=>{
+    event.preventDefault();if(busy)return;
+    const name=form.elements.name.value.trim(),color=form.elements.color.value;
+    if(!name||Object.values(SHELL_NODE_STATUS_LABELS).includes(name)||state.nodeStates.some(item=>item.name.toLocaleLowerCase()===name.toLocaleLowerCase()&&item.id!==form.elements.id.value)){error.textContent='请输入不重复的状态名称';return;}
+    if(!form.elements.id.value&&state.nodeStates.length>=24){error.textContent='最多可添加24种状态';return;}
+    const stateId=form.elements.id.value||'custom_'+id('state');form.elements.id.value=stateId;
+    void persist(()=>{const found=state.nodeStates.find(item=>item.id===stateId);if(found)Object.assign(found,{name,color});else state.nodeStates.push({id:stateId,name,color});},reset);
+  };
+  form.querySelector('[data-cancel-state]').onclick=reset;
+  list.onclick=event=>{
+    if(busy)return;
+    const edit=event.target.closest('[data-state-edit]'),remove=event.target.closest('[data-state-delete]');
+    if(edit){const item=state.nodeStates.find(item=>item.id===edit.dataset.stateEdit);if(!item)return;form.elements.id.value=item.id;form.elements.name.value=item.name;form.elements.color.value=item.color;form.querySelector('[type=submit]').textContent='保存状态';form.querySelector('[data-cancel-state]').hidden=false;form.elements.name.focus();return;}
+    if(!remove)return;
+    const stateId=remove.dataset.stateDelete,item=state.nodeStates.find(item=>item.id===stateId);if(!item)return;
+    const matching=[];const scan=value=>{if(!value||typeof value!=='object')return;if(value.status===stateId)matching.push(value);for(const child of Object.values(value))if(child&&typeof child==='object')scan(child);};
+    scan(state.tasks);scan(state.recentlyDeleted);
+    prompt.innerHTML=`<p>删除「${esc(item.name)}」后，${matching.length} 个节点（含最近删除）将改为未完成。</p><button type="button" class="button" data-confirm-state-delete>删除并改为未完成</button><button type="button" class="button" data-cancel-state-delete>取消</button>`;
+    prompt.querySelector('[data-cancel-state-delete]').onclick=()=>prompt.replaceChildren();
+    prompt.querySelector('[data-confirm-state-delete]').onclick=()=>void persist(()=>{
+      for(const node of matching){node.status='todo';node.completedAt='';node.statusChangedAt=node.updatedAt=now();}
+      state.nodeStates=state.nodeStates.filter(candidate=>candidate.id!==stateId);
+    },()=>{prompt.replaceChildren();if(form.elements.id.value===stateId)reset();});
+    prompt.querySelector('[data-confirm-state-delete]').focus();
+  };
+  refresh();form.elements.name.focus();
 }
 
 // ------------------------------------------------------------
@@ -1539,15 +1597,21 @@ async function shellAction(data, event) {
     case "edit-node-title":
       shellTitleEditor(trigger, data.nodeId);
       return true;
-    case "open-node-status":
-      shellStatusMenu(trigger, data.nodeId);
+    case "open-node-status": {
+      const anchor=document.querySelector(`.node-status[data-node-id="${CSS.escape(data.nodeId)}"]`)||trigger;
+      state.contextMenu=null;syncContextMenuRoot();
+      shellStatusMenu(anchor, data.nodeId);
+      return true;
+    }
+    case "manage-node-states":
+      shellNodeStatesManager();
       return true;
     case "set-node-status": {
       if (!task) return true;
       const node = shellNodeList(task).find((item) => item.id === data.nodeId);
       if (!node) return true;
       markNodeStatus(task.id, data.nodeId, data.status);
-      shellCloseOverlay({ restoreFocus: false });
+      shellCloseOverlay();
       return true;
     }
     case "open-node-operations":
@@ -1869,7 +1933,7 @@ function shellFinishNodeTitleEdit(commit, { restoreFocus = false } = {}) {
     input.outerHTML = renderShellNodeTitle(task, node);
     const collapse = row.querySelector(".collapse");
     collapse?.setAttribute("aria-label", `${node.collapsed ? "展开" : "收起"} ${node.title}`);
-    row.querySelector(".node-status")?.setAttribute("aria-label", `${node.title}：${shellNodeStatusLabel(node.status)}，${node.status === "done" ? "标记未完成" : "标记已完成"}`);
+    row.querySelector(".node-status")?.setAttribute("aria-label", shellNodeStatusButtonLabel(node));
     row.querySelector(".node-add")?.setAttribute("aria-label", `给 ${node.title} 添加子节点`);
     bindTaskRepositoryRows(row);
     if (restoreFocus) row.querySelector(".node-title")?.focus({ preventScroll: true });
@@ -1877,6 +1941,16 @@ function shellFinishNodeTitleEdit(commit, { restoreFocus = false } = {}) {
   retainedRegionMarkup.delete("workspace");
 }
 
+async function shellPersistInput(input,prepare,finish) {
+  if(input.dataset.committing)return;
+  const value=input.value;input.dataset.committing='true';
+  try{
+    prepare?.();save();
+    if(!(await flushSave()))throw new Error('保存失败，请重试');
+    if(input.isConnected&&input.value===value)finish();
+  }catch(error){if(input.isConnected){input.title=error.message;input.setAttribute('aria-invalid','true');input.focus({preventScroll:true});}}
+  finally{delete input.dataset.committing;}
+}
 function shellBindInlineNodeTitles() {
   document.querySelectorAll("[data-shell-node-rename]").forEach((input) => {
     if (!bindRenderElement(input, "inline-node-title")) return;
@@ -1888,6 +1962,7 @@ function shellBindInlineNodeTitles() {
     input.addEventListener("keydown", (event) => {
       if (event.isComposing || event.keyCode === 229) return;
       if (!["Enter", "Escape"].includes(event.key)) return;
+      if(event.key==='Enter'&&(event.shiftKey||event.altKey))return;
       event.preventDefault();
       event.stopImmediatePropagation();
       if (event.key === "Enter" && !input.value.trim()) {
@@ -1895,10 +1970,14 @@ function shellBindInlineNodeTitles() {
         input.title = "节点标题不能为空";
         return;
       }
-      shellFinishNodeTitleEdit(event.key === "Enter", { restoreFocus: true });
+      if(event.key==='Escape')shellFinishNodeTitleEdit(false,{restoreFocus:true});
+      else void shellPersistInput(input,()=>{
+        const task=state.tasks.find(t=>t.id===input.dataset.taskId),node=task&&findNode(task.nodes,input.dataset.nodeId);
+        if(node){node.title=input.value.trim();node.updatedAt=task.updatedAt=now();}
+      },()=>shellFinishNodeTitleEdit(true,{restoreFocus:true}));
     });
     input.addEventListener("blur", () => {
-      if (input.isConnected && shellNodeRenameDraft?.nodeId === input.dataset.nodeId
+      if (!input.dataset.committing && input.isConnected && shellNodeRenameDraft?.nodeId === input.dataset.nodeId
         && !shellNodeRenameDraft.rendering) shellFinishNodeTitleEdit(true);
     });
   });
@@ -1974,14 +2053,15 @@ function shellBindNodeConclusions() {
     }
     shellSyncConclusionLayout();
   }, () => {
-    if (shellConclusionDraft === draft && editor.isConnected && !draft.rendering) shellFinishNodeConclusionEdit(true);
+    if (!editor.dataset.committing && shellConclusionDraft === draft && editor.isConnected && !draft.rendering) shellFinishNodeConclusionEdit(true);
   });
   editor.addEventListener("keydown", event => {
     if (event.isComposing || event.keyCode === 229) return;
-    if (event.key !== "Escape" && !(event.key === "Enter" && (event.metaKey || event.ctrlKey))) return;
+    if (event.key !== "Escape" && !(event.key === "Enter" && !event.shiftKey && !event.altKey)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    shellFinishNodeConclusionEdit(event.key !== "Escape", { restoreFocus: true });
+    if(event.key==='Escape')shellFinishNodeConclusionEdit(false,{restoreFocus:true});
+    else void shellPersistInput(editor,null,()=>shellFinishNodeConclusionEdit(true,{restoreFocus:true}));
   });
 }
 
@@ -2013,9 +2093,10 @@ function shellBindNodeDraft() {
     });
     input.addEventListener("keydown", (event) => {
       if (event.isComposing || event.keyCode === 229) return;
+      if(event.key==='Enter'&&(event.shiftKey||event.altKey))return;
       if (event.key === "Enter") {
         event.preventDefault();
-        shellCommitNodeDraft();
+        void shellPersistInput(input,null,()=>shellCommitNodeDraft());
       } else if (event.key === "Escape") {
         event.preventDefault();
         shellCancelNodeDraft();
@@ -2023,7 +2104,7 @@ function shellBindNodeDraft() {
     });
     input.addEventListener("blur", () => {
       window.setTimeout(() => {
-        if (!input.isConnected || document.activeElement === input) return;
+        if (!input.isConnected || input.dataset.committing || document.activeElement === input) return;
         if (state.focusNodeTitleId !== nodeId || shellActiveTask()?.id !== taskId) return;
         if (!input.value.trim()) { shellCancelNodeDraft({ renderView: false }); return; }
         shellCommitNodeDraft();
@@ -2193,6 +2274,11 @@ function shellBindNodeRecord() {
     updateNodeNoteDraft(task.id, node.id, editor.value);
     shellSyncNodeRecordMeta(editor, now());
   }, () => flushNodeNoteDrafts?.({ persist: true }));
+  editor.addEventListener('keydown',event=>{
+    if(event.isComposing||event.keyCode===229||event.key!=='Enter'||event.shiftKey||event.altKey)return;
+    event.preventDefault();event.stopImmediatePropagation();
+    void shellPersistInput(editor,()=>flushNodeNoteDrafts({persist:true}),()=>{exitNodeDetail();render();});
+  });
 }
 
 const SHELL_OVERLAY_TRIGGERS = [
@@ -2340,6 +2426,41 @@ function shellBindListResizer() {
   });
 }
 
+function shellBindFlowColumns() {
+  const handle=document.querySelector('[data-flow-column-resizer]');if(!handle||!bindRenderElement(handle,'flow-column-resizer'))return;
+  const outline=handle.closest('.flow-outline');
+  const setWidth=width=>{
+    const columns=getComputedStyle(outline.querySelector('.flow-column-head')).gridTemplateColumns.split(' ').map(parseFloat),total=columns[0]+columns[1];
+    const minimum=260+(Number.parseFloat(getComputedStyle(outline).getPropertyValue('--flow-depth'))||0)*24;
+    const ratio=Math.max(190/690,Math.min(510/690,Math.max(minimum,Math.min(total-240,width))/total));
+    state.flowWidths={title:Math.round(ratio*690),note:690-Math.round(ratio*690)};
+    outline.style.setProperty('--flow-title-track',state.flowWidths.title+'fr');outline.style.setProperty('--flow-note-track',state.flowWidths.note+'fr');
+    handle.setAttribute('aria-valuenow',String(Math.round(ratio*100)));shellSyncConclusionLayout();
+  };
+  const current=()=>outline.querySelector('.flow-column-head > span').getBoundingClientRect().width;
+  handle.setAttribute('aria-valuenow',String(Math.round(state.flowWidths.title/(state.flowWidths.title+state.flowWidths.note)*100)));
+  handle.addEventListener('pointerdown',event=>{
+    if(event.button!==0)return;event.preventDefault();event.stopPropagation();
+    const start={x:event.clientX,width:current(),widths:{...state.flowWidths}},controller=new AbortController(),signal=controller.signal;
+    handle.setPointerCapture(event.pointerId);outline.classList.add('resizing-columns');
+    const finish=cancel=>{
+      controller.abort();outline.classList.remove('resizing-columns');
+      if(cancel){state.flowWidths=start.widths;outline.style.setProperty('--flow-title-track',state.flowWidths.title+'fr');outline.style.setProperty('--flow-note-track',state.flowWidths.note+'fr');handle.setAttribute('aria-valuenow',String(Math.round(state.flowWidths.title/(state.flowWidths.title+state.flowWidths.note)*100)));shellSyncConclusionLayout();}
+      else save();
+      if(handle.hasPointerCapture(event.pointerId))handle.releasePointerCapture(event.pointerId);
+    };
+    // A retained workspace briefly leaves the DOM during a background render.
+    // Listen on window so that reparenting cannot discard an in-flight drag.
+    window.addEventListener('pointermove',e=>setWidth(start.width+e.clientX-start.x),{signal});
+    window.addEventListener('pointerup',()=>finish(false),{signal});window.addEventListener('pointercancel',()=>finish(true),{signal});
+    window.addEventListener('blur',()=>finish(true),{signal});
+    document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();finish(true);}},{signal,capture:true});
+  });
+  handle.addEventListener('keydown',event=>{
+    if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)||event.isComposing)return;
+    event.preventDefault();event.stopPropagation();setWidth(event.key==='Home'?0:event.key==='End'?outline.clientWidth:current()+(event.key==='ArrowLeft'?-1:1)*(event.shiftKey?40:10));save();
+  });
+}
 function shellBindOverlay() {
   const card = document.querySelector("[data-task-info]");
   if (card && bindRenderElement(card, "task-info-keys")) card.addEventListener("keydown", event => {
@@ -2356,4 +2477,5 @@ function shellBindOverlay() {
   shellBindNodeConclusions();
   shellBindBriefDrafts();
   shellBindNodeRecord();
+  shellBindFlowColumns();
 }
