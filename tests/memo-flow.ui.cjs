@@ -18,6 +18,11 @@ const {launchRepository,task}=require('./electron-ui-helpers.cjs');
  try{
   await p.locator('[data-flow-column-resizer]').waitFor();
   await p.locator('.node-title[data-node-id="parent"]').waitFor();await p.waitForFunction(()=>state.activeTaskId==='flow');
+  // Narrow hosted displays can leave both columns at their minimum widths.
+  // Use the real list toggle so the same 80px drag has room on each runner.
+  const listToggle=p.locator('[data-action="toggle-task-list"]');
+  if(await listToggle.getAttribute('aria-expanded')==='true')await listToggle.click();
+  await p.locator('.app.list-collapsed').waitFor();
   await p.evaluate(async()=>{await document.fonts.ready;await Promise.all(document.getAnimations().filter(a=>a.effect?.getComputedTiming().endTime!==Infinity).map(a=>a.finished.catch(()=>{})));await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));});
   const handle=p.locator('[data-flow-column-resizer]');const before=await p.locator('.flow-column-head > span').first().boundingBox();const rect=await handle.boundingBox();
   await p.mouse.move(rect.x+rect.width/2,rect.y+rect.height/2);await p.mouse.down();await p.mouse.move(rect.x+rect.width/2+80,rect.y+rect.height/2,{steps:5});await p.mouse.up();
