@@ -315,17 +315,25 @@ async function exportedWindow(file, fn) {
       });
       const initial = await shape();
       assert.deepEqual({ rows: initial.rows, columns: initial.columns }, { rows: 4, columns: 2 }, JSON.stringify(initial));
-      // 单元格里 Ctrl+Enter：在下方插入行，并把焦点交给新行。
-      await page.locator('.kn-table-widget tbody tr').first().locator('td').first().click();
-      await page.locator('.kn-table-cell-editor').waitFor();
-      await page.keyboard.press('Control+Enter');
-      await page.waitForTimeout(400);
-      assert.match(await page.locator('.kn-table-cell-editor').getAttribute('aria-label'), /第2行，第1列/);
-      await page.keyboard.type('丙');
-      await page.keyboard.press('Tab');
-      await page.keyboard.type('三');
-      await page.keyboard.press('Escape');
-      await page.waitForTimeout(200);
+      // 无链接的 Ctrl+Enter 保留当前单元格。插入行走表格的行菜单。
+      const firstCell = page.locator('.kn-table-widget tbody tr').first().locator('td').first();
+      const editor = page.locator('.kn-table-cell-editor');
+      await firstCell.click();
+      await editor.press('Control+Enter');
+      assert.match(await editor.getAttribute('aria-label'), /第1行，第1列/);
+      assert.equal((await shape()).rows, initial.rows);
+      await editor.press('Enter');
+      await editor.waitFor({ state: 'detached' });
+      await firstCell.click({ button: 'right' });
+      await page.locator('.kn-table-menu [data-table-command="row-menu"]').click();
+      await page.locator('.kn-table-menu [data-table-command="row-add"]').click();
+      await page.locator('.kn-table-widget tbody tr').nth(1).locator('td').first().click();
+      assert.match(await editor.getAttribute('aria-label'), /第2行，第1列/);
+      await page.keyboard.insertText('丙');
+      await editor.press('Tab');
+      await page.keyboard.insertText('三');
+      await editor.press('Enter');
+      await editor.waitFor({ state: 'detached' });
       let current = await shape();
       assert.deepEqual({ rows: current.rows, columns: current.columns }, { rows: 5, columns: 2 }, JSON.stringify(current));
       assert.match(current.markdown, /^\| 丙 \| 三 \|$/m, `新增行必须保持标准单元格间距\n${current.markdown}`);
