@@ -72,6 +72,13 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     assert.equal(await page.evaluate(()=>knowledgeActiveDocument().id),'a');
     assert.equal(await page.evaluate(()=>knowledgeCurrentEntry()===__tabEditor),true);
     assert.equal(await page.locator('[data-kn-detach="a"][data-unsaved]').count(),1);
+    // Start the second gesture from a fully visible tab. Focusing a clipped
+    // button can scroll the strip before the drag starts on a narrow display.
+    await viewport.evaluate(async el=>{
+      await Promise.all(el.getAnimations({subtree:true}).map(animation=>animation.finished.catch(()=>{})));
+      el.querySelector('[aria-selected="true"]').scrollIntoView({block:'nearest',inline:'center'});
+    });
+    await settle();
     const committed=await tabs(),scrollBeforeBlur=await viewport.evaluate(el=>el.scrollLeft);
     await beginEdge('left');
     await page.waitForFunction(left=>document.querySelector('.kn-document-tabs').scrollLeft<left-50,scrollBeforeBlur);
