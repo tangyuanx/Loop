@@ -24,7 +24,16 @@ function smallPDF(){
   const native=await app.evaluate(async({BrowserWindow})=>{const win=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')),view=win.contentView.children.find(v=>v.webContents&&/^http:/.test(v.webContents.getURL()));return {isolation:await view.webContents.executeJavaScript('window.testIsolation'),bounds:view.getBounds(),visible:view.getVisible(),preload:view.webContents.getLastWebPreferences().preload};});
   assert.deepEqual(native.isolation,{bridge:'undefined',node:'undefined',process:'undefined'});assert.ok(native.bounds.width>200&&native.bounds.height>200);assert.equal(native.visible,true);assert.ok(!native.preload);
   await p.locator('[data-kn-document="source"]').click();await p.locator('.knowledge-body .cm-content').waitFor();assert.equal(await p.evaluate(()=>knowledgeCurrentEntry()===__sourceEntry&&knowledgeCurrentEntry().view===__sourceView),true);assert.equal(await p.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),source);
-  await p.evaluate(()=>{const e=knowledgeCurrentEntry(),pos=e.getEditorText().indexOf('代码')+1;e.view.dispatch({selection:{anchor:pos}});e.view.focus();});await p.keyboard.press('Control+Enter');await p.locator('.kn-resource-code').waitFor();assert.ok((await p.locator('.kn-resource-code').innerText()).includes('<script>neverExecute()</script>'));assert.equal(await p.locator('.kn-resource-code [contenteditable]').count(),0);
+  // A note switch restores the saved selection after the viewport's own frames.
+  // Wait before moving the caret programmatically, which emits no pointer event.
+  await p.evaluate(async()=>{for(let frame=0;frame<4;frame++)await new Promise(resolve=>requestAnimationFrame(resolve));});
+  const codeLink=await p.evaluate(()=>{
+   const entry=knowledgeCurrentEntry(),position=entry.getEditorText().indexOf('代码')+1;
+   entry.view.dispatch({selection:{anchor:position}});entry.view.focus();
+   return entry.linkAt(entry.view.state.selection.main.head)?.url;
+  });
+  assert.equal(codeLink,'./代码 文件.c');
+  await p.keyboard.press('Control+Enter');await p.locator('.kn-resource-code').waitFor();assert.ok((await p.locator('.kn-resource-code').innerText()).includes('<script>neverExecute()</script>'));assert.equal(await p.locator('.kn-resource-code [contenteditable]').count(),0);
   await p.locator('[data-kn-document="source"]').click();await p.evaluate(url=>knowledgeOpenResource(url),url);assert.equal(await p.locator('[data-kn-resource]').count(),2,'reopening website reuses the resource tab');
   await p.evaluate(()=>shellMountSurface('<div class="surface-popover" role="menu">测试菜单</div>',document.querySelector('.kn-resource > header'),180));
   await p.waitForFunction(()=>Boolean(document.querySelector('#overlay > *')));await p.evaluate(async()=>{await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));});
