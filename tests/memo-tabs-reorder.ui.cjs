@@ -43,7 +43,8 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     await same(before);
     await page.evaluate(()=>knowledgeCurrentEntry().view.focus());await page.keyboard.press('ControlOrMeta+z');
     assert.notEqual(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),markdown,'dragging preserves the original Undo journal');
-    await page.keyboard.press('ControlOrMeta+Shift+z');assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),markdown);
+    await page.keyboard.press(process.platform==='darwin'?'Meta+Shift+z':'Control+y');
+    assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),markdown);
 
     // Holding at an edge keeps scrolling without further mousemove events.
     await page.evaluate(()=>{

@@ -24,15 +24,15 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     const markdown=await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown());
     assert.match(markdown,/align=right/);assert.match(markdown,/正文仍在这里/);
     await image.click();
-    const caret=await image.evaluate(async el=>{
-      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-      const image=el.getBoundingClientRect(),cursor=el.closest('.cm-editor').querySelector('.cm-cursor').getBoundingClientRect();
-      return {imageBottom:image.bottom,cursorTop:cursor.top};
-    });
+    const caret=await (await page.waitForFunction(()=>{
+      const image=document.querySelector('.kn-edit-surface .kn-image-widget img');
+      const cursor=image?.closest('.cm-editor').querySelector('.cm-cursor')?.getBoundingClientRect();
+      return cursor?.height>0&&{imageBottom:image.getBoundingClientRect().bottom,cursorTop:cursor.top};
+    })).jsonValue();
     assert.ok(caret.cursorTop>=caret.imageBottom-35,`aligned images keep the visual caret after the image (${JSON.stringify(caret)})`);
     await page.evaluate(()=>{const e=knowledgeCurrentEntry();e.view.focus();});await page.keyboard.press('ControlOrMeta+z');
     assert.match(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),/align=left/);
-    await page.keyboard.press('ControlOrMeta+Shift+z');
+    await page.keyboard.press(process.platform==='darwin'?'Meta+Shift+z':'Control+y');
     const file=path.join(run.profile,'image-note.md');
     await app.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:file});},file);
     assert.equal((await page.evaluate(()=>saveKnowledgeTask(knowledgeActiveDocument().id))).success,true);
