@@ -11,17 +11,18 @@
   const rect = el => el?.getClientRects().length ? el.getBoundingClientRect() : null;
   const one = selector => { try { const matches = document.querySelectorAll(selector); return matches.length === 1 ? matches[0] : null; } catch { return null; } };
   function context() {
-    return { task: document.querySelector('.workspace')?.dataset.taskId || '', node: (document.querySelector('.node-record-window') || document.querySelector('.inspector'))?.dataset.nodeId || '', pane: document.querySelector('.pane-tab.active')?.dataset.pane || '' };
+    return { task: document.querySelector('.workspace')?.dataset.taskId || '', node: (document.querySelector('.node-record-window') || document.querySelector('.inspector'))?.dataset.nodeId || '', pane: document.querySelector('.pane-tab.active')?.dataset.pane || '', document:document.querySelector('.knowledge-pane')?.dataset.taskId||'', resource:document.querySelector('.kn-resource')?.dataset.resourceId||'' };
   }
   function key(c, selector) {
     // The flow belongs to the task, regardless of the selected node. Only
     // the record viewport needs a separate reading position for each node.
-    return JSON.stringify([c.task, selector, ['.inspector-body', '[data-shell-node-record]'].includes(selector) ? c.node : '']);
+    const note=selector==='.knowledge-body'||selector==='#knowledge-source'||selector==='.knowledge-pane .cm-scroller';
+    return JSON.stringify([c.task, selector, ['.inspector-body', '[data-shell-node-record]'].includes(selector) ? c.node : note ? [c.document,c.resource] : '']);
   }
   function remember(c) {
     if (!c.task) return;
     for (const selector of selectors) {
-      const el = document.querySelector(selector); if (!el) continue;
+      const el = document.querySelector(selector); if (!el||el.getClientRects?.().length===0) continue;
       const k = key(c, selector); memory.delete(k); memory.set(k, { top: el.scrollTop, left: el.scrollLeft });
     }
     while (memory.size > 180) memory.delete(memory.keys().next().value);
@@ -29,7 +30,7 @@
   function restore(c) {
     if (!c.task) return;
     for (const selector of selectors) {
-      const el = document.querySelector(selector), saved = memory.get(key(c, selector)); if (!el) continue;
+      const el = document.querySelector(selector), saved = memory.get(key(c, selector)); if (!el||el.getClientRects?.().length===0) continue;
       el.scrollTop = Math.min(saved?.top || 0, Math.max(0, el.scrollHeight - el.clientHeight));
       el.scrollLeft = Math.min(saved?.left || 0, Math.max(0, el.scrollWidth - el.clientWidth));
     }

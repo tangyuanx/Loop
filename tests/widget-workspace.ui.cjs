@@ -154,14 +154,52 @@ const settle = p => p.evaluate(() => new Promise(r => requestAnimationFrame(() =
 
     // Delay the production handler; real repeated Enter events cannot submit
     // a second request while the first is waiting.
-    await page.evaluate(() => { globalThis.__s7Create = createQuickCapture; createQuickCapture = (...args) => { globalThis.__s7CreateCalls = (globalThis.__s7CreateCalls || 0) + 1; return __s7Create(...args); }; });
-    await widget.locator('#widget-capture').fill('快速保存只产生一条');
-    await widget.evaluate(() => { const el = document.querySelector('#widget-capture'); for (let i = 0; i < 3; i++) el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
-    await page.waitForFunction(() => state.tasks.some(t => t.title === '快速保存只产生一条'));
-    assert.equal(await page.evaluate(() => __s7CreateCalls), 1);
-    await widget.waitForFunction(() => !document.querySelector('#widget-capture').readOnly);
+    const capture = widget.locator('#widget-capture');
+    const send = widget.locator('[data-widget12="submit"]');
+    const feedback = widget.locator('.widget-compose-foot');
+    const draft = '快速保存只产生一条\n失败时保留补充内容';
+    const priorOrder = await page.evaluate(() => state.tasks.filter(t => t.captureSource === 'today-widget').map(t => [t.id, t.todayQuickCaptureOrder]));
+    await page.evaluate(async () => {
+      await flushSave();
+      globalThis.__s7Create = createQuickCapture;
+      globalThis.__s7Flush = flushSave;
+      globalThis.__s7CreateCalls = 0;
+      createQuickCapture = (...args) => {
+        __s7CreateCalls++;
+        return __s7Create(...args);
+      };
+      const writeResult = new Promise(resolve => { globalThis.__s7Release = resolve; });
+      flushSave = () => writeResult;
+    });
+    await capture.fill(draft);
+    const beforeBusy = await widget.locator('.widget-compose').boundingBox();
+    await widget.evaluate(() => {
+      const el = document.querySelector('#widget-capture');
+      for (let i = 0; i < 3; i++) el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    await widget.locator('.widget-capture[aria-busy="true"]').waitFor();
+    assert.equal(await send.isVisible(), true);
+    assert.equal(await send.isDisabled(), true);
+    assert.equal(await feedback.isVisible(), false);
+    assert.equal((await widget.locator('.widget-compose').boundingBox()).height, beforeBusy.height);
+    await page.waitForFunction(() => __s7CreateCalls === 1);
+    await page.evaluate(() => __s7Release(false));
+    await widget.getByText('速记保存失败，请稍后重试').waitFor();
+    assert.equal(await capture.inputValue(), draft);
+    assert.equal(await send.isEnabled(), true);
+    assert.equal(await page.evaluate(() => state.tasks.some(t => t.title === '快速保存只产生一条')), false);
+    assert.deepEqual(await page.evaluate(() => state.tasks.filter(t => t.captureSource === 'today-widget').map(t => [t.id, t.todayQuickCaptureOrder])), priorOrder);
+    await shot(widget, 'capture-write-failure');
+    await page.evaluate(() => { flushSave = __s7Flush; });
+    await send.click();
+    await widget.locator('.widget-row').getByText('快速保存只产生一条').waitFor();
+    await widget.waitForFunction(() => !document.querySelector('#widget-capture').value);
+    assert.equal(await feedback.isVisible(), false);
+    const disk = JSON.parse(await fs.readFile(path.join(profile, 'task-data.json'), 'utf8'));
+    assert.equal(disk.tasks.filter(t => t.title === '快速保存只产生一条').length, 1);
+    assert.equal(disk.tasks.find(t => t.title === '快速保存只产生一条').description, '失败时保留补充内容');
     await page.evaluate(() => { createQuickCapture = __s7Create; });
-    check('rapid Enter submits one capture, with disabled save and a busy state');
+    check('pending capture keeps a stable layout, a failed write keeps the draft, and retry stores one record');
 
     await widget.locator('[data-widget12="edit"][data-widget-id="quick-a"]').focus();
     await widget.keyboard.press('Enter');
@@ -239,6 +277,22 @@ const settle = p => p.evaluate(() => new Promise(r => requestAnimationFrame(() =
     assert.equal(await widget.locator('.today-widget').evaluate(el => el.classList.contains('widget13-sized')), true);
     const topResize = await widget.evaluate(() => personalTaskTrack.todayWidget.resize({ height: 300, edge: 'top' }));
     await widget.waitForFunction(height => Math.abs(document.querySelector('.today-widget').offsetHeight - height) <= 1, topResize.height);
+    await lane('quick');
+    await page.evaluate(() => { state.fontScale = 'largest'; render(); });
+    await widget.waitForFunction(() => Number(getComputedStyle(document.documentElement).getPropertyValue('--font-scale')) > 1);
+    const shortResize = await widget.evaluate(() => personalTaskTrack.todayWidget.resize({ height: 180, edge: 'bottom' }));
+    await widget.waitForFunction(height => Math.abs(document.querySelector('.today-widget').offsetHeight - height) <= 1, shortResize.height);
+    await capture.fill('长'.repeat(241) + '\n' + '补充内容。\n'.repeat(8));
+    await capture.press('Enter');
+    await widget.getByText('标题最多 240 字，可将详情放在下一行').waitFor();
+    assert.equal(await widget.locator('#toast .toast').count(), 0);
+    const panelBounds = await widget.locator('.today-widget').boundingBox();
+    const feedbackBounds = await feedback.boundingBox();
+    assert.ok(feedbackBounds.y + feedbackBounds.height <= panelBounds.y + panelBounds.height + 1,
+      'multiline validation feedback must fit in the shortest window at the largest font size');
+    await shot(widget, 'minimum-height-validation');
+    await capture.fill('');
+    await page.evaluate(() => { state.fontScale = 'normal'; render(); });
     await widget.evaluate(() => personalTaskTrack.todayWidget.resize({ reset: true }));
     await widget.waitForFunction(() => !document.querySelector('.today-widget').style.height);
     const before = await native('today-widget', 'bounds');
@@ -266,6 +320,8 @@ const settle = p => p.evaluate(() => new Promise(r => requestAnimationFrame(() =
       const appearance = await Promise.all([page, widget, surface].map(p => p.evaluate(() => ({ theme: document.documentElement.dataset.theme, scale: getComputedStyle(document.documentElement).getPropertyValue('--font-scale').trim(), sans: getComputedStyle(document.documentElement).getPropertyValue('--sans').trim(), dpr: devicePixelRatio }))));
       assert.equal(new Set(appearance.map(v => JSON.stringify({ theme: v.theme, scale: v.scale, sans: v.sans }))).size, 1);
       await shot(surface, `settings-${theme}-${scale}`); await close();
+      await native('today-widget', 'show');
+      await widget.waitForFunction(() => document.hasFocus());
       await widget.locator('[data-widget-id="quick-b"].widget-title').focus(); await widget.keyboard.press('Enter');
       await audit(widget, '#widget-title-input', `${theme}-${scale}-rename`);
       assert.equal(await widget.locator('#widget-title-input').evaluate(n => getComputedStyle(n).backgroundColor), 'rgba(0, 0, 0, 0)');

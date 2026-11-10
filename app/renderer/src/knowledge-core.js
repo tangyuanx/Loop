@@ -105,7 +105,7 @@
       if(p===from||p>=text.length)continue;
       const to=p,url=text.slice(from,to).replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g,'$1');
       if(angle){if(text[p]!=='>')continue;p++;}
-      const rest=text.slice(p).match(/^[ \t]*(?:(?:"[^"\n]*"|'[^'\n]*'|\([^\n)]*\))[ \t]*)?\)/);
+      const rest=text.slice(p).match(/^[ \t]*(?:(?:"(?:\\[^\n]|[^"\\\n])*"|'(?:\\[^\n]|[^'\\\n])*'|\((?:\\[^\n]|[^)\\\n])*\))[ \t]*)?\)/);
       if(!rest)continue;
       out.push({from,to,url,start,end:p+rest[0].length});at=p+rest[0].length;
     }

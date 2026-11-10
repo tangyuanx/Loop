@@ -29,8 +29,7 @@ body.wb-focus:has(.knowledge-pane) .task-info-card { display: none; }
   background: transparent;
 }
 .knowledge-note-actions[data-over-content] {
-  background: color-mix(in srgb, var(--canvas) 94%, transparent);
-  backdrop-filter: blur(8px);
+  background: var(--canvas);
   box-shadow: 0 2px 8px color-mix(in srgb, var(--text) 9%, transparent);
 }
 .knowledge-note-actions > .icon-button {
@@ -67,7 +66,7 @@ body[data-notebook23-enabled] .knowledge-footer {
 .knowledge-footer > * { pointer-events: auto; }
 .knowledge-footer .knowledge-footer-meta { margin-left: auto; padding: 5px 7px; border-radius: 5px; background: transparent; }
 .knowledge-footer .knowledge-footer-meta [data-note-stats] { max-width: none; overflow: visible; white-space: nowrap; }
-.knowledge-footer .knowledge-footer-meta[data-over-content] { background: color-mix(in srgb,var(--canvas) 94%,transparent); backdrop-filter: blur(8px); box-shadow: 0 2px 8px color-mix(in srgb,var(--text) 9%,transparent); }
+.knowledge-footer .knowledge-footer-meta[data-over-content] { background: var(--canvas); box-shadow: 0 2px 8px color-mix(in srgb,var(--text) 9%,transparent); }
 .knowledge-footer .wb-global-status:not([hidden]) { max-width: 55%; padding: 5px 8px; border-radius: 5px; background: var(--canvas); }
 .knowledge-footer .kn-save-receipt:not([hidden]) { max-width: min(60%,460px); padding: 6px 8px; border-radius: 5px; background: var(--canvas); }
 .knowledge-footer [data-note-save] { min-height: 28px; padding: 3px 8px; background: var(--canvas); }
@@ -177,4 +176,13 @@ body .kn-document-tab .kn-document-close:hover { color: var(--text); }
   .knowledge-note-actions { right: 10px; max-width: calc(100% - 20px); }
   .knowledge-note-actions .kn-find-field > button { min-width: 21px; padding-inline: 2px; }
   .knowledge-note-actions .kn-find-count { min-width: 34px; }
+}
+/* Reordering moves only tab elements, keeping the live note editor attached. */
+.kn-document-tab.kn-tab-dragging { opacity: .55; cursor: grabbing; }
+.kn-document-tab[data-tab-insert] { box-shadow: inset 2px 0 var(--text); }
+.kn-document-tabs [data-kn-document] { touch-action: pan-y; }
+.wb-menu button[data-image-align] {
+  display: flex; align-items: center; justify-content: flex-start; width: 100%; min-height: 28px;
+  padding: 5px 8px; border: 0; border-radius: 4px; background: transparent;
+  font: var(--type-13)/1.4 var(--sans); color: var(--text);
 }

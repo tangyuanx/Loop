@@ -497,8 +497,9 @@ body[data-foundation-enabled][data-controls22-enabled] .widget-capture:focus-wit
   box-shadow: none;
 }
 
-body[data-foundation-enabled] .widget-quick-empty .widget-capture:focus-within { background: var(--list); }
-body[data-foundation-enabled] .widget-quick-empty .widget-capture textarea:focus { box-shadow: none; }
+body[data-foundation-enabled] [data-widget-lane="quick"] .widget-capture:focus-within,
+body[data-foundation-enabled] [data-widget-lane="quick"] .widget-capture:has(textarea:not(:placeholder-shown)) { background: var(--list); }
+body[data-foundation-enabled] [data-widget-lane="quick"] .widget-capture textarea:focus { box-shadow: none; }
 
 body[data-foundation-enabled][data-brief21-enabled] .brief21-input:is(:focus, :focus-visible) {
   background: transparent;

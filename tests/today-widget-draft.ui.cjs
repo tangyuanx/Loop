@@ -95,6 +95,8 @@ const { _electron: electron } = require("playwright-core");
     assert.equal(await readDraft(), "点击提示直接输入");
     await widget.keyboard.press("Enter");
     await widget.locator(".widget-row").getByText("点击提示直接输入", { exact: true }).waitFor();
+    await widget.waitForFunction(() => document.querySelector('.widget-compose-foot').hidden);
+    assert.equal(await widget.locator('#widget-feedback').innerText(), '');
     console.log("PASS empty quick lane accepts and saves input after one click; draft continuity preserved");
   } finally {
     await app?.close();

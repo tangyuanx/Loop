@@ -44,8 +44,11 @@ function resolveResource(href,sourcePath='',platform=process.platform){
 }
 
 function registerKnowledgeResources({ipcMain,BrowserWindow,WebContentsView,shell,getWindow,readData,gate}){
-  const entries=new Map(),sessions=new WeakSet();
-  const owner=event=>{const win=getWindow();if(!win||win.isDestroyed()||event.sender!==win.webContents)throw new Error('资源请求来源无效');return win;};
+  const entries=new Map(),sessions=new WeakSet(),backWindows=new WeakSet();
+  const bindWindow=win=>{if(!win||backWindows.has(win))return;backWindows.add(win);win.on('app-command',(event,command)=>{if(command==='browser-backward'){event.preventDefault();win.webContents.send('knowledge-resource:navigate-back');}});};
+  const owner=event=>{const win=getWindow();if(!win||win.isDestroyed()||event.sender!==win.webContents)throw new Error('资源请求来源无效');
+    bindWindow(win);
+    return win;};
   const notify=item=>{const win=getWindow();if(win&&!win.isDestroyed())win.webContents.send('knowledge-resource:changed',{id:item.id,title:item.title,url:item.url,status:item.status,message:item.message});};
   const close=item=>{if(item?.view){const win=getWindow();if(win&&!win.isDestroyed())win.contentView.removeChildView(item.view);if(!item.view.webContents.isDestroyed())item.view.webContents.close();}entries.delete(item?.id);};
   const external=async item=>{
@@ -116,6 +119,6 @@ function registerKnowledgeResources({ipcMain,BrowserWindow,WebContentsView,shell
   });
   ipcMain.handle('knowledge-resource:external',async(event,payload)=>{try{owner(event);const item=entries.get(payload?.id);if(!item)throw new Error('页签已关闭');return await external(item);}catch(error){return {success:false,message:error.message};}});
   ipcMain.handle('knowledge-resource:close',(event,payload)=>{owner(event);close(entries.get(payload?.id));return {success:true};});
-  return {closeAll(){for(const item of [...entries.values()])close(item);}};
+  return {bindWindow,closeAll(){for(const item of [...entries.values()])close(item);}};
 }
 module.exports={destinations,resolveResource,registerKnowledgeResources};

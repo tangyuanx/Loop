@@ -1,4 +1,4 @@
-import {EditorState,StateField,StateEffect,Compartment,Prec,Transaction,MapMode} from '@codemirror/state';
+import {EditorState,EditorSelection,StateField,StateEffect,Compartment,Prec,Transaction,MapMode} from '@codemirror/state';
 import {EditorView,keymap,Decoration,WidgetType,ViewPlugin,drawSelection,highlightActiveLine,rectangularSelection,crosshairCursor,lineNumbers,placeholder} from '@codemirror/view';
 import {defaultKeymap,history,historyKeymap,indentWithTab,indentMore,indentLess,undo,redo,invertedEffects,isolateHistory} from '@codemirror/commands';
 import {markdown,markdownLanguage,insertNewlineContinueMarkupCommand,deleteMarkupBackward} from '@codemirror/lang-markdown';
@@ -11,7 +11,7 @@ import {KnowledgeFind} from './knowledge-search.js';
 import {installTableControls} from './knowledge-table-controls.js';
 import {tags} from '@lezer/highlight';
 import {obsidianComments} from './knowledge-syntax.js';
-import {createRenderer,safeURL,escape} from './knowledge-renderer.js';
+import {createRenderer,safeURL,escape,imageLayout} from './knowledge-renderer.js';
 const core=window.LoopKnowledgeCore;
 const viewportEffect=StateEffect.define(),refreshEffect=StateEffect.define(),tableWidthsEffect=StateEffect.define();
 const instances=new WeakMap();
@@ -46,11 +46,12 @@ class RenderWidget extends WidgetType {
   toDOM(view) {
     const el=document.createElement(this.kind==='block'?'div':'span');
     el.className='kn-live-widget kn-rendered'+(this.kind==='block'?' kn-block-widget':'');
-    el.dataset.sourcePos=String(this.from); el.innerHTML=this.html;
+    el.dataset.sourcePos=String(this.from);el.dataset.sourceTo=String(this.to);el.innerHTML=this.html;
+    this.owner.decorateImages(el);
     el.addEventListener('mousedown',event=>{
       // An image inside a callout or embedded note must not unfold the entire
       // containing block and move the caret into unrelated reference syntax.
-      if(event.target.closest('img')){event.preventDefault();event.stopPropagation();return;}
+      if(event.target.closest('img')){event.preventDefault();event.stopPropagation();view.focus();return;}
       if(event.target.closest('button,a,input,textarea')) return;
       event.preventDefault(); let pos=Number(el.dataset.sourcePos);
       // A rendered code block is replaced by a single widget, so the caret must
@@ -81,20 +82,29 @@ class ImageWidget extends RenderWidget {
   eq(other) {return other instanceof ImageWidget && super.eq(other) && this.to===other.to;}
   toDOM(view) {
     const el=document.createElement('span');el.className='kn-live-widget kn-rendered kn-image-widget';
-    el.dataset.sourcePos=String(this.from);el.innerHTML=this.html;
+    el.dataset.sourcePos=String(this.from);el.dataset.sourceTo=String(this.to);el.innerHTML=this.html;
     // Markdown rendering adds a paragraph even for one inline image. A block
     // paragraph inside this inline replacement leaves CodeMirror's cursor
     // buffer on a separate line above the image despite a correct source offset.
     const paragraph=el.firstElementChild;
     if(el.childElementCount===1 && paragraph?.tagName==='P')el.replaceChildren(...paragraph.childNodes);
+    this.owner.decorateImages(el);
     el.addEventListener('mousedown',event=>{
       if(event.button!==0||event.target.closest('a,button,input'))return;
       event.preventDefault();event.stopPropagation();
       if(event.target.closest('.kn-embed-body'))return;
-      view.dispatch({selection:{anchor:this.to},scrollIntoView:false});view.focus();
+      view.dispatch({selection:EditorSelection.create([EditorSelection.cursor(this.to,-1)]),scrollIntoView:false});view.focus();
     });
     el.addEventListener('click',event=>this.owner.handleRenderedClick(event,this.from));
     return el;
+  }
+  coordsAt(dom,pos) {
+    if(pos<=0||!dom.querySelector('.kn-image-layout'))return null;
+    const image=dom.querySelector('img');
+    if(!image?.getClientRects().length)return null;
+    const bounds=image.getBoundingClientRect();
+    const height=parseFloat(getComputedStyle(dom).lineHeight)||20;
+    return {left:bounds.right,right:bounds.right,top:bounds.bottom-height,bottom:bounds.bottom};
   }
   ignoreEvent(){return true;}
 }
@@ -103,7 +113,8 @@ class ImageWidget extends RenderWidget {
 class TableWidget extends RenderWidget {
   toDOM(view) {
     const el=document.createElement('div');el.className='kn-live-widget kn-rendered kn-table-widget';
-    el.dataset.sourcePos=String(this.from);el.innerHTML=this.html;
+    el.dataset.sourcePos=String(this.from);el.dataset.sourceTo=String(this.to);el.innerHTML=this.html;
+    this.owner.decorateImages(el);
     installTableControls(this.owner,el);
     requestAnimationFrame(()=>{if(el.isConnected)this.owner.applyTableWidths(el,this.from);});
     // The widget itself is the keyboard entry point for existing cells: Tab
@@ -124,6 +135,7 @@ class TableWidget extends RenderWidget {
     });
     el.addEventListener('mousedown',event=>{
       if(event.button!==0||event.target.closest('button,a,input,textarea'))return;
+      if(event.target.closest('img')){event.preventDefault();event.stopPropagation();view.focus();return;}
       const cell=event.target.closest('td,th');
       if(!cell||cell.closest('table')!==el.querySelector('table'))return;
       event.preventDefault();event.stopPropagation();
@@ -138,7 +150,7 @@ class TableWidget extends RenderWidget {
     const oldTable=el.querySelector('table'),newTable=next.querySelector('table');if(!oldTable||!newTable)return false;
     const oldRows=[...oldTable.rows],rows=[...newTable.rows];
     if(rows.length!==oldRows.length||rows.some((row,i)=>row.cells.length!==oldRows[i].cells.length))return false;
-    el.dataset.sourcePos=String(this.from);
+    el.dataset.sourcePos=String(this.from);el.dataset.sourceTo=String(this.to);
     for(let r=0;r<rows.length;r++)for(let c=0;c<rows[r].cells.length;c++){
       const cell=oldRows[r].cells[c],fresh=rows[r].cells[c],active=this.owner.activeTableCell;
       if(active?.cell===cell){
@@ -149,7 +161,7 @@ class TableWidget extends RenderWidget {
       }else cell.innerHTML=fresh.innerHTML;
       cell.style.textAlign=fresh.style.textAlign;
     }
-    this.owner.applyTableWidths(el,this.from);el.tableControls?.refresh();return true;
+    this.owner.decorateImages(el);this.owner.applyTableWidths(el,this.from);el.tableControls?.refresh();return true;
   }
   destroy(el){el.tableControls?.destroy();if(this.owner.activeTableCell?.widget===el)this.owner.finishTableCell();}
   ignoreEvent(){return true;}
@@ -273,6 +285,7 @@ class KnowledgeEditor {
     this.events=new AbortController();const signal=this.events.signal;
     this.root.addEventListener('mousedown',event=>{
       this.pointerLink=event.target.closest('a,[data-note-target],.kn-external-link');
+      if(event.target.closest('.kn-image-resize'))return;
       this.selectedImage?.removeAttribute('data-kn-selected');
       this.selectedImage=event.target.closest('img');
       this.selectedImage?.setAttribute('data-kn-selected','true');
@@ -287,12 +300,106 @@ class KnowledgeEditor {
     },{capture:true,signal});
     this.root.addEventListener('contextmenu',event=>{
       const image=event.target.closest('img');
-      if(image){event.preventDefault();event.stopPropagation();this.options.onImageMenu?.(image,{x:event.clientX,y:event.clientY},()=>this.copyImage(image));return;}
+      if(image){event.preventDefault();event.stopPropagation();const context=this.imageContext(image);this.options.onImageMenu?.(image,{x:event.clientX,y:event.clientY},()=>this.copyImage(image),context?{...context.layout,set:patch=>this.setImageLayout(image,patch)}:null);return;}
       const link=event.target.closest('a,.kn-external-link');if(!link)return;
       const href=link.classList.contains('kn-external-link')?this.linkAt(Number(link.dataset.knLinkFrom)+1)?.url:link.dataset.relativeNote||link.getAttribute('href');
       if(!href||href.startsWith('#'))return;
       event.preventDefault();event.stopPropagation();this.options.onResourceMenu?.(href,link,{x:event.clientX,y:event.clientY});
     },{signal});
+  }
+  decorateImages(widget) {
+    for(const image of widget.querySelectorAll('img')){
+      // Embedded notes are references to another document; edit their source.
+      if(image.closest('.kn-embed-body')||image.parentElement.classList.contains('kn-image-object'))continue;
+      const object=document.createElement('span');object.className='kn-image-object';image.before(object);object.append(image);
+      const placeHandle=()=>object.classList.toggle('kn-image-small',image.naturalWidth<40||image.naturalHeight<24);
+      image.addEventListener('load',placeHandle);if(image.complete)placeHandle();
+      const resize=document.createElement('button');resize.type='button';resize.className='kn-image-resize';
+      resize.setAttribute('aria-label','调整图片大小');resize.title='拖动调整大小，方向键微调';object.append(resize);
+      resize.addEventListener('pointerdown',event=>this.resizeImage(event,image));
+      resize.addEventListener('keydown',event=>{
+        if(event.isComposing||!['ArrowLeft','ArrowRight'].includes(event.key))return;
+        event.preventDefault();event.stopImmediatePropagation();
+        this.setImageLayout(image,{width:Math.round(image.getBoundingClientRect().width)+(event.key==='ArrowRight'?10:-10)});
+      });
+    }
+  }
+  imageReferenceEnv(state=this.view.state) {
+    if(this.imageReferenceDoc!==state.doc){
+      const env={};this.renderer.parse(state.doc.toString(),env);
+      this.imageReferenceDoc=state.doc;this.imageReferences=env.references;
+    }
+    return {references:this.imageReferences};
+  }
+  imageContext(image) {
+    const widget=image?.closest('.kn-live-widget');
+    if(!widget||image.closest('.kn-embed-body')||!this.root.contains(widget)||this.mode!=='edit')return null;
+    const from=Number(widget.dataset.sourcePos),to=Number(widget.dataset.sourceTo);
+    if(!Number.isFinite(from)||!Number.isFinite(to)||to<=from)return null;
+    forceParsing(this.view,Math.min(this.view.state.doc.length,to+1));
+    const nodes=[];syntaxTree(this.view.state).iterate({from,to,enter:n=>{if(n.name==='Image'){nodes.push(n.node);return false;}}});
+    // A missing image still occupies its own source position. Never write to
+    // another image when an unsupported construct prevents an exact match.
+    const images=[...widget.querySelectorAll('img,.kn-image-missing')].filter(item=>!item.closest('.kn-embed-body'));
+    if(images.length!==nodes.length)return null;
+    const node=nodes[images.indexOf(image)];if(!node)return null;
+    const raw=this.view.state.doc.sliceString(node.from,node.to);
+    const token=this.renderer.parse(raw,node.getChild('URL')?{}:this.imageReferenceEnv()).flatMap(block=>block.children||[]).find(item=>item.type==='image');
+    return token?{node,token,layout:imageLayout(token.attrGet('title'))}:null;
+  }
+  setImageLayout(image,patch) {
+    const context=this.imageContext(image);if(!context)return false;
+    const layout={...context.layout,...patch};
+    if(Object.hasOwn(patch,'width')){
+      if(!Number.isFinite(patch.width)||patch.width<=0)return false;
+      layout.width=Math.round(Math.max(32,Math.min(12000,patch.width)));
+    }
+    if(!['left','center','right'].includes(layout.align))return false;
+    const marker=`[loop-image ${layout.width?'width='+layout.width+' ':''}align=${layout.align}]`;
+    // Escape entities before writing a Markdown title so a literal entity or
+    // table delimiter survives the next parse without changing the caption.
+    const title=(layout.title?layout.title+' '+marker:marker)
+      .replace(/&/g,'&amp;').replace(/\|/g,'&#124;').replace(/\n/g,'&#10;').replace(/[\\"]/g,'\\$&');
+    const oldTitle=context.node.getChild('LinkTitle');
+    let change;
+    if(!context.node.getChild('URL')){
+      const closing=context.node.getChildren('LinkMark').find(mark=>this.view.state.doc.sliceString(mark.from,mark.to)===']');
+      if(!closing)return false;
+      const alt=this.view.state.doc.sliceString(context.node.from+2,closing.from),url=context.token.attrGet('src').replace(/>/g,'%3E');
+      change={from:context.node.from,to:context.node.to,insert:`![${alt}](<${url}> "${title}")`};
+    }else change=oldTitle?{from:oldTitle.from,to:oldTitle.to,insert:`"${title}"`}:{from:context.node.to-1,insert:` "${title}"`};
+    this.view.dispatch({changes:change,annotations:isolateHistory.of('full'),userEvent:'input.image-layout'});
+    this.view.requestMeasure();return true;
+  }
+  resizeImage(event,image) {
+    const context=this.imageContext(image);if(!context||event.button!==0)return;
+    event.preventDefault();event.stopPropagation();
+    this.imageGesture?.();
+    const doc=this.view.state.doc,box=image.getBoundingClientRect(),startX=event.clientX,startY=event.clientY;
+    const ratio=image.naturalWidth/image.naturalHeight||box.width/box.height||1;
+    const maximum=Math.min(image.closest('td,th,.kn-callout-body,.cm-line')?.clientWidth||this.view.contentDOM.clientWidth,this.view.contentDOM.clientWidth);
+    const oldWidth=image.style.width;let width=box.width;
+    const controller=new AbortController(),signal=controller.signal;
+    let finished=false;
+    const finish=cancel=>{
+      if(finished)return;finished=true;
+      controller.abort();this.events.signal.removeEventListener('abort',abort);this.imageGesture=null;
+      image.style.width=oldWidth;
+      if(!cancel&&!this.destroyed&&image.isConnected&&this.view.state.doc===doc&&width!==box.width)this.setImageLayout(image,{width});
+      if(!this.destroyed)this.view.requestMeasure();
+    };
+    const abort=()=>finish(true);this.imageGesture=abort;this.events.signal.addEventListener('abort',abort,{once:true});
+    window.addEventListener('pointermove',move=>{
+      if(move.pointerId!==event.pointerId)return;
+      move.preventDefault();
+      const horizontal=move.clientX-startX,vertical=(move.clientY-startY)*ratio;
+      const delta=Math.abs(horizontal)>=Math.abs(vertical)?horizontal:vertical;
+      width=Math.round(Math.min(maximum,Math.max(32,box.width+delta)));
+      image.style.width=width+'px';this.view.requestMeasure();
+    },{signal,passive:false});
+    window.addEventListener('pointerup',up=>{if(up.pointerId===event.pointerId)finish(false);},{signal});
+    window.addEventListener('pointercancel',cancel=>{if(cancel.pointerId===event.pointerId)abort();},{signal});window.addEventListener('blur',abort,{signal});
+    document.addEventListener('keydown',key=>{if(key.key==='Escape'){key.preventDefault();key.stopImmediatePropagation();abort();}},{signal,capture:true});
   }
   async copyImage(image) {
     try{
@@ -339,8 +446,9 @@ class KnowledgeEditor {
     const {from,to}=this.range;
     const source=()=>state.doc.toString();
     const widget=(node,inline=false)=>{
-      const text=state.doc.sliceString(node.from,node.to),key=node.name+':'+text;
-      let html=this.renderCache.get(key);if(!html){html=this.renderer.render(text,{noteId:this.options.noteId,stack:[this.options.noteId]});if(this.renderCache.size>160)this.renderCache.clear();this.renderCache.set(key,html);}
+      const text=state.doc.sliceString(node.from,node.to),reference=/!\[[^\]\n]*\](?!\()/.test(text)?this.imageReferenceEnv(state):{};
+      const key=node.name+':'+text+(reference.references?JSON.stringify(reference.references):'');
+      let html=this.renderCache.get(key);if(!html){html=this.renderer.render(text,{noteId:this.options.noteId,stack:[this.options.noteId],...reference});if(this.renderCache.size>160)this.renderCache.clear();this.renderCache.set(key,html);}
       const Type=node.name==='Image'?ImageWidget:node.name==='Table'?TableWidget:RenderWidget;
       // A block replacement must consume the line breaks that enclose it.
       // Otherwise CodeMirror keeps an empty line box for the first and the last
@@ -841,6 +949,20 @@ class KnowledgeEditor {
   getEditorText(){return this.view.state.doc.toString();}
   getMarkdown(){return core.serializeSource(this.getEditorText(),this.view.state.field(this.lineEndings));}
   getSelection(){const r=this.view.state.selection.main;return {start:r.anchor,end:r.head};}
+  captureNavigationState(){
+    return {doc:this.view.state.doc,selection:this.view.state.selection,scroll:this.view.scrollSnapshot(),
+      top:this.view.scrollDOM.scrollTop,left:this.view.scrollDOM.scrollLeft,readingTop:this.readHost.scrollTop};
+  }
+  restoreNavigationState(saved){
+    if(!saved||this.destroyed)return;
+    if(this.view.state.doc===saved.doc)this.view.dispatch({selection:saved.selection,effects:saved.scroll});
+    else {
+      const length=this.view.state.doc.length,range=saved.selection.main;
+      this.view.dispatch({selection:{anchor:Math.min(length,range.anchor),head:Math.min(length,range.head)}});
+      this.view.scrollDOM.scrollTop=saved.top;this.view.scrollDOM.scrollLeft=saved.left;
+    }
+    this.readHost.scrollTop=saved.readingTop;
+  }
   restoreSelection(r){this.view.dispatch({selection:{anchor:r.start,head:r.end}});this.view.focus();}
   getFormatState(){const node=syntaxTree(this.view.state).resolveInner(this.view.state.selection.main.head,-1);const names=[];for(let n=node;n;n=n.parent)names.push(n.name);return {bold:names.includes('StrongEmphasis'),italic:names.includes('Emphasis'),strike:names.includes('Strikethrough'),inline:names.includes('InlineCode'),heading:names.find(n=>/^ATXHeading\d/.test(n))?.slice(-1)||'0',undo:true,redo:true};}
   openSearch(){this.find.open();}

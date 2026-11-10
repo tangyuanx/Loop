@@ -21,12 +21,19 @@ body .widget12 .widget-title-input { padding-inline: 0; }
 body .widget12 .widget-row-copy > small { margin-top: 2px; }
 body .widget12 :is(.widget-check, .widget-open, .widget13-more) { border-radius: 5px; }
 body .widget12 .widget-compose { padding: 9px 14px 11px; }
+body .widget12[data-widget-lane="quick"] .widget-body { padding: 3px 10px 2px; }
+body .widget12[data-widget-lane="quick"] .widget-compose { padding: 4px 10px 10px; border-top: 0; }
+body .widget12[data-widget-lane="quick"] .widget-capture { padding: 0 5px 0 8px; border-radius: 6px; align-items: flex-end; }
+body .widget12[data-widget-lane="quick"] .widget-capture textarea { padding: 5px 0; }
+body .widget12[data-widget-lane="quick"] .widget-capture button { margin: 0 0 3px; background: transparent; color: var(--secondary); }
+body .widget12[data-widget-lane="quick"] .widget-capture button:not(:disabled):hover { background: var(--hover); color: var(--text); }
+body .widget12[data-widget-lane="quick"] .widget-capture:not([aria-busy="true"]) button:disabled { visibility: hidden; }
+body .widget12[data-widget-lane="quick"] .widget-row { padding-block: 3px; }
+body .widget12[data-widget-lane="quick"] .widget-row:hover { background: var(--hover); }
+body .widget12[data-widget-lane="quick"] .widget-row.current { background: var(--selected); }
+body .widget12[data-widget-lane="quick"] .widget-compose-foot { padding-inline: 8px; }
 body .widget-quick-empty .widget-body { order: 1; }
 body .widget-quick-empty:not(.widget13-sized) .widget-body { display: none; }
-body .widget-quick-empty .widget-compose { padding: 8px 10px 11px; border-top: 0; }
-body .widget-quick-empty .widget-capture { padding: 0 6px; border-radius: 6px; align-items: center; }
-body .widget-quick-empty .widget-capture textarea { padding-inline: 0; }
-body .widget-quick-empty .widget-capture button { margin-bottom: 0; }
 body .widget-quick-empty .widget-capture textarea::placeholder {
   color: color-mix(in srgb, var(--secondary) 86%, var(--canvas));
   opacity: 1;
@@ -35,7 +42,6 @@ body .widget-quick-empty .widget-capture textarea::placeholder {
   color: color-mix(in srgb, var(--secondary) 72%, var(--canvas));
 }
 body .widget-quick-empty .widget-capture textarea:focus::placeholder { color: var(--secondary); }
-body .widget-quick-empty .widget-capture textarea:placeholder-shown + button:disabled { visibility: hidden; }
 body .widget12 .widget-compose-foot { align-items: flex-start; }
 body .widget12 :is(.widget-date, .widget-count, .widget-tabs small, .widget-shortcut),
 body .widget12-setting-row output { font-variant-numeric: tabular-nums; }

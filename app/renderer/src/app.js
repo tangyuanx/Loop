@@ -8965,7 +8965,7 @@ function createTask(title, shouldRender = true) {
   return task;
 }
 
-function createQuickCapture(title, description = "", addToToday = false) {
+function createQuickCapture(title, description = "", addToToday = false, { renderView = true } = {}) {
   const normalizedTitle = String(title || "").trim();
   if (!normalizedTitle) return null;
   const previousActiveTaskId = state.activeTaskId;
@@ -9021,8 +9021,30 @@ function createQuickCapture(title, description = "", addToToday = false) {
   state.activeTaskId = previousActiveTaskId;
   Object.assign(state, previousRepositoryState);
   save();
-  render();
+  if (renderView) render();
   return task;
+}
+
+async function saveQuickCaptureFromWidget(title, description, addToToday) {
+  const priorOrders = new Map(state.tasks
+    .filter(task => task.captureSource === "today-widget" && task.status !== "done" && task.todayQuickCaptureOrder > 0)
+    .map(task => [task, task.todayQuickCaptureOrder]));
+  const task = createQuickCapture(title, description, addToToday, { renderView: false });
+  if (!task) return { success: false, code: "INVALID_TITLE" };
+  if (await flushSave()) {
+    render();
+    return { success: true, code: "CREATED", taskId: task.id };
+  }
+  // Keep the widget's draft as the retry source. Roll back the failed insert
+  // and only restore ranks still holding this insert's shifted values.
+  const index = state.tasks.indexOf(task);
+  if (index !== -1) state.tasks.splice(index, 1);
+  if (!addToToday) for (const [capture, order] of priorOrders) {
+    if (capture.todayQuickCaptureOrder === order + 1) capture.todayQuickCaptureOrder = order;
+  }
+  save();
+  render();
+  return { success: false, code: "SAVE_FAILED" };
 }
 
 function updateTaskTitleFromWidget(taskId, title) {
@@ -10476,14 +10498,8 @@ async function initializeTodayWidgetBridge() {
     });
   });
   unsubscribeTodayWidgetCreateTask = desktopTodayWidget.onCreateTaskRequest?.(({ requestId, title, description, addToToday } = {}) => {
-    void respondToWidgetRequest(requestId, desktopTodayWidget.respondMutation, () => {
-      const task = createQuickCapture(title, description, addToToday === true);
-      return {
-        success: Boolean(task),
-        code: task ? "CREATED" : "INVALID_TITLE",
-        taskId: task?.id || "",
-      };
-    });
+    void respondToWidgetRequest(requestId, desktopTodayWidget.respondMutation,
+      () => saveQuickCaptureFromWidget(title, description, addToToday === true));
   });
   unsubscribeTodayWidgetUpdateTitle = desktopTodayWidget.onUpdateTaskTitleRequest?.(({ requestId, taskId, title } = {}) => {
     void respondToWidgetRequest(requestId, desktopTodayWidget.respondMutation, () => updateTaskTitleFromWidget(taskId, title));

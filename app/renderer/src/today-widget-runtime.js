@@ -92,8 +92,12 @@
 
   function showToast(message, persistent = false) {
     window.clearTimeout(toastTimer);
+    toastTimer = 0;
     toastHost.innerHTML = `<div class="toast">${esc(message)}</div>`;
-    if (!persistent) toastTimer = window.setTimeout(() => { toastHost.innerHTML = ""; }, 2500);
+    if (!persistent) toastTimer = window.setTimeout(() => {
+      toastTimer = 0;
+      toastHost.innerHTML = "";
+    }, 2500);
   }
 
   // ---------- data projections (the Demo's listItems/state) ----------
@@ -170,7 +174,7 @@
         : "")
       + "</div>";
     const capture = '<section class="widget-compose" aria-label="添加速记"><div class="widget-capture">'
-      + '<textarea id="widget-capture" rows="1" maxlength="4000" aria-label="快速记录内容" placeholder="添加速记…">' + esc(captureDraft()) + "</textarea>"
+      + '<textarea id="widget-capture" rows="1" maxlength="4000" aria-label="快速记录内容" aria-describedby="widget-feedback" placeholder="添加速记…">' + esc(captureDraft()) + "</textarea>"
       + '<button data-widget12="submit" aria-label="保存速记" title="保存速记" ' + (captureDraft().trim() ? "" : "disabled") + ">" + icon("arrow") + "</button>"
       + '</div>'
       + '<div class="widget-compose-foot" '+(feedback?'':'hidden')+'><span id="widget-feedback" class="widget-input-status ' + feedbackType + '" role="status" aria-live="polite">' + esc(feedback) + '</span></div>'
@@ -249,8 +253,22 @@
   function resizeCapture() {
     const input = host.querySelector("#widget-capture");
     if (!input) return;
-    input.style.height = "42px";
-    input.style.height = Math.min(82, Math.max(42, input.scrollHeight)) + "px";
+    let maximum = 82;
+    const panel = input.closest(".widget13-sized");
+    if (panel) {
+      const composer = input.closest(".widget-compose");
+      const spacing = getComputedStyle(composer);
+      const feedback = composer.querySelector(".widget-compose-foot");
+      const chrome = panel.querySelector(".widget-header").offsetHeight + panel.querySelector(".widget-tabs").offsetHeight;
+      const padding = parseFloat(spacing.paddingTop) + parseFloat(spacing.paddingBottom);
+      const receipt = feedback.hidden ? 0 : feedback.offsetHeight + parseFloat(getComputedStyle(feedback).marginTop);
+      const listSpace = panel.querySelector(".widget-row") ? 30 : 0;
+      maximum = Math.min(maximum, panel.clientHeight - chrome - padding - receipt - listSpace);
+    }
+    const scrollTop = input.scrollTop;
+    input.style.height = "auto";
+    input.style.height = Math.max(34, Math.min(maximum, input.scrollHeight)) + "px";
+    input.scrollTop = scrollTop;
   }
 
   // ---------- appearance + window framing ----------
@@ -407,6 +425,11 @@
 
   async function submit(forceToday = false) {
     if (!bridge || prefs.compact || !isQuickLane() || submitting || composing) return;
+    if (toastTimer) {
+      window.clearTimeout(toastTimer);
+      toastTimer = 0;
+      toastHost.innerHTML = "";
+    }
     const input = host.querySelector("#widget-capture");
     const text = input ? input.value : captureDraft();
     const lines = String(text).replaceAll("\r", "").split("\n");
@@ -420,17 +443,15 @@
     }
     const description = lines.join("\n").trim();
     finishRename(true, false);
+    flushCaptureDraft();
     submitting = true;
-    feedback = "正在保存…"; feedbackType = "";
-    syncSubmitState();
-    host.querySelector("#widget-capture")?.setAttribute("readonly", "");
-    const status = host.querySelector("#widget-feedback");
-    if (status) {status.textContent = feedback;status.closest('.widget-compose-foot').hidden=false;}
+    feedback = "";
+    feedbackType = "";
+    render();
     let result;
     try { result = await bridge.createTask({ title, description, addToToday: forceToday === true }); }
     catch { result = { success: false }; }
     submitting = false;
-    host.querySelector("#widget-capture")?.removeAttribute("readonly");
     if (!result?.success) {
       feedback = result?.code === "INVALID_TITLE" ? "请输入第一行标题" : "速记保存失败，请稍后重试";
       feedbackType = "error";
@@ -441,8 +462,9 @@
     publishCaptureDraft("");
     const cleared = host.querySelector("#widget-capture");
     if (cleared) cleared.value = "";
-    feedback = forceToday ? "已加入今日任务" : "已保存到速记";
-    feedbackType = "saved";
+    feedback = "";
+    feedbackType = "";
+    if(forceToday)showToast("已加入今日任务");
     render();
     host.querySelector("#widget-capture")?.focus({ preventScroll: true });
   }
@@ -591,7 +613,11 @@
   function syncSubmitState() {
     const input = host.querySelector("#widget-capture");
     const button = host.querySelector('[data-widget12="submit"]');
-    if (button && input) button.disabled = submitting || !input.value.trim();
+    if (button && input) {
+      button.disabled = submitting || !input.value.trim();
+      button.setAttribute("aria-label", submitting ? "正在保存速记" : "保存速记");
+      button.title = submitting ? "正在保存速记" : "保存速记";
+    }
     if (input) input.readOnly = submitting;
     host.querySelector(".widget-capture")?.setAttribute("aria-busy", String(submitting));
   }
@@ -686,7 +712,7 @@
   });
   document.addEventListener("compositionstart", () => { composing = true; });
   document.addEventListener("compositionend", () => { composing = false; });
-  window.addEventListener("resize", () => { endGesture(true); applyAppearance(); fit(); });
+  window.addEventListener("resize", () => { endGesture(true); applyAppearance(); resizeCapture(); fit(); });
 
   window.addEventListener("contextmenu", (event) => {
     const rowEl = event.target.closest(".widget13 [data-widget-row]");
@@ -879,11 +905,11 @@
       cacheDrafts({ capture: event.target.value });
       feedback = "";
       feedbackType = "";
-      resizeCapture();
       persistCaptureDraft();
       syncSubmitState();
       const status = host.querySelector("#widget-feedback");
       if (status) { status.textContent = ''; status.className = "widget-input-status";status.closest('.widget-compose-foot').hidden=true; }
+      resizeCapture();
       fit();
     }
     if (event.target.id === "widget-title-input") {
@@ -983,6 +1009,7 @@
 
   bridge.onState?.((value) => {
     const before = visualSignature();
+    const previousHeight = prefs.autoHeight ? 0 : prefs.height;
     applyWindowState(value);
     if (value && Object.prototype.hasOwnProperty.call(value, "quickCaptureDraft")) {
       const draft = String(value.quickCaptureDraft || "");
@@ -995,7 +1022,11 @@
     // (draft, size, position). Only a real appearance change may rebuild the
     // DOM: rebuilding while the user types would drop the caret and break IME.
     if (before !== visualSignature() || !host.querySelector(".today-widget")) render();
-    else { applyAppearance(); fit(); }
+    else {
+      applyAppearance();
+      if (previousHeight !== (prefs.autoHeight ? 0 : prefs.height)) resizeCapture();
+      fit();
+    }
   });
 
   bridge.onSurface?.((value) => {

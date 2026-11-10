@@ -211,6 +211,16 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "Escape" || ((event.metaKey || event.ctrlKey) && event.key === "Enter")) {
     event.preventDefault();
     event.stopImmediatePropagation();
+    if (event.key === "Enter") {
+      // The explicit finish shortcut must wait for the same real save result
+      // as node title/conclusion/record editing. Autosave stays active while
+      // waiting; newer input must keep its editing session open.
+      void shellPersistInput(el, () => brief21Retain(el), () => {
+        brief21Flush(el.dataset.brief21Key);
+        el.blur();
+      });
+      return;
+    }
     brief21Retain(el);
     brief21Flush(el.dataset.brief21Key);
     el.blur();

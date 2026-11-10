@@ -139,6 +139,7 @@ function createWindow() {
     },
   });
   mainWindow = window;
+  knowledgeResources?.bindWindow(window);
   pointerContinuity?.attach(window);
   // The renderer mirrors real window state (active / maximized / full screen)
   // instead of tracking its own clicks, so every platform event is forwarded.

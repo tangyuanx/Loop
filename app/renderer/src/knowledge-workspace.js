@@ -11,30 +11,101 @@ const knowledgeBacklinkCache = new Map();
 const knowledgeDeferredFileEvents = new Map();
 let knowledgeIndexTimer = 0;
 let knowledgeLastTabClick = null;
+let knowledgeTabClickSuppressedUntil = 0;
 let knowledgeTabsBinding = null;
 const knowledgeTabSessions = new WeakMap();
 let knowledgeToolbarBinding = null;
 const knowledgeResourceTabs=new Map(),knowledgeResourceActive=new Map(),knowledgeResourcePending=new Set();
 let knowledgeResourceEpoch=0,knowledgeResourceBinding=null,knowledgeResourceFrame=0,knowledgeResourcePlacement='';
+// Session-only navigation keeps the existing editor/Undo objects alive. A
+// return destination is a specific document or resource, never a tab index.
+const knowledgeNavigationHistory=new Map(),knowledgeReadingPositions=new Map();
+function knowledgeLocation() {
+  const resource=knowledgeActiveResource();
+  return resource?{kind:'resource',id:resource.id}:{kind:'note',id:knowledgeActiveDocument()?.id};
+}
+function knowledgeSameLocation(a,b){return a?.kind===b?.kind&&a?.id===b?.id;}
+function knowledgeCapturePosition() {
+  if(state.taskPane!=='notes'||!document.querySelector('.knowledge-pane'))return null;
+  const location=knowledgeLocation();if(!location.id)return null;
+  const body=document.querySelector('.knowledge-body'),code=document.querySelector('.kn-resource-code');
+  if(location.kind==='note'&&(document.querySelector('.knowledge-pane')?.dataset.taskId!==location.id||!body?.getClientRects().length))return null;
+  if(location.kind==='resource'&&document.querySelector('.kn-resource')?.dataset.resourceId!==location.id)return null;
+  const saved={...location,owner:state.activeTaskId,bodyTop:body?.scrollTop||0,bodyLeft:body?.scrollLeft||0,
+    editor:location.kind==='note'?knowledgeCurrentEntry()?.captureNavigationState?.():null,codeTop:code?.scrollTop||0};
+  const key=JSON.stringify([saved.owner,saved.kind,saved.id]);knowledgeReadingPositions.delete(key);knowledgeReadingPositions.set(key,saved);
+  while(knowledgeReadingPositions.size>180)knowledgeReadingPositions.delete(knowledgeReadingPositions.keys().next().value);
+  return saved;
+}
+function knowledgeRecordNavigation(source,target) {
+  if(!source||source.owner!==state.activeTaskId||knowledgeSameLocation(source,target))return;
+  const history=knowledgeNavigationHistory.get(source.owner)||[];
+  history.push({source,target});if(history.length>100)history.shift();knowledgeNavigationHistory.set(source.owner,history);
+}
+function knowledgeRestorePosition(saved) {
+  if(!saved)return;
+  const revision=renderViewportEpoch;let attempts=0;
+  const restore=()=>{
+    if(revision!==renderViewportEpoch||saved.owner!==state.activeTaskId||state.taskPane!=='notes'||!knowledgeSameLocation(saved,knowledgeLocation()))return;
+    const editor=saved.kind==='note'?knowledgeCurrentEntry():null;
+    if(saved.kind==='note'&&!editor?.root?.isConnected){if(attempts++<30)requestAnimationFrame(restore);return;}
+    editor?.restoreNavigationState?.(saved.editor);
+    const body=document.querySelector('.knowledge-body');
+    if(body&&saved.kind==='note'){body.scrollTop=saved.bodyTop;body.scrollLeft=saved.bodyLeft;}
+    const code=document.querySelector('.kn-resource-code');if(code&&saved.kind==='resource')code.scrollTop=saved.codeTop;
+  };
+  // The incumbent render restores its viewports through two frames. Restore
+  // this document's exact pre-link snapshot afterwards, yielding to new input.
+  requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(restore)));
+}
+function knowledgeTakeReturn(location) {
+  const history=knowledgeNavigationHistory.get(state.activeTaskId)||[];
+  if(!knowledgeSameLocation(history.at(-1)?.target,location))return null;
+  while(history.length){
+    const {source}=history.pop();
+    const valid=source.kind==='note'?state.knowledgeWorkspace.openIds.includes(source.id)&&!knowledgeFindDocument(source.id)?.knowledgeNote?.isDeleted&&knowledgeFindDocument(source.id)
+      :(knowledgeResourceTabs.get(state.activeTaskId)||[]).some(item=>item.id===source.id);
+    if(valid&&!knowledgeSameLocation(source,location))return source;
+  }
+  return null;
+}
+function knowledgeReturnTo(saved) {
+  if(saved.owner!==state.activeTaskId)return;
+  if(saved.kind==='resource')knowledgeSelectResource(saved.id);
+  else knowledgeAttach(knowledgeFindDocument(saved.id));
+  knowledgeRestorePosition(saved);
+}
+function knowledgeGoBack() {
+  if(state.taskPane!=='notes')return false;
+  const saved=knowledgeTakeReturn(knowledgeLocation());if(!saved)return false;
+  knowledgeReturnTo(saved);return true;
+}
 function knowledgeActiveResource(owner=shellActiveTask()) {
   return (knowledgeResourceTabs.get(owner?.id)||[]).find(item=>item.id===knowledgeResourceActive.get(owner?.id));
 }
 function renderKnowledgeResourceTabs(owner) {
   return (knowledgeResourceTabs.get(owner?.id)||[]).map(item=>`<div class="kn-document-tab"><button type="button" role="tab" tabindex="${knowledgeActiveResource(owner)?.id===item.id?0:-1}" aria-selected="${knowledgeActiveResource(owner)?.id===item.id}" data-kn-resource="${item.id}" title="${escAttr(item.url)}"><span>${esc(item.title)}</span></button><button type="button" class="kn-document-close" data-kn-resource-close="${item.id}" aria-label="关闭资源：${escAttr(item.title)}">${shellIcon('close')}</button></div>`).join('');
 }
-function knowledgeSelectResource(resourceId) {
+function knowledgeSelectResource(resourceId,source=null) {
+  knowledgeCapturePosition();knowledgeRecordNavigation(source,{kind:'resource',id:resourceId});
   knowledgeResourceEpoch++;knowledgeResourceActive.set(state.activeTaskId,resourceId);shellCloseOverlay({restoreFocus:false});render();requestAnimationFrame(knowledgeRevealActiveTab);
+  knowledgeRestorePosition(knowledgeReadingPositions.get(JSON.stringify([state.activeTaskId,'resource',resourceId])));
 }
 async function knowledgeCloseResource(resourceId) {
   const owner=state.activeTaskId,tabs=knowledgeResourceTabs.get(owner)||[];
+  const returning=knowledgeActiveResource()?.id===resourceId?knowledgeTakeReturn({kind:'resource',id:resourceId}):null;
   knowledgeResourceTabs.set(owner,tabs.filter(item=>item.id!==resourceId));
   if(knowledgeResourceActive.get(owner)===resourceId)knowledgeResourceActive.delete(owner);
   if(![...knowledgeResourceTabs.values()].some(items=>items.some(item=>item.id===resourceId)))await personalTaskTrack.knowledgeResources?.close({id:resourceId});
-  knowledgeResourceEpoch++;render();document.querySelector('.kn-document-tabs [aria-selected="true"]')?.focus({preventScroll:true});
+  if(owner!==state.activeTaskId)return;
+  knowledgeResourceEpoch++;
+  if(returning)knowledgeReturnTo(returning);else render();
+  document.querySelector('.kn-document-tabs [aria-selected="true"]')?.focus({preventScroll:true});
 }
 async function knowledgeOpenResource(href,origin=knowledgeActiveDocument(),{external=false,internal=false}={}) {
   const bridge=window.personalTaskTrack?.knowledgeResources;if(!bridge){shellToast('请在 Loop 桌面应用中打开资源链接');return;}
   const ownerId=state.activeTaskId,epoch=knowledgeResourceEpoch,pending=ownerId+'\n'+href;if(knowledgeResourcePending.has(pending))return;
+  const source=knowledgeCapturePosition();
   knowledgeResourcePending.add(pending);
   try{
     captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});save();if(!(await flushSave()))throw new Error('来源笔记未能保存，请重试');
@@ -43,12 +114,12 @@ async function knowledgeOpenResource(href,origin=knowledgeActiveDocument(),{exte
     if(result.kind==='markdown'){
       let note=knowledgeAllDocuments().find(n=>!n.knowledgeNote?.isDeleted&&n.knowledgeNote?.filePath&&knowledgeDocument.canonicalFilePath(n.knowledgeNote.filePath,desktopPlatform)===knowledgeDocument.canonicalFilePath(result.filePath,desktopPlatform));
       if(!note){const stamp=now(),noteId=id('document');note={id:noteId,title:result.title.replace(/\.md(?:own)?$/i,''),notes:result.content,creatorTaskId:'',createdAt:stamp,updatedAt:stamp,knowledgeNote:knowledgeDocument.markDocumentSaved(knowledgeDocument.createKnowledgeNoteMetadata({taskId:noteId,title:result.title,createdAt:stamp}),result)};if(result.readOnly||result.unsupportedEncoding)note.knowledgeNote=knowledgeDocument.markDocumentReadOnly(note.knowledgeNote);state.knowledgeDocuments.push(note);rememberKnowledgeAssetFiles(result.assetFiles,note.knowledgeNote.noteId);await syncKnowledgeFileWatcher(note);}
-      if(ownerId===state.activeTaskId&&epoch===knowledgeResourceEpoch)knowledgeAttach(note,result.anchor);
+      if(ownerId===state.activeTaskId&&epoch===knowledgeResourceEpoch)knowledgeAttach(note,result.anchor,source);
       else{const session=state.knowledgeWorkspace;session.tabsByTask[ownerId]=knowledgeDocument.normalizeNoteLinks([...(session.tabsByTask[ownerId]||[]),note.id]);save();}
       return;
     }
     const tabs=knowledgeResourceTabs.get(ownerId)||[];if(!tabs.some(item=>item.id===result.id))tabs.push(result);knowledgeResourceTabs.set(ownerId,tabs);
-    if(ownerId===state.activeTaskId&&epoch===knowledgeResourceEpoch)knowledgeSelectResource(result.id);
+    if(ownerId===state.activeTaskId&&epoch===knowledgeResourceEpoch)knowledgeSelectResource(result.id,source);
   }catch(error){
     shellKnowledgeDialog('无法打开链接',`<p class="knowledge-dialog-copy" role="alert">${esc(error.message)}</p>`,'<button class="button" data-action="close-dialog">关闭</button><button class="button" type="button" data-resource-retry>重试</button>');
     document.querySelector('[data-resource-retry]').onclick=()=>{shellCloseOverlay({restoreFocus:false});void knowledgeOpenResource(href,origin,{external,internal});};
@@ -97,6 +168,10 @@ window.personalTaskTrack?.knowledgeResources?.onChange(change=>{
   knowledgeBindResources();
 });
 window.personalTaskTrack?.knowledgeResources?.onNewLink(event=>void knowledgeOpenResource(event.href));
+window.personalTaskTrack?.knowledgeResources?.onNavigateBack?.(()=>knowledgeGoBack());
+window.addEventListener('mouseup',event=>{if(event.button===3&&state.taskPane==='notes'){event.preventDefault();event.stopImmediatePropagation();knowledgeGoBack();}},true);
+window.addEventListener('auxclick',event=>{if(event.button===3&&state.taskPane==='notes')event.preventDefault();},true);
+window.addEventListener('keydown',event=>{if(event.key==='BrowserBack'&&state.taskPane==='notes'){event.preventDefault();event.stopImmediatePropagation();knowledgeGoBack();}},true);
 window.addEventListener('resize',knowledgeScheduleResourceView);document.addEventListener('scroll',knowledgeScheduleResourceView,true);
 if(typeof MutationObserver==='function')new MutationObserver(knowledgeScheduleResourceView).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class','hidden']});
 
@@ -252,6 +327,77 @@ function knowledgeBindTabs() {
     viewport.scrollLeft+=delta*unit;
     knowledgeUpdateTabScroll();
   },{passive:false,signal:controller.signal});
+  knowledgeBindTabReordering(viewport,owner,controller.signal);
+}
+
+function knowledgeSaveTabOrder(viewport,owner) {
+  if(owner!==activeTask())return;
+  const session=state.knowledgeWorkspace;
+  const ids=[...viewport.querySelectorAll('[data-kn-document]')].map(tab=>tab.dataset.knDocument);
+  session.openIds=ids;
+  session.tabsByTask[owner.id]=ids.slice();
+  retainedRegionMarkup.delete('workspace');
+  save();
+}
+
+function knowledgeBindTabReordering(viewport,owner,bindingSignal) {
+  viewport.addEventListener('pointerdown',event=>{
+    const button=event.target.closest('[data-kn-document]');
+    if(event.button!==0||!button||event.target.closest('input,textarea,[data-kn-detach]'))return;
+    const tab=button.parentElement,original=[...viewport.children],startX=event.clientX,startY=event.clientY,startScroll=viewport.scrollLeft;
+    const gesture=new AbortController(),signal=gesture.signal;
+    let dragging=false,autoFrame=0,pointerX=startX;
+    const finish=cancel=>{
+      gesture.abort();
+      cancelAnimationFrame(autoFrame);
+      bindingSignal.removeEventListener('abort',cancelGesture);
+      tab.classList.remove('kn-tab-dragging');
+      viewport.querySelector('[data-tab-insert]')?.removeAttribute('data-tab-insert');
+      if(dragging){
+        knowledgeTabClickSuppressedUntil=performance.now()+300;knowledgeLastTabClick=null;
+        if(cancel){viewport.append(...original);viewport.scrollLeft=startScroll;}
+        else knowledgeSaveTabOrder(viewport,owner);
+        knowledgeUpdateTabScroll();
+      }
+      if(button.hasPointerCapture(event.pointerId))button.releasePointerCapture(event.pointerId);
+    };
+    const cancelGesture=()=>finish(true);
+    bindingSignal.addEventListener('abort',cancelGesture,{once:true});
+    const place=()=>{
+      const peers=[...viewport.querySelectorAll('[data-kn-document]')].map(item=>item.parentElement).filter(item=>item!==tab);
+      const next=peers.find(item=>{const rect=item.getBoundingClientRect();return pointerX<rect.left+rect.width/2;});
+      const anchor=next||viewport.querySelector('[data-kn-resource]')?.parentElement||null;
+      if(tab.nextElementSibling!==anchor){
+        const before=new Map(peers.map(item=>[item,item.getBoundingClientRect().left]));
+        viewport.insertBefore(tab,anchor);
+        if(!matchMedia('(prefers-reduced-motion: reduce)').matches)for(const item of peers){
+          const shift=before.get(item)-item.getBoundingClientRect().left;
+          if(shift)item.animate([{transform:`translateX(${shift}px)`},{transform:'translateX(0)'}],{duration:130,easing:'ease-out'});
+        }
+      }
+      viewport.querySelector('[data-tab-insert]')?.removeAttribute('data-tab-insert');
+      tab.setAttribute('data-tab-insert','');
+    };
+    const autoScroll=()=>{
+      autoFrame=0;if(!dragging||signal.aborted)return;
+      const bounds=viewport.getBoundingClientRect(),before=viewport.scrollLeft;
+      const delta=pointerX<bounds.left+30?-18:pointerX>bounds.right-30?18:0;
+      if(!delta)return;
+      viewport.scrollLeft+=delta;
+      if(viewport.scrollLeft!==before){place();knowledgeUpdateTabScroll();autoFrame=requestAnimationFrame(autoScroll);}
+    };
+    window.addEventListener('pointermove',move=>{
+      if(move.pointerId!==event.pointerId)return;
+      if(!dragging&&Math.hypot(move.clientX-startX,move.clientY-startY)<5)return;
+      move.preventDefault();pointerX=move.clientX;
+      if(!dragging){dragging=true;button.setPointerCapture(event.pointerId);tab.classList.add('kn-tab-dragging');}
+      place();if(!autoFrame)autoFrame=requestAnimationFrame(autoScroll);
+    },{passive:false,signal});
+    window.addEventListener('pointerup',up=>{if(up.pointerId===event.pointerId)finish(false);},{signal});
+    window.addEventListener('pointercancel',cancel=>{if(cancel.pointerId===event.pointerId)cancelGesture();},{signal});
+    window.addEventListener('blur',cancelGesture,{signal});
+    document.addEventListener('keydown',key=>{if(key.key==='Escape'){key.preventDefault();key.stopImmediatePropagation();cancelGesture();}},{capture:true,signal});
+  },{signal:bindingSignal});
 }
 
 // Global mode/page width preferences use the v0.1.246 task-data save path.
@@ -291,11 +437,12 @@ function knowledgeRememberSaveDirectory(task,filePath,ownerId) {
   const directories=state.knowledgeWorkspace.saveDirectoriesByTask||={};
   directories[owner.id]=filePath.replace(/[\\/][^\\/]+$/,'');
 }
-function knowledgeAttach(note,anchor='') {
+function knowledgeAttach(note,anchor='',source=null) {
   const task=state.tasks.find(t=>t.id===state.activeTaskId);if(!task||!note)return;
+  if(note.knowledgeNote?.isDeleted)return;
+  knowledgeCapturePosition();knowledgeRecordNavigation(source,{kind:'note',id:note.id});
   knowledgeResourceActive.delete(task.id);knowledgeResourceEpoch++;
   captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});
-  if(note.knowledgeNote?.isDeleted)return;
   knowledgeActiveDocument(task);
   const session=state.knowledgeWorkspace;
   session.openIds=knowledgeDocument.normalizeNoteLinks([...session.openIds,note.id]);
@@ -304,17 +451,19 @@ function knowledgeAttach(note,anchor='') {
   session.recentIds=[note.id,...session.recentIds.filter(id=>id!==note.id)].slice(0,40);
   state.taskPane='notes';save();shellCloseOverlay({restoreFocus:false});render();
   requestAnimationFrame(knowledgeRevealActiveTab);
-  if(anchor)requestAnimationFrame(()=>knowledgeCurrentEntry()?.locateAnchor(anchor));
+  if(anchor){let attempts=0;const locate=()=>{if(knowledgeActiveDocument()?.id!==note.id)return;const entry=knowledgeCurrentEntry();if(entry?.root?.isConnected)entry.locateAnchor(anchor);else if(attempts++<30)requestAnimationFrame(locate);};requestAnimationFrame(locate);}
+  else knowledgeRestorePosition(knowledgeReadingPositions.get(JSON.stringify([task.id,'note',note.id])));
 }
 function knowledgeDetach(noteId) {
   const task=state.tasks.find(t=>t.id===state.activeTaskId);if(!task)return;
   captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});
   const session=state.knowledgeWorkspace,index=session.openIds.indexOf(noteId);
+  const returning=!knowledgeActiveResource()&&session.activeId===noteId?knowledgeTakeReturn({kind:'note',id:noteId}):null;
   session.openIds=session.openIds.filter(id=>id!==noteId);
   if(session.activeId===noteId)session.activeId=session.openIds[Math.max(0,index-1)]||'';
   session.lastByTask[task.id]=session.activeId;
   session.tabsByTask[task.id]=session.openIds.slice();
-  save();render();
+  save();if(returning)knowledgeReturnTo(returning);else render();
   const focus=document.querySelector('.kn-document-tabs [aria-selected="true"]')||document.querySelector('.knowledge-pane [data-wb-action="more"]');
   focus?.focus({preventScroll:true});
 }
@@ -366,10 +515,16 @@ function knowledgeEditorOptions(task) {
     },
     onSelectionChange: () => { shellRefreshNoteFormatState(); knowledgeUpdateOutlineActive(task); },
     onFeedback: message=>shellToast(message),
-    onImageMenu: (image,point,copy) => {
-      const menu=shellMountSurface('<div class="surface-popover wb-menu" role="menu" aria-label="图片操作"><div class="wb-menu-list"><button type="button" role="menuitem" data-copy-image>复制图片</button></div></div>',image,180);
+    onImageMenu: (image,point,copy,layout) => {
+      const alignments=[['left','左对齐'],['center','居中'],['right','右对齐']];
+      const align=layout?'<div class="menu-divider"></div>'+alignments.map(([value,label])=>{
+        const checked=layout.align===value;
+        return `<button type="button" role="menuitemradio" aria-checked="${checked}" data-image-align="${value}"><span>${label}</span>${checked?shellIcon('check'):''}</button>`;
+      }).join(''):'';
+      const menu=shellMountSurface('<div class="surface-popover wb-menu" role="menu" aria-label="图片操作"><div class="wb-menu-list"><button type="button" role="menuitem" data-copy-image>复制图片</button>'+align+'</div></div>',image,180);
       menu.style.left=Math.max(8,Math.min(point.x,innerWidth-menu.offsetWidth-8))+'px';menu.style.top=Math.max(8,Math.min(point.y,innerHeight-menu.offsetHeight-8))+'px';
       menu.querySelector('button').onclick=()=>{shellCloseOverlay({restoreFocus:false});void copy();};menu.querySelector('button').focus();
+      menu.querySelectorAll('[data-image-align]').forEach(button=>{button.onclick=()=>{shellCloseOverlay({restoreFocus:false});layout.set({align:button.dataset.imageAlign});};});
     },
     onSave: () => void saveKnowledgeTask(task.id),
     onFinishInput: async () => {captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});save();return flushSave();},
@@ -625,7 +780,7 @@ function knowledgeOpen(task,anchor='') {
 }
 function knowledgeOpenLink(link,origin) {
   const resolved=LoopKnowledgeCore.resolve(link.target,knowledgeNotes(),origin);
-  if(resolved.status==='resolved'){knowledgeAttach(resolved.note,link.anchor);return;}
+  if(resolved.status==='resolved'){knowledgeAttach(resolved.note,link.anchor,knowledgeCapturePosition());return;}
   if(resolved.status==='ambiguous'){knowledgeShowSwitcher('',resolved.candidates,link.anchor);return;}
   const deleted=knowledgeAllDocuments().find(task=>task.knowledgeNote?.isDeleted && (link.target==='note:'+LoopKnowledgeCore.noteId(task)||LoopKnowledgeCore.noteTitle(task)===link.target));
   const archived=deleted && state.recentlyDeleted.find(entry=>entry.kind==='note' && entry.ownerTaskId===deleted.id);
@@ -840,6 +995,7 @@ function knowledgeInsertMenu(trigger) {
   });
 }
 document.addEventListener('click',event=>{
+  if(event.target.closest('.kn-document-bar')&&performance.now()<knowledgeTabClickSuppressedUntil){event.preventDefault();event.stopImmediatePropagation();return;}
   const resource=event.target.closest('[data-kn-resource]');if(resource){knowledgeSelectResource(resource.dataset.knResource);return;}
   const resourceClose=event.target.closest('[data-kn-resource-close]');if(resourceClose){void knowledgeCloseResource(resourceClose.dataset.knResourceClose);return;}
   const tab=event.target.closest('[data-kn-document]');
@@ -887,6 +1043,15 @@ document.addEventListener('click',event=>{
 },true);
 document.addEventListener('keydown',event=>{
   const tab=event.target.closest('.kn-document-tabs [role=tab]');
+  if(tab&&(event.isComposing||event.keyCode===229))return;
+  if(tab?.dataset.knDocument&&event.altKey&&event.shiftKey&&['ArrowLeft','ArrowRight'].includes(event.key)){
+    event.preventDefault();event.stopImmediatePropagation();
+    const viewport=tab.closest('.kn-document-tabs'),item=tab.parentElement;
+    const peer=event.key==='ArrowLeft'?item.previousElementSibling:item.nextElementSibling;
+    if(!peer?.querySelector('[data-kn-document]'))return;
+    viewport.insertBefore(item,event.key==='ArrowLeft'?peer:peer.nextElementSibling);
+    knowledgeSaveTabOrder(viewport,activeTask());tab.focus({preventScroll:true});knowledgeUpdateTabScroll();return;
+  }
   if(tab?.dataset.knResource&&['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){
     event.preventDefault();const tabs=[...tab.closest('[role=tablist]').querySelectorAll('[role=tab]')],index=tabs.indexOf(tab),next=tabs[event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:tabs.length-1))%tabs.length];
     if(next.dataset.knResource)knowledgeSelectResource(next.dataset.knResource);else knowledgeAttach(knowledgeFindDocument(next.dataset.knDocument));document.querySelector('.kn-document-tabs [aria-selected=true]')?.focus();return;

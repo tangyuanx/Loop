@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld("personalTaskTrack", {
     close: payload=>ipcRenderer.invoke('knowledge-resource:close',payload),
     onChange: callback=>subscribe('knowledge-resource:changed',callback),
     onNewLink: callback=>subscribe('knowledge-resource:new-link',callback),
+    onNavigateBack: callback=>subscribe('knowledge-resource:navigate-back',callback),
   },
   export: {
     nodeDetailPdf: (payload) => ipcRenderer.invoke("node-detail:export-pdf", payload),

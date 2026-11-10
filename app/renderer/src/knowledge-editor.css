@@ -257,3 +257,11 @@ body[data-controls22-enabled] .note-heading-select.control22-field:focus-visible
 :root[data-theme=dark] .knowledge-rich-host.kn-editor-host .kn-rendered mark {background:#e9ca5966;color:inherit;}
 .knowledge-rich-host.kn-editor-host .kn-rendered a.kn-wiki {color:var(--green);text-decoration:underline;text-underline-offset:3px;}
 .knowledge-rich-host.kn-editor-host .kn-rendered a.kn-wiki:focus-visible {outline:1px solid var(--focus-line-strong,var(--secondary));outline-offset:-2px;}
+.kn-image-layout { max-width: 100%; }
+.kn-image-widget:has(> .kn-image-layout) { display: inline-block; width: 100%; vertical-align: bottom; }
+.kn-rendered img[width] { height: auto; max-width: 100%; }
+.kn-image-object { position: relative; display: inline-block; max-width: 100%; vertical-align: bottom; line-height: 0; }
+.kn-image-object > img { display: block; max-width: 100%; height: auto; }
+.kn-image-object .kn-image-resize { display: none; position: absolute; right: -4px; bottom: -4px; width: 11px; height: 11px; padding: 0; border: 1px solid var(--secondary); border-radius: 2px; background: var(--canvas); cursor: nwse-resize; touch-action: none; }
+.kn-image-small .kn-image-resize { right: -13px; bottom: -13px; }
+.kn-image-object:has([data-kn-selected]) .kn-image-resize,.kn-image-object:focus-within .kn-image-resize { display: block; }

@@ -11,6 +11,10 @@ import 'katex/dist/katex.min.css';
 
 const core = window.LoopKnowledgeCore;
 const escape = value => String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+export function imageLayout(value='') {
+  const title=String(value||''),match=/ ?\[loop-image (?:width=(\d+) )?align=(left|center|right)\]$/.exec(title);
+  return {title:match?title.slice(0,match.index):title,width:match?.[1]?Math.min(12000,Number(match[1])):0,align:match?.[2]||'left'};
+}
 let graphId=0;
 mermaid.initialize({startOnLoad:false,securityLevel:'strict',suppressErrorRendering:true,theme:'neutral',maxTextSize:100000,htmlLabels:false,
   secure:['secure','securityLevel','startOnLoad','maxTextSize','suppressErrorRendering','maxEdges','htmlLabels'],
@@ -141,7 +145,12 @@ export function createRenderer(options) {
     if(options.offlineExport && /^https?:/i.test(safeImage))return `<span class="kn-image-missing">网络图片未内嵌：${escape(tokens[i].content||src)}</span>`;
     if(!safeImage) return `<span class="kn-image-missing">图片不可用：${escape(tokens[i].content)}</span>`;
     tokens[i].attrSet('src',safeImage); tokens[i].attrSet('loading','lazy');
-    return defaultImage(tokens,i,o,env,self);
+    const layout=imageLayout(tokens[i].attrGet('title'));
+    if(layout.title)tokens[i].attrSet('title',layout.title);
+    else tokens[i].attrs=tokens[i].attrs?.filter(([name])=>name!=='title');
+    if(layout.width)tokens[i].attrSet('width',String(layout.width));
+    const html=defaultImage(tokens,i,o,env,self);
+    return layout.width||layout.align!=='left'?`<span class="kn-image-layout" style="display:block;text-align:${layout.align}">${html}</span>`:html;
   };
   const defaultFence=md.renderer.rules.fence;
   md.renderer.rules.fence=(tokens,i,o,env,self)=>{
@@ -238,6 +247,6 @@ export function createRenderer(options) {
       return {html,issues:[...new Set(issues)],diagrams};
     } finally {signal?.removeEventListener('abort',abort);root.remove();}
   }
-  return {render,enhance,exportStatic,parse:source=>md.parse(source,{})};
+  return {render,enhance,exportStatic,parse:(source,env={})=>md.parse(source,env)};
 }
 export {escape};

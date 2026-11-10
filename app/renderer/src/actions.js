@@ -747,11 +747,19 @@ function shellTitleEditor(trigger, nodeId) {
       input.focus();
       return;
     }
-    if (node) node.title = next;
-    else task.title = next;
-    task.updatedAt = now();
-    shellCloseOverlay();
-    render();
+    const button = titleForm.querySelector('[type="submit"]');
+    if (input.dataset.committing) return;
+    button.disabled = true;
+    void shellPersistInput(input, () => {
+      if (node) { node.title = next; node.updatedAt = now(); }
+      else task.title = next;
+      task.updatedAt = now();
+    }, () => {
+      // A dismissed form must never close a newer overlay.
+      if (!titleForm.isConnected) return;
+      shellCloseOverlay({restoreFocus:titleForm.contains(document.activeElement)});
+      render();
+    }).finally(() => { button.disabled = false; });
   });
 }
 
@@ -1943,12 +1951,20 @@ function shellFinishNodeTitleEdit(commit, { restoreFocus = false } = {}) {
 
 async function shellPersistInput(input,prepare,finish) {
   if(input.dataset.committing)return;
-  const value=input.value;input.dataset.committing='true';
+  if(bindRenderElement(input,'persist-input-feedback'))input.addEventListener('input',()=>{
+    input.removeAttribute('aria-invalid');input.removeAttribute('title');
+    const feedback=document.getElementById(input.getAttribute('aria-describedby'));
+    if(feedback?.classList.contains('error'))feedback.textContent='';
+  });
+  const value=input.value,focusAtStart=document.activeElement;input.dataset.committing='true';
   try{
     prepare?.();save();
     if(!(await flushSave()))throw new Error('保存失败，请重试');
     if(input.isConnected&&input.value===value)finish();
-  }catch(error){if(input.isConnected){input.title=error.message;input.setAttribute('aria-invalid','true');input.focus({preventScroll:true});}}
+  }catch(error){if(input.isConnected){input.title=error.message;input.setAttribute('aria-invalid','true');
+    const feedback=document.getElementById(input.getAttribute('aria-describedby'));
+    if(feedback?.classList.contains('error'))feedback.textContent=error.message;
+    if(document.activeElement===focusAtStart||document.activeElement===input)input.focus({preventScroll:true});}}
   finally{delete input.dataset.committing;}
 }
 function shellBindInlineNodeTitles() {

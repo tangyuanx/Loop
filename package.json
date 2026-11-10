@@ -1,6 +1,6 @@
 {
   "name": "loop",
-  "version": "0.2.17",
+  "version": "0.2.18",
   "description": "Loop is a local-first personal task flow tracker for closing work from creation to completion.",
   "private": true,
   "license": "UNLICENSED",
@@ -50,7 +50,7 @@
     "test:ui:knowledge-feedback": "node tests/knowledge-feedback.ui.cjs",
     "test:ui:knowledge-release": "node tools/test-packaged-knowledge.cjs",
     "test:ui:knowledge": "node tests/knowledge-editor.ui.cjs",
-    "test:ui:memo": "node tests/memo-improvements.ui.cjs && node tests/memo-editor.ui.cjs && node tests/memo-flow.ui.cjs && node tests/knowledge-resources.ui.cjs"
+    "test:ui:memo": "node tests/memo-improvements.ui.cjs && node tests/memo-editor.ui.cjs && node tests/memo-flow.ui.cjs && node tests/knowledge-resources.ui.cjs && node tests/memo-tabs-reorder.ui.cjs && node tests/memo-image-layout.ui.cjs && node tests/flow-save-finish.ui.cjs && node tests/knowledge-navigation.ui.cjs"
   },
   "build": {
     "appId": "io.github.tangyuanx.personal-task-track",
