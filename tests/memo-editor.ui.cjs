@@ -46,7 +46,7 @@ const http=require('node:http');
   await input.dispatchEvent('keydown',{key:'Enter',isComposing:true,keyCode:229});assert.equal(await input.count(),1);
   await input.press('Enter');await p.waitForFunction(()=>!shellNodeRenameDraft);
   assert.equal(await p.locator('.node-title[data-node-id="node"]').innerText(),'第一行\nsecond');
-  await p.locator('[data-action="edit-node-conclusion"]').click();input=p.locator('[data-shell-node-conclusion]');await input.fill('结论');await input.press('Shift+Enter');await input.pressSequentially('second');await input.press('Enter');await p.waitForFunction(()=>!shellConclusionDraft);
+  await p.locator('.flow-row[data-node-id="node"] .node-conclusion-text').dblclick();input=p.locator('[data-shell-node-conclusion]');await input.fill('结论');await input.press('Shift+Enter');await input.pressSequentially('second');await input.press('Enter');await p.waitForFunction(()=>!shellConclusionDraft);
   await p.evaluate(()=>flushSave());await p.reload();await p.locator('.node-title[data-node-id="node"]').waitFor();
   assert.equal(await p.evaluate(()=>findNode(shellActiveTask().nodes,'node').title),'第一行\nsecond');
   assert.equal(await p.evaluate(()=>findNode(shellActiveTask().nodes,'node').conclusion),'结论\nsecond');

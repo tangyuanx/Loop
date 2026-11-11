@@ -27,8 +27,8 @@ contextBridge.exposeInMainWorld("personalTaskTrack", {
     completeFlushAndQuit: () => ipcRenderer.send("knowledge-recovery:flush-complete"),
   },
   knowledgeFile: {
-    rename: (payload) => ipcRenderer.invoke("knowledge-document:rename", payload),
     save: (payload) => ipcRenderer.invoke("knowledge-document:save", payload),
+    rename: (payload) => ipcRenderer.invoke("knowledge-document:rename", payload),
     stageAssets: (payload) => ipcRenderer.invoke("knowledge-document:stage-assets", payload),
     read: (payload) => ipcRenderer.invoke("knowledge-document:read", payload),
     choose: (payload) => ipcRenderer.invoke("knowledge-document:choose", payload),

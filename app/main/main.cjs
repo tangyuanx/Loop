@@ -28,10 +28,10 @@ const dataMaintenance = require("./data-maintenance.cjs");
 const {
   chooseKnowledgeDocument,
   readKnowledgeDocument,
+  renameKnowledgeDocument,
   saveKnowledgeDocument,
 } = require("./knowledge-file.cjs");
 const { createKnowledgeFileWatcher } = require("./knowledge-watcher.cjs");
-const { renameKnowledgeDocument } = require("./knowledge-rename.cjs");
 const { stageKnowledgeAssets } = require("./knowledge-assets.cjs");
 const { noteDocumentHtml, readyNoteDocument } = require("./knowledge-export.cjs");
 const {
@@ -436,19 +436,6 @@ function registerStorageHandlers() {
     app.getPath("userData"),
     payload,
   ));
-  ipcMain.handle("knowledge-document:rename", async (_event, payload) => {
-    if (!(await knowledgeGate.isAllowed(payload?.filePath))) return deniedPathResult(payload?.filePath, "rename");
-    if (payload?.noteId) knowledgeWatcher.unwatch(payload.noteId);
-    const result = await renameKnowledgeDocument(payload);
-    if (result?.success) knowledgeGate.approve(result.filePath);
-    if (payload?.noteId) {
-      await knowledgeWatcher.watch({noteId:payload.noteId,
-        filePath:result?.success?result.filePath:payload.filePath,
-        lastSavedHash:result?.success?result.lastSavedHash:payload.expectedLastSavedHash,
-        lastSavedMtime:result?.success?result.lastSavedMtime:payload.lastSavedMtime});
-    }
-    return result;
-  });
   ipcMain.handle("knowledge-document:read", async (_event, payload) => {
     if (!(await knowledgeGate.isAllowed(payload?.filePath))) return deniedPathResult(payload?.filePath, "read");
     return readKnowledgeDocument(payload?.filePath);
@@ -478,6 +465,37 @@ function registerStorageHandlers() {
   });
   ipcMain.handle("knowledge-document:unwatch", (_event, payload) => knowledgeWatcher.unwatch(payload?.noteId));
   ipcMain.handle("knowledge-document:update-baseline", (_event, payload) => knowledgeWatcher.updateBaseline(payload?.noteId, payload));
+  // #88: renaming a bound note renames its Markdown file. The path gate decides
+  // which file may move; the new path is approved and re-baselined before the
+  // renderer commits its metadata, so the watcher never reports our own rename
+  // as an external change or a missing file.
+  ipcMain.handle("knowledge-document:rename", async (_event, payload) => {
+    if (!(await knowledgeGate.isAllowed(payload?.filePath))) {
+      return deniedPathResult(payload?.filePath, "rename");
+    }
+    const result = await renameKnowledgeDocument(payload, { platform: process.platform });
+    if (result?.success) {
+      // Keep both names allowed: the renderer may have to undo this rename when
+      // its own task-data write fails.
+      if (result.filePath) knowledgeGate.approve(result.filePath);
+      if (result.previousFilePath) knowledgeGate.approve(result.previousFilePath);
+      if (payload?.noteId) {
+        // No baseline event: the renderer knows the hash it wrote and must not
+        // mistake our own rename for an external change or a fresh save.
+        const baseline = knowledgeWatcher.updateBaseline(
+          payload.noteId,
+          {
+            filePath: result.filePath,
+            lastSavedHash: payload?.lastSavedHash ?? null,
+            lastSavedMtime: result.lastSavedMtime ?? payload?.lastSavedMtime ?? null,
+          },
+          { emitBaseline: false },
+        );
+        result.watched = baseline === true || baseline?.success === true;
+      }
+    }
+    return result;
+  });
   ipcMain.handle("knowledge-recovery:read", () => readKnowledgeRecovery(app.getPath("userData")));
   ipcMain.handle("knowledge-recovery:write", (_event, record) => {
     dataMaintenance.assertWritable();

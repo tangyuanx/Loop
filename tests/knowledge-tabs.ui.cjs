@@ -6,7 +6,6 @@ const path = require('node:path');
 const { _electron } = require('playwright-core');
 const { writeTaskData, readTaskData } = require('../app/main/storage.cjs');
 const { readKnowledgeDocument } = require('../app/main/knowledge-file.cjs');
-const { assertElectronStartupAllowed } = require('../tools/electron-startup-guard.cjs');
 const wb = require('./workbench-helpers.cjs');
 
 const source = path.resolve(__dirname, '..');
@@ -22,11 +21,13 @@ async function until(check) {
 }
 
 (async () => {
-  await assertElectronStartupAllowed(source);
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'loop-tabs-'));
   const out = process.env.LOOP_TEST_SCREENSHOT_DIR || path.join(profile, 'evidence');
   await fs.mkdir(out, { recursive: true });
-  let filePath = path.join(profile, 'original.md');
+  const filePath = path.join(profile, 'original.md');
+  // #88 keeps the bound file in step with the note name, so the path the later
+  // checks read from follows the rename instead of staying at the original name.
+  let currentFilePath = filePath;
   const markdown = '# 知识笔记\n\n保留正文和文件绑定。\n';
   await fs.writeFile(filePath, markdown);
   const disk = await readKnowledgeDocument(filePath);
@@ -159,11 +160,15 @@ async function until(check) {
       await page.locator('#kn-rename-commit').click();
       await page.waitForFunction(() => document.querySelector('[data-kn-document=main] span').textContent === '笔记标题已修改');
       await until(async () => (await readTaskData(profile)).tasks[0].knowledgeNote.title === '笔记标题已修改');
-      const renamedPath=path.join(profile,'笔记标题已修改.md');
-      await assert.rejects(fs.access(filePath));
-      assert.equal(await fs.readFile(renamedPath, 'utf8'), markdown);
-      assert.equal((await readTaskData(profile)).tasks[0].knowledgeNote.filePath,renamedPath);
-      filePath=renamedPath;
+      // #88: renaming a bound note renames its Markdown file first, then moves
+      // the tab, the path and the persisted binding onto the new name.
+      const renamedPath = path.join(profile, '笔记标题已修改.md');
+      await until(async () => {
+        try { return (await fs.readFile(renamedPath, 'utf8')) === markdown; } catch { return false; }
+      });
+      assert.equal((await readTaskData(profile)).tasks[0].knowledgeNote.filePath, renamedPath);
+      await assert.rejects(fs.stat(filePath));
+      currentFilePath = renamedPath;
       await tab('main').press('F2');
       assert.equal(await input.inputValue(), '笔记标题已修改');
       await page.keyboard.press('Escape');
@@ -264,7 +269,7 @@ async function until(check) {
       assert.equal(await page.evaluate(() => knowledgeCurrentEntry().getMarkdown()), markdown);
       await page.keyboard.insertText('撤销后继续');
       await page.keyboard.press(modifier + '+s');
-      await until(async () => (await fs.readFile(filePath, 'utf8')).includes('撤销后继续'));
+      await until(async () => (await fs.readFile(currentFilePath, 'utf8')).includes('撤销后继续'));
       await app.close();
       app = null;
       await start();

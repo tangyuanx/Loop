@@ -6,7 +6,8 @@ const path=require('node:path');
 const {launchRepository,task}=require('./electron-ui-helpers.cjs');
 
 (async()=>{
- const run=await launchRepository({activeTaskId:'a',taskGroups:[{id:'work',title:'工作原名',order:1},{id:'other',title:'另一分组',order:2}],
+ const legacyState={id:'custom_legacy',name:'历史状态',color:'#81735e'};
+ const run=await launchRepository({activeTaskId:'a',nodeStates:[legacyState],taskGroups:[{id:'work',title:'工作原名',order:1},{id:'other',title:'另一分组',order:2}],
   tasks:[task('a',{title:'任务原名',groupId:'work',nodes:[{id:'node',title:'节点原名',children:[]}]}),task('b',{title:'另一任务',groupId:'work',order:2})]},'management-names');
  const {app,page:p,profile,errors}=run;
  const out=process.env.LOOP_REVIEW_OUTPUT||path.join(profile,'evidence');await fs.mkdir(out,{recursive:true});
@@ -113,26 +114,11 @@ const {launchRepository,task}=require('./electron-ui-helpers.cjs');
 
   await p.locator('[data-action="toggle-settings"]').click();
   await p.locator('[data-action="set-settings-page"][data-page="tasks"]').click();
-  await p.locator('.settings-content [data-action="manage-node-states"]').click();
-  const stateName=p.locator('.node-state-form [name="name"]'),stateSubmit=p.locator('.node-state-form [type="submit"]');
-  await stateName.fill('状态首次失败');await flush();await fault('fail');await stateSubmit.click();
-  await p.waitForFunction(()=>document.querySelector('.node-state-error')?.textContent.includes('保存失败')&&!document.querySelector('.node-state-form [name="name"]').readOnly);
-  assert.equal(await p.evaluate(()=>state.nodeStates.length),0);assert.equal(await stateName.inputValue(),'状态首次失败');
-  await release();await stateSubmit.click();await p.waitForFunction(()=>state.nodeStates.length===1&&!document.querySelector('.node-state-form [name="id"]').value);
-  await p.locator('[data-state-edit]').click();await stateName.fill('状态改名失败');await fault('fail');await stateSubmit.click();
-  await p.waitForFunction(()=>document.querySelector('.node-state-error')?.textContent.includes('保存失败')&&!document.querySelector('.node-state-form [name="name"]').readOnly);
-  assert.equal(await p.evaluate(()=>state.nodeStates[0].name),'状态首次失败');
-  assert.equal(await stateName.inputValue(),'状态改名失败');
-  await release();await p.locator('[data-cancel-state]').click();assert.equal(await stateName.inputValue(),'');
-  await p.locator('[data-state-edit]').click();await stateName.fill('状态输入法');await stateName.dispatchEvent('compositionstart');
-  await p.evaluate(()=>document.querySelector('.node-state-form').requestSubmit());
-  assert.equal(await p.evaluate(()=>state.nodeStates[0].name),'状态首次失败');
-  await stateName.dispatchEvent('compositionend');await stateSubmit.click();
-  await p.waitForFunction(()=>state.nodeStates[0].name==='状态输入法'&&!document.querySelector('.node-state-form [name="id"]').value);
-  await stateName.press('Escape');await p.locator('.node-state-form').waitFor({state:'detached'});
+  assert.equal(await p.locator('.settings-content [data-action="manage-node-states"]').count(),0);
+  assert.deepEqual(await p.evaluate(()=>state.nodeStates),[legacyState]);
   await p.locator('[data-action="toggle-settings"]').click();await flush();
-  assert.equal((await disk()).nodeStates[0].name,'状态输入法');
-  await done('custom-state name create/rename disk failures restore definitions, retain retry input and respect cancel/IME');
+  assert.deepEqual((await disk()).nodeStates,[legacyState]);
+  await done('published three-state UI keeps the retired manager hidden and preserves legacy definitions');
   await select('b');
   for(const theme of ['light','dark']){
    await p.evaluate(theme=>{state.theme=theme;render();},theme);

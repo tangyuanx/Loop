@@ -4665,7 +4665,7 @@ test("processing flow matches the compact reference tree and opens details only 
   assert.match(result.tree, /flow-status-badge status-todo"[^>]*data-action="cycle-node-status"[^>]*>todo</);
   assert.doesNotMatch(result.tree, /flow-status-badge status-(?:later|blocked)/);
   assert.match(result.tree, /flow-status-badge status-done"[^>]*data-action="cycle-node-status"[^>]*>done</);
-  assert.deepEqual(result.cycleStatuses, ["done", "todo", "done", "todo"]);
+  assert.deepEqual(result.cycleStatuses, ["done", "review", "todo", "done"]);
   assert.match(result.tree, /class="flow-tree-rail/);
   assert.match(result.tree, /class="flow-tree-elbow"/);
   assert.match(result.tree, /data-flow-select data-task-id="flow_reference" data-node-id="root_todo"/);
@@ -7710,13 +7710,13 @@ test('interaction preferences migrate from legacy cache but restored workspace v
   const h = await rendererHarness({storage:{read:async()=>stored,write:async data=>writes.push(data)}});
   h.evaluate(`localStorage.setItem('loop.interaction28',JSON.stringify({continuous:false,follow:false})); localStorage.setItem('loop-work-rhythm-v1:enabled','1')`);
   const legacy = await h.evaluate('loadAppData()');
-  assert.deepEqual(JSON.parse(JSON.stringify(legacy.uiPreferences)), {continuous:false,follow:false,workNavigationEnabled:true});
+  assert.deepEqual(JSON.parse(JSON.stringify(legacy.uiPreferences)), {continuous:false,follow:false,workNavigationEnabled:true,nodeConclusionHintSeen:false});
   stored = {tasks:[],uiPreferences:{continuous:true,follow:true,workNavigationEnabled:false}};
   const restored = await h.evaluate('loadAppData()');
-  assert.deepEqual(JSON.parse(JSON.stringify(restored.uiPreferences)), stored.uiPreferences);
+  assert.deepEqual(JSON.parse(JSON.stringify(restored.uiPreferences)), {...stored.uiPreferences,nodeConclusionHintSeen:false});
   h.evaluate(`state.uiPreferences = normalizeUiPreferences({continuous:true,follow:true,workNavigationEnabled:false}); LoopUiPreferences.update({follow:false})`);
   await h.evaluate('flushSave()');
-  assert.deepEqual(JSON.parse(JSON.stringify(writes[0].uiPreferences)), {continuous:true,follow:false,workNavigationEnabled:false});
+  assert.deepEqual(JSON.parse(JSON.stringify(writes[0].uiPreferences)), {continuous:true,follow:false,workNavigationEnabled:false,nodeConclusionHintSeen:false});
 });
 
 test('changing default task range within settings keeps the current settings page visible', async () => {

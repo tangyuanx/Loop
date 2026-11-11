@@ -37,26 +37,25 @@ const {launchRepository,task} = require('./electron-ui-helpers.cjs');
     await restore();await rename.press('Escape');
     assert.equal(await p.locator('.node-title[data-node-id="n"]').innerText(),'节点原文');
 
-    await p.locator('[data-action="open-node-detail"][data-node-id="n"]').click();
-    const record=p.locator('[data-shell-node-record]');
+    // v0.2.21 presents legacy records in the inline conclusion. Keep the
+    // cancel/repaint contract on that real editor, without reviving the float.
+    await p.locator('.flow-row[data-node-id="n"] .node-conclusion-text').dblclick();
+    const record=p.locator('[data-shell-node-conclusion]');
     await record.fill('曾经自动保存的记录');
-    await p.waitForFunction(()=>findNode(shellActiveTask().nodes,'n').note==='曾经自动保存的记录');
+    await p.waitForFunction(()=>findNode(shellActiveTask().nodes,'n').conclusion==='曾经自动保存的记录');
     await p.evaluate(()=>render()); // reuse the same focused record and its session
     await record.fill('重绘后的待保存记录');await record.press('Escape');
-    await p.locator('.node-record-window').waitFor({state:'detached'});
+    await record.waitFor({state:'detached'});
     assert.equal(await p.evaluate(()=>findNode(shellActiveTask().nodes,'n').note),'记录原文');
 
     // #91 evidence: root/child drafts must have exactly one title editor and
     // no simultaneous displayed title. No speculative CSS hiding is used.
     for(const parent of [null,'n']){
       if(parent){
-        // The production affordance enables pointer input on row hover/focus.
-        // Enter the row first, just as a user revealing its actions would.
-        await p.locator('.flow-row[data-node-id="n"]').hover();
-        await p.waitForFunction(()=>getComputedStyle(document.querySelector('.node-add[data-node-id="n"]')).pointerEvents==='auto');
-        await p.locator('.node-add[data-node-id="n"]').click();
+        await p.locator('.node-title[data-node-id="n"]').click({button:'right'});
+        await p.getByRole('menuitem',{name:'添加子节点',exact:true}).click();
       }
-      else await p.locator('.flow-outline > [data-action="add-root-node"]').click();
+      else await p.locator('.add-node').click();
       const draft=p.locator('[data-shell-node-draft]');await draft.waitFor();
       assert.equal(await draft.count(),1);
       assert.equal(await p.locator('.node-draft .node-title').count(),0);
@@ -80,12 +79,12 @@ const {launchRepository,task} = require('./electron-ui-helpers.cjs');
     await p.reload();await p.locator('.node-title').waitFor();
     assert.equal(await p.locator('[data-brief21-key="editing:description"]').inputValue(),'Enter 保存的背景');
     assert.deepEqual(errors,[]);
-    console.log('editing-contract: brief Enter/Shift+Enter/IME/failure/Esc; rename failure/cancel; record autosave/redraw/cancel; root/child draft exclusivity; disk/reload passed');
+    console.log('editing-contract: brief Enter/Shift+Enter/IME/failure/Esc; rename failure/cancel; inline legacy record redraw/cancel; root/child draft exclusivity; disk/reload passed');
   }catch(error){
     if(output){
       await p.screenshot({path:path.join(output,'failure.png')}).catch(()=>{});
       const detail=await p.evaluate(()=>{
-        const target=document.querySelector('.node-add[data-node-id="n"]');
+        const target=document.querySelector('.node-title[data-node-id="n"]');
         if(!target)return {targetMissing:true};
         const box=target.getBoundingClientRect(),style=getComputedStyle(target),row=target.closest('.flow-row');
         return {box:{x:box.x,y:box.y,width:box.width,height:box.height},pointerEvents:style.pointerEvents,

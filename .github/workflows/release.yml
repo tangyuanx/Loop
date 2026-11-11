@@ -84,7 +84,11 @@ jobs:
       - name: Check native desktop behavior
         # Keep OS-dependent storage and window checks without repeating the
         # complete editor builds, service checks and source suite per platform.
-        run: node --test tests/desktop.test.cjs
+        run: |
+          node --test tests/desktop.test.cjs
+          node tests/flow-outline.ui.cjs
+          node tests/node-interactions.ui.cjs
+          node tests/flow-completed-filter.ui.cjs
       - name: Cache historical Windows upgrade installers
         if: matrix.platform == 'Windows'
         uses: actions/cache@v4

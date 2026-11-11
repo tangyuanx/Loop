@@ -115,7 +115,6 @@ function shellSettingsTasks() {
     ${shellSettingsChoice("priority-filter", SHELL_SETTINGS_CHOICE_DESCRIPTIONS["priority-filter"], shellSettingsChoiceOptions("priority-filter"), state.priorityFilter)}
     ${shellSettingsChoice("new-task-priority", SHELL_SETTINGS_CHOICE_DESCRIPTIONS["new-task-priority"], shellSettingsChoiceOptions("new-task-priority"), state.newTaskPriority)}
     <h3 class="prefs-subheading">处理流</h3>
-    ${shellSettingsAction("节点状态", "新增、改名、改色或删除自定义状态。", "管理", 'data-action="manage-node-states" aria-label="管理节点状态" aria-haspopup="dialog"')}
     <h3 class="prefs-subheading">今日浮窗</h3>
     ${shellSettingsToggle("显示今日浮窗", "", todayWidgetWindowState.visible === true, `data-action="toggle-today-widget-visibility" ${desktopTodayWidget ? "" : "disabled"}`)}
     ${shellSettingsToggle("始终置顶", "", todayWidgetWindowState.alwaysOnTop === true, `data-action="toggle-today-widget-always-on-top" ${desktopTodayWidget ? "" : "disabled"}`)}

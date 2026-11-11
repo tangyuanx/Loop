@@ -21,6 +21,8 @@ let shellNodeRenameDraft = null;
 let shellConclusionDraft = null;
 let shellFlowSelectionOnly = false;
 const shellExpandedConclusions = new Set();
+const shellExpandedTitles = new Set();
+let shellReviewOnly = false;
 let shellConclusionObserver = null;
 let shellConclusionObserved = null;
 const SHELL_HIDE_COMPLETED_KEY = "loop-flow-hide-completed";
@@ -28,7 +30,11 @@ let shellHideCompletedNodes = false;
 try { shellHideCompletedNodes = localStorage.getItem(SHELL_HIDE_COMPLETED_KEY) === "1"; } catch {}
 
 function shellFlowNodeVisible(node) {
-  return !shellHideCompletedNodes || node.status !== "done";
+  return (!shellHideCompletedNodes || node.status !== "done") && (!shellReviewOnly || shellFlowHasReview(node));
+}
+
+function shellFlowHasReview(node) {
+  return node.status === "review" || (node.children || []).some(shellFlowHasReview);
 }
 
 function shellFlowBranchVisible(node) {
@@ -180,7 +186,7 @@ function renderShellTabs(task) {
 }
 
 function shellNodeStatusLabel(status) {
-  return SHELL_NODE_STATUS_LABELS[status] || state.nodeStates.find(item=>item.id===status)?.name || '未完成';
+  return SHELL_NODE_STATUS_LABELS[status] || '未完成';
 }
 
 function shellNodeStatusStyle(status) {
@@ -225,17 +231,33 @@ function shellConclusionKey(taskId, nodeId) {
   return JSON.stringify([taskId, nodeId]);
 }
 
+function shellNodeConclusionValue(node) {
+  const conclusion = String(node.conclusion || ""), note = String(node.note || "");
+  if (!conclusion.trim()) return note;
+  if (!note.trim() || conclusion.includes(note)) return conclusion;
+  return note.includes(conclusion) ? note : `${conclusion}\n\n${note}`;
+}
+
+function shellToggleCompletedReading(taskId, nodeId, field) {
+  const node = findNode(state.tasks.find(task => task.id === taskId)?.nodes || [], nodeId);
+  if (node?.status !== "done") return;
+  const expanded = field === "title" ? shellExpandedTitles : shellExpandedConclusions;
+  const key = shellConclusionKey(taskId, nodeId);
+  if (expanded.has(key)) expanded.delete(key); else expanded.add(key);
+  document.querySelector(`.flow-row[data-node-id="${CSS.escape(nodeId)}"]`)?.classList.toggle(`expanded-${field}`, expanded.has(key));
+}
+
 function renderShellNodeConclusion(task, node) {
   const attrs = `data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}"`;
   const draft = shellConclusionDraft;
   if (draft?.taskId === task.id && draft.nodeId === node.id) {
     return `<div class="flow-conclusion editing" data-conclusion-node="${escAttr(node.id)}"><textarea class="node-conclusion-editor" data-shell-node-conclusion ${attrs} rows="1" aria-label="节点结论：${escAttr(node.title)}">${esc(draft.value)}</textarea></div>`;
   }
-  const value = node.conclusion || "";
+  const value = shellNodeConclusionValue(node);
   const expanded = shellExpandedConclusions.has(shellConclusionKey(task.id, node.id));
+  if (!value.trim()) return `<div class="flow-conclusion is-empty" data-conclusion-node="${escAttr(node.id)}"></div>`;
   return `<div class="flow-conclusion ${expanded ? "expanded" : ""}" data-conclusion-node="${escAttr(node.id)}">
-    <button class="node-conclusion-text ${value.trim() ? "" : "empty"}" type="button" data-action="edit-node-conclusion" ${attrs} aria-label="${value.trim() ? "编辑" : "添加"}结论：${escAttr(node.title)}"><span class="node-conclusion-preview">${value.trim() ? esc(value) : "添加结论"}</span></button>
-    <button class="conclusion-expand" type="button" data-action="toggle-node-conclusion" ${attrs} aria-label="${expanded ? "收起" : "展开"}结论：${escAttr(node.title)}" aria-expanded="${expanded}" ${expanded ? "" : "hidden"}>${expanded ? "收起" : "展开"}</button>
+    <button class="node-conclusion-text" type="button" data-action="read-node-conclusion" ${attrs} aria-label="结论：${escAttr(node.title)}，双击编辑" title="${escAttr(value)}"><span class="node-conclusion-preview">${esc(value.replace(/\n\s*\n/g, "\n"))}</span></button>
   </div>`;
 }
 
@@ -248,10 +270,10 @@ function shellSyncConclusionLayout() {
   const editor = document.querySelector("[data-shell-node-conclusion]");
   if (editor) {
     editor.style.overflowY = "hidden";
-    editor.style.height = "0px";
+    editor.style.height = "auto";
     const height = editor.value ? editor.scrollHeight : parseFloat(getComputedStyle(editor).lineHeight) || 22;
-    editor.style.height = `${Math.min(260, Math.max(22, height))}px`;
-    editor.style.overflowY = height > 260 ? "auto" : "hidden";
+    const style = getComputedStyle(editor);
+    editor.style.height = `${Math.max(22, Math.ceil(height + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth)))}px`;
   }
 }
 
@@ -271,29 +293,26 @@ function renderShellFlowNode(task, node, depth = 0) {
   const adding = false;
   const hasChildren = children.length > 0 || adding;
   const selected = node.id === state.selectedNodeId;
-  const body = `<div class="flow-row ${node.status} ${selected ? "selected" : ""}" data-context="node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" data-flow-drag-source data-flow-drag-target>
+  const key = shellConclusionKey(task.id, node.id);
+  const displayCollapsed = node.collapsed && !shellReviewOnly;
+  const body = `<div class="flow-row ${node.status} ${selected ? "selected" : ""} ${shellExpandedTitles.has(key) ? "expanded-title" : ""} ${shellExpandedConclusions.has(key) ? "expanded-summary" : ""}" data-context="node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" data-flow-drag-source data-flow-drag-target>
     <div class="flow-node-main">
-      <button class="collapse ${hasChildren ? "" : "empty"}" type="button" data-action="toggle-node-collapse" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" aria-label="${node.collapsed ? "展开" : "收起"} ${escAttr(node.title)}" aria-expanded="${!node.collapsed}" ${hasChildren ? "" : "disabled"}>${shellIcon(node.collapsed ? "chevron" : "down")}</button>
-      <span class="node-status-slot"><button class="node-status node-status-chip ${node.status}" ${shellNodeStatusStyle(node.status)} type="button" data-action="cycle-node-status" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" title="${escAttr(shellNodeStatusLabel(node.status))} · 点击切换为${escAttr(shellNodeStatusLabel(nextNodeStatus(node.status)))} · 右键选择状态" aria-keyshortcuts="Shift+F10" aria-label="${escAttr(shellNodeStatusButtonLabel(node))}">${esc(shellNodeStatusLabel(node.status))}</button></span>
+      <button class="collapse ${hasChildren ? "" : "empty"}" type="button" data-action="toggle-node-collapse" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" aria-label="${displayCollapsed ? "展开" : "收起"} ${escAttr(node.title)}" aria-expanded="${!displayCollapsed}" ${hasChildren && !shellReviewOnly ? "" : "disabled"}>${shellIcon(displayCollapsed ? "chevron" : "down")}</button>
+      <span class="node-status-slot"><button class="node-status ${node.status}" type="button" data-action="cycle-node-status" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" title="${escAttr(shellNodeStatusLabel(node.status))} · 点击切换为${escAttr(shellNodeStatusLabel(nextNodeStatus(node.status)))}" aria-label="${escAttr(shellNodeStatusButtonLabel(node))}">${briefFieldIcon(node.status === "done" ? "check-circle" : node.status === "review" ? "help-circle" : "circle")}</button></span>
       ${renderShellNodeTitle(task, node, selected)}
-      <button class="node-add" type="button" data-action="add-child-node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" title="添加子节点" aria-label="给 ${escAttr(node.title)} 添加子节点">${shellIcon("plus")}</button>
     </div>
     ${renderShellNodeConclusion(task, node)}
-    <div class="flow-node-actions">
-      <button class="node-record-action" type="button" data-action="open-node-detail" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" aria-label="查看记录：${escAttr(node.title)}">记录</button>
-      <button class="node-share-action" type="button" data-action="share-node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" title="分享此节点…" aria-label="分享 ${escAttr(node.title)}" aria-haspopup="dialog">${shellIcon("share")}</button>
-    </div>
     </div>`;
-  const keepChildren = !node.collapsed || shellFlowClosing.has(node.id);
+  const keepChildren = !displayCollapsed || shellFlowClosing.has(node.id);
   const nested = hasChildren
-    ? `<div class="flow-branch" data-branch-node="${escAttr(node.id)}" data-expanded="${!node.collapsed}" ${node.collapsed ? 'inert aria-hidden="true"' : ""}>${keepChildren ? `<ol class="flow-children">${children.map((child) => renderShellFlowNode(task, child, depth + 1)).join("")}</ol>` : ""}</div>`
+    ? `<div class="flow-branch" data-branch-node="${escAttr(node.id)}" data-expanded="${!displayCollapsed}" ${displayCollapsed ? 'inert aria-hidden="true"' : ""}>${keepChildren ? `<ol class="flow-children">${children.map((child) => renderShellFlowNode(task, child, depth + 1)).join("")}</ol>` : ""}</div>`
     : "";
   return `<li class="flow-item" data-flow-id="${escAttr(node.id)}" data-flow-depth="${depth}" style="--node-depth:${depth}">${body}${nested}</li>`;
 }
 
 function shellFlowDepth(nodes) {
   return Math.max(0, ...nodes.filter(shellFlowBranchVisible).map((node) =>
-    node.children?.length && (!node.collapsed || !shellFlowNodeVisible(node)) ? 1 + shellFlowDepth(node.children) : 0));
+    node.children?.length && (!node.collapsed || shellReviewOnly || !shellFlowNodeVisible(node)) ? 1 + shellFlowDepth(node.children) : 0));
 }
 
 function renderShellFlow(task) {
@@ -310,6 +329,7 @@ function renderShellFlow(task) {
     <div class="flow-toolbar">
       <span>${shellCountDoneNodes(task)} / ${list.length} 已完成</span>
       <div class="flow-tools">
+        <button class="text-button" type="button" data-action="toggle-review-nodes" aria-pressed="${shellReviewOnly}">待确认 ${list.filter(node => node.status === "review").length}</button>
         ${branches.length ? `<button class="text-button collapse-all" type="button" data-action="toggle-all-nodes" data-task-id="${escAttr(task.id)}" title="${allCollapsed ? '展开所有子层级' : '收起所有子层级'}">${allCollapsed ? '展开全部' : '收起全部'}</button>` : ''}
         <button class="text-button flow-completed-toggle" type="button" data-action="toggle-completed-nodes" aria-pressed="${shellHideCompletedNodes}" title="${shellHideCompletedNodes ? "显示所有已完成节点" : "隐藏已完成节点，保留未完成子节点"}">${shellHideCompletedNodes ? "显示已完成" : "隐藏已完成"}</button>
         <button class="icon-button" type="button" data-action="open-flow-locator" aria-label="定位处理流节点" title="定位节点" aria-haspopup="dialog">${shellIcon("search")}</button>
@@ -317,16 +337,16 @@ function renderShellFlow(task) {
     </div>
     <div class="flow-scroll" data-context="flow-root" data-task-id="${escAttr(task.id)}">
       <div class="flow-outline" style="--flow-depth:${shellFlowDepth(task.nodes || [])};--flow-title-track:${state.flowWidths.title}fr;--flow-note-track:${state.flowWidths.note}fr">
-      ${!empty ? '<div class="flow-column-head"><span>节点<button type="button" class="flow-column-resizer" data-flow-column-resizer role="separator" aria-orientation="vertical" aria-label="调整节点与结论区域宽度" title="拖动调整宽度；方向键微调" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"></button></span><span>节点结论</span><span></span></div>' : ""}
       <ol class="flow-tree">
         ${roots.map((node) => renderShellFlowNode(task, node, 0)).join("")}
       </ol>
+      ${shellReviewOnly && !list.some(node => node.status === "review") ? '<p class="flow-filter-empty" role="status">没有待确认的节点</p>' : ""}
       ${empty ? `<div class="flow-start">${addButton}<p>拆成步骤，逐步推进。</p></div>` : ""}
-      ${shellHideCompletedNodes && list.length && list.every((node) => !shellFlowNodeVisible(node)) ? '<p class="flow-filter-empty" role="status">所有节点均已完成，已隐藏</p>' : ""}
+      ${!shellReviewOnly && shellHideCompletedNodes && list.length && list.every((node) => !shellFlowNodeVisible(node)) ? '<p class="flow-filter-empty" role="status">所有节点均已完成，已隐藏</p>' : ""}
       ${empty ? "" : addButton}
       </div>
     </div>
-    </section>${selected && !shellFlowSelectionOnly ? renderShellNodeRecord(task, selected) : ""}`;
+    </section>`;
 }
 
 // ------------------------------------------------------------
@@ -789,7 +809,7 @@ function renderShellWorkspaceFooter(pane = "") {
     ? knowledgeSavePresentation(task).shortcut : '⌘ / Ctrl + S 保存笔记';
   return `<footer class="workspace-foot">
     <div data-workspace-status>${renderWorkspaceStatus()}</div>
-    ${pane ? `<span class="foot-shortcut">${pane === "notes" ? shortcut : "拖动节点调整层级 · Esc 关闭浮窗"}</span>` : ""}
+    ${pane ? `<span class="foot-shortcut">${pane === "notes" ? shortcut : "双击标题或结论编辑 · 拖动调整层级"}</span>` : ""}
   </footer>`;
 }
 

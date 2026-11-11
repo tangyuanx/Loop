@@ -10,7 +10,7 @@ const {assertElectronStartupAllowed,pauseElectronStartup,clearElectronStartupPau
 const root=path.resolve(__dirname,'..');
 const base=path.join(root,'.local-review/memo-20261111/stage1');
 const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
-const suites=['editing-contract.ui.cjs','flow-save-finish.ui.cjs','node-floating-record.ui.cjs','task-workspace.ui.cjs'];
+const suites=['editing-contract.ui.cjs','flow-save-finish.ui.cjs','flow-outline.ui.cjs','management-names.ui.cjs'];
 
 async function prepare(run) {
   const profile=path.join(run,'review-profile'),stamp=new Date().toISOString();
@@ -20,8 +20,8 @@ async function prepare(run) {
     conclusion:'当前仅供验收；没有把测试结果记为人工通过。',createdAt:stamp,updatedAt:stamp});
   await writeTaskData(profile,{version:2,knowledgeSchemaVersion:2,taskFilter:'all',activeGroupId:'group_all',
     activeTaskId:'review-editing',taskPane:'flow',tasks:[
-      task('review-editing','阶段1：简报与节点编辑',[{id:'review-node',title:'双击修改标题，或点击记录试用',
-        note:'记录原文：修改后可以按Esc检查恢复。',conclusion:'点击此处编辑节点结论。',children:[
+      task('review-editing','简报与节点编辑',[{id:'review-node',title:'双击修改标题，右键添加结论',
+        note:'旧记录原文保留在内联结论中。',conclusion:'双击此处编辑，Esc取消本次修改。',children:[
           {id:'review-child',title:'子节点：新增与取消检查',note:'保留原有父子关系。',children:[]},
         ]}]),
       task('review-empty','空处理流：连续新增节点检查'),

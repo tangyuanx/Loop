@@ -122,7 +122,7 @@ function createKnowledgeFileWatcher({
           filePath: entry.filePath,
           ...result,
         });
-      } else {
+      } else if (!entry.suppressBaseline) {
         emit({
           type: "baseline",
           noteId: entry.noteId,
@@ -133,6 +133,7 @@ function createKnowledgeFileWatcher({
       return;
     }
 
+    entry.suppressBaseline = false;
     emit({
       type: "external-changed",
       noteId: entry.noteId,
@@ -149,7 +150,11 @@ function createKnowledgeFileWatcher({
     }, Math.max(0, delay));
   }
 
-  function watch({ noteId, filePath, lastSavedHash = null, lastSavedMtime = null } = {}) {
+  // `emitBaseline: false` re-points an existing entry without reading the file.
+  // A rename decides the new path itself and keeps the accepted hash, so our own
+  // filesystem change must produce no watcher event at all (no baseline, no
+  // conflict, no false "saved" state) while later external edits still report.
+  function watch({ noteId, filePath, lastSavedHash = null, lastSavedMtime = null } = {}, { emitBaseline = true } = {}) {
     const normalizedNoteId = String(noteId || "").trim();
     const normalizedPath = String(filePath || "").trim();
     if (!normalizedNoteId || !normalizedPath) return { success: false, code: "INVALID_WATCH_TARGET" };
@@ -161,6 +166,7 @@ function createKnowledgeFileWatcher({
       canonicalPath: canonicalFilePath(normalizedPath, platform),
       lastSavedHash: lastSavedHash || null,
       lastSavedMtime: lastSavedMtime ?? null,
+      suppressBaseline: !emitBaseline,
       watcher: null,
       timer: null,
     };
@@ -203,19 +209,20 @@ function createKnowledgeFileWatcher({
       });
       return { success: false, code: missing ? "FILE_MISSING" : "WATCH_FAILED", errorCode: error?.code || "UNKNOWN" };
     }
-    schedule(entry, 0);
+    if (emitBaseline) schedule(entry, 0);
     return { success: true, noteId: normalizedNoteId, filePath: normalizedPath };
   }
 
-  function updateBaseline(noteId, baseline = {}) {
+  function updateBaseline(noteId, baseline = {}, options = {}) {
     const entry = entries.get(noteId);
     if (!entry) return false;
     const nextPath = String(baseline.filePath || entry.filePath).trim();
     if (canonicalFilePath(nextPath, platform) !== entry.canonicalPath) {
-      return watch({ noteId, ...baseline, filePath: nextPath });
+      return watch({ noteId, ...baseline, filePath: nextPath }, options);
     }
     entry.lastSavedHash = baseline.lastSavedHash || entry.lastSavedHash;
     entry.lastSavedMtime = baseline.lastSavedMtime ?? entry.lastSavedMtime;
+    entry.suppressBaseline = options.emitBaseline === false;
     return true;
   }
 

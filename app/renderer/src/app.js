@@ -261,7 +261,7 @@ const reviewDateFieldLabels = {
 };
 
 const taskStatusValues = new Set(["active", "done"]);
-const nodeStatusValues = new Set(["todo", "done"]);
+const nodeStatusValues = new Set(["todo", "done", "review"]);
 const appUpdateStatuses = new Set(["idle", "unsupported", "checking", "latest", "available", "downloading", "downloaded", "preparing", "installing", "error"]);
 
 let state = {
@@ -1038,7 +1038,7 @@ function loadBrowserTypography() {
 }
 
 function normalizeUiPreferences(value) {
-  return { continuous: value?.continuous !== false, follow: value?.follow !== false, workNavigationEnabled: value?.workNavigationEnabled === true };
+  return { continuous: value?.continuous !== false, follow: value?.follow !== false, workNavigationEnabled: value?.workNavigationEnabled === true, nodeConclusionHintSeen: value?.nodeConclusionHintSeen === true };
 }
 
 function loadBrowserUiPreferences() {
@@ -2082,7 +2082,7 @@ function save() {
       localStorage.setItem(NEW_TASK_PRIORITY_KEY, state.newTaskPriority);
       localStorage.setItem(KNOWLEDGE_WIDTH_KEY, payload.knowledgeWidth);
       localStorage.setItem(KNOWLEDGE_MODE_KEY, payload.markdownMode);
-      localStorage.setItem("loop.interaction28", JSON.stringify({ continuous: state.uiPreferences.continuous, follow: state.uiPreferences.follow }));
+      localStorage.setItem("loop.interaction28", JSON.stringify({ continuous: state.uiPreferences.continuous, follow: state.uiPreferences.follow, nodeConclusionHintSeen: state.uiPreferences.nodeConclusionHintSeen }));
       localStorage.setItem("loop-work-rhythm-v1:enabled", state.uiPreferences.workNavigationEnabled ? "1" : "0");
       localStorage.setItem(INSTALLATION_ID_KEY, state.installationId);
       localStorage.setItem(WORK_NAVIGATION_KEY, JSON.stringify(state.workNavigation));
@@ -3946,13 +3946,12 @@ function renderContextMenu() {
   if (!node) return "";
   return `
     <div class="context-menu node-context-menu" role="menu" aria-label="${escAttr(node.title || "未命名节点")}的操作" style="left:${menu.x}px; top:${menu.y}px">
-      <div class="context-menu-title">${shellIcon("note")}<span>${esc(node.title || "未命名节点")}</span></div>
+      <button type="button" role="menuitem" data-action="edit-node-conclusion" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("edit")}<span>${shellNodeConclusionValue(node).trim() ? "编辑结论" : "添加结论"}</span></button>
       <div role="group" aria-label="添加节点">
         <button type="button" role="menuitem" data-action="add-sibling-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("plus")}<span>添加同级节点</span></button>
         <button type="button" role="menuitem" data-action="add-child-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("indent")}<span>添加子节点</span></button>
       </div>
       <hr role="separator" />
-      <button type="button" role="menuitem" aria-haspopup="menu" data-action="open-node-status" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("circle")}<span>节点状态…</span></button>
       <button type="button" role="menuitem" aria-haspopup="dialog" data-action="share-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("share")}<span>分享此节点…</span></button>
       <hr role="separator" />
       <button type="button" role="menuitem" aria-haspopup="dialog" class="danger" data-action="delete-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("trash")}<span>删除节点…</span></button>
@@ -6223,14 +6222,16 @@ function bindFlowNodeDragAndDrop() {
       if (row?.dataset.nodeId !== state.selectedNodeId || row?.dataset.taskId !== state.activeTaskId) exitNodeDetail();
     }
     if (!event.detail) { flowNodeLastTitleClick = null; return; }
-    let title = event.target.closest?.(".node-title");
+    let title = event.target.closest?.(".node-title, .node-conclusion-text");
+    let field = title?.matches('.node-conclusion-text') ? 'summary' : 'title';
     const previous = flowNodeLastTitleClick;
     const stamp = Date.now();
     const sameGesture = previous && stamp - previous.stamp <= 500
       && Math.hypot(event.clientX - previous.x, event.clientY - previous.y) <= 6;
-    if (sameGesture && !shellOverlayIsOpen() && (!title
+    if (sameGesture && event.detail === 2 && !shellOverlayIsOpen() && (!title || field !== previous.field
       || title.dataset.nodeId !== previous.nodeId || title.dataset.taskId !== previous.taskId)) {
-      title = [...document.querySelectorAll(".node-title")].find((item) =>
+      field = previous.field;
+      title = [...document.querySelectorAll(field === 'summary' ? '.node-conclusion-text' : '.node-title')].find((item) =>
         item.dataset.nodeId === previous.nodeId && item.dataset.taskId === previous.taskId);
     }
     if (!title) { flowNodeLastTitleClick = null; return; }
@@ -6238,14 +6239,15 @@ function bindFlowNodeDragAndDrop() {
       event.preventDefault(); event.stopImmediatePropagation();
       flowNodeLastTitleClick = null; return;
     }
-    const doubleClick = sameGesture && previous.taskId === title.dataset.taskId
+    const doubleClick = sameGesture && event.detail === 2 && previous.field === field && previous.taskId === title.dataset.taskId
       && previous.nodeId === title.dataset.nodeId;
     flowNodeLastTitleClick = { taskId: title.dataset.taskId, nodeId: title.dataset.nodeId,
-      stamp, x: event.clientX, y: event.clientY };
+      stamp, field, x: event.clientX, y: event.clientY };
     if (!doubleClick) return;
     event.preventDefault(); event.stopImmediatePropagation();
     flowNodeLastTitleClick = null;
-    shellStartNodeTitleEdit(title);
+    if (field === 'summary') shellStartNodeConclusionEdit(title.dataset.taskId, title.dataset.nodeId);
+    else shellStartNodeTitleEdit(title);
   }, true);
 }
 
@@ -8189,7 +8191,7 @@ async function action(data, event = null) {
   // recognises is executed there and re-rendered, the legacy chain below
   // keeps handling the remaining project commands.
   if (typeof shellAction === "function" && await shellAction(data, event)) {
-    if (!["note-format", "note-heading", "toggle-task-list", "toggle-task-info", "edit-node-conclusion", "toggle-node-conclusion"].includes(data.action)) render();
+    if (!["note-format", "note-heading", "toggle-task-list", "toggle-task-info", "edit-node-conclusion", "toggle-node-conclusion", "select-flow-node", "read-node-conclusion"].includes(data.action)) render();
     return;
   }
   state.contextMenu = null;
@@ -9679,12 +9681,12 @@ function markNodeStatus(taskId, nodeId, status) {
 }
 
 function nodeStatusSequence() {
-  return ["todo", ...state.nodeStates.map(item => item.id), "done"];
+  return ["todo", "done", "review"];
 }
 
 function nextNodeStatus(status) {
   const sequence = nodeStatusSequence();
-  return sequence[(sequence.indexOf(status) + 1) % sequence.length];
+  return sequence[(sequence.indexOf(nodeStatusValues.has(status) ? status : "todo") + 1) % sequence.length];
 }
 
 function cycleNodeStatus(taskId, nodeId) {
@@ -9835,6 +9837,7 @@ function reorder(nodes) {
 
 function nodeStatusText(status) {
   if (status === "done") return "已完成";
+  if (status === "review") return "待确认";
   return state.nodeStates?.find(item=>item.id===status)?.name||"未完成";
 }
 

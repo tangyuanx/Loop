@@ -1522,6 +1522,25 @@ async function shellAction(data, event) {
   const trigger = event?.currentTarget || event?.target;
   const task = shellActiveTask();
   switch (data.action) {
+    case "select-flow-node": {
+      shellFinishNodeConclusionEdit(true);
+      state.selectedNodeId = data.nodeId;
+      shellFlowSelectionOnly = true;
+      document.querySelectorAll('.flow-row.selected').forEach(row => row.classList.remove('selected'));
+      document.querySelectorAll('.node-title[aria-pressed="true"]').forEach(title => title.setAttribute('aria-pressed','false'));
+      document.querySelector(`.flow-row[data-node-id="${CSS.escape(data.nodeId)}"]`)?.classList.add('selected');
+      document.querySelector(`.node-title[data-node-id="${CSS.escape(data.nodeId)}"]`)?.setAttribute('aria-pressed','true');
+      shellToggleCompletedReading(data.taskId, data.nodeId, "title");
+      return true;
+    }
+    case "read-node-conclusion":
+      shellToggleCompletedReading(data.taskId, data.nodeId, "summary");
+      return true;
+    case "toggle-review-nodes":
+      shellFinishNodeConclusionEdit(true);
+      shellReviewOnly = !shellReviewOnly;
+      state.selectedNodeId = "";
+      return true;
     case "edit-node-conclusion":
       shellStartNodeConclusionEdit(data.taskId, data.nodeId);
       return true;
@@ -2058,6 +2077,7 @@ function shellReplaceNodeConclusion(taskId, nodeId) {
 
 function shellStartNodeConclusionEdit(taskId, nodeId) {
   if (shellConclusionDraft?.taskId === taskId && shellConclusionDraft.nodeId === nodeId) return;
+  closeContextMenu(false);
   shellFinishNodeConclusionEdit(true);
   const task = state.tasks.find(item => item.id === taskId);
   const node = task && findNode(task.nodes, nodeId);
@@ -2067,7 +2087,7 @@ function shellStartNodeConclusionEdit(taskId, nodeId) {
     exitNodeDetail();
     render();
   }
-  shellConclusionDraft = { taskId, nodeId, original: node.conclusion || "", value: node.conclusion || "" };
+  shellConclusionDraft = { taskId, nodeId, original: node.conclusion || "", originalNote: node.note || "", value: shellNodeConclusionValue(node) };
   shellReplaceNodeConclusion(taskId, nodeId);
   const editor = shellConclusionDraft.editor;
   editor?.focus({ preventScroll: true });
@@ -2084,6 +2104,7 @@ function shellFinishNodeConclusionEdit(commit, { restoreFocus = false } = {}) {
   // only our own current value, never a value replaced by another operation.
   if (!commit && node && node.conclusion === draft.value && node.conclusion !== draft.original) {
     node.conclusion = draft.original;
+    if (!node.note) node.note = draft.originalNote;
     node.updatedAt = task.updatedAt = now();
     save();
   }
@@ -2106,8 +2127,10 @@ function shellBindNodeConclusions() {
     const node = task && findNode(task.nodes, draft.nodeId);
     if (!node || shellConclusionDraft !== draft) return;
     draft.value = editor.value;
-    if (node.conclusion !== editor.value) {
+    if (node.conclusion !== editor.value || node.note) {
       node.conclusion = editor.value;
+      node.note = "";
+      state.uiPreferences.nodeConclusionHintSeen = true;
       node.updatedAt = task.updatedAt = now();
       save();
     }
@@ -2185,8 +2208,11 @@ function shellCommitNodeDraft() {
   node.updatedAt = now();
   task.updatedAt = now();
   state.focusNodeTitleId = "";
+  const showConclusionHint = !state.uiPreferences.nodeConclusionHintSeen && workspaceFeedback?.source !== "error";
+  if (showConclusionHint) state.uiPreferences.nodeConclusionHintSeen = true;
   save();
   render();
+  if (showConclusionHint && workspaceFeedback?.source !== "error") showWorkspaceFeedback("右键节点可添加结论，双击结论可修改。", "", { source: "node-conclusion-hint" });
 }
 
 function shellCancelNodeDraft({ renderView = true } = {}) {

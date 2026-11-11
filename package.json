@@ -1,6 +1,6 @@
 {
   "name": "loop",
-  "version": "0.2.18",
+  "version": "0.2.22",
   "description": "Loop is a local-first personal task flow tracker for closing work from creation to completion.",
   "private": true,
   "license": "UNLICENSED",
@@ -16,7 +16,6 @@
   "main": "app/main/main.cjs",
   "scripts": {
     "dev": "electron .",
-    "review:editing": "node tools/review-editing-stage1.cjs",
     "predev": "npm run build:knowledge",
     "start": "electron .",
     "prestart": "npm run build:knowledge",
@@ -35,9 +34,10 @@
     "test:ui:knowledge-save": "node tests/knowledge-editor.ui.cjs",
     "test:ui:knowledge-tabs": "node tests/knowledge-tabs.ui.cjs",
     "test:ui:knowledge-input": "node tests/knowledge-editor.ui.cjs",
-    "test": "node --test tests/knowledge-rename.test.cjs tests/knowledge-rename-renderer.test.cjs tests/electron-startup-guard.test.cjs tests/editing-contract.test.cjs tests/knowledge-resources.test.cjs tests/node-share.test.cjs tests/release-draft.test.cjs tests/knowledge-core.test.cjs tests/knowledge-reliability.test.cjs tests/knowledge-export.test.cjs tests/desktop.test.cjs tests/bug-report-client.test.cjs tests/updater.test.cjs tests/deadline-reminders.test.cjs tests/data-continuity.test.cjs tests/work-navigation-model.test.cjs tests/work-rhythm-ui.test.cjs tests/pointer-continuity.test.cjs tests/continuity28-renderer.test.cjs tests/window25-renderer.test.cjs && npm --prefix services/bug-report test",
+    "test:ui:knowledge-rename": "node tests/knowledge-rename.ui.cjs",
+    "test": "node --test tests/electron-startup-guard.test.cjs tests/editing-contract.test.cjs tests/knowledge-rename.test.cjs tests/knowledge-watcher-polling.test.cjs tests/knowledge-resources.test.cjs tests/node-share.test.cjs tests/release-draft.test.cjs tests/knowledge-core.test.cjs tests/knowledge-reliability.test.cjs tests/knowledge-export.test.cjs tests/desktop.test.cjs tests/bug-report-client.test.cjs tests/updater.test.cjs tests/deadline-reminders.test.cjs tests/data-continuity.test.cjs tests/work-navigation-model.test.cjs tests/work-rhythm-ui.test.cjs tests/pointer-continuity.test.cjs tests/continuity28-renderer.test.cjs tests/window25-renderer.test.cjs && npm --prefix services/bug-report test",
     "check:pointer": "node --check app/main/pointer-continuity.cjs && node --check app/main/pointer-adapter.cjs && node --check app/renderer/src/continuity28.js && node --check tools/build-native-pointer.cjs && node --check tests/pointer-continuity.test.cjs && node --check tests/continuity28-renderer.test.cjs",
-    "check": "node --check tools/release-draft.cjs && node --check tools/verify-update-artifacts.cjs && npm run build:milkdown && npm run build:knowledge && node --check app/renderer/src/window25.js && node --check app/renderer/src/type-readability.js && node --check app/renderer/src/app.js && node --check app/renderer/src/work-navigation-model.js && node --check app/renderer/src/today-widget-runtime.js && node --check app/main/app-identity.cjs && node --check app/main/data-continuity.cjs && node --check app/main/main.cjs && node --check app/main/preload.cjs && node --check app/main/storage.cjs && node --check app/main/today-widget.cjs && node --check app/main/deadline-reminders.cjs && node --check app/main/updater.cjs && node --check app/main/bug-report-client.cjs && node --check tools/after-pack.cjs && node --check tools/build.cjs && node --check tools/build-milkdown.cjs && node --check tools/make-ico.cjs && node --check tools/verify-update-artifacts.cjs && node --check tests/desktop.test.cjs && node --check tests/window25-renderer.test.cjs && node --check tests/bug-report-client.test.cjs && node --check tests/updater.test.cjs && node --check tests/deadline-reminders.test.cjs && node --check tests/data-continuity.test.cjs && node --check tests/work-navigation-model.test.cjs && node --check tests/work-rhythm-ui.test.cjs && node --check app/renderer/src/management24.js && node --check app/renderer/src/recovery26.js && node --check app/renderer/src/manual27.js && node --check tests/group-context-menu.ui.cjs && npm --prefix services/bug-report run build && npm test",
+    "check": "node --check tools/release-draft.cjs && node --check tools/verify-update-artifacts.cjs && npm run build:milkdown && npm run build:knowledge && node --check app/renderer/src/window25.js && node --check app/renderer/src/type-readability.js && node --check app/renderer/src/app.js && node --check app/renderer/src/work-navigation-model.js && node --check app/renderer/src/today-widget-runtime.js && node --check app/main/app-identity.cjs && node --check app/main/data-continuity.cjs && node --check app/main/main.cjs && node --check app/main/preload.cjs && node --check app/main/storage.cjs && node --check app/main/today-widget.cjs && node --check app/main/deadline-reminders.cjs && node --check app/main/updater.cjs && node --check app/main/bug-report-client.cjs && node --check tools/after-pack.cjs && node --check tools/build.cjs && node --check tools/build-milkdown.cjs && node --check tools/make-ico.cjs && node --check tools/verify-update-artifacts.cjs && node --check tests/desktop.test.cjs && node --check tests/window25-renderer.test.cjs && node --check tests/bug-report-client.test.cjs && node --check tests/updater.test.cjs && node --check tests/deadline-reminders.test.cjs && node --check tests/knowledge-rename.test.cjs && node --check tests/data-continuity.test.cjs && node --check tests/work-navigation-model.test.cjs && node --check tests/work-rhythm-ui.test.cjs && node --check app/renderer/src/management24.js && node --check app/renderer/src/recovery26.js && node --check app/renderer/src/manual27.js && node --check tests/group-context-menu.ui.cjs && npm --prefix services/bug-report run build && npm test",
     "dist": "node tools/build.cjs",
     "dist:mac": "node tools/build.cjs --mac",
     "dist:win": "node tools/build.cjs --win",
@@ -51,7 +51,9 @@
     "test:ui:knowledge-feedback": "node tests/knowledge-feedback.ui.cjs",
     "test:ui:knowledge-release": "node tools/test-packaged-knowledge.cjs",
     "test:ui:knowledge": "node tests/knowledge-editor.ui.cjs",
-    "test:ui:memo": "node tests/editing-contract.ui.cjs && node tests/management-names.ui.cjs && node tests/knowledge-rename.ui.cjs && node tests/memo-improvements.ui.cjs && node tests/memo-editor.ui.cjs && node tests/memo-flow.ui.cjs && node tests/knowledge-resources.ui.cjs && node tests/memo-tabs-reorder.ui.cjs && node tests/memo-image-layout.ui.cjs && node tests/flow-save-finish.ui.cjs && node tests/knowledge-navigation.ui.cjs"
+    "test:ui:memo": "node tests/editing-contract.ui.cjs && node tests/management-names.ui.cjs && node tests/knowledge-rename.electron.ui.cjs && node tests/memo-improvements.ui.cjs && node tests/memo-editor.ui.cjs && node tests/memo-flow.ui.cjs && node tests/knowledge-resources.ui.cjs && node tests/memo-tabs-reorder.ui.cjs && node tests/memo-image-layout.ui.cjs && node tests/flow-save-finish.ui.cjs && node tests/knowledge-navigation.ui.cjs",
+    "review:editing": "node tools/review-editing-stage1.cjs",
+    "test:ui:knowledge-rename-electron": "node tests/knowledge-rename.electron.ui.cjs"
   },
   "build": {
     "appId": "io.github.tangyuanx.personal-task-track",

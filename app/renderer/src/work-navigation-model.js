@@ -483,7 +483,7 @@
     const nodes = flattenNodes(task.nodes, []);
     const blocked = nodes.find((node) => node.status === "blocked" && identifier(node.title));
     if (blocked) return identifier(blocked.title, 1000);
-    const open = nodes.find((node) => node.status === "todo" && identifier(node.title));
+    const open = nodes.find((node) => (node.status === "todo" || node.status === "review") && identifier(node.title));
     if (open) return identifier(open.title, 1000);
     const recovery = normalizeRecovery(task.navigationRecovery);
     if (recovery.nextAction) return recovery.nextAction;

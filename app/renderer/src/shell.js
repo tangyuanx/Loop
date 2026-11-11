@@ -58,7 +58,7 @@ const SHELL_ICON_PATHS = {
   restoreRecord: "M3 8h5V3m8 0v5h5M8 21v-5H3m18 0h-5v5",
 };
 
-const SHELL_NODE_STATUS_LABELS = { todo: "未完成", done: "已完成" };
+const SHELL_NODE_STATUS_LABELS = { todo: "未完成", done: "已完成", review: "待确认" };
 const SHELL_TASK_TAG_LABELS = { blocked: "卡住", later: "稍后" };
 const SHELL_WEEKDAY_NAMES = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
