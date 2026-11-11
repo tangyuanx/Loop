@@ -835,10 +835,76 @@ function knowledgeShowRecent() {
   const notes=ids.map(knowledgeFindDocument).filter(note=>note&&!note.knowledgeNote?.isDeleted).slice(0,40);
   shellKnowledgeDialog('最近打开',`<div class="kn-switcher-list" aria-label="最近打开的笔记">${notes.map(note=>`<button class="kn-switcher-row" type="button" data-kn-note="${escAttr(note.id)}"><strong>${esc(LoopKnowledgeCore.noteTitle(note))}</strong><small>${esc(note.knowledgeNote.filePath||'尚未保存为文件 · 草稿已保留')}</small></button>`).join('')||'<p class="knowledge-dialog-copy">还没有打开记录</p>'}</div>`,'<button class="button" data-kn-action="open-file">打开本地笔记…</button><button class="button" data-action="close-dialog">关闭</button>');
 }
+function knowledgeFileName(filePath) { return String(filePath||'').replace(/\\/g,'/').split('/').at(-1)||''; }
+function knowledgeRenameFailureText(failure) {
+  switch(failure?.code){
+    case 'INVALID_NAME':return failure.message||'名称包含文件系统不允许的内容，请换一个名称';
+    case 'NAME_CONFLICT':return '同名文件已存在，请换一个名称';
+    case 'DUPLICATE_BINDING':return '这个文件名已绑定到另一篇笔记，请换一个名称';
+    case 'FILE_MISSING':return '原文件已不存在，无法同步改名；请先重新定位文件';
+    case 'PERMISSION_DENIED':return '没有权限重命名文件，请检查文件或所在目录的权限';
+    case 'LOCAL_SAVE_FAILED':return failure.message||'重命名未能保存，请重试';
+    case 'NOTE_CHANGED':return failure.message||'笔记已在重命名过程中被移除';
+    default:return failure?.message||'重命名未能完成，请重试';
+  }
+}
+// Undoing a rename has to name the exact previous file, not the previous
+// title: the file name and the note name are only guaranteed equal after #88.
+async function knowledgeRenameFileTo(filePath,targetName) {
+  if(!desktopKnowledgeFile?.rename||!filePath||!targetName)return false;
+  try{const result=await desktopKnowledgeFile.rename({filePath,targetName});return result?.success===true;}
+  catch(failure){console.error('Failed to restore the previous knowledge file name.',failure);return false;}
+}
+// Notes whose relative Markdown links still address the old file name. Stable
+// `[[note:…]]` links carry the identifier and title links keep the previous
+// name as an alias, so only these relative references can break (KN-88).
+function knowledgeReferencingNotes(previousPath) {
+  const entries=[];
+  for(const note of knowledgeNotes()){
+    const filePath=note.knowledgeNote?.filePath;if(!filePath)continue;
+    const content=knowledgeText(note);if(!content||!content.includes(']('))continue;
+    const links=LoopKnowledgeCore.linksToFile(content,{noteFilePath:filePath,filePath:previousPath,platform:desktopPlatform});
+    if(links.length)entries.push({note,links});
+  }
+  return entries;
+}
+async function knowledgeUpdateFileLinks(previousPath,nextPath) {
+  const entries=knowledgeReferencingNotes(previousPath);
+  let updated=0,failed=0;
+  for(const {note} of entries){
+    if(!knowledgeHasDocument(note))continue;
+    const notePath=note.knowledgeNote?.filePath;if(!notePath)continue;
+    const rewritten=LoopKnowledgeCore.rewriteLinksToFile(knowledgeText(note),{noteFilePath:notePath,filePath:previousPath,nextPath,platform:desktopPlatform});
+    if(!rewritten.changed)continue;
+    updated+=rewritten.changed;
+    note.notes=rewritten.content;
+    note.knowledgeNote=knowledgeDocument.markDocumentEdited(note.knowledgeNote);
+    note.updatedAt=now();
+    discardMountedKnowledgeEditor(note.id);
+    save();
+    const result=await saveKnowledgeTask(note.id,{automatic:true});
+    if(!result?.success)failed++;
+  }
+  if(entries.length)render();
+  return {updated,failed};
+}
+function knowledgeOfferLinkUpdate(previousPath,nextPath) {
+  const entries=knowledgeReferencingNotes(previousPath);
+  if(!entries.length)return;
+  const count=entries.reduce((total,entry)=>total+entry.links.length,0);
+  const names=entries.slice(0,4).map(entry=>LoopKnowledgeCore.noteTitle(entry.note));
+  shellKnowledgeDialog('更新文件链接',`<p class="knowledge-dialog-copy">有 ${count} 处相对链接仍指向「${esc(knowledgeFileName(previousPath))}」，更新后会改为指向新的文件名。稳定链接（[[note:…]] 或笔记名称）不受影响。</p><p class="knowledge-dialog-copy">涉及：${esc(names.join('、'))}${entries.length>names.length?` 等 ${entries.length} 篇`:''}</p>`,'<button class="button" data-action="close-dialog">保留旧链接</button><button class="button primary" id="kn-update-links">更新链接</button>',520,'[data-wb-action="more"]');
+  const commit=document.querySelector('#kn-update-links');
+  if(commit)commit.onclick=async()=>{
+    shellCloseOverlay({restoreFocus:false});
+    const result=await knowledgeUpdateFileLinks(previousPath,nextPath);
+    shellToast(result.failed?`已更新 ${result.updated} 处链接，${result.failed} 篇笔记未能写入文件，请手动保存。`:`已更新 ${result.updated} 处链接`);
+  };
+}
 function knowledgeRename(task,trigger) {
   // Escape/cancel must return to the control the dialog was opened from.
   const returnFocus=trigger?.dataset.knDocument?`[data-kn-document="${CSS.escape(task.id)}"]`:'[data-wb-action="more"]';
-  shellKnowledgeDialog('重命名笔记',`<label class="knowledge-dialog-copy" for="kn-rename-title">笔记名称</label><input id="kn-rename-title" value="${escAttr(LoopKnowledgeCore.noteTitle(task))}" maxlength="200" aria-describedby="kn-rename-error"><p id="kn-rename-error" class="kn-rename-error" role="alert"></p>`,'<button class="button" data-action="close-dialog">取消</button><button class="button primary" id="kn-rename-commit">保存名称</button>',520,returnFocus);
+  shellKnowledgeDialog('重命名笔记',`<label class="knowledge-dialog-copy" for="kn-rename-title">笔记名称</label><input id="kn-rename-title" value="${escAttr(LoopKnowledgeCore.noteTitle(task))}" maxlength="200" aria-describedby="kn-rename-error"><p id="kn-rename-error" class="kn-rename-error" role="alert"></p>${task.knowledgeNote.filePath?'<p class="knowledge-dialog-copy">保存后会同步重命名本地文件，扩展名保持不变。</p>':''}`,'<button class="button" data-action="close-dialog">取消</button><button class="button primary" id="kn-rename-commit">保存名称</button>',520,returnFocus);
   const field=document.querySelector('#kn-rename-title'),button=document.querySelector('#kn-rename-commit'),error=document.querySelector('#kn-rename-error'),surface=field.closest('[role="dialog"]');
   const noteId=task.knowledgeNote.noteId;let busy=false,composing=false;
   field.focus();field.select();
@@ -851,25 +917,69 @@ function knowledgeRename(task,trigger) {
     const title=field.value.trim();
     if(!title){error.textContent='请输入笔记名称';field.setAttribute('aria-invalid','true');field.focus();return;}
     if(!knowledgeHasDocument(task)||task.knowledgeNote.noteId!==noteId)return;
+    if(title===LoopKnowledgeCore.noteTitle(task)){shellCloseOverlay();return;}
     clearError();busy=true;button.disabled=true;field.readOnly=true;surface.setAttribute('aria-busy','true');button.textContent='正在保存…';
-    const previous=task.knowledgeNote,previousUpdatedAt=task.updatedAt,previousTitle=task.title;
-    if(!state.tasks.includes(task))task.title=title;
-    task.knowledgeNote=knowledgeDocument.updateDocumentTitle(previous,title);task.updatedAt=now();const renamedAt=task.updatedAt;
-    let success=false;
-    try{save();success=await flushSave();}catch(failure){console.error('Failed to rename knowledge note.',failure);}
-    finally{busy=false;button.disabled=false;field.readOnly=false;surface.removeAttribute('aria-busy');button.textContent='保存名称';}
-    if(!success){
-      if(knowledgeHasDocument(task)&&task.knowledgeNote.noteId===noteId){
-        task.knowledgeNote={...task.knowledgeNote,title:previous.title,aliases:previous.aliases};
-        if(!state.tasks.includes(task))task.title=previousTitle;
-        if(task.updatedAt===renamedAt)task.updatedAt=previousUpdatedAt;
+    const previous={...task.knowledgeNote},previousUpdatedAt=task.updatedAt,previousTitle=task.title;
+    let outcome;
+    try{
+      // The per-note queue is the same one saves use: a pending save of the old
+      // path can never run after the file has moved.
+      outcome=await knowledgeSaveQueue.run(task.id,async()=>{
+        captureMountedMilkdownDrafts();flushNodeNoteDraft(noteDraftKey(task.id,''),{persist:true});
+        let filePath=previous.filePath||null,renamedFile=false,missingFile=false,watched=false;
+        // #88: the file is the source of truth. Only a committed filesystem
+        // rename may change the name this note shows.
+        if(previous.filePath&&desktopKnowledgeFile?.rename){
+          let renamed;
+          try{renamed=await desktopKnowledgeFile.rename({noteId:previous.noteId||task.id,filePath:previous.filePath,title,boundPaths:boundKnowledgeFilePaths(task.id),lastSavedHash:previous.lastSavedHash});}
+          catch(failure){renamed={success:false,code:'RENAME_FAILED',message:failure?.message};}
+          if(renamed?.canceled)return {canceled:true};
+          if(renamed?.code==='FILE_MISSING')missingFile=true;
+          else if(!renamed?.success)return {failure:renamed};
+          else if(renamed.filePath){renamedFile=renamed.filePath!==previous.filePath;filePath=renamed.filePath;watched=renamed.watched===true;}
+        }
+        if(!knowledgeHasDocument(task)||task.knowledgeNote.noteId!==noteId){
+          if(renamedFile)await knowledgeRenameFileTo(filePath,knowledgeFileName(previous.filePath));
+          return {failure:{code:'NOTE_CHANGED',message:'笔记已被移除，文件名已恢复'}};
+        }
+        task.knowledgeNote=knowledgeDocument.updateDocumentTitle(previous,title);
+        if(renamedFile)task.knowledgeNote={...task.knowledgeNote,filePath};
+        task.updatedAt=now();
+        if(!state.tasks.includes(task))task.title=title;
         save();
-      }
-      if(owns()){error.textContent='重命名未能保存，请重试';if(knowledgeActiveDocument()?.id===task.id)field.focus();}
+        if(!(await flushSave())){
+          // A name the app cannot remember after a restart must not survive on
+          // disk either, so the rename is undone before the error is shown.
+          const restored=renamedFile?await knowledgeRenameFileTo(filePath,knowledgeFileName(previous.filePath)):true;
+          if(restored){
+            task.knowledgeNote=previous;task.updatedAt=previousUpdatedAt;
+            if(!state.tasks.includes(task))task.title=previousTitle;
+            save();
+            return {failure:{code:'LOCAL_SAVE_FAILED',message:renamedFile?'重命名未能保存，文件名已恢复':'重命名未能保存，请重试'}};
+          }
+          return {failure:{code:'LOCAL_SAVE_FAILED',message:`文件已改名为「${knowledgeFileName(filePath)}」，但笔记记录未能保存，请重试保存`}};
+        }
+        return {success:true,filePath,previousFilePath:renamedFile?previous.filePath:null,missingFile,watched};
+      });
+    }catch(failure){console.error('Failed to rename knowledge note.',failure);outcome={failure:{code:'RENAME_FAILED',message:failure?.message}};}
+    finally{busy=false;button.disabled=false;field.readOnly=false;surface.removeAttribute('aria-busy');button.textContent='保存名称';}
+    if(outcome?.canceled)return;
+    if(outcome?.failure){
+      if(owns()){error.textContent=knowledgeRenameFailureText(outcome.failure);if(knowledgeActiveDocument()?.id===task.id)field.focus();}
       return;
     }
-    if(owns()&&knowledgeActiveDocument()?.id===task.id&&task.knowledgeNote.noteId===noteId)shellCloseOverlay();
+    if(owns())shellCloseOverlay();
     knowledgeCurrentEntry(task.id)?.refresh();render();
+    // Main already re-pointed the watcher silently; only re-sync when it had no
+    // entry to update, otherwise a baseline read could mark a draft as saved.
+    if(!outcome?.watched){
+      try{await syncKnowledgeFileWatcher(task);}catch(failure){console.error('Failed to refresh the knowledge file watcher after a rename.',failure);}
+    }
+    if(outcome?.missingFile)shellToast('原文件不存在，已只更新笔记名称；恢复文件后请重新定位。');
+    else if(outcome?.previousFilePath){
+      shellToast(`文件已重命名为「${knowledgeFileName(outcome.filePath)}」`);
+      knowledgeOfferLinkUpdate(outcome.previousFilePath,outcome.filePath);
+    }
   };
   button.onclick=()=>void commit();field.onkeydown=event=>{if(event.key==='Enter'&&!event.isComposing&&event.keyCode!==229&&!composing){event.preventDefault();void commit();}};
 }

@@ -125,6 +125,79 @@
     const safe = String(label).replace(/[\[\]|\r\n]/g, ' ');
     return `${embed ? '!' : ''}[[note:${noteId(note)}${anchor ? '#' + anchor : ''}|${safe}]]`;
   }
+  // A note name is free text, but the file that stores it has to exist on every
+  // platform Loop ships to. One rule set is shared by the rename dialog, the
+  // main process and the tests so the UI never promises a name the disk refuses.
+  const NOTE_NAME_ILLEGAL=/[<>:"/\\|?*\u0000-\u001f]/;
+  const NOTE_NAME_RESERVED=/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+  function noteFileBase(title) { return String(title??'').normalize('NFC').trim().replace(/\.md$/i,'').trim(); }
+  function utf8Length(text) {
+    if (typeof TextEncoder==='function') return new TextEncoder().encode(text).length;
+    return typeof Buffer==='object'&&Buffer?Buffer.byteLength(text,'utf8'):text.length*3;
+  }
+  function validateNoteName(title,{extension='.md',maxBytes=200}={}) {
+    const base=noteFileBase(title);
+    if(!base) return {ok:false,code:'NAME_EMPTY',message:'请输入笔记名称'};
+    if(NOTE_NAME_ILLEGAL.test(base)) return {ok:false,code:'NAME_INVALID_CHARS',message:'名称不能包含 \\ / : * ? " < > | 等字符'};
+    if(/[. ]$/.test(base)) return {ok:false,code:'NAME_INVALID_CHARS',message:'名称不能以空格或句点结尾'};
+    if(NOTE_NAME_RESERVED.test(base)) return {ok:false,code:'NAME_RESERVED',message:'这个名称被系统保留，请换一个名称'};
+    const fileName=base+String(extension??'');
+    if(utf8Length(fileName)>maxBytes) return {ok:false,code:'NAME_TOO_LONG',message:'名称过长，请缩短后再保存'};
+    return {ok:true,base,fileName};
+  }
+  // Windows resolves names case-insensitively and macOS does too by default, so
+  // "same file" comparisons in both the app and the tests share this rule.
+  function caseInsensitivePaths(platform) { return platform==='win32'||platform==='darwin'; }
+  function canonicalPath(value,platform='') {
+    let normalized=String(value??'').trim().replaceAll('\\','/').replace(/\/+/g,'/');
+    if(!normalized) return '';
+    normalized=normalized.replace(/\/\.\//g,'/').replace(/\/+$/,'');
+    return caseInsensitivePaths(platform)?normalized.toLowerCase():normalized;
+  }
+  // A relative Markdown destination as an absolute path, resolved against the
+  // directory of the note that contains the link.
+  function resolvePath(fromFilePath,relative) {
+    const parts=String(fromFilePath??'').replaceAll('\\','/').split('/').slice(0,-1);
+    for(const part of String(relative??'').replaceAll('\\','/').split('/')){
+      if(!part||part==='.')continue;
+      if(part==='..')parts.pop();
+      else parts.push(part);
+    }
+    return parts.join('/');
+  }
+  function relativePathBetween(fromDirectory,targetPath,platform='') {
+    const from=String(fromDirectory??'').replaceAll('\\','/').split('/').filter(part=>part&&part!=='.');
+    const to=String(targetPath??'').replaceAll('\\','/').split('/').filter(part=>part&&part!=='.');
+    const fold=caseInsensitivePaths(platform)?(value=>value.toLowerCase()):(value=>value);
+    let shared=0;
+    while(shared<from.length&&shared<to.length&&fold(from[shared])===fold(to[shared]))shared++;
+    return [...Array(from.length-shared).fill('..'),...to.slice(shared)].join('/');
+  }
+  // Every relative link in `content` that points at `filePath`. Only this kind of
+  // reference can break when a note file is renamed: stable links carry the note
+  // identifier and title links keep the previous title as an alias.
+  function linksToFile(content,{noteFilePath,filePath,platform=''}={}) {
+    const target=canonicalPath(filePath,platform);
+    if(!target||!noteFilePath) return [];
+    return relativeLinks(content).filter(link=>canonicalPath(resolvePath(noteFilePath,link.dest),platform)===target);
+  }
+  function rewriteLinksToFile(content,{noteFilePath,filePath,nextPath,platform=''}={}) {
+    const matches=linksToFile(content,{noteFilePath,filePath,platform});
+    if(!matches.length) return {content:String(content??''),changed:0};
+    const directory=String(noteFilePath??'').replaceAll('\\','/').split('/').slice(0,-1).join('/');
+    const relative=relativePathBetween(directory,nextPath,platform);
+    let output=String(content??'');
+    // Right to left keeps every earlier offset valid.
+    for(const link of matches.slice().reverse()){
+      if(typeof link.destFrom!=='number') continue;
+      const raw=String(link.rawDest??''),angle=raw.startsWith('<');
+      const hashAt=raw.indexOf('#'),suffix=hashAt<0?(angle?'>':''):raw.slice(hashAt);
+      const destination=`${link.dest.startsWith('./')?'./':''}${relative}`.replace(/\\/g,'/');
+      const written=/%[0-9a-f]{2}/i.test(raw)?encodeURI(destination):destination;
+      output=output.slice(0,link.destFrom)+(angle?`<${written}${suffix}`:`${written}${suffix}`)+output.slice(link.destTo);
+    }
+    return {content:output,changed:matches.length};
+  }
   function headings(text) {
     const excluded = excludedRanges(String(text)); let offset = 0, i = 0;
     const out = [];
@@ -189,10 +262,15 @@
       const start=m.index;
       while(cursor<masks.length&&masks[cursor][1]<=start) cursor++;
       if(escaped(text,start)||(masks[cursor]&&masks[cursor][0]<=start)||m[0].startsWith('!')) continue;
-      let dest=String(m[2]).replace(/^<|>$/g,'').replace(/#.*$/,'');
+      const raw=String(m[2]);
+      let dest=raw.replace(/^<|>$/g,'').replace(/#.*$/,'');
       if(!dest||/^(?:[a-z][a-z0-9+.-]*:|#)/i.test(dest)) continue;
       try{dest=decodeURIComponent(dest);}catch{}
-      out.push({dest, from:start, to:regex.lastIndex});
+      // Offsets of the raw destination keep link rewriting local: a caller can
+      // replace exactly the written path without re-serialising the document.
+      const destFrom=start+m[0].lastIndexOf(raw);
+      out.push({dest, rawDest:raw, from:start, to:regex.lastIndex,
+        destFrom, destTo:destFrom+raw.length});
     }
     return out;
   }
@@ -263,5 +341,5 @@
       return next.finally(()=>{ if(this.queues.get(key)===next) this.queues.delete(key); });
     }
   }
-  return {sourceFormat,serializeSource,excludedRanges,escaped,parseTarget,links,imageReferences,noteId,noteTitle,resolve,stableLink,headings,anchorOffset,fragment,relativeLinks,splitRow,tableAt,editTable,pasteTable,SerialQueue};
+  return {sourceFormat,serializeSource,excludedRanges,escaped,parseTarget,links,imageReferences,noteId,noteTitle,resolve,stableLink,noteFileBase,validateNoteName,canonicalPath,resolvePath,relativePathBetween,linksToFile,rewriteLinksToFile,headings,anchorOffset,fragment,relativeLinks,splitRow,tableAt,editTable,pasteTable,SerialQueue};
 });

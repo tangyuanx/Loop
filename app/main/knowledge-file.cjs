@@ -3,7 +3,7 @@ const fsNative = require("node:fs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { migrateKnowledgeAssets, readKnowledgeAssetFiles } = require("./knowledge-assets.cjs");
-const { imageReferences } = require("../renderer/src/knowledge-core.js");
+const { imageReferences, validateNoteName } = require("../renderer/src/knowledge-core.js");
 
 const saveQueues = new Map();
 
@@ -421,6 +421,162 @@ function enqueueSave(key, operation) {
   });
 }
 
+// #88: a note's name is the name of its file. Renaming is therefore a real
+// filesystem operation and the only source of truth for the new name: the
+// renderer commits its metadata after this call succeeds. Extension is
+// preserved, existing targets are never overwritten (POSIX rename would
+// silently replace them), and the operation is queued on the same per-path key
+// as saves so a save of the old path cannot recreate the file just moved.
+function renameErrorCode(error) {
+  switch (error?.code) {
+    case "EACCES":
+    case "EPERM":
+    case "EROFS":
+      return "PERMISSION_DENIED";
+    case "ENOENT":
+    case "ENOTDIR":
+      return "FILE_MISSING";
+    case "EEXIST":
+    case "ENOTEMPTY":
+    case "EBUSY":
+      return "NAME_CONFLICT";
+    case "ENAMETOOLONG":
+    case "EINVAL":
+      return "INVALID_NAME";
+    default:
+      return "RENAME_FAILED";
+  }
+}
+
+function renameFailureMessage(code) {
+  switch (code) {
+    case "INVALID_TARGET":
+      return "缺少要重命名的文件";
+    case "PERMISSION_DENIED":
+      return "没有权限重命名文件，请检查文件或所在目录的权限";
+    case "FILE_MISSING":
+      return "原文件不存在，无法重命名";
+    case "NAME_CONFLICT":
+      return "同名文件已存在，请换一个名称";
+    case "INVALID_NAME":
+      return "文件名不被系统接受，请换一个名称";
+    default:
+      return "重命名文件失败，请重试";
+  }
+}
+
+function renameFailure(error, filePath, code = renameErrorCode(error)) {
+  return {
+    canceled: false,
+    success: false,
+    code,
+    errorCode: error?.code || code,
+    operation: "rename",
+    filePath,
+    message: renameFailureMessage(code),
+  };
+}
+
+async function renameKnowledgeDocument(payload, {
+  platform = process.platform,
+  fsOps: injectedFsOps,
+} = {}) {
+  const safePayload = payload && typeof payload === "object" ? payload : {};
+  if (!safePayload.filePath) return renameFailure(null, "", "INVALID_TARGET");
+
+  const sourcePath = ensureMarkdownExtension(safePayload.filePath);
+  const currentName = path.basename(sourcePath);
+  // `targetName` is the exact previous file name used to undo a rename whose
+  // task-data write failed; the normal path derives the name from the title.
+  const explicitName = typeof safePayload.targetName === "string" ? safePayload.targetName.trim() : "";
+  let fileName;
+  if (explicitName) {
+    if (/[\\/]/.test(explicitName) || explicitName !== path.basename(explicitName)) {
+      return renameFailure(null, sourcePath, "INVALID_NAME");
+    }
+    fileName = explicitName;
+  } else {
+    const validation = validateNoteName(safePayload.title, { extension: path.extname(sourcePath) || ".md" });
+    if (!validation.ok) {
+      return {
+        canceled: false,
+        success: false,
+        code: "INVALID_NAME",
+        errorCode: validation.code,
+        operation: "rename",
+        filePath: sourcePath,
+        message: validation.message,
+      };
+    }
+    fileName = validation.fileName;
+  }
+
+  if (fileName === currentName) {
+    return {
+      canceled: false,
+      success: true,
+      unchanged: true,
+      operation: "rename",
+      filePath: sourcePath,
+      previousFilePath: sourcePath,
+      fileName,
+    };
+  }
+
+  const targetPath = path.join(path.dirname(sourcePath), fileName);
+  // A case-only rename keeps one identity on a case-insensitive volume, so its
+  // target "exists" by definition and must not be reported as a duplicate.
+  const sameIdentity = canonicalFilePath(targetPath, platform) === canonicalFilePath(sourcePath, platform);
+  if (hasDuplicateBinding(targetPath, safePayload.boundPaths, platform)) {
+    return {
+      canceled: false,
+      success: false,
+      code: "DUPLICATE_BINDING",
+      errorCode: "DUPLICATE_BINDING",
+      operation: "rename",
+      filePath: sourcePath,
+      message: "这个文件名已绑定到另一篇笔记，请换一个名称",
+    };
+  }
+
+  const fsOps = createFsOperations(injectedFsOps);
+  return enqueueSave(canonicalFilePath(sourcePath, platform), async () => {
+    try {
+      try {
+        await fsOps.lstat(sourcePath);
+      } catch (error) {
+        return renameFailure(error, sourcePath, error?.code === "ENOENT" || error?.code === "ENOTDIR" ? "FILE_MISSING" : undefined);
+      }
+      if (!sameIdentity) {
+        try {
+          await fsOps.lstat(targetPath);
+          return renameFailure(null, sourcePath, "NAME_CONFLICT");
+        } catch (error) {
+          if (error?.code !== "ENOENT") return renameFailure(error, sourcePath);
+        }
+      }
+      await fsOps.rename(sourcePath, targetPath);
+      let stats = null;
+      try {
+        stats = await fsOps.stat(targetPath);
+      } catch {
+        // The rename already happened; a missing stat only loses the mtime.
+      }
+      return {
+        canceled: false,
+        success: true,
+        operation: "rename",
+        filePath: targetPath,
+        previousFilePath: sourcePath,
+        fileName,
+        lastSavedMtime: stats?.mtimeMs ?? null,
+      };
+    } catch (error) {
+      return renameFailure(error, sourcePath);
+    }
+  });
+}
+
 async function saveKnowledgeDocument(payload, {
   dialog,
   parent = null,
@@ -583,6 +739,7 @@ module.exports = {
   readKnowledgeDocument,
   chooseKnowledgeDocument,
   atomicWriteFile,
+  renameKnowledgeDocument,
   replaceFile,
   saveKnowledgeDocument,
   temporaryFilePath,
