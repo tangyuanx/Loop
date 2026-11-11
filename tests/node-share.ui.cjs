@@ -17,7 +17,7 @@ const node = (id, title, children = [], links = [], order = 0) => ({ id, title, 
       node('c', '交付结果', [], [], 4),
     ] })] }, 'node-share-ui');
     const { app, page, profile, errors } = run;
-    const open = async () => { await page.locator('.node-title[data-node-id=a]').hover(); await page.locator('.node-share-action[data-node-id=a]').click(); await page.locator('.node-share-dialog').waitFor(); };
+    const open = async () => { await page.locator('.node-title[data-node-id=a]').click({button:'right'}); await page.getByRole('menuitem',{name:'分享此节点…'}).click(); await page.locator('.node-share-dialog').waitFor(); };
     const close = async () => { await page.keyboard.press('Escape'); await page.locator('.node-share-dialog').waitFor({ state: 'detached' }); };
     await open();
     assert.match(await page.locator('#node-share-count').textContent(), /6 个/);
@@ -30,7 +30,7 @@ const node = (id, title, children = [], links = [], order = 0) => ({ id, title, 
     await page.locator('#node-share-downstream').selectOption('1');
     assert.match(await page.locator('#node-share-count').textContent(), /4 个/);
     await close();
-    await page.waitForFunction(() => document.activeElement?.matches('.node-share-action[data-node-id=a]'));
+    await page.waitForFunction(() => document.activeElement?.matches('.node-title[data-node-id=a]'));
 
     // The right-click entry opens the same scope, without changing tree/selection.
     await page.locator('.node-title[data-node-id=a]').click({ button: 'right' });

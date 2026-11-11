@@ -195,6 +195,7 @@ function normalizeTaskData(data) {
       continuous: safeData.uiPreferences.continuous !== false,
       follow: safeData.uiPreferences.follow !== false,
       workNavigationEnabled: safeData.uiPreferences.workNavigationEnabled === true,
+      nodeConclusionHintSeen: safeData.uiPreferences.nodeConclusionHintSeen === true,
     } : null,
     workNavigation: workNavigationModel.normalizeWorkNavigation(safeData.workNavigation, {
       groupIds: taskGroups.map((group) => group.id),

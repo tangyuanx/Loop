@@ -24,8 +24,7 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
     assert.equal(await toggle.getAttribute('aria-pressed'), 'false');
     const original = await page.evaluate(() => structuredClone(shellActiveTask().nodes));
     const stats = await page.locator('.flow-toolbar > span').innerText();
-    await row('todo-root').hover();
-    await page.locator('.node-record-action[data-node-id="todo-root"]').click();
+    await page.locator('.node-title[data-node-id="todo-root"]').click();
     await toggle.click();
     assert.equal(await toggle.innerText(), '显示已完成');
     assert.equal(await row('done-parent').count(), 0);
@@ -41,11 +40,12 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
     await page.keyboard.press('Escape');
 
     // Completing a selected node saves its pending record and removes its inspector.
-    await page.locator('[data-shell-node-record]').fill('完成前自动保存的记录');
+    await page.locator('.flow-row[data-node-id="todo-root"] .node-conclusion-text').dblclick();
+    await page.locator('[data-shell-node-conclusion]').fill('完成前自动保存的记录');
     await page.evaluate(() => action({ action: 'set-node-status', nodeId: 'todo-root', status: 'done' }));
     assert.equal(await row('todo-root').count(), 0);
     assert.equal(await page.locator('.inspector').count(), 0);
-    assert.equal(await page.evaluate(() => findNode(shellActiveTask().nodes, 'todo-root').note), '完成前自动保存的记录');
+    assert.equal(await page.evaluate(() => findNode(shellActiveTask().nodes, 'todo-root').conclusion), '完成前自动保存的记录');
 
     // Refresh, show-all and switch-back retain both data and the global preference.
     await page.evaluate(()=>flushSave()); await page.reload(); await toggle.waitFor();
@@ -55,7 +55,7 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
     assert.equal(await row('done-parent').count(), 1);
     assert.equal(await row('todo-child').count(), 0, 'show-all restores the original parent collapse');
     assert.equal(await row('todo-root').count(), 1);
-    assert.equal(await page.evaluate(() => findNode(shellActiveTask().nodes, 'todo-root').note), '完成前自动保存的记录');
+    assert.equal(await page.evaluate(() => findNode(shellActiveTask().nodes, 'todo-root').conclusion), '完成前自动保存的记录');
     await page.locator('.flow-scroll').evaluate(element => { element.scrollTop = 350; });
     await toggle.click();
     await page.waitForTimeout(100);

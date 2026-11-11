@@ -7,6 +7,6 @@
       ids.add(item.id);names.add(item.name.trim().toLocaleLowerCase());return true;
     }).slice(0,24).map(item=>({id:item.id,name:item.name.trim().slice(0,24),color:/^#[0-9a-f]{6}$/i.test(item.color)?item.color:'#81735e'}));
   }
-  const normalizeStatus=value=>value==='done'?'done':customId(value)?value:'todo';
+  const normalizeStatus=value=>value==='done'?'done':value==='review'?'review':customId(value)?value:'todo';
   return {normalizeDefinitions,normalizeStatus,customId};
 });

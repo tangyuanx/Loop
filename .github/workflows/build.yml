@@ -52,11 +52,9 @@ jobs:
       - run: npm ci
       - run: npm run build:milkdown
       - run: npm run build:knowledge
-      - name: Verify floating records and existing node interactions
+      - name: Verify inline conclusions and existing node interactions
         run: |
-          node tests/node-floating-record.ui.cjs
-          node tests/flow-conclusions.ui.cjs
-          node tests/node-completion.ui.cjs
+          node tests/flow-outline.ui.cjs
           npm run test:ui:node-interactions
           npm run test:ui:flow-filter
       - name: Verify memo improvements
