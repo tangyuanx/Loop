@@ -848,24 +848,64 @@ function knowledgeRename(task,trigger) {
   field.oncompositionstart=()=>{composing=true;};field.oncompositionend=()=>{composing=false;};
   const commit=async()=>{
     if(busy||composing)return;
-    const title=field.value.trim();
-    if(!title){error.textContent='请输入笔记名称';field.setAttribute('aria-invalid','true');field.focus();return;}
+    const checked=LoopKnowledgeCore.validateNoteFileName(field.value);
+    if(!checked.success){error.textContent=checked.message;field.setAttribute('aria-invalid','true');field.focus();return;}
+    const title=checked.title;
     if(!knowledgeHasDocument(task)||task.knowledgeNote.noteId!==noteId)return;
     clearError();busy=true;button.disabled=true;field.readOnly=true;surface.setAttribute('aria-busy','true');button.textContent='正在保存…';
-    const previous=task.knowledgeNote,previousUpdatedAt=task.updatedAt,previousTitle=task.title;
-    if(!state.tasks.includes(task))task.title=title;
-    task.knowledgeNote=knowledgeDocument.updateDocumentTitle(previous,title);task.updatedAt=now();const renamedAt=task.updatedAt;
-    let success=false;
-    try{save();success=await flushSave();}catch(failure){console.error('Failed to rename knowledge note.',failure);}
+    let success=false,message='重命名未能保存，请重试';
+    try{
+      const result=await knowledgeSaveQueue.run(task.id,async()=>{
+        if(!knowledgeHasDocument(task)||task.knowledgeNote.noteId!==noteId)return {success:false,message:'笔记已切换，请重新操作'};
+        knowledgeFileWriteBusy.add(task.id);
+        const previous=task.knowledgeNote,previousUpdatedAt=task.updatedAt,previousTitle=task.title;
+        let moved=false,renamedAt=null,warning=null;
+        try{
+          captureMountedMilkdownDrafts();flushNodeNoteDraft(noteDraftKey(task.id,''),{persist:true});
+          if(previous.filePath){
+            if(!desktopKnowledgeFile?.rename)throw Error('当前环境不支持文件改名，请在桌面应用中操作');
+            if(['EXTERNAL_CHANGED','FILE_MISSING','READ_ONLY'].includes(task.knowledgeNote.documentState))throw Error('请先处理文件冲突、缺失或只读状态，再重命名');
+            await flushKnowledgeRecovery(noteId,{strict:true});
+            save();if(!(await flushSave()))throw Error('本地草稿尚未保存，已停止文件改名，请重试');
+            const file=await desktopKnowledgeFile.rename({noteId,filePath:previous.filePath,name:field.value,
+              expectedLastSavedHash:previous.lastSavedHash,lastSavedMtime:previous.lastSavedMtime});
+            if(!file?.success)throw Error((file?.message||'文件改名失败')+(file?.recoveryPath?'：'+file.recoveryPath:'')+(file?.retainedPath?'；保留文件：'+file.retainedPath:''));
+            moved=true;
+            if(!knowledgeHasDocument(task)||task.knowledgeNote.noteId!==noteId)throw Error('文件已改名为 '+file.filePath+'，笔记已切换，请重新打开此文件');
+            // Preserve dirty text, selections and the editor instance. Renaming
+            // does not save document contents or resolve an external conflict.
+            task.knowledgeNote={...task.knowledgeNote,filePath:file.filePath,lastSavedHash:file.lastSavedHash,
+              lastSavedMtime:file.lastSavedMtime??previous.lastSavedMtime};
+            warning=file.warning;
+          }
+          if(!state.tasks.includes(task))task.title=title;
+          task.knowledgeNote=knowledgeDocument.updateDocumentTitle(task.knowledgeNote,title);task.updatedAt=renamedAt=now();
+          save();
+          if(!(await flushSave()))throw Error(moved?'文件已改名，但路径信息尚未保存，请重试':'重命名未能保存，请重试');
+          if(moved){await syncKnowledgeFileWatcher(task);scheduleKnowledgeRecovery(task.id,task.notes);}
+          if(warning)throw Error(warning);
+          return {success:true};
+        }catch(failure){
+          // Disk success is an irreversible fact for this dialog: retain its
+          // real path on metadata failure so retry cannot write the old file.
+          if(!moved&&knowledgeHasDocument(task)&&task.knowledgeNote.noteId===noteId){
+            if(task.knowledgeNote.title===title)task.knowledgeNote={...task.knowledgeNote,title:previous.title,aliases:previous.aliases};
+            if(!state.tasks.includes(task)&&task.title===title)task.title=previousTitle;
+            if(task.updatedAt===renamedAt)task.updatedAt=previousUpdatedAt;
+            save();
+          }
+          if(moved)scheduleKnowledgeRecovery(task.id,task.notes);
+          return {success:false,message:failure.message};
+        }finally{
+          knowledgeFileWriteBusy.delete(task.id);knowledgeUpdateChrome(task);
+          if(knowledgeDeferredFileEvents.has(task.id)){knowledgeDeferredFileEvents.delete(task.id);void knowledgeInspectDeferredChange(task);}
+        }
+      });
+      success=result.success;message=result.message||message;
+    }catch(failure){message=failure.message;console.error('Failed to rename knowledge note.',failure);}
     finally{busy=false;button.disabled=false;field.readOnly=false;surface.removeAttribute('aria-busy');button.textContent='保存名称';}
     if(!success){
-      if(knowledgeHasDocument(task)&&task.knowledgeNote.noteId===noteId){
-        task.knowledgeNote={...task.knowledgeNote,title:previous.title,aliases:previous.aliases};
-        if(!state.tasks.includes(task))task.title=previousTitle;
-        if(task.updatedAt===renamedAt)task.updatedAt=previousUpdatedAt;
-        save();
-      }
-      if(owns()){error.textContent='重命名未能保存，请重试';if(knowledgeActiveDocument()?.id===task.id)field.focus();}
+      if(owns()){error.textContent=message;if(knowledgeActiveDocument()?.id===task.id)field.focus();}
       return;
     }
     if(owns()&&knowledgeActiveDocument()?.id===task.id&&task.knowledgeNote.noteId===noteId)shellCloseOverlay();

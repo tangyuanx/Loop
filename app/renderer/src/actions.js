@@ -728,6 +728,12 @@ function shellTitleEditor(trigger, nodeId) {
     340,
   );
   const input = document.querySelector("#editable-title");
+  let composing = false;
+  input?.addEventListener('compositionstart', () => { composing = true; });
+  input?.addEventListener('compositionend', () => { composing = false; });
+  input?.addEventListener('keydown', event => {
+    if (composing || event.isComposing || event.keyCode === 229) event.stopImmediatePropagation();
+  });
   input?.select();
   const titleForm = shellPanelFinish(document.querySelector("#title-form"));
   titleForm?.querySelector("footer")?.insertAdjacentHTML("beforebegin", '<p class="error" id="entry16-title-error" role="status"></p>');
@@ -739,6 +745,7 @@ function shellTitleEditor(trigger, nodeId) {
   });
   document.querySelector("#title-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (composing) return;
     const next = input.value.trim();
     if (!next) {
       const box = document.querySelector("#entry16-title-error");
@@ -749,16 +756,28 @@ function shellTitleEditor(trigger, nodeId) {
     }
     const button = titleForm.querySelector('[type="submit"]');
     if (input.dataset.committing) return;
+    const target = node || task;
+    const ownsModel = () => state.tasks.includes(task) && (!node || findNode(task.nodes, node.id) === node);
+    if (!ownsModel()) return;
+    const before = target.title, beforeTaskStamp = task.updatedAt, beforeNodeStamp = node?.updatedAt;
+    const stamp = now();
     button.disabled = true;
     void shellPersistInput(input, () => {
-      if (node) { node.title = next; node.updatedAt = now(); }
+      if (node) { node.title = next; node.updatedAt = stamp; }
       else task.title = next;
-      task.updatedAt = now();
+      task.updatedAt = stamp;
     }, () => {
       // A dismissed form must never close a newer overlay.
       if (!titleForm.isConnected) return;
       shellCloseOverlay({restoreFocus:titleForm.contains(document.activeElement)});
       render();
+    }).then(ok => {
+      if (!ok && ownsModel() && target.title === next && (node?.updatedAt ?? task.updatedAt) === stamp) {
+        target.title = before;
+        if (node?.updatedAt === stamp) node.updatedAt = beforeNodeStamp;
+        if (task.updatedAt === stamp) task.updatedAt = beforeTaskStamp;
+        save();
+      }
     }).finally(() => { button.disabled = false; });
   });
 }
@@ -807,23 +826,33 @@ function shellNodeStatesManager() {
       ? `<button class="text-button" type="button" data-state-edit="${escAttr(status)}">编辑</button><button class="text-button" type="button" data-state-delete="${escAttr(status)}">删除</button>`
       : '<small>默认</small>'}</div>`).join('');
   };
-  const reset=()=>{form.reset();form.elements.id.value='';form.querySelector('[type=submit]').textContent='新增状态';form.querySelector('[data-cancel-state]').hidden=true;};
+  const reset=()=>{form.reset();form.elements.id.value='';error.textContent='';form.querySelector('[type=submit]').textContent='新增状态';form.querySelector('[data-cancel-state]').hidden=true;};
+  let composing=false;
+  form.elements.name.addEventListener('compositionstart',()=>{composing=true;});
+  form.elements.name.addEventListener('compositionend',()=>{composing=false;});
+  form.elements.name.addEventListener('keydown',event=>{if(composing||event.isComposing||event.keyCode===229)event.stopImmediatePropagation();});
   let busy=false;
-  const persist=async(change,done)=>{
+  const persist=async(change,done,rollback)=>{
     if(busy)return;busy=true;error.textContent='';
     form.elements.name.readOnly=true;form.elements.color.disabled=true;
     for(const button of document.querySelectorAll('.node-state-form button,.node-states-list button'))button.disabled=true;
     try{change();save();if(!(await flushSave()))throw new Error('保存失败，请重试');render();if(form.isConnected){done?.();refresh();}}
-    catch(failure){if(error.isConnected)error.textContent=failure.message;}
+    catch(failure){rollback?.();if(rollback)save();if(error.isConnected){error.textContent=failure.message;refresh();}}
     finally{busy=false;if(form.isConnected){form.elements.name.readOnly=false;form.elements.color.disabled=false;for(const button of document.querySelectorAll('.node-state-form button,.node-states-list button'))button.disabled=false;}}
   };
   form.onsubmit=event=>{
-    event.preventDefault();if(busy)return;
+    event.preventDefault();if(busy||composing)return;
     const name=form.elements.name.value.trim(),color=form.elements.color.value;
     if(!name||Object.values(SHELL_NODE_STATUS_LABELS).includes(name)||state.nodeStates.some(item=>item.name.toLocaleLowerCase()===name.toLocaleLowerCase()&&item.id!==form.elements.id.value)){error.textContent='请输入不重复的状态名称';return;}
     if(!form.elements.id.value&&state.nodeStates.length>=24){error.textContent='最多可添加24种状态';return;}
     const stateId=form.elements.id.value||'custom_'+id('state');form.elements.id.value=stateId;
-    void persist(()=>{const found=state.nodeStates.find(item=>item.id===stateId);if(found)Object.assign(found,{name,color});else state.nodeStates.push({id:stateId,name,color});},reset);
+    let changed;
+    const previous=state.nodeStates.find(item=>item.id===stateId);
+    const before=previous?{...previous}:null;
+    void persist(()=>{changed=previous||{id:stateId};Object.assign(changed,{name,color});if(!previous)state.nodeStates.push(changed);},reset,()=>{
+      if(!changed||state.nodeStates.find(item=>item.id===stateId)!==changed||changed.name!==name||changed.color!==color)return;
+      if(before)Object.assign(changed,before);else state.nodeStates=state.nodeStates.filter(item=>item!==changed);
+    });
   };
   form.querySelector('[data-cancel-state]').onclick=reset;
   list.onclick=event=>{
@@ -1914,7 +1943,7 @@ function shellStartNodeTitleEdit(title) {
   const node = task && findNode(task.nodes, title.dataset.nodeId);
   if (!node || !title.isConnected) return;
   if (state.selectedNodeId) { flushNodeNoteDrafts({ persist: true }); exitNodeDetail(); }
-  shellNodeRenameDraft = { taskId: task.id, nodeId: node.id, value: node.title };
+  shellNodeRenameDraft = { taskId: task.id, nodeId: node.id, original: node.title, value: node.title };
   title.outerHTML = renderShellNodeTitle(task, node);
   retainedRegionMarkup.delete("workspace");
   shellBindInlineNodeTitles();
@@ -1931,6 +1960,13 @@ function shellFinishNodeTitleEdit(commit, { restoreFocus = false } = {}) {
   const node = task && findNode(task.nodes, draft.nodeId);
   const next = (input?.value ?? draft.value).trim();
   shellNodeRenameDraft = null;
+  // A failed/delayed explicit save may already have updated the in-memory
+  // model. Cancel restores this session's own write, never an external edit.
+  if (!commit && node && draft.submittedValue !== undefined && node.title === draft.submittedValue) {
+    node.title = draft.original;
+    node.updatedAt = task.updatedAt = now();
+    save();
+  }
   if (node && commit && next && next !== node.title) {
     node.title = next;
     node.updatedAt = task.updatedAt = now();
@@ -1950,7 +1986,7 @@ function shellFinishNodeTitleEdit(commit, { restoreFocus = false } = {}) {
 }
 
 async function shellPersistInput(input,prepare,finish) {
-  if(input.dataset.committing)return;
+  if(input.dataset.committing)return false;
   if(bindRenderElement(input,'persist-input-feedback'))input.addEventListener('input',()=>{
     input.removeAttribute('aria-invalid');input.removeAttribute('title');
     const feedback=document.getElementById(input.getAttribute('aria-describedby'));
@@ -1961,10 +1997,11 @@ async function shellPersistInput(input,prepare,finish) {
     prepare?.();save();
     if(!(await flushSave()))throw new Error('保存失败，请重试');
     if(input.isConnected&&input.value===value)finish();
+    return true;
   }catch(error){if(input.isConnected){input.title=error.message;input.setAttribute('aria-invalid','true');
     const feedback=document.getElementById(input.getAttribute('aria-describedby'));
     if(feedback?.classList.contains('error'))feedback.textContent=error.message;
-    if(document.activeElement===focusAtStart||document.activeElement===input)input.focus({preventScroll:true});}}
+    if(document.activeElement===focusAtStart||document.activeElement===input)input.focus({preventScroll:true});}return false;}
   finally{delete input.dataset.committing;}
 }
 function shellBindInlineNodeTitles() {
@@ -1989,12 +2026,19 @@ function shellBindInlineNodeTitles() {
       if(event.key==='Escape')shellFinishNodeTitleEdit(false,{restoreFocus:true});
       else void shellPersistInput(input,()=>{
         const task=state.tasks.find(t=>t.id===input.dataset.taskId),node=task&&findNode(task.nodes,input.dataset.nodeId);
-        if(node){node.title=input.value.trim();node.updatedAt=task.updatedAt=now();}
+        if(node){node.title=input.value.trim();shellNodeRenameDraft.submittedValue=node.title;node.updatedAt=task.updatedAt=now();}
       },()=>shellFinishNodeTitleEdit(true,{restoreFocus:true}));
     });
     input.addEventListener("blur", () => {
       if (!input.dataset.committing && input.isConnected && shellNodeRenameDraft?.nodeId === input.dataset.nodeId
-        && !shellNodeRenameDraft.rendering) shellFinishNodeTitleEdit(true);
+        && !shellNodeRenameDraft.rendering) {
+        if (!input.value.trim()) { shellFinishNodeTitleEdit(false); return; }
+        const draft = shellNodeRenameDraft;
+        void shellPersistInput(input, () => {
+          const task=state.tasks.find(t=>t.id===draft.taskId),node=task&&findNode(task.nodes,draft.nodeId);
+          if(node){node.title=input.value.trim();draft.submittedValue=node.title;node.updatedAt=task.updatedAt=now();}
+        }, () => { if (shellNodeRenameDraft === draft) shellFinishNodeTitleEdit(true); });
+      }
     });
   });
 }
@@ -2112,9 +2156,12 @@ function shellBindNodeDraft() {
       if(event.key==='Enter'&&(event.shiftKey||event.altKey))return;
       if (event.key === "Enter") {
         event.preventDefault();
+        event.stopImmediatePropagation();
+        if (!input.value.trim()) { shellCancelNodeDraft(); return; }
         void shellPersistInput(input,null,()=>shellCommitNodeDraft());
       } else if (event.key === "Escape") {
         event.preventDefault();
+        event.stopImmediatePropagation();
         shellCancelNodeDraft();
       }
     });
@@ -2123,7 +2170,7 @@ function shellBindNodeDraft() {
         if (!input.isConnected || input.dataset.committing || document.activeElement === input) return;
         if (state.focusNodeTitleId !== nodeId || shellActiveTask()?.id !== taskId) return;
         if (!input.value.trim()) { shellCancelNodeDraft({ renderView: false }); return; }
-        shellCommitNodeDraft();
+        void shellPersistInput(input,null,()=>shellCommitNodeDraft());
       }, 0);
     });
   });
@@ -2283,17 +2330,38 @@ function shellBindNodeRecord() {
   shellBindNodeRecordWindow();
   const editor = document.querySelector("[data-shell-node-record]");
   if (!editor || !bindRenderElement(editor, "shell-node-record")) return;
+  const task = shellActiveTask(), node = task && findNode(task.nodes, editor.dataset.shellNodeRecord);
+  let original = editor.value;
+  // Retained controls keep Undo across redraws. A new focus session starts
+  // from its current text; redraw focusout must not replace this baseline.
+  editor.addEventListener('focus',()=>{if(!editor.recordEditing){original=editor.value;editor.recordEditing=true;}});
+  editor.recordEditing = document.activeElement === editor;
   shellBindTextareaHistory(editor, () => {
     const task = shellActiveTask();
     const node = shellNodeList(task).find(item => item.id === editor.dataset.shellNodeRecord);
     if (!node) return;
     updateNodeNoteDraft(task.id, node.id, editor.value);
     shellSyncNodeRecordMeta(editor, now());
-  }, () => flushNodeNoteDrafts?.({ persist: true }));
+  }, () => {
+    flushNodeNoteDrafts?.({ persist: true });
+    // render() restores the same retained control synchronously. Only a real
+    // focus departure ends the edit session, not its temporary detachment.
+    Promise.resolve().then(()=>{if(document.activeElement!==editor)editor.recordEditing=false;});
+  });
   editor.addEventListener('keydown',event=>{
-    if(event.isComposing||event.keyCode===229||event.key!=='Enter'||event.shiftKey||event.altKey)return;
+    if(event.isComposing||event.keyCode===229)return;
+    if(event.key!=='Escape'&&(event.key!=='Enter'||event.shiftKey||event.altKey))return;
     event.preventDefault();event.stopImmediatePropagation();
-    void shellPersistInput(editor,()=>flushNodeNoteDrafts({persist:true}),()=>{exitNodeDetail();render();});
+    if(event.key==='Escape') {
+      if(editor.dataset.committing)return;
+      // Replace the debounced draft as well as already autosaved text.
+      if(!task||findNode(task.nodes,editor.dataset.shellNodeRecord)!==node)return;
+      editor.value=original;
+      updateNodeNoteDraft(task.id,node.id,original);
+    }
+    void shellPersistInput(editor,()=>flushNodeNoteDrafts({persist:true}),()=>{
+      editor.recordEditing=false;exitNodeDetail({restoreFocus:true});render();
+    });
   });
 }
 

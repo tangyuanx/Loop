@@ -208,7 +208,7 @@ window.addEventListener("keydown", (event) => {
     event.stopImmediatePropagation();   // never let a commit shortcut cut composition
     return;
   }
-  if (event.key === "Escape" || ((event.metaKey || event.ctrlKey) && event.key === "Enter")) {
+  if (event.key === "Escape" || (event.key === "Enter" && !event.shiftKey && !event.altKey)) {
     event.preventDefault();
     event.stopImmediatePropagation();
     if (event.key === "Enter") {
@@ -221,9 +221,13 @@ window.addEventListener("keydown", (event) => {
       });
       return;
     }
-    brief21Retain(el);
-    brief21Flush(el.dataset.brief21Key);
-    el.blur();
+    if (el.dataset.committing) return;
+    const key = el.dataset.brief21Key;
+    if (BRIEF21_SESSIONS.has(key)) el.value = BRIEF21_SESSIONS.get(key);
+    void shellPersistInput(el, () => brief21Retain(el), () => {
+      BRIEF21_SESSIONS.delete(key);
+      el.blur();
+    });
   }
 }, true);
 

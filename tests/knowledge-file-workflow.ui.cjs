@@ -91,7 +91,8 @@ const source=path.resolve(__dirname,'..'),pause=ms=>new Promise(resolve=>setTime
   // Closing the final tab leaves an intentional empty workspace across restart.
   await page.evaluate(()=>knowledgeDetach(knowledgeActiveDocument().id));await page.locator('.kn-empty-document').waitFor();await page.screenshot({path:path.join(out,'empty-workspace.png')});await flush();await app.close();app=null;
   await start();await page.locator('.kn-empty-document').waitFor();assert.equal(await current(),'');
-  assert.equal(await page.locator('.knowledge-pane [data-kn-action]').count(),0);
+  assert.equal(await page.locator('.knowledge-pane [data-kn-action]').count(),1);
+  assert.equal(await page.locator('.kn-document-new[data-kn-action="new-note"]').isVisible(),true,'the empty workspace keeps the direct + creation entry');
   await app.evaluate((_e,file)=>{global.__noteOpenPath=file;},file);
   await wb.more(page);await page.locator('.wb-more-menu [data-kn-action=open-file]').click();await ready(external);
   assert.match(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),/原始内容/);

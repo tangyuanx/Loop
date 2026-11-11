@@ -44,6 +44,7 @@
   // restores each object's own draft and an explicit cancel or a successful save
   // clears only that object.
   const manage24TitleDrafts = new Map();
+  const manage24RowTitleDrafts = new Map();
   const manage24PropertyDrafts = new Map();
   let manage24TitleSession = null;      // workspace title editor
   let manage24RowTitleSession = null;   // task-list row editor
@@ -54,6 +55,8 @@
   let manage24DeleteDraft = null;
   let manage24Undo = null;
   let manage24LastRowTitle = null;
+  let manage24GroupSession = null;
+  let manage24Rendering = false;
 
   // ---- small helpers -------------------------------------------------------
   const manage24Esc = (value) => (typeof esc === "function" ? esc(value) : String(value ?? ""));
@@ -118,7 +121,13 @@
 
   function manage24Focus(selector) {
     if (!selector) return;
-    window.requestAnimationFrame(() => manage24Node(selector)?.focus?.({ preventScroll: true }));
+    const origin = document.activeElement;
+    window.requestAnimationFrame(() => {
+      // A newer editor/click owns its focus even if an older close scheduled
+      // its return one frame earlier.
+      if (document.activeElement !== origin && document.activeElement !== document.body) return;
+      manage24Node(selector)?.focus?.({ preventScroll: true });
+    });
   }
 
   // ---- overlay plumbing ----------------------------------------------------
@@ -172,6 +181,53 @@
     return ok !== false;
   }
 
+  function manage24NameAttrs(session) {
+    return `${session?.saving ? ' data-committing="true"' : ''}${session?.error ? ' aria-invalid="true"' : ''}`;
+  }
+
+  function manage24NameFeedback(session, inputId, errorId) {
+    const input = document.getElementById(inputId);
+    if (session.saving) input?.setAttribute?.('data-committing', 'true');
+    else input?.removeAttribute?.('data-committing');
+    if (session.error) input?.setAttribute?.('aria-invalid', 'true');
+    else input?.removeAttribute?.('aria-invalid');
+    const error = document.getElementById(errorId);
+    if (error) { error.textContent = session.error || ''; error.hidden = !session.error; }
+  }
+
+  // Keep the editing session until the actual disk result. A failed write
+  // restores only this attempt's model value; the input remains a retryable
+  // draft. Another session or an imported/replaced model owns its own state.
+  async function manage24PersistName(session, value, currentModel) {
+    const model = session.model;
+    const before = model.title, beforeUpdatedAt = model.updatedAt;
+    const stamp = now();
+    session.saving = true;session.error = '';
+    model.title = value;
+    if (currentModel !== manage24Group) model.updatedAt = stamp;
+    let ok = false;
+    try { ok = await manage24Persist(); } catch { /* Keep the same failure UI as a refused IPC write. */ }
+    session.saving = false;
+    if (!ok) {
+      if (currentModel(session.id) === model && model.title === value) {
+        model.title = before;
+        if (model.updatedAt === stamp) model.updatedAt = beforeUpdatedAt;
+        save();
+      }
+      session.error = '保存失败，请重试';
+    }
+    return ok;
+  }
+
+  function manage24GroupNameSession(groupId) {
+    const group = manage24Group(groupId);
+    if (!group) return null;
+    if (manage24GroupSession?.id !== groupId || manage24GroupSession.model !== group) {
+      manage24GroupSession = {id:groupId, model:group, value:manage24TitleDrafts.get(groupId) ?? group.title, error:''};
+    }
+    return manage24GroupSession;
+  }
+
   // ============================================================
   // 1. Group navigation: heading actions, no per-row management button
   // ============================================================
@@ -179,12 +235,13 @@
   renderShellGroupNavigation = function manage24GroupNavigation() {
     const editingId = state.editingGroupId;
     const editingGroup = manage24Group(editingId);
+    const session = manage24GroupNameSession(editingId);
     const editingDraft = manage24TitleDrafts.get(editingId);
     const draft = `
       <div class="nav-group-editor" data-manage24-group-editor="${manage24Attr(editingId || "new")}">
-        <input id="group-title" aria-label="${editingGroup ? "重命名分组" : "新建分组名称"}" maxlength="24" value="${manage24Attr(editingDraft !== undefined ? editingDraft : editingGroup?.title || "")}" />
+        <input id="group-title" aria-label="${editingGroup ? "重命名分组" : "新建分组名称"}" aria-describedby="manage24-group-error" maxlength="24" value="${manage24Attr(editingDraft !== undefined ? editingDraft : editingGroup?.title || "")}"${manage24NameAttrs(session)} />
       </div>
-      ${state.groupError ? `<p class="group-error" id="manage24-group-error" role="status">${manage24Esc(state.groupError)}</p>` : ""}`;
+      <p class="group-error" id="manage24-group-error" role="status" ${session?.error || state.groupError ? '' : 'hidden'}>${manage24Esc(session?.error || state.groupError || '')}</p>`;
     const rows = manage24SortedGroups().map((group) => {
       if (editingId === group.id) return draft;
       const active = shellRoute() === "tasks" && state.activeGroupId === group.id;
@@ -220,7 +277,7 @@
 
   /** The Demo's `.manage24-row-title` editor: 26px, transparent, 1px bottom rule. */
   function manage24RowEditorMarkup() {
-    return `<div class="manage24-row-title"><input id="manage24-row-title" class="manage24-row-title-input" maxlength="160" aria-label="任务名称" aria-describedby="manage24-row-error" value="${manage24Attr(manage24RowTitleSession.value)}"><span class="manage24-inline-error" id="manage24-row-error" role="status">${manage24Esc(manage24RowTitleSession.error || "")}</span></div>`;
+    return `<div class="manage24-row-title"><input id="manage24-row-title" class="manage24-row-title-input" maxlength="160" aria-label="任务名称" aria-describedby="manage24-row-error" value="${manage24Attr(manage24RowTitleSession.value)}"${manage24NameAttrs(manage24RowTitleSession)}><span class="manage24-inline-error" id="manage24-row-error" role="status">${manage24Esc(manage24RowTitleSession.error || "")}</span></div>`;
   }
 
   const manage24BaseTaskRow = renderShellTaskRow;
@@ -241,7 +298,7 @@
     return markup;
   };
 
-  function manage24DrawRowTitle() {
+  function manage24DrawRowTitle({ focus = true } = {}) {
     if (!manage24RowTitleSession) return;
     if (!manage24Task(manage24RowTitleSession.id)) { manage24RowTitleSession = null; return; }
     let input = document.getElementById("manage24-row-title");
@@ -253,20 +310,20 @@
     }
     // render() may have already mounted the editor. Focus that live input,
     // without selecting it again when this helper runs twice in one action.
-    if (input && document.activeElement !== input) {
+    if (focus && input && document.activeElement !== input) {
       input.focus({ preventScroll: true });
       input.select();
     }
   }
 
-  function manage24BeginRowTitle(taskId) {
+  async function manage24BeginRowTitle(taskId) {
     const task = manage24Task(taskId);
     if (!task) return;
     manage24CloseSurface();
     state.taskMenuOpen = false;
     state.contextMenu = null;
-    if (manage24TitleSession && manage24EndTitle({ cancel: false, restore: false }) === false) return;
-    manage24RowTitleSession = { id: task.id, value: task.title, error: "" };
+    if (manage24TitleSession && !(await manage24EndTitle({ cancel: false, fromBlur: true }))) return;
+    manage24RowTitleSession = { id: task.id, model:task, value:manage24RowTitleDrafts.get(task.id) ?? task.title, error: "" };
     state.activeTaskId = task.id;
     render();
     manage24DrawRowTitle();
@@ -279,8 +336,11 @@
   async function manage24EndRowTitle({ cancel = false, fromBlur = false } = {}) {
     if (!manage24RowTitleSession) return true;
     const session = manage24RowTitleSession;
+    if (session.saving) return false;
     const task = manage24Task(session.id);
-    const value = String(session.value || "").trim();
+    if (task !== session.model) { manage24RowTitleSession = null;render();return true; }
+    const submitted = String(session.value || "");
+    const value = submitted.trim();
     if (!cancel && !value) {
       session.error = "请输入任务名称";
       const error = document.getElementById("manage24-row-error");
@@ -288,16 +348,19 @@
       document.getElementById("manage24-row-title")?.setAttribute("aria-invalid", "true");
       return false;
     }
-    manage24RowTitleSession = null;
     const changed = !cancel && task && task.title !== value;
     if (changed) {
-      task.title = value;
-      task.updatedAt = now();
-      if (!(await manage24Persist())) {
-        manage24RowTitleSession = session;
+      const pending = manage24PersistName(session, value, manage24Task);
+      manage24NameFeedback(session, 'manage24-row-title', 'manage24-row-error');
+      const ok = await pending;
+      if (manage24RowTitleSession !== session) return ok;
+      manage24NameFeedback(session, 'manage24-row-title', 'manage24-row-error');
+      if (!ok || String(session.value || '') !== submitted) {
         return false;
       }
     }
+    manage24RowTitleSession = null;
+    manage24RowTitleDrafts.delete(session.id);
     if (fromBlur && task) {
       // Restore the title button while retaining the row's current state.
       const editor = document.querySelector(".manage24-row-title");
@@ -318,6 +381,7 @@
   }
 
   function manage24RepaintTitleHeading(task) {
+    if (shellActiveTask()?.id !== task.id) return;
     const heading = document.querySelector(".topbar .task-title");
     if (heading) heading.outerHTML = manage24TitleHeading(task);
   }
@@ -331,7 +395,7 @@
   }
 
   function manage24TitleEditorMarkup(task) {
-    return `<h1 class="task-title"${manage24TitleSession.width ? ` style="width:${manage24TitleSession.width}px"` : ""}><input id="manage24-title" class="manage24-title-input" type="text" maxlength="160" aria-label="${shellTaskIsNote(task) ? "速记" : "任务"}标题" aria-describedby="manage24-title-error" value="${escAttr(manage24TitleSession.value)}" /><p id="manage24-title-error" class="manage24-inline-error" role="status">${manage24Esc(manage24TitleSession.error || "")}</p></h1>`;
+    return `<h1 class="task-title"${manage24TitleSession.width ? ` style="width:${manage24TitleSession.width}px"` : ""}><input id="manage24-title" class="manage24-title-input" type="text" maxlength="160" aria-label="${shellTaskIsNote(task) ? "速记" : "任务"}标题" aria-describedby="manage24-title-error" value="${escAttr(manage24TitleSession.value)}"${manage24NameAttrs(manage24TitleSession)} /><p id="manage24-title-error" class="manage24-inline-error" role="status">${manage24Esc(manage24TitleSession.error || "")}</p></h1>`;
   }
 
   function manage24BeginTitle(task = shellActiveTask()) {
@@ -344,7 +408,7 @@
     }
     const draft = manage24TitleDrafts.get(task.id);
     const heading = document.querySelector(".topbar .task-title");
-    manage24TitleSession = { id: task.id, value: draft !== undefined ? draft : task.title, before: task.title, error: "", width: heading?.getBoundingClientRect().width };
+    manage24TitleSession = { id: task.id, model:task, value: draft !== undefined ? draft : task.title, error: "", width: heading?.getBoundingClientRect().width };
     if (heading) heading.outerHTML = manage24TitleEditorMarkup(task);
     const input = document.getElementById("manage24-title");
     input?.focus({ preventScroll: true });
@@ -355,8 +419,11 @@
   async function manage24EndTitle({ cancel = false, fromBlur = false } = {}) {
     if (!manage24TitleSession) return true;
     const session = manage24TitleSession;
+    if (session.saving) return false;
     const task = manage24Task(session.id);
-    const value = String(session.value || "").trim();
+    if (task !== session.model) { manage24TitleSession = null;render();return true; }
+    const submitted = String(session.value || "");
+    const value = submitted.trim();
     if (!cancel && !value) {
       session.error = "请输入任务名称";
       manage24TitleDrafts.set(session.id, session.value);
@@ -365,17 +432,19 @@
       document.getElementById("manage24-title")?.setAttribute("aria-invalid", "true");
       return false;
     }
-    manage24TitleSession = null;
-    manage24TitleDrafts.delete(session.id);
-    const changed = !cancel && task && value !== session.before;
+    const changed = !cancel && task && value !== task.title;
     if (changed) {
-      task.title = value;
-      task.updatedAt = now();
-      if (!(await manage24Persist())) {
-        manage24TitleSession = session;
+      const pending = manage24PersistName(session, value, manage24Task);
+      manage24NameFeedback(session, 'manage24-title', 'manage24-title-error');
+      const ok = await pending;
+      if (manage24TitleSession !== session) return ok;
+      manage24NameFeedback(session, 'manage24-title', 'manage24-title-error');
+      if (!ok || String(session.value || '') !== submitted) {
         return false;
       }
     }
+    manage24TitleSession = null;
+    manage24TitleDrafts.delete(session.id);
     if (fromBlur && task) {
       if (changed) {
         const label = document.querySelector(`.task-select[data-task-id="${escSelectorValue(task.id)}"] .task-item-title`);
@@ -419,22 +488,6 @@
     input?.select();
   }
 
-  async function manage24RenameGroup(groupId, title) {
-    const group = manage24Group(groupId);
-    if (!group || !title) return false;
-    const before = group.title;
-    group.title = title;
-    if (!(await manage24Persist())) {
-      group.title = before;
-      render();
-      return false;
-    }
-    render();
-    manage24Focus(`[data-group-id="${escSelectorValue(groupId)}"]`);
-    manage24Receipt("分组名称已修改");
-    return true;
-  }
-
   /** The navigation editor's own field (it does not carry data-group-title: that
    *  attribute is what app.js binds to its live-commit rename). */
   function manage24GroupEditorInput() {
@@ -445,13 +498,13 @@
     if (state.editingGroupId !== groupId) return true;
     const input = manage24GroupEditorInput();
     const group = manage24Group(groupId);
-    // Prefer the session draft: the app's own blur binding re-renders the field,
-    // so the live DOM can already be a fresh, empty input by the time this runs.
-    const typed = String(manage24TitleDrafts.get(groupId) ?? "").trim();
-    const live = String(input?.value ?? "").trim();
-    const value = (!cancel && !live && typed) ? typed : (live || typed);
+    const session = manage24GroupNameSession(groupId);
+    if (session?.saving) return false;
+    const submitted = String(input?.value ?? session?.value ?? '');
+    const value = submitted.trim();
     if (cancel) {
       manage24TitleDrafts.delete(groupId);
+      manage24GroupSession = null;
       state.editingGroupId = "";
       state.groupError = "";
       render();
@@ -472,21 +525,32 @@
       // An existing group can never be left nameless: keep the real title and
       // keep the editor open with the reason.
       state.groupError = "请输入分组名称";
+      if (session) session.error = state.groupError;
       render();
       const next = manage24GroupEditorInput();
       next?.setAttribute("aria-invalid", "true");
       next?.focus({ preventScroll: true });
       return false;
     }
+    const changed = group && group.title !== value;
+    if (changed) {
+      session.value = input?.value ?? session.value;
+      manage24TitleDrafts.set(groupId, session.value);
+      const pending = manage24PersistName(session, value, manage24Group);
+      manage24NameFeedback(session, 'group-title', 'manage24-group-error');
+      const ok = await pending;
+      if (manage24GroupSession !== session || state.editingGroupId !== groupId) return ok;
+      manage24NameFeedback(session, 'group-title', 'manage24-group-error');
+      if (!ok || String(session.value || '') !== submitted) return false;
+    }
     manage24TitleDrafts.delete(groupId);
+    manage24GroupSession = null;
     state.editingGroupId = "";
     state.groupError = "";
     render();
-    if (!group || group.title === value) {
-      manage24Focus(group ? `[data-group-id="${escSelectorValue(groupId)}"]` : '[data-action="add-group"]');
-      return true;
-    }
-    return await manage24RenameGroup(groupId, value);
+    manage24Focus(group ? `[data-group-id="${escSelectorValue(groupId)}"]` : '[data-action="add-group"]');
+    if (changed) manage24Receipt('分组名称已修改');
+    return true;
   }
 
   // ============================================================
@@ -1036,6 +1100,7 @@
   }, true);
 
   window.addEventListener("focusout", (event) => {
+    if (manage24Rendering) return;
     if (event.target.id === "manage24-row-title" && manage24RowTitleSession) {
       manage24EndRowTitle({ cancel: false, fromBlur: true });
     }
@@ -1050,6 +1115,7 @@
   window.addEventListener("input", (event) => {
     if (event.target.id === "manage24-row-title" && manage24RowTitleSession) {
       manage24RowTitleSession.value = event.target.value;
+      manage24RowTitleDrafts.set(manage24RowTitleSession.id, event.target.value);
       manage24RowTitleSession.error = "";
       const error = document.getElementById("manage24-row-error");
       if (error) error.textContent = "";
@@ -1057,6 +1123,7 @@
     }
     if (event.target.id === "manage24-title" && manage24TitleSession) {
       manage24TitleSession.value = String(event.target.value || "").replace(/\n/g, "");
+      manage24TitleDrafts.set(manage24TitleSession.id, manage24TitleSession.value);
       manage24TitleSession.error = "";
       const error = document.getElementById("manage24-title-error");
       if (error) error.textContent = "";
@@ -1065,6 +1132,11 @@
     }
     if (event.target.id === "group-title" && state.editingGroupId) {
       manage24TitleDrafts.set(state.editingGroupId, event.target.value);
+      const session = manage24GroupNameSession(state.editingGroupId);
+      if (session) { session.value = event.target.value;session.error = ''; }
+      state.groupError = '';
+      const error = document.getElementById('manage24-group-error');
+      if (error) { error.textContent = '';error.hidden = true; }
       if (event.target.value.trim()) event.target.removeAttribute("aria-invalid");
     }
     if (event.target.closest?.("#manage24-property-form")) manage24CapturePanel();
@@ -1111,7 +1183,7 @@
       manage24EndRowTitle({ cancel: event.key === "Escape" });
       return;
     }
-    if (event.target.id === "manage24-title" && manage24TitleSession && ["Enter", "Escape"].includes(event.key) && !event.shiftKey) {
+    if (event.target.id === "manage24-title" && manage24TitleSession && ["Enter", "Escape"].includes(event.key)) {
       event.preventDefault();
       event.stopImmediatePropagation();
       manage24EndTitle({ cancel: event.key === "Escape" });
@@ -1341,8 +1413,30 @@
 
   const manage24BaseRender = render;
   render = function manage24Render() {
-    manage24BaseRender();
-    manage24DrawRowTitle();
+    if (manage24TitleSession && manage24Task(manage24TitleSession.id) !== manage24TitleSession.model) {
+      manage24TitleDrafts.delete(manage24TitleSession.id);manage24TitleSession = null;
+    }
+    if (manage24RowTitleSession && manage24Task(manage24RowTitleSession.id) !== manage24RowTitleSession.model) {
+      manage24RowTitleDrafts.delete(manage24RowTitleSession.id);manage24RowTitleSession = null;
+    }
+    if (manage24GroupSession && manage24Group(manage24GroupSession.id) !== manage24GroupSession.model) {
+      manage24TitleDrafts.delete(manage24GroupSession.id);manage24GroupSession = null;
+    }
+    const active = document.activeElement;
+    const session = active?.id === 'manage24-title' ? manage24TitleSession
+      : active?.id === 'manage24-row-title' ? manage24RowTitleSession
+      : active?.id === 'group-title' ? manage24GroupSession : null;
+    const cursor = session ? {id:active.id, session, start:active.selectionStart, end:active.selectionEnd, direction:active.selectionDirection} : null;
+    manage24Rendering = true;
+    try { manage24BaseRender(); } finally { manage24Rendering = false; }
+    manage24DrawRowTitle({focus:false});
+    const current = cursor?.id === 'manage24-title' ? manage24TitleSession
+      : cursor?.id === 'manage24-row-title' ? manage24RowTitleSession : manage24GroupSession;
+    const input = cursor && current === cursor.session ? document.getElementById(cursor.id) : null;
+    if (input && input.getClientRects().length) {
+      input.focus({preventScroll:true});
+      input.setSelectionRange(cursor.start, cursor.end, cursor.direction);
+    }
     manage24SyncContextReceipt();
   };
 

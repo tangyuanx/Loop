@@ -3,9 +3,11 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { _electron: electron } = require('playwright-core');
+const { assertElectronStartupAllowed } = require('../tools/electron-startup-guard.cjs');
 
 async function launchRepository(data, name = 'repository') {
   const root = path.resolve(__dirname, '..');
+  await assertElectronStartupAllowed(root);
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), `loop-${name}-`));
   await fs.writeFile(path.join(profile, 'task-data.json'), JSON.stringify({ version: 2, knowledgeSchemaVersion: 1,
     taskFilter: 'all', activeGroupId: 'group_all', ...data }));

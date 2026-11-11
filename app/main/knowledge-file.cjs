@@ -421,6 +421,11 @@ function enqueueSave(key, operation) {
   });
 }
 
+function serializeKnowledgeFileOperations(filePaths, operation, platform = process.platform) {
+  const keys=[...new Set(filePaths.map(filePath=>canonicalFilePath(filePath,platform)))].sort();
+  return keys.reduceRight((next,key)=>()=>enqueueSave(key,next),operation)();
+}
+
 async function saveKnowledgeDocument(payload, {
   dialog,
   parent = null,
@@ -586,4 +591,5 @@ module.exports = {
   replaceFile,
   saveKnowledgeDocument,
   temporaryFilePath,
+  serializeKnowledgeFileOperations,
 };

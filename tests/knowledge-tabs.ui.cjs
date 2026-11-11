@@ -6,6 +6,7 @@ const path = require('node:path');
 const { _electron } = require('playwright-core');
 const { writeTaskData, readTaskData } = require('../app/main/storage.cjs');
 const { readKnowledgeDocument } = require('../app/main/knowledge-file.cjs');
+const { assertElectronStartupAllowed } = require('../tools/electron-startup-guard.cjs');
 const wb = require('./workbench-helpers.cjs');
 
 const source = path.resolve(__dirname, '..');
@@ -21,10 +22,11 @@ async function until(check) {
 }
 
 (async () => {
+  await assertElectronStartupAllowed(source);
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'loop-tabs-'));
   const out = process.env.LOOP_TEST_SCREENSHOT_DIR || path.join(profile, 'evidence');
   await fs.mkdir(out, { recursive: true });
-  const filePath = path.join(profile, 'original.md');
+  let filePath = path.join(profile, 'original.md');
   const markdown = '# 知识笔记\n\n保留正文和文件绑定。\n';
   await fs.writeFile(filePath, markdown);
   const disk = await readKnowledgeDocument(filePath);
@@ -157,7 +159,11 @@ async function until(check) {
       await page.locator('#kn-rename-commit').click();
       await page.waitForFunction(() => document.querySelector('[data-kn-document=main] span').textContent === '笔记标题已修改');
       await until(async () => (await readTaskData(profile)).tasks[0].knowledgeNote.title === '笔记标题已修改');
-      assert.equal(await fs.readFile(filePath, 'utf8'), markdown);
+      const renamedPath=path.join(profile,'笔记标题已修改.md');
+      await assert.rejects(fs.access(filePath));
+      assert.equal(await fs.readFile(renamedPath, 'utf8'), markdown);
+      assert.equal((await readTaskData(profile)).tasks[0].knowledgeNote.filePath,renamedPath);
+      filePath=renamedPath;
       await tab('main').press('F2');
       assert.equal(await input.inputValue(), '笔记标题已修改');
       await page.keyboard.press('Escape');

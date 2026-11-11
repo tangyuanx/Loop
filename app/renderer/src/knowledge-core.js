@@ -255,6 +255,22 @@
     }
     return {from:table.from,to:table.to,insert:rows.map(row=>'| '+row.join(' | ')+' |').join('\n')};
   }
+  function validateNoteFileName(value) {
+    const invalid=message=>({success:false,code:'INVALID_FILE_NAME',message});
+    const name=String(value??'');
+    if(!name.trim())return invalid('请输入笔记名称');
+    if(name!==name.trim()||/[. ]$/.test(name))return invalid('名称首尾不能有空格，末尾不能是句点');
+    if(/[<>:"/\\|?*\u0000-\u001f]/.test(name))return invalid('名称不能包含 \\ / : * ? " < > | 或控制字符');
+    if(name==='.'||name==='..')return invalid('请输入有效的笔记名称');
+    if(/^(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\.|$)/i.test(name))return invalid('该名称是 Windows 保留名称，请换一个名称');
+    const title=name.replace(/\.md$/i,'');
+    if(!title.trim()||/[. ]$/.test(title))return invalid('请输入有效的笔记名称');
+    const fileName=/\.md$/i.test(name)?name:name+'.md';
+    let bytes=0;
+    for(const char of fileName){const cp=char.codePointAt(0);if(cp>=0xd800&&cp<=0xdfff)return invalid('名称包含无效字符');bytes+=cp<=0x7f?1:cp<=0x7ff?2:cp<=0xffff?3:4;}
+    if(fileName.length>255||bytes>255)return invalid('文件名过长，请缩短名称');
+    return {success:true,fileName,title};
+  }
   class SerialQueue {
     constructor() { this.queues=new Map(); }
     run(key,operation) {
@@ -263,5 +279,5 @@
       return next.finally(()=>{ if(this.queues.get(key)===next) this.queues.delete(key); });
     }
   }
-  return {sourceFormat,serializeSource,excludedRanges,escaped,parseTarget,links,imageReferences,noteId,noteTitle,resolve,stableLink,headings,anchorOffset,fragment,relativeLinks,splitRow,tableAt,editTable,pasteTable,SerialQueue};
+  return {sourceFormat,serializeSource,excludedRanges,escaped,parseTarget,links,imageReferences,noteId,noteTitle,resolve,stableLink,headings,anchorOffset,fragment,relativeLinks,splitRow,tableAt,editTable,pasteTable,validateNoteFileName,SerialQueue};
 });

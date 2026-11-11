@@ -31,6 +31,7 @@ const {
   saveKnowledgeDocument,
 } = require("./knowledge-file.cjs");
 const { createKnowledgeFileWatcher } = require("./knowledge-watcher.cjs");
+const { renameKnowledgeDocument } = require("./knowledge-rename.cjs");
 const { stageKnowledgeAssets } = require("./knowledge-assets.cjs");
 const { noteDocumentHtml, readyNoteDocument } = require("./knowledge-export.cjs");
 const {
@@ -435,6 +436,19 @@ function registerStorageHandlers() {
     app.getPath("userData"),
     payload,
   ));
+  ipcMain.handle("knowledge-document:rename", async (_event, payload) => {
+    if (!(await knowledgeGate.isAllowed(payload?.filePath))) return deniedPathResult(payload?.filePath, "rename");
+    if (payload?.noteId) knowledgeWatcher.unwatch(payload.noteId);
+    const result = await renameKnowledgeDocument(payload);
+    if (result?.success) knowledgeGate.approve(result.filePath);
+    if (payload?.noteId) {
+      await knowledgeWatcher.watch({noteId:payload.noteId,
+        filePath:result?.success?result.filePath:payload.filePath,
+        lastSavedHash:result?.success?result.lastSavedHash:payload.expectedLastSavedHash,
+        lastSavedMtime:result?.success?result.lastSavedMtime:payload.lastSavedMtime});
+    }
+    return result;
+  });
   ipcMain.handle("knowledge-document:read", async (_event, payload) => {
     if (!(await knowledgeGate.isAllowed(payload?.filePath))) return deniedPathResult(payload?.filePath, "read");
     return readKnowledgeDocument(payload?.filePath);

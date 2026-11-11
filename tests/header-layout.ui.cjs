@@ -8,7 +8,7 @@ const settle = page => page.evaluate(() => new Promise(resolve => requestAnimati
 (async () => {
   await fs.mkdir(evidence, {recursive: true});
   const run = await launchRepository({activeTaskId:'main', taskGroups:[{id:'work', title:'项目工作', order:1}], tasks:[
-    task('main', {title:'任务布局验证',groupId:'work',description:'保持背景和已有记录。',nodes:[{id:'node',title:'继续当前处理节点',note:'节点原始记录',children:[]}],knowledgeNote:'# 项目笔记\n\n保留编辑历史。'}),
+    task('main', {title:'任务布局验证',groupId:'work',description:'保持背景和已有记录。',nodes:[{id:'node',title:'继续当前处理节点',note:'节点原始记录',children:[]}],notes:'# 项目笔记\n\n保留编辑历史。'}),
     task('other', {title:'另一项任务',order:2}),
   ]}, 'header-layout');
   const {page, app, errors} = run;
@@ -20,6 +20,9 @@ const settle = page => page.evaluate(() => new Promise(resolve => requestAnimati
     for (const theme of ['light','dark']) {
       await page.evaluate(theme => {state.theme=theme;state.taskPane='flow';state.settingsOpen=false;state.calendarOpen=false;state.reviewOpen=false;state.navCollapsed=false;state.taskListCollapsed=false;shellTaskInfoCollapsed.clear();render();}, theme);
       await settle(page);
+      // The production card may auto-collapse to fit the toolbar. Make the
+      // expanded-card fixture an explicit user choice before measuring it.
+      if(await page.locator('[data-action="toggle-task-info"]').getAttribute('aria-expanded')==='false')await toggleInfo();
       const list=await box('.task-list-pane'), listHeader=await box('.shell-list-header'), listToggle=await box('[data-action="toggle-task-list"]');
       assert.equal(listHeader.x,list.x);assert.equal(listHeader.width,list.width);
       assert.ok(listToggle.x>list.x+list.width-45,'list toggle sits at the top right of the list');
@@ -40,7 +43,8 @@ const settle = page => page.evaluate(() => new Promise(resolve => requestAnimati
       assert.equal(await page.locator('.task-info-card').evaluate(el=>getComputedStyle(el).position),'absolute','details float above the workspace');
       const mainWidth=(await box('.task-work-main')).width;
       assert.equal(mainWidth,(await box('.workspace')).width,'details do not reserve a side column');
-      assert.equal(await page.locator('.nav-bottom [data-action="open-update-panel"]').count(),1,'update entry remains available next to settings');
+      await page.evaluate(()=>{appUpdateState={...appUpdateState,status:'available',availableVersion:'9.9.9'};refreshShellBrandUpdate();});
+      assert.equal(await page.locator('.nav-bottom [data-action="open-update-panel"]').count(),1,'an available update appears next to settings');
       assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('.navigation')).backgroundColor===getComputedStyle(document.querySelector('.topbar')).backgroundColor),true);
       assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('.app')).backgroundColor===getComputedStyle(document.querySelector('.navigation')).backgroundColor),true,'the rounded corner reveals the navigation surface');
       assert.equal(await page.locator('.breadcrumb .shell-route-name').count(),0,'only group and task appear in the task path');
@@ -58,7 +62,8 @@ const settle = page => page.evaluate(() => new Promise(resolve => requestAnimati
       const brief=page.locator('[data-brief21-key="main:description"]');await brief.fill(`背景修改-${theme}`);
       await toggleInfo();assert.equal(await page.locator('.task-info-body').isVisible(),false);
       assert.equal((await box('.task-work-main')).width,mainWidth,'collapsing details does not resize content');
-      assert.equal(await page.locator('[data-action="toggle-task-info"] path').getAttribute('d'),await page.evaluate(()=>SHELL_ICON_PATHS.info),'collapsed control uses the information icon');
+      assert.equal(await page.locator('[data-action="toggle-task-info"] .task-info-symbol circle').count(),2,'collapsed control retains the information symbol');
+      assert.equal(await page.locator('[data-action="toggle-task-info"]').getAttribute('aria-label'),'展开任务详情');
       await page.screenshot({path:path.join(evidence,`${theme}-info-collapsed.png`)});
       assert.equal(await brief.isVisible(),true,'minimizing attributes keeps the brief in place');
       await toggleInfo();assert.equal(await brief.inputValue(),`背景修改-${theme}`);
@@ -88,6 +93,7 @@ const settle = page => page.evaluate(() => new Promise(resolve => requestAnimati
       await page.screenshot({path:path.join(evidence,`${theme}-nav-collapsed.png`)});
       await page.locator('[data-action="toggle-nav"]').click();
       await page.locator('[data-pane="notes"]').click();await page.locator('.knowledge-pane .cm-content').waitFor();
+      if(await page.locator('[data-action="toggle-task-info"]').getAttribute('aria-expanded')==='true')await toggleInfo();
       const editor=page.locator('.knowledge-pane .cm-content');await editor.click();await page.keyboard.press('ControlOrMeta+End');await page.keyboard.insertText('新增笔记');
       await page.evaluate(()=>{window.__headerView=knowledgeCurrentEntry().view;window.__headerEditor=document.querySelector('.cm-content');});
       await toggleInfo();await page.locator('[data-action="toggle-task-list"]').click();await page.locator('[data-action="toggle-task-list"]').click();await toggleInfo();
@@ -118,7 +124,7 @@ const settle = page => page.evaluate(() => new Promise(resolve => requestAnimati
     assert.equal(await page.locator('[data-brief21-key="main:description"]').inputValue(),'背景修改-dark');
     console.log('Header layout passed: readonly path, editable title, one settings entry, no header completion, update footer, column alignment, details editing/collapse, editor identity/undo, light/dark, long title, minimum window and saved restart.');
   } catch (error) {
-    console.error({errors,ui:await page.evaluate(()=>({selected:state.activeTaskId,overlay:document.querySelector('#overlay')?.innerHTML,active:document.activeElement?.outerHTML}))});
+    console.error({errors,ui:await page.evaluate(()=>({selected:state.activeTaskId,overlay:document.querySelector('#overlay')?.innerHTML.slice(0,1600),active:document.activeElement?.outerHTML.slice(0,1200)}))});
     await page.screenshot({path:path.join(evidence,'failure.png')});
     throw error;
   } finally {await run.close();}
