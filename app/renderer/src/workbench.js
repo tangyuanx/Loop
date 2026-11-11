@@ -73,7 +73,8 @@ function workbenchFormatMenu(trigger,point) {
 }
 function workbenchSetFocus(value=!Workbench.focus) {
   Workbench.focus=value;document.body.classList.toggle('wb-focus',value);
-  const button=document.querySelector('[data-wb-action="focus"]');if(button){button.setAttribute('aria-pressed',String(value));button.setAttribute('aria-label',`${value?'退出':'进入'}专注模式`);button.innerHTML=shellIcon(value?'restoreRecord':'expandRecord');}
+  if(typeof knowledgeSyncFocus==='function')knowledgeSyncFocus();
+  else for(const button of document.querySelectorAll('[data-wb-action="focus"]')){button.setAttribute('aria-pressed',String(value));button.setAttribute('aria-label',`${value?'退出':'进入'}专注模式`);button.innerHTML=shellIcon(value?'restoreRecord':'expandRecord');}
 }
 function workbenchLinkDialog(internal=false) {
   const context=Workbench.context||workbenchSnapshot();workbenchClose(false);Workbench.context=context;

@@ -46,6 +46,17 @@ body .widget12 .widget-compose-foot { align-items: flex-start; }
 body .widget12 :is(.widget-date, .widget-count, .widget-tabs small, .widget-shortcut),
 body .widget12-setting-row output { font-variant-numeric: tabular-nums; }
 body .widget12 .widget-header { overflow: hidden; }
+/* Blank space remains a native window drag region. Tabs, row content and
+ * editors keep normal pointer/selection behavior. Never capture OS dragging
+ * with a second renderer gesture. */
+body .widget12 :is(.widget-header, .widget-tabs, .widget-body-empty) {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+body .widget12 :is(button, input, textarea, a, [data-widget-resize]) { -webkit-app-region: no-drag; }
+body .widget12 :is(.widget-header, [data-widget-resize]):focus-visible {
+  outline-color: var(--focus-line-strong);
+}
 body .widget12 .widget-header > :is(strong, button, img) { flex-shrink: 0; }
 body .widget12 :is(.widget-date, .widget-count) { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body .widget12 .widget-capture[aria-busy="true"] { opacity: .7; }

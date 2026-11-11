@@ -1,5 +1,58 @@
 /* Stage 6: settings, recovery, help and system feedback. Shared input and
  * keyboard-focus rules remain in foundation, loaded immediately after this. */
+/* The live creation dialog shares the workspace's compact form vocabulary;
+ * task-entry.css remains the frozen historical baseline. */
+body .entry16-dialog.dialog {
+  width: min(540px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  color: var(--workspace-text);
+  background: var(--workspace-canvas);
+  --canvas: var(--workspace-canvas); --list: var(--workspace-list);
+  --text: var(--workspace-text); --secondary: var(--workspace-secondary);
+  --line: var(--workspace-line);
+  font-size: var(--type-13);
+  line-height: 1.6;
+}
+body .entry16-dialog .dialog-head { padding: 18px 20px; gap: 12px; }
+body .entry16-dialog .dialog-head h2 { font-size: var(--type-14); font-weight: var(--ui-emphasis-weight); line-height: 1.5; white-space: nowrap; }
+/* The frozen control skin targets #overlay labels and field classes. Scope
+ * this form's type roles explicitly so every control follows the same scale. */
+#overlay #create-form :is(button, input, textarea, select) { font-size: var(--type-13); line-height: 1.6; }
+#overlay #create-form :is(label, small, .entry16-status, .schedule-hint, .error) {
+  font-size: var(--type-12);
+  line-height: 1.65;
+}
+body .entry16-dialog .dialog-head .icon-button { margin-left: 0; flex-shrink: 0; }
+body .entry16-dialog .entry16-types { margin: 0 0 0 auto; flex-shrink: 0; }
+body .entry16-dialog .entry16-types button { padding: 4px 12px; }
+body .entry16-dialog .entry16-body { padding: 0 20px 16px; overscroll-behavior: contain; }
+body .entry16-dialog .entry16-writing { gap: 14px; }
+body .entry16-dialog #create-title { height: 40px; font-weight: var(--ui-emphasis-weight); }
+body .entry16-dialog #create-description { min-height: 72px; max-height: 240px; }
+body .entry16-dialog .entry16-meta { margin-top: 16px; gap: 14px; }
+body .entry16-dialog .entry16-priorities { min-height: 34px; }
+body .entry16-dialog .entry16-priorities button.active,
+body .entry16-dialog .recurrence-weekdays button.active {
+  color: var(--text); border-color: var(--input-focus); background: var(--list);
+}
+body .entry16-dialog .entry16-today { margin-top: 14px; min-height: 24px; }
+body .entry16-dialog .entry16-options { margin-top: 14px; }
+body .entry16-dialog .entry16-disclosure { padding-block: 10px; }
+body .entry16-dialog .entry16-disclosure:hover { color: var(--text); }
+body .entry16-dialog .entry16-disclosure > svg:last-child { transition: transform 150ms ease-out; }
+body .entry16-dialog .entry16-disclosure[aria-expanded="true"] > svg:last-child { transform: rotate(90deg); }
+body .entry16-dialog .entry16-setting { padding-bottom: 12px; }
+body .entry16-dialog footer { padding: 12px 20px; gap: 8px; flex-wrap: wrap; }
+body .entry16-dialog .entry16-status { flex: 1 1 190px; line-height: 1.6; }
+@media (max-width: 560px) {
+  body .entry16-dialog .entry16-date-grid { grid-template-columns: minmax(0, 1fr) minmax(90px, .7fr); }
+  body .entry16-dialog .entry16-date-grid > :last-child { grid-column: 1 / -1; }
+  body .entry16-dialog .entry16-cycle-fields { grid-template-columns: minmax(0, 1fr); }
+  body .entry16-dialog .entry16-meta { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body .entry16-dialog .entry16-disclosure > svg:last-child { transition: none; }
+}
 body .workspace:has(> .settings-layout),
 body .manual27-workspace,
 body :is(.recovery26-manager, .recovery26-confirm, .help14-form, .desk19-panel, .prefs-menu, .manual27-directory-popup) {

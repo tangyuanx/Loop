@@ -73,8 +73,9 @@ function shellKnowledgeState(task) {
   };
 }
 
-function shellKnowledgeMode() {
-  return ["edit", "source", "preview"].includes(state.markdownMode) ? state.markdownMode : "edit";
+function shellKnowledgeMode(taskId) {
+  const base = ["edit", "source", "preview"].includes(state.markdownMode) ? state.markdownMode : "edit";
+  return typeof knowledgePaneMode === 'function' ? knowledgePaneMode(taskId, base) : base;
 }
 
 function shellNoteWidth() {
@@ -122,20 +123,29 @@ function renderKnowledgeToolbar(task) {
 function renderShellKnowledge(task) {
   const owner = task;
   task = knowledgeActiveDocument(task);
+  const split = typeof knowledgeSplitLayout === 'function' ? knowledgeSplitLayout(owner) : null;
+  if (split && !knowledgeActiveResource(owner)) {
+    const pane = side => `<div class="kn-split-pane" data-kn-side="${side}" data-active="${split.active === side}" role="group" aria-label="${side==='left'?'左':'右'}侧笔记：${escAttr(LoopKnowledgeCore.noteTitle(knowledgeFindDocument(split[side+'Id'])))}">${renderKnowledgeDocument(knowledgeFindDocument(split[side+'Id']), owner, false)}</div>`;
+    return `<div class="kn-split-workspace">${renderKnowledgeTabs(owner)}<div class="kn-split" style="--kn-left:${split.ratio*100}%" data-kn-focus="${Workbench.focus ? split.active : ''}">${pane('left')}<div class="kn-split-divider" role="separator" tabindex="0" aria-label="调整左右笔记宽度" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="${Math.round(split.ratio*100)}"></div>${pane('right')}</div><span class="wb-global-status" data-workspace-status ${!workspaceFeedback&&localSaveOutcome!=='failed'?'hidden':''}>${renderWorkspaceStatus()}</span></div>`;
+  }
+  return renderKnowledgeDocument(task, owner);
+}
+
+function renderKnowledgeDocument(task, owner, tabs = true) {
   if(!task)return `<section class="knowledge-pane task-knowledge-pane" aria-label="知识笔记">${renderKnowledgeTabs(owner)}<div class="knowledge-note-surface">${renderKnowledgeToolbar(null)}<div class="kn-empty-document"><p>打开一篇笔记，或从空白开始</p><p>点击页签栏「+」新建，或在右上角「⋯」菜单打开笔记</p></div></div></section>`;
   const noteState = shellKnowledgeState(task);
-  const mode = shellKnowledgeMode();
+  const mode = shellKnowledgeMode(task.id);
   const width = shellNoteWidth();
   const stats = markdownStats(task.notes);
   return `
     <section class="knowledge-pane task-knowledge-pane" data-task-id="${escAttr(task.id)}" data-knowledge-state="${escAttr(noteState.key)}" aria-label="知识笔记">
-      ${renderKnowledgeTabs(owner)}
+      ${tabs ? renderKnowledgeTabs(owner) : ''}
       ${renderShellKnowledgeNotice(task, noteState)}
       <div class="knowledge-note-surface">
         ${renderKnowledgeToolbar(task)}
-        <div class="knowledge-body" data-knowledge-scroll data-knowledge-view="${escAttr(knowledgeViewKey(task))}">
+        <div class="knowledge-body" data-knowledge-scroll data-knowledge-view="${escAttr(JSON.stringify([task.id,'notes',typeof knowledgeGenerations !== 'undefined' ? knowledgeGenerations.get(task.id)||0 : 0]))}">
           <div class="knowledge-page width-${width} ${mode === "source" ? "source-page" : ""}">
-            <div id="knowledge-rich-host" class="knowledge-rich-host milkdown-editor-host" data-editor-kind="knowledge" data-task-id="${escAttr(task.id)}" aria-label="笔记编辑器"><p class="knowledge-loading">正在打开笔记…</p></div>
+            <div ${tabs ? 'id="knowledge-rich-host"' : ''} class="knowledge-rich-host milkdown-editor-host" data-editor-kind="knowledge" data-task-id="${escAttr(task.id)}" aria-label="笔记编辑器：${escAttr(LoopKnowledgeCore.noteTitle(task))}"><p class="knowledge-loading">正在打开笔记…</p></div>
           </div>
         </div>
       <footer class="knowledge-footer">
@@ -143,7 +153,7 @@ function renderShellKnowledge(task) {
         <div class="knowledge-footer-meta">
           <span data-note-stats>${stats.characters} 字 · ${stats.lines} 行</span>
         </div>
-        <span class="wb-global-status" data-workspace-status ${!workspaceFeedback&&localSaveOutcome!=='failed'?'hidden':''}>${renderWorkspaceStatus()}</span>
+        ${tabs ? `<span class="wb-global-status" data-workspace-status ${!workspaceFeedback&&localSaveOutcome!=='failed'?'hidden':''}>${renderWorkspaceStatus()}</span>` : ''}
         <button class="button" type="button" data-note-save data-action="save-knowledge" data-task-id="${escAttr(task.id)}" title="保存笔记">${shellIcon("check")}保存</button>
       </footer>
       </div>
@@ -228,6 +238,7 @@ function shellKnowledgeFileMenu(trigger) {
       <div class="menu-divider"></div>
       <div class="note23-menu-label">笔记</div>
       ${renderKnowledgeDocumentActions()}
+      ${typeof renderKnowledgeSplitActions === 'function' ? renderKnowledgeSplitActions() : ''}
       <div class="menu-divider"></div>
       <button class="button" type="button" role="menuitem" data-wb-action="format">格式与插入…</button>
       <button class="button" type="button" role="menuitem" data-kn-action="panels" aria-pressed="${knowledgePanels.has(task.id)}">笔记大纲</button>

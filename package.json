@@ -1,6 +1,6 @@
 {
   "name": "loop",
-  "version": "0.2.22",
+  "version": "0.2.23",
   "description": "Loop is a local-first personal task flow tracker for closing work from creation to completion.",
   "private": true,
   "license": "UNLICENSED",
@@ -27,6 +27,8 @@
     "test:node-share": "node --test tests/node-share.test.cjs",
     "test:ui:node-share": "node tests/node-share.ui.cjs",
     "test:ui:context-create": "node tests/context-create.ui.cjs",
+    "test:ui:create-widget": "node tests/create-widget-gestures.ui.cjs",
+    "test:ui:knowledge-split": "node tests/knowledge-split.ui.cjs && node tests/knowledge-split-files.ui.cjs",
     "test:ui:product": "node tests/product-experience.ui.cjs",
     "test:ui:node-interactions": "node tests/node-interactions.ui.cjs",
     "test:ui:widget-draft": "node tests/today-widget-draft.ui.cjs",
@@ -51,7 +53,7 @@
     "test:ui:knowledge-feedback": "node tests/knowledge-feedback.ui.cjs",
     "test:ui:knowledge-release": "node tools/test-packaged-knowledge.cjs",
     "test:ui:knowledge": "node tests/knowledge-editor.ui.cjs",
-    "test:ui:memo": "node tests/editing-contract.ui.cjs && node tests/management-names.ui.cjs && node tests/knowledge-rename.electron.ui.cjs && node tests/memo-improvements.ui.cjs && node tests/memo-editor.ui.cjs && node tests/memo-flow.ui.cjs && node tests/knowledge-resources.ui.cjs && node tests/memo-tabs-reorder.ui.cjs && node tests/memo-image-layout.ui.cjs && node tests/flow-save-finish.ui.cjs && node tests/knowledge-navigation.ui.cjs",
+    "test:ui:memo": "node tests/editing-contract.ui.cjs && node tests/management-names.ui.cjs && node tests/knowledge-rename.electron.ui.cjs && node tests/knowledge-split.ui.cjs && node tests/knowledge-split-files.ui.cjs && node tests/create-widget-gestures.ui.cjs && node tests/memo-improvements.ui.cjs && node tests/memo-editor.ui.cjs && node tests/memo-flow.ui.cjs && node tests/knowledge-resources.ui.cjs && node tests/memo-tabs-reorder.ui.cjs && node tests/memo-image-layout.ui.cjs && node tests/flow-save-finish.ui.cjs && node tests/knowledge-navigation.ui.cjs",
     "review:editing": "node tools/review-editing-stage1.cjs",
     "test:ui:knowledge-rename-electron": "node tests/knowledge-rename.electron.ui.cjs"
   },

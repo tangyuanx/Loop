@@ -2495,6 +2495,10 @@ function render() {
     "knowledgeView",
     knowledgeViewKey(task),
   );
+  const knowledgePaneViewports = [...document.querySelectorAll('.knowledge-pane[data-task-id]')].map(pane => {
+    const selector = `.knowledge-pane[data-task-id="${CSS.escape(pane.dataset.taskId)}"] [data-knowledge-scroll]`;
+    return [selector, captureScrollViewport(selector, 'knowledgeView', pane.querySelector('[data-knowledge-scroll]')?.dataset.knowledgeView)];
+  });
   captureMountedMilkdownDrafts();
   flushNodeNoteDrafts({ persist: false });
   save();
@@ -2591,6 +2595,7 @@ function render() {
     restoreScrollViewport(flowViewport, "[data-processing-flow-scroll]");
     restoreScrollViewport(nodeDetailViewport, "[data-node-detail-scroll]");
     restoreScrollViewport(knowledgeViewport, "[data-knowledge-scroll]");
+    for (const [selector, viewport] of knowledgePaneViewports) restoreScrollViewport(viewport, selector);
   };
   // The repeated calls are load-bearing: the group and repository scroll tests
   // pin the rule that a view keeps its offset while a different group or filter
@@ -7712,21 +7717,22 @@ function destroyMilkdownEditors(preservedKeys = new Set()) {
 }
 
 function stashKnowledgePane() {
-  const pane = document.querySelector(".task-knowledge-pane[data-task-id]");
-  if (!pane) return;
+  for (const pane of document.querySelectorAll('.task-knowledge-pane[data-task-id]')) {
   const taskId = pane.dataset.taskId;
-  if (!taskId) return;
+  if (!taskId) continue;
   const host = pane.querySelector(".milkdown-editor-host[data-task-id]");
-  if (!host) return;
-  cachedKnowledgePane = { taskId, host };
+  if (!host) continue;
+  const body = pane.querySelector('[data-knowledge-scroll]');
+  cachedKnowledgePane = { taskId, host, scrollTop: body?.scrollTop || 0, scrollLeft: body?.scrollLeft || 0 };
   cachedKnowledgePanes.delete(taskId);
   cachedKnowledgePanes.set(taskId, cachedKnowledgePane);
+  host.remove();
   while (cachedKnowledgePanes.size > 8) {
-    const candidate = [...cachedKnowledgePanes.keys()].find((taskId) => !milkdownEditors.get(noteDraftKey(taskId, ""))?.instance?.uploads?.size);
+    const candidate = [...cachedKnowledgePanes.keys()].find((taskId) => !cachedKnowledgePanes.get(taskId).host.isConnected && !milkdownEditors.get(noteDraftKey(taskId, ""))?.instance?.uploads?.size);
     if (!candidate) break;
     discardCachedKnowledgePane(candidate);
   }
-  host.remove();
+  }
 }
 
 function discardCachedKnowledgePane(taskId = cachedKnowledgePane?.taskId) {
@@ -7758,15 +7764,14 @@ function discardMountedKnowledgeEditor(taskId) {
 }
 
 function restoreCachedKnowledgePane(task) {
-  task = knowledgeActiveDocument(task);
-  if (task) cachedKnowledgePane = cachedKnowledgePanes.get(task.id) || null;
-  if (!cachedKnowledgePane || !task || state.taskPane !== "notes") return;
-  if (cachedKnowledgePane.taskId !== task.id) return;
-  const replacement = document.querySelector(".task-knowledge-pane[data-task-id]");
-  if (!replacement) return;
-  const host = replacement.querySelector(".milkdown-editor-host[data-task-id]");
-  if (!host) return;
-  host.replaceWith(cachedKnowledgePane.host);
+  if (state.taskPane !== 'notes') return;
+  for (const pane of document.querySelectorAll('.task-knowledge-pane[data-task-id]')) {
+    const cached = cachedKnowledgePanes.get(pane.dataset.taskId), host = pane.querySelector('.milkdown-editor-host');
+    if (!cached || !host || host === cached.host) continue;
+    host.replaceWith(cached.host);
+    const body = pane.querySelector('[data-knowledge-scroll]');
+    if (body) { body.scrollTop = cached.scrollTop; body.scrollLeft = cached.scrollLeft; }
+  }
   cachedKnowledgePane = null;
 }
 
@@ -7888,7 +7893,7 @@ function mountMilkdownEditors() {
     const editorKey = noteDraftKey(taskId, nodeId);
     if (milkdownEditors.has(editorKey)) {
       const existing = milkdownEditors.get(editorKey).instance;
-      if (!nodeId && existing.setMode) existing.setMode(shellKnowledgeMode());
+      if (!nodeId && existing.setMode) existing.setMode(shellKnowledgeMode(taskId));
       return;
     }
     // A render can run again before create() resolves. Without this registry
@@ -7907,7 +7912,7 @@ function mountMilkdownEditors() {
       root: host,
       markdown,
       sourceMarkdown: rawMarkdown,
-      mode: nodeId ? "edit" : shellKnowledgeMode(),
+      mode: nodeId ? "edit" : shellKnowledgeMode(taskId),
       placeholder: node ? "记录处理过程" : "记录分析过程、知识点和可复用结论……",
       enableTableResizing: !nodeId,
       tableColumnWidths: nodeId ? [] : task.knowledgeNote?.tableColumnWidths,

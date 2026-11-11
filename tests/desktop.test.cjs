@@ -2497,7 +2497,7 @@ test("knowledge rerenders preserve only the editor host and invalidate stale dis
   const app = await fs.readFile(path.join(__dirname, "..", "app", "renderer", "src", "app.js"), "utf8");
 
   assert.match(app, /function stashKnowledgePane\(\)[\s\S]*querySelector\("\.milkdown-editor-host\[data-task-id\]"\)[\s\S]*host\.remove\(\)/);
-  assert.match(app, /function restoreCachedKnowledgePane\(task\)[\s\S]*const host = replacement\.querySelector\("\.milkdown-editor-host\[data-task-id\]"\)[\s\S]*host\.replaceWith\(cachedKnowledgePane\.host\)/);
+  assert.match(app, /function restoreCachedKnowledgePane\(task\)[\s\S]*for \(const pane of document\.querySelectorAll\('[^']*task-knowledge-pane[^']*'\)\)[\s\S]*host\.replaceWith\(cached\.host\)/);
   assert.match(app, /function discardMountedKnowledgeEditor\(taskId\)/);
   assert.match(app, /discardMountedKnowledgeEditor\(task\.id\);/);
   assert.doesNotMatch(app, /replacement\.replaceWith\(cachedKnowledgePane\.pane\)/);
@@ -4295,7 +4295,9 @@ test("production Today widget uses its dedicated frontend and a sandboxed Electr
   assert.match(runtime, /function dropTarget/);
   assert.match(runtime, /window\.requestAnimationFrame\(autoScroll\)/);
   assert.match(runtime, /bridge\.resize\(\{ height: pendingResizeHeight, edge \}\)/);
-  assert.match(runtime, /start: \{ left: rect\.left, top: rect\.top, height: rect\.height \}/);
+  // The production bridge sizes the native window, including its shadow ring.
+  // Continuous pointer/bounds behavior is covered by create-widget-gestures.ui.
+  assert.match(runtime, /start: \{ height: window\.innerHeight \}/);
   assert.doesNotMatch(runtime, /ResizeObserver/);
   assert.match(runtime, /bridge\.fit\?\.\(\{ height: Math\.round\(panel\.offsetHeight\) \}\)/);
   assert.match(runtime, /appearance\.sans/);
@@ -6071,6 +6073,23 @@ test("Today widget resizes vertically from either edge and stays inside the disp
   assert.deepEqual(resizedWidgetBounds(bounds, workArea, 900, "bottom"), {
     x: 800, y: 200, width: 360, height: 600,
   });
+});
+
+test("Today widget manual size limits round-trip through panel preferences without a fit jump", () => {
+  const area = { x: 0, y: 0, width: 1600, height: 1000 };
+  const bounds = { x: 100, y: 100, width: 404, height: 398 };
+  for (const requested of [1, 238, 400, 778, 9999]) {
+    const sized = resizedWidgetBounds(bounds, area, requested, "bottom");
+    const preferences = normalizeTodayWidgetPreferences({ height: sized.height - 58 });
+    assert.equal(preferences.height + 58, sized.height, "a subsequent measured fit keeps the same native height");
+    assert.equal(sized.y, bounds.y);
+  }
+  // Growing an initially short auto-height widget near a display edge may
+  // need to move the opposite edge to keep its minimum panel on screen.
+  const short = { x: 100, y: 16, width: 404, height: 217 };
+  const minimum = resizedWidgetBounds(short, area, 1, "top");
+  assert.equal(minimum.y, 0);
+  assert.equal(minimum.height, 238);
 });
 
 test("Today surfaces keep every scheduled task and scroll within bounded content areas", async () => {

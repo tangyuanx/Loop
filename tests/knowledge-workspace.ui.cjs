@@ -11,7 +11,7 @@ const long = Array.from({length:600},(_,i)=>`## 标题 ${i+1}\n\n第 ${i+1} 段�
 const results = {checks:[],inputs:[],performance:null,errors:[]};
 let h;
 async function settle(p) { await p.evaluate(async()=>{await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));}); }
-async function choose(p,id) { await p.locator(`[data-task-row="${id}"] .task-select`).click();await p.locator('[data-pane="notes"]').click();await p.waitForFunction(id=>knowledgeCurrentEntry(id)?.view&&document.querySelector('.knowledge-pane')?.dataset.taskId===id,id); }
+async function choose(p,id) { await p.locator(`[data-task-row="${id}"] .task-select`).click();await p.locator('[data-pane="notes"]').click();await p.waitForFunction(id=>state.activeTaskId===id&&knowledgeCurrentEntry()?.view&&document.querySelector('.knowledge-pane')?.dataset.taskId===knowledgeActiveDocument()?.id,id); }
 function neutral(css,label) {
   for(const key of ['borderTopColor','borderBottomColor','outlineColor','boxShadow']) {
     if(key==='outlineColor'&&css.outlineStyle==='none')continue;
@@ -27,10 +27,20 @@ function neutral(css,label) {
  const {app,page:p}=h;p.on('pageerror',e=>results.errors.push(e.message));
  try {
   results.runtime=await app.evaluate(({app})=>({appPath:app.getAppPath(),userData:app.getPath('userData'),versions:process.versions}));
+  const saveDirectory=path.join(h.profile,'test-notes');await fs.mkdir(saveDirectory);
+  await app.evaluate(({dialog},directory)=>{
+    let sequence=0;
+    // Exercise real storage/IPC with picker destinations confined to this
+    // synthetic profile; this suite does not assess the OS file picker itself.
+    dialog.showSaveDialog=async()=>({canceled:false,filePath:process.mainModule.require('node:path').join(directory,`note-${++sequence}.md`)});
+  },saveDirectory);
   await choose(p,'note');await p.evaluate(()=>{globalThis.__stage4Editor=knowledgeCurrentEntry();globalThis.__stage4View=knowledgeCurrentEntry().view;});
   for(const value of ['source','preview','edit'])await wb.mode(p,value);
   for(const width of ['wide','full','default'])await wb.width(p,width);
-  await wb.panels(p);await p.locator('.kn-side-panel').waitFor();assert.equal(await p.locator('.kn-backlink').count(),1);
+  await wb.panels(p);await p.locator('.kn-side-panel').waitFor();
+  assert.equal(await p.locator('.kn-side-panel header strong').innerText(),'大纲');
+  await wb.more(p);await p.locator('[data-kn-action="backlinks"]').click();
+  await p.locator('.kn-backlink').waitFor();assert.equal(await p.locator('.kn-backlink').count(),1);
   await p.locator('[data-wb-action="focus"]').click();assert.equal(await p.locator('.navigation').isVisible(),false);await p.keyboard.press('Escape');assert.equal(await p.locator('.navigation').isVisible(),true);
   await p.locator('[data-pane="flow"]').click();await p.locator('[data-pane="notes"]').click();
   await choose(p,'other');await choose(p,'note');
@@ -39,7 +49,7 @@ function neutral(css,label) {
   await p.evaluate(()=>{const e=knowledgeCurrentEntry();e.view.dispatch({selection:{anchor:0}});e.view.focus()});
   await p.keyboard.type('undo-marker');await wb.mode(p,'source');await wb.width(p,'wide');
   await p.evaluate(()=>knowledgeCurrentEntry().view.focus());await p.keyboard.press('ControlOrMeta+z');assert.equal(await p.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),original);
-  await p.keyboard.press('ControlOrMeta+Shift+z');assert.ok((await p.evaluate(()=>knowledgeCurrentEntry().getMarkdown())).startsWith('undo-marker'));
+  await p.keyboard.press(process.platform==='darwin'?'Meta+Shift+z':'Control+y');assert.ok((await p.evaluate(()=>knowledgeCurrentEntry().getMarkdown())).startsWith('undo-marker'));
   await p.keyboard.press('ControlOrMeta+z');await p.evaluate(()=>saveKnowledgeTask('note'));
   results.checks.push('CRLF/source unchanged; same editor/view through modes, width, panels, focus, tasks and panes; native keyboard Undo/Redo');
   await wb.width(p,'full');await wb.mode(p,'source');await p.evaluate(()=>flushSave());await p.reload();await p.locator('.app').waitFor();await choose(p,'note');
@@ -52,9 +62,11 @@ function neutral(css,label) {
   await p.reload();await p.locator('.app').waitFor();await choose(p,'note');
   assert.deepEqual(await p.evaluate(()=>[state.markdownMode,state.knowledgeWidth]),['edit','default']);
   results.checks.push('mode/width survive reload via global preferences; stale local cache cannot override them; invalid disk values safely fall back');
-  await p.locator('[data-kn-action="switcher"]').click();const query=p.locator('#kn-switcher-query');await query.fill('独有目标正文');
+  await wb.more(p);await p.locator('[data-kn-action="switcher"]').click();const query=p.locator('#kn-switcher-query');await query.fill('独有目标正文');
   await query.dispatchEvent('compositionstart');await query.dispatchEvent('keydown',{key:'Enter',code:'Enter',isComposing:true,keyCode:229});assert.equal(await query.count(),1);
-  await query.dispatchEvent('compositionend');await query.press('Enter');await p.waitForFunction(()=>state.activeTaskId==='other');await choose(p,'note');
+  await query.dispatchEvent('compositionend');await query.press('Enter');await p.waitForFunction(()=>knowledgeActiveDocument()?.id==='other');
+  assert.equal(await p.evaluate(()=>state.activeTaskId),'note','switching a document keeps its task workspace');
+  await p.locator('[data-kn-document="note"]').click();await p.waitForFunction(()=>knowledgeActiveDocument()?.id==='note'&&knowledgeCurrentEntry()?.root?.isConnected);
   results.checks.push('switcher composition confirm does not open/create note; committed Enter opens matching real note');
   const readCSS=el=>{const s=getComputedStyle(el);return Object.fromEntries(['backgroundColor','borderTopColor','borderBottomColor','outlineColor','outlineStyle','boxShadow','fontFamily'].map(k=>[k,s[k]]));};
   for(const theme of ['light','dark']) {
@@ -70,8 +82,11 @@ function neutral(css,label) {
      assert.equal(parent.backgroundColor,parentBackground,'search parent keeps the same surface on hover/focus');
     }
    }
-   await p.keyboard.press('Escape');await p.evaluate(()=>knowledgeCurrentEntry().view.focus());
-   const cm=await p.locator('.cm-content').evaluate(readCSS);neutral(cm,'CodeMirror');assert.notEqual(cm.boxShadow,'none','neutral keyboard focus remains visible');
+   await p.keyboard.press('Escape');await p.evaluate(()=>{const view=knowledgeCurrentEntry().view;view.dispatch({selection:{anchor:view.state.selection.main.head}});view.focus();});await settle(p);
+   const cm=await p.locator('.cm-content').evaluate(readCSS);neutral(cm,'CodeMirror');
+   const caret=await p.locator('.cm-editor.cm-focused .cm-cursor').first().evaluate(el=>{const s=getComputedStyle(el);return {width:parseFloat(s.borderLeftWidth),style:s.borderLeftStyle,color:s.borderLeftColor};});
+   assert.ok(caret.width>=1&&caret.style==='solid','the focused document has a visible neutral caret');
+   assert.equal(await p.evaluate(()=>knowledgeCurrentEntry().view.hasFocus),true);
    await p.locator('.kn-table-widget tbody td').first().click();const cell=p.locator('.kn-table-cell-editor');await cell.waitFor();const css=await cell.evaluate(readCSS);neutral(css,'table');assert.equal(css.backgroundColor,'rgba(0, 0, 0, 0)');
    await p.keyboard.press('Escape');await settle(p);await p.screenshot({path:path.join(out,theme+'-edit.png')});
    await wb.mode(p,'preview');await wb.panels(p);await settle(p);await p.screenshot({path:path.join(out,theme+'-reading-panels.png')});
@@ -89,7 +104,7 @@ function neutral(css,label) {
   results.performance={openMs,inputMs,...measure};results.checks.push('600-heading long note: modes preserve text; repeated render keeps view/scroll; physical-keyboard API input undone');
   await p.evaluate(()=>saveKnowledgeTask(state.activeTaskId));await fs.copyFile(path.join(h.profile,'task-data.json'),path.join(out,'verified-task-data.json'));
   assert.deepEqual(results.errors,[]);results.passed=true;
- } catch(error) {results.failure=error.stack;await p.screenshot({path:path.join(out,'failure.png')});throw error;
+ } catch(error) {results.failure=error.stack;await p.screenshot({path:path.join(out,'failure.png')}).catch(()=>{});throw error;
  } finally {await fs.writeFile(path.join(out,'results.json'),JSON.stringify(results,null,2));await h.close();}
  console.log(JSON.stringify({passed:results.passed,checks:results.checks,performance:results.performance}));
 })().catch(error=>{console.error(error);process.exitCode=1});

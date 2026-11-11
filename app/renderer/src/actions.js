@@ -163,6 +163,7 @@ function shellCreateChoice(value, label, attribute, active) {
 function shellRenderCreateDialog(focusSelector) {
   const overlay = shellOverlay();
   if (!overlay) return;
+  const scrollTop = overlay.querySelector(".entry16-body")?.scrollTop || 0;
   const draft = state.createDraft;
   const quick = draft.kind === "quick";
   const recurrence = draft.recurrence;
@@ -171,9 +172,10 @@ function shellRenderCreateDialog(focusSelector) {
   const deadlineLabel = draft.deadline ? `${draft.deadline} · ${draft.deadlineTime}` : "未设置";
   overlay.innerHTML = `<div class="dialog-backdrop" data-return-focus="[data-action='add-task']">
     <form class="dialog entry16-dialog" id="create-form" role="dialog" aria-modal="true" aria-labelledby="entry16-title" novalidate>
-      <header class="dialog-head"><h2 id="entry16-title">新建${quick ? "速记" : "任务"}</h2><button type="button" class="icon-button" data-action="close-dialog" aria-label="关闭">${shellIcon("close")}</button></header>
-      <main class="entry16-body">
+      <header class="dialog-head"><h2 id="entry16-title">新建${quick ? "速记" : "任务"}</h2>
         <div class="entry16-types" role="group" aria-label="新建记录类型">${[["task", "任务"], ["quick", "速记"]].map(([value, label]) => shellCreateChoice(value, label, "data-composer-type", draft.kind === value)).join("")}</div>
+        <button type="button" class="icon-button" data-action="close-dialog" aria-label="关闭">${shellIcon("close")}</button></header>
+      <div class="entry16-body">
         <div class="entry16-writing">
           <div>
             <label for="create-title">${quick ? "记录标题" : "任务标题"}</label>
@@ -212,7 +214,7 @@ function shellRenderCreateDialog(focusSelector) {
             <p class="schedule-hint">到期后进入今日；完成本次后，下个周期重新出现。</p>`}
           </div>` : ""}
         </section>`}
-      </main>
+      </div>
       <footer>
         <span class="entry16-status">${state.createResumed ? "已恢复本页草稿" : "Esc 关闭 · ⌘ / Ctrl + Enter 保存"}</span>
         <button type="button" class="button" data-entry16="cancel">取消</button>
@@ -221,6 +223,7 @@ function shellRenderCreateDialog(focusSelector) {
     </form>
   </div>`;
   document.querySelector("#create-form")?.addEventListener("submit", shellSubmitCreateDialog);
+  overlay.querySelector(".entry16-body").scrollTop = scrollTop;
   if (focusSelector) document.querySelector(focusSelector)?.focus({ preventScroll: true });
 }
 
@@ -594,8 +597,7 @@ function shellBindCreateDialog() {
       state.createDraft = null;
       state.createError = "";
       state.createResumed = false;
-      shellCloseOverlay({ restoreFocus: false });
-      render();
+      shellCloseOverlay();
       return;
     }
     else if (button.hasAttribute("data-entry16-date")) { draft.deadline = button.dataset.entry16Date; focus = '[data-entry16="date"]'; }

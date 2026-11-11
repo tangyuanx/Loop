@@ -1,5 +1,27 @@
 /* Stage 4: knowledge workspace chrome and reading surface. CodeMirror owns
  * editing; foundation remains last and owns all input/focus treatments. */
+.kn-split-workspace { position: relative; display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.kn-split-workspace > .wb-global-status { position: absolute; bottom: 8px; left: 8px; z-index: 9; max-width: calc(100% - 16px); background: var(--canvas); font-size: var(--type-12); }
+.kn-split { display: grid; grid-template-columns: minmax(0,var(--kn-left,50%)) 7px minmax(0,1fr); flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.kn-split-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.kn-split-pane > .knowledge-pane { flex: 1; min-width: 0; min-height: 0; }
+.kn-split-divider { cursor: col-resize; touch-action: none; position: relative; background: var(--canvas); }
+.kn-split-divider::before { content: ''; position: absolute; inset: 0 3px; background: var(--line); }
+.kn-split-divider:is(:hover,:focus-visible)::before,.kn-split-resizing .kn-split-divider::before { background: var(--secondary); }
+.kn-split-divider:focus-visible { outline: 1px solid var(--focus-line-strong); outline-offset: -2px; }
+.kn-split-resizing,.kn-split-resizing * { cursor: col-resize; user-select: none; }
+.kn-split[data-kn-focus="left"],.kn-split[data-kn-focus="right"] { display: flex; }
+.kn-split[data-kn-focus="left"] > [data-kn-side="left"],.kn-split[data-kn-focus="right"] > [data-kn-side="right"] { flex: 1; }
+.kn-split[data-kn-focus="left"] > :is([data-kn-side="right"],.kn-split-divider),.kn-split[data-kn-focus="right"] > :is([data-kn-side="left"],.kn-split-divider) { display: none; }
+.kn-split .knowledge-page { padding-inline: 18px; }
+.kn-split .knowledge-note-actions { right: 8px; max-width: calc(100% - 16px); }
+.kn-split .knowledge-note-actions:has(.kn-find:not([hidden])) { left: 8px; }
+.kn-split .kn-find-mount { min-width: 0; }
+.kn-split .kn-find-row { display: grid; grid-template-columns: 22px minmax(0,1fr) repeat(3,22px); gap: 3px; }
+.kn-split .kn-find-field { grid-column: 2 / -1; grid-row: 1; min-width: 0; }
+.kn-split .kn-find-count { grid-column: 1 / 3; grid-row: 2; }
+.kn-split-menu { padding: 5px; }
+.kn-split-menu > button { width: 100%; justify-content: flex-start; min-height: 32px; text-align: left; overflow-wrap: anywhere; white-space: normal; border: 0; }
 body .workspace.knowledge-workspace {
   --canvas: var(--workspace-canvas); --list: var(--workspace-list); --selected: var(--workspace-selected); --hover: var(--workspace-hover);
   --text: var(--workspace-text); --secondary: var(--workspace-secondary); --line: var(--workspace-line);

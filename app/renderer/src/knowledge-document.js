@@ -256,8 +256,16 @@
     const openIds = tabsByTask[taskId]?.slice() || [];
     const activeId = live.has(source.activeId) && openIds.includes(source.activeId) ? source.activeId : openIds.at(-1) || '';
     const saveDirectoriesByTask=Object.fromEntries(tasks.filter(task=>typeof source.saveDirectoriesByTask?.[task.id]==='string'&&source.saveDirectoriesByTask[task.id].trim()).map(task=>[task.id,source.saveDirectoriesByTask[task.id]]));
+    const splitsByTask = {};
+    for (const task of tasks) {
+      const split = source.splitsByTask?.[task.id], tabs = tabsByTask[task.id] || [];
+      if (!split || split.leftId === split.rightId || !tabs.includes(split.leftId) || !tabs.includes(split.rightId)) continue;
+      const mode = value => ['edit', 'source', 'preview'].includes(value) ? value : 'edit';
+      splitsByTask[task.id] = { leftId: split.leftId, rightId: split.rightId, active: split.active === 'right' ? 'right' : 'left',
+        ratio: Math.max(.25, Math.min(.75, Number(split.ratio) || .5)), leftMode: mode(split.leftMode), rightMode: mode(split.rightMode) };
+    }
     return {openIds, activeId, saveDirectoriesByTask, recentIds: normalizeNoteLinks([...(Array.isArray(source.recentIds)?source.recentIds:[]),...(Array.isArray(source.openIds)?source.openIds:[])]).filter(id => live.has(id)).slice(0, 40),
-      taskId, lastByTask, tabsByTask, resourceOpenMode:source.resourceOpenMode==='external'?'external':'internal', visible: source.visible === true};
+      taskId, lastByTask, tabsByTask, ...(Object.keys(splitsByTask).length ? {splitsByTask} : {}), resourceOpenMode:source.resourceOpenMode==='external'?'external':'internal', visible: source.visible === true};
   }
 
   return Object.freeze({

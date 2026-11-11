@@ -6,6 +6,20 @@ const {normalizeTaskData}=require('../app/main/storage.cjs');
 const fs=require('node:fs');
 const note=(id,title)=>({id:'task-'+id,title,knowledgeNote:{noteId:id,title,aliases:[]}});
 
+test('split layouts persist identities and modes through shared normalization while invalid panes are discarded',()=>{
+ const tasks=[{id:'a'},{id:'b'},{id:'c'}],documents=[{id:'one'},{id:'two'},{id:'deleted',knowledgeNote:{isDeleted:true}}];
+ const source={taskId:'a',openIds:['one','two'],recentIds:['one','two'],tabsByTask:{a:['one','two'],b:['one'],c:['one','two']},splitsByTask:{
+  a:{leftId:'one',rightId:'two',active:'right',ratio:10,leftMode:'source',rightMode:'preview'},
+  b:{leftId:'one',rightId:'two'},c:{leftId:'one',rightId:'one'},missing:{leftId:'one',rightId:'two'}
+ }};
+ const normalized=metadata.normalizeWorkspace(source,tasks,documents);
+ assert.deepEqual(normalized.splitsByTask,{a:{leftId:'one',rightId:'two',active:'right',ratio:.75,leftMode:'source',rightMode:'preview'}});
+ assert.deepEqual(metadata.normalizeWorkspace(normalized,tasks,documents),normalized);
+ assert.deepEqual(normalizeTaskData({version:2,tasks,knowledgeDocuments:documents,knowledgeWorkspace:source}).knowledgeWorkspace.splitsByTask,normalized.splitsByTask);
+ const closed=metadata.normalizeWorkspace({...source,tabsByTask:{a:['one']}},tasks,documents);
+ assert.equal(closed.splitsByTask,undefined);
+});
+
 test('document workspace restores tabs and per-task last document without creating task notes',()=>{
  const tasks=[{id:'empty'},{id:'legacy',notes:'旧正文'},{id:'linked',activeKnowledgeId:'d'}],docs=[{id:'d',notes:''},{id:'deleted',knowledgeNote:{isDeleted:true}}];
  const migrated=metadata.normalizeWorkspace(null,tasks,docs);

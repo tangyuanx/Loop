@@ -168,7 +168,7 @@
       + [["task", "今日任务", counts[0]], ["quick", "速记", counts[1]]].map(([value, label, count]) =>
         '<button data-widget-type="' + value + '" class="' + (lane === value ? "active" : "") + '" aria-pressed="' + (lane === value) + '">' + label + "<small>" + count + "</small></button>").join("")
       + "</nav>";
-    const body = '<div class="widget-body"><ol class="widget-rows">' + items.map(row).join("") + "</ol>"
+    const body = '<div class="widget-body' + (!items.length ? ' widget-body-empty' : '') + '"><ol class="widget-rows">' + items.map(row).join("") + "</ol>"
       + (lane === "task" && !items.length
         ? '<p class="widget-empty">' + (snapshot.completedToday ? "今日任务已完成" : "暂无今日任务") + "</p>"
         : "")
@@ -319,6 +319,9 @@
 
   // ---------- render ----------
   function render() {
+    // Keep captured row/resize nodes alive until pointerup. Native dragging
+    // does not deliver DOM pointer events, so its title bar is retained below.
+    if (gesture || pointerHeld) { pendingBlurRender = true; return; }
     const active = document.activeElement;
     const action = active?.dataset?.widget12;
     const inputId = active?.id;
@@ -337,15 +340,44 @@
     // Keep the live composer attached. A main-window snapshot must not break
     // IME, native undo, selection, or a draft even while this window is blurred.
     const currentWidget = host.querySelector(".today-widget");
+    const currentHeader = currentWidget?.querySelector(".widget-header");
+    const sameMode = currentWidget && currentWidget.classList.contains("compact") === prefs.compact;
     const composer = currentWidget?.querySelector(".widget-compose");
-    if (composer && lane === "quick" && !prefs.compact) {
+    if (currentWidget) {
       const template = document.createElement("template");
       template.innerHTML = renderTodayWidget();
       const nextWidget = template.content.querySelector(".today-widget");
       currentWidget.className = nextWidget.className;
       currentWidget.dataset.position = prefs.position;
-      for (const selector of [".widget-header", ".widget-tabs", ".widget-body"]) {
-        currentWidget.querySelector(selector)?.replaceWith(nextWidget.querySelector(selector));
+      currentWidget.dataset.widgetLane = nextWidget.dataset.widgetLane;
+      const nextHeader = nextWidget.querySelector(".widget-header");
+      if (sameMode && currentHeader) {
+        for (const selector of [".widget-date", ".widget-count"]) {
+          const element = currentHeader.querySelector(selector);
+          if (element) element.textContent = nextHeader.querySelector(selector)?.textContent || "";
+        }
+        currentHeader.querySelector('[data-action="widget-preferences"]')?.setAttribute("aria-expanded", String(surfaceKind === "settings"));
+      } else currentHeader?.replaceWith(nextHeader);
+      for (const selector of [".widget-tabs", ".widget-body", ".widget-compose", '[data-widget-resize="top"]', '[data-widget-resize="bottom"]']) {
+        const current = currentWidget.querySelector(selector), next = nextWidget.querySelector(selector);
+        if (selector === ".widget-compose" && composer && lane === "quick" && !prefs.compact) continue;
+        if (selector.startsWith("[data-widget-resize") && current && next) continue;
+        if (selector === ".widget-tabs" && current && next) {
+          for (const button of current.querySelectorAll("[data-widget-type]")) {
+            const replacement = next.querySelector('[data-widget-type="' + button.dataset.widgetType + '"]');
+            button.className = replacement.className;
+            button.setAttribute("aria-pressed", replacement.getAttribute("aria-pressed"));
+            button.querySelector("small").textContent = replacement.querySelector("small").textContent;
+          }
+          continue;
+        }
+        if (selector === ".widget-body" && current?.classList.contains("widget-body-empty") && next?.classList.contains("widget-body-empty")) {
+          current.innerHTML = next.innerHTML;
+          continue;
+        }
+        if (current && next) current.replaceWith(next);
+        else if (current) current.remove();
+        else if (next) currentWidget.append(next);
       }
       host.querySelector("[data-surface-barrier]")?.remove();
       const barrier = template.content.querySelector("[data-surface-barrier]");
@@ -530,8 +562,6 @@
   }
 
   // ---------- gestures (ported from loop-widget-phase13.js) ----------
-  function frameLimits() { return { left: 8, top: 8, right: window.innerWidth - 8, bottom: window.innerHeight - 8 }; }
-
   function clearDrop() {
     host.querySelectorAll(".widget13-drop-before,.widget13-drop-after,.widget13-tab-drop").forEach((el) => el.classList.remove("widget13-drop-before", "widget13-drop-after", "widget13-tab-drop"));
   }
@@ -591,11 +621,10 @@
   }
 
   function updateResize(edge, delta, start) {
-    const limits = frameLimits();
-    const bottom = start.top + start.height;
-    const maxHeight = Math.min(720, edge === "top" ? bottom - limits.top : limits.bottom - start.top);
-    const height = Math.max(180, Math.min(maxHeight, start.height + (edge === "top" ? -delta : delta)));
-    sendResize(height, edge);
+    // IPC accepts native window height, including the shadow ring. Screen
+    // coordinates stay stable when resizing from the top moves that window.
+    // The main process owns work-area and minimum/maximum clamping.
+    sendResize(start.height + (edge === "top" ? -delta : delta), edge);
   }
 
   let resizeFrame = 0;
@@ -639,15 +668,13 @@
     }
     const handle = event.target.closest("[data-widget-drag]");
     const resize = event.target.closest("[data-widget-resize]");
-    const header = event.target.closest(".widget-header");
-    if (!handle && !resize && (!header || event.target.closest("button,input,textarea"))) return;
+    if (!handle && !resize) return; // Native drag regions belong only to the OS.
     finishRename(true, false);
     const widget = host.querySelector(".widget13");
     if (!widget) return;
-    const rect = widget.getBoundingClientRect();
-    const el = handle || resize || header;
+    const el = handle || resize;
     gesture = {
-      kind: handle ? "row" : resize ? "resize" : "move",
+      kind: handle ? "row" : "resize",
       id: handle ? handle.dataset.widgetDrag : null,
       lane: isQuickLane() ? "quick" : "task",
       edge: resize?.dataset.widgetResize,
@@ -655,9 +682,10 @@
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
+      startScreenY: event.screenY,
       x: event.clientX,
       y: event.clientY,
-      start: { left: rect.left, top: rect.top, height: rect.height },
+      start: { height: window.innerHeight },
       moved: false,
       drop: null,
     };
@@ -680,7 +708,6 @@
     const dx = event.clientX - g.startX;
     const dy = event.clientY - g.startY;
     if (!g.moved && Math.hypot(dx, dy) < 6) return;
-    if (g.kind === "move") return; // native window drag owns this gesture
     event.preventDefault();
     g.x = event.clientX;
     g.y = event.clientY;
@@ -695,7 +722,7 @@
       }
     }
     if (g.kind === "row") updateDrop();
-    else updateResize(g.edge, dy, g.start);
+    else updateResize(g.edge, event.screenY - g.startScreenY, g.start);
   }, true);
 
   window.addEventListener("pointerup", (event) => {
@@ -704,15 +731,24 @@
     if (gesture?.pointerId === event.pointerId) endGesture();
   }, true);
 
-  window.addEventListener("pointercancel", () => { pointerHeld = false; endGesture(true); });
-  window.addEventListener("blur", () => { endGesture(true); flushCaptureDraft(); });
+  window.addEventListener("pointercancel", () => {
+    pointerHeld = false;
+    endGesture(true);
+    if (pendingBlurRender) render();
+  });
+  window.addEventListener("blur", () => {
+    pointerHeld = false;
+    endGesture(true);
+    if (pendingBlurRender) render();
+    flushCaptureDraft();
+  });
   window.addEventListener("beforeunload", () => {
     flushCaptureDraft();
     if (editId) cacheDrafts({ rename: { id: editId, value: host.querySelector("#widget-title-input")?.value || editDraft, lane } });
   });
   document.addEventListener("compositionstart", () => { composing = true; });
   document.addEventListener("compositionend", () => { composing = false; });
-  window.addEventListener("resize", () => { endGesture(true); applyAppearance(); resizeCapture(); fit(); });
+  window.addEventListener("resize", () => { applyAppearance(); resizeCapture(); fit(); });
 
   window.addEventListener("contextmenu", (event) => {
     const rowEl = event.target.closest(".widget13 [data-widget-row]");
@@ -865,10 +901,8 @@
       event.preventDefault();
       event.stopImmediatePropagation();
       const edge = resize.dataset.widgetResize;
-      const widget = host.querySelector(".widget13");
-      const rect = widget.getBoundingClientRect();
       if (event.key === "Home") void bridge.resize({ height: 0, edge, reset: true });
-      else updateResize(edge, (event.key === "ArrowUp" ? -1 : 1) * (event.shiftKey ? 40 : 10), { top: rect.top, height: rect.height });
+      else updateResize(edge, (event.key === "ArrowUp" ? -1 : 1) * (event.shiftKey ? 40 : 10), { height: window.innerHeight });
       host.querySelector('[data-widget-resize="' + edge + '"]')?.focus({ preventScroll: true });
       return;
     }

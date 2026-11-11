@@ -138,14 +138,15 @@ function resizedWidgetBounds(bounds, workArea, requestedHeight, edge = "bottom")
   const areaBottom = areaTop + areaHeight;
   const resizeFromTop = edge === "top";
   const availableHeight = resizeFromTop ? y + currentHeight - areaTop : areaBottom - y;
-  const minimumHeight = Math.min(WIDGET_MIN_HEIGHT, areaHeight);
-  const maximumHeight = Math.max(minimumHeight, Math.min(WIDGET_MAX_HEIGHT, availableHeight));
+  const ringHeight = WIDGET_PAD_TOP + WIDGET_PAD_BOTTOM;
+  const minimumHeight = Math.min(WIDGET_MIN_HEIGHT + ringHeight, areaHeight);
+  const maximumHeight = Math.max(minimumHeight, Math.min(WIDGET_MAX_HEIGHT + ringHeight, availableHeight));
   const numericHeight = Number(requestedHeight);
   const desiredHeight = Number.isFinite(numericHeight) ? Math.round(numericHeight) : currentHeight;
   const height = Math.max(minimumHeight, Math.min(maximumHeight, desiredHeight));
   return {
     x,
-    y: resizeFromTop ? y + currentHeight - height : y,
+    y: Math.max(areaTop, Math.min(areaBottom - height, resizeFromTop ? y + currentHeight - height : y)),
     width,
     height,
   };
@@ -210,7 +211,7 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
   let showFallbackTimer = null;
   let moveSaveTimer = null;
   let resizeSaveTimer = null;
-  let suppressMoveUntil = 0;
+  let programmedPosition = null;
   let editingText = false;
   let preferenceWrite = Promise.resolve();
   let surfaceBusy = false;
@@ -289,7 +290,7 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
     if (anchor.y === "bottom") y = bounds.y + bounds.height - currentSize.height;
     x = Math.max(area.x, Math.min(area.x + area.width - currentSize.width, x));
     y = Math.max(area.y, Math.min(area.y + area.height - currentSize.height, y));
-    suppressMoveUntil = Date.now() + 350;
+    programmedPosition = { x, y };
     widgetWindow.setBounds({ x, y, ...currentSize }, false);
     if (options.persist !== false && preferences.position === "custom") {
       preferences = { ...preferences, customBounds: { x, y } };
@@ -311,7 +312,7 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
     } else {
       bounds = cornerWindowBounds(display.workArea, currentSize, preferences.position);
     }
-    suppressMoveUntil = Date.now() + 350;
+    programmedPosition = { x: bounds.x, y: bounds.y };
     widgetWindow.setBounds(bounds, false);
   }
 
@@ -418,8 +419,12 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
       applyClickThrough();
     });
     widgetWindow.on("move", () => {
-      if (Date.now() < suppressMoveUntil || !widgetWindow || widgetWindow.isDestroyed()) return;
+      if (!widgetWindow || widgetWindow.isDestroyed()) return;
       const { x, y } = widgetWindow.getBounds();
+      // Ignore only the move we requested. A timed suppression also swallowed
+      // a user's drag immediately after a fit/resize, then snapped back later.
+      if (programmedPosition?.x === x && programmedPosition?.y === y) return;
+      programmedPosition = null;
       const area = screen.getDisplayMatching(widgetWindow.getBounds()).workArea;
       preferences = {
         ...preferences,
@@ -560,7 +565,7 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
       customBounds: { x: nextBounds.x, y: nextBounds.y },
     });
     preferences = { ...preferences, frameAnchor: { x: anchor.x, y: edge === "top" ? "bottom" : "top" } };
-    suppressMoveUntil = Date.now() + 350;
+    programmedPosition = { x: nextBounds.x, y: nextBounds.y };
     widgetWindow.setBounds(nextBounds, false);
     broadcastState();
     clearTimeout(resizeSaveTimer);
@@ -1126,7 +1131,7 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
       const y = Math.max(area.y, Math.min(area.y + area.height - bounds.height, bounds.y + dy));
       preferences = normalizeTodayWidgetPreferences({ ...preferences, position: "custom", customBounds: { x, y } });
       preferences = { ...preferences, frameAnchor: frameAnchorForPosition("custom", area, { x, y, width: bounds.width, height: bounds.height }) };
-      suppressMoveUntil = Date.now() + 350;
+      programmedPosition = { x, y };
       widgetWindow.setBounds({ ...bounds, x, y }, false);
       clearTimeout(moveSaveTimer);
       moveSaveTimer = setTimeout(() => {
