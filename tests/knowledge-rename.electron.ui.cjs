@@ -98,7 +98,7 @@ const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
     assert.ok(Math.abs(after.scroll-before.scroll)<=1, 'rename preserves document scroll');
     await page.locator('.cm-content').focus();await page.keyboard.press(modifier + '+z');
     assert.equal(await page.evaluate(() => knowledgeCurrentEntry().getMarkdown()), markdown);
-    await page.keyboard.press(modifier + '+Shift+z');
+    await page.keyboard.press(process.platform==='darwin'?'Meta+Shift+z':'Control+y');
     assert.equal(await page.evaluate(() => knowledgeCurrentEntry().getMarkdown()), before.text);
     await page.keyboard.press(modifier + '+s');
     await page.waitForFunction(() => knowledgeActiveDocument().knowledgeNote.documentState==='SAVED' && !knowledgeFileWriteBusy.size);
