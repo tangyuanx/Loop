@@ -6,6 +6,14 @@ const { normalizeTaskData } = require("../app/main/storage.cjs");
 function at(iso) { return new Date(iso); }
 function navigation(iso = "2026-09-08T09:00:00") { return model.defaultWorkNavigation(at(iso)); }
 
+test("next action includes review nodes and skips completed nodes", () => {
+  assert.equal(model.resolveNextAction({ nodes: [
+    { title: "已完成", status: "done" },
+    { title: "需要确认配置", status: "review" },
+    { title: "后续工作", status: "todo" },
+  ] }), "需要确认配置");
+});
+
 test("default schedule protects work, rest, transition and one hour of learning", () => {
   assert.deepEqual(model.DEFAULT_PHASES.map(({ label, start, end }) => [label, start, end]), [
     ["上午工作", "09:40", "11:50"], ["午间休息", "11:50", "13:40"],

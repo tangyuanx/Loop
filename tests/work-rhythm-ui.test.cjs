@@ -64,10 +64,12 @@ test("work navigation goes through the project bridge, not a private copy", () =
   assert.doesNotMatch(html, /work-rhythm\./);
 });
 
-test("the phase model stays the frozen Demo's loop-work-model.js", () => {
+test("the phase model preserves the frozen baseline except the approved review-state integration", () => {
   const frozen = fs.readFileSync(
     path.join(root, "prototypes", "baseline", "loop-plane-phase17-frozen", "loop-work-model.js"),
     "utf8",
   );
-  assert.equal(model, frozen, "work-navigation-model.js must stay byte-identical to the frozen loop-work-model.js");
+  const reviewAware = frozen.replace('node.status === "todo" && identifier(node.title)', '(node.status === "todo" || node.status === "review") && identifier(node.title)');
+  assert.notEqual(reviewAware, frozen, "the baseline next-action predicate must be found");
+  assert.equal(model, reviewAware, "only the approved review-state next-action integration may differ from the frozen baseline");
 });
