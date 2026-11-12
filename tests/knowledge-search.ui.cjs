@@ -129,11 +129,12 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
    await page.locator('.knowledge-body').hover();await page.mouse.wheel(0,200);await frame();
    assert.ok(await page.locator('.knowledge-body').evaluate(el=>el.scrollTop>0));
    assert.equal((await page.locator('.knowledge-note-actions').boundingBox()).y,anchored.y);
-   await page.evaluate(()=>window.__previousToolbarBinding=knowledgeToolbarBinding);
-   await page.locator('[data-task-row=b] .task-select').click();await page.waitForFunction(()=>knowledgeCurrentEntry()?.options.noteId==='search-b'&&document.querySelector('.knowledge-pane')?.dataset.taskId==='b'&&knowledgeToolbarBinding?.surface===document.querySelector('.knowledge-note-surface'));
+   await page.evaluate(()=>window.__previousToolbarBinding=knowledgeToolbarBindings.get(document.querySelector('.knowledge-note-surface')));
+   await page.locator('[data-task-row=b] .task-select').click();await page.waitForFunction(()=>knowledgeCurrentEntry()?.options.noteId==='search-b'&&document.querySelector('.knowledge-pane')?.dataset.taskId==='b'&&knowledgeToolbarBindings.get(document.querySelector('.knowledge-note-surface'))?.surface===document.querySelector('.knowledge-note-surface'));
    assert.equal(await page.evaluate(()=>window.__previousToolbarBinding.controller.signal.aborted),true);
    await page.locator('[data-task-row=a] .task-select').click();await page.waitForFunction(()=>knowledgeCurrentEntry()?.options.noteId==='search-a');
    await page.evaluate(()=>render());await frame();assert.equal(await page.locator('.knowledge-pane [role=search]').count(),1);
+   assert.equal(await page.evaluate(()=>knowledgeToolbarBindings.size),1);
    assert.deepEqual(errors,[]);
   });
  }finally{await fs.writeFile(path.join(out,'results.json'),JSON.stringify({source,run,results,errors},null,2));await app.close();}

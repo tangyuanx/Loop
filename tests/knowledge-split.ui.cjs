@@ -14,6 +14,7 @@ const report={checks:[],errors:[],limitations:['native Windows','physical cross-
  await page.locator('[data-kn-document="right"]').click({button:'right'});await page.getByRole('menuitem',{name:'在右侧分屏打开',exact:true}).click();
  await page.locator('[data-kn-side="right"] .cm-content').waitFor();await page.waitForFunction(()=>knowledgeCurrentEntry('owner')?.view&&knowledgeCurrentEntry('right')?.view);
  assert.equal(await page.locator('.knowledge-pane').count(),2);
+ assert.equal(await page.evaluate(()=>knowledgeToolbarBindings.size),2);
  await page.evaluate(()=>{window.__splitLeft=knowledgeCurrentEntry('owner');window.__splitRight=knowledgeCurrentEntry('right');});
  assert.equal(await page.evaluate(()=>knowledgeActiveDocument().id),'right');
  await pane('left').locator('.cm-content').click();await page.keyboard.press(mod+'+Home');await page.keyboard.insertText('LEFT-EDIT ');
@@ -42,12 +43,15 @@ const report={checks:[],errors:[],limitations:['native Windows','physical cross-
  for(const enabled of [true,false]){
    const actual=await app.evaluate(async({BrowserWindow},enabled)=>{
      const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/index.html'));
-     // A transition notification can arrive before the native query reflects
-     // its final state. Assert the actual window state, after it settles.
-     w.setFullScreen(enabled);const deadline=Date.now()+7000;
-     while(w.isFullScreen()!==enabled&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,20));
-     return {fullScreen:w.isFullScreen(),bounds:w.getBounds(),visible:w.isVisible()};
-   },enabled);assert.equal(actual.fullScreen,enabled,JSON.stringify(actual));await settle();
+     // Electron 42 on Windows emits this event before updating IsFullscreen().
+     // Read on the next event-loop turn, after SetFullScreen has returned.
+     return new Promise((resolve,reject)=>{
+       const event=enabled?'enter-full-screen':'leave-full-screen';
+       const changed=()=>{clearTimeout(timer);setImmediate(()=>resolve(w.isFullScreen()));};
+       const timer=setTimeout(()=>{w.removeListener(event,changed);reject(Error('Native fullscreen transition timed out: '+enabled));},10000);
+       w.once(event,changed);w.setFullScreen(enabled);
+     });
+   },enabled);assert.equal(actual,enabled);await settle();
    assert.equal(await page.evaluate(()=>Workbench.focus),true);assert.equal(await pane('left').isVisible(),false);
  }
  await pane('right').locator('[data-wb-action="focus"]').click();await settle();

@@ -4,7 +4,13 @@ async function minimizeTaskInfo(page){
   // through the same control as a user before operating the toolbar beneath it.
   const toggle=page.locator('[data-action="toggle-task-info"][aria-expanded="true"]');
   if(await toggle.count()){
-    await toggle.click();
+    try {
+      await toggle.click({timeout:2000});
+    } catch (error) {
+      // A resize can auto-collapse the card after count() but before click().
+      // Accept only the requested final state; a genuinely blocked click fails.
+      if(error.name!=='TimeoutError'||await page.locator('[data-action="toggle-task-info"]').getAttribute('aria-expanded')!=='false')throw error;
+    }
     await page.locator('[data-action="toggle-task-info"][aria-expanded="false"]').waitFor();
   }
 }
