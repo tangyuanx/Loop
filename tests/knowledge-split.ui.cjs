@@ -42,8 +42,12 @@ const report={checks:[],errors:[],limitations:['native Windows','physical cross-
  for(const enabled of [true,false]){
    const actual=await app.evaluate(async({BrowserWindow},enabled)=>{
      const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/index.html'));
-     return new Promise(resolve=>{const timer=setTimeout(()=>resolve(w.isFullScreen()),7000);w.once(enabled?'enter-full-screen':'leave-full-screen',()=>{clearTimeout(timer);resolve(w.isFullScreen());});w.setFullScreen(enabled);});
-   },enabled);assert.equal(actual,enabled);await settle();
+     // A transition notification can arrive before the native query reflects
+     // its final state. Assert the actual window state, after it settles.
+     w.setFullScreen(enabled);const deadline=Date.now()+7000;
+     while(w.isFullScreen()!==enabled&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,20));
+     return {fullScreen:w.isFullScreen(),bounds:w.getBounds(),visible:w.isVisible()};
+   },enabled);assert.equal(actual.fullScreen,enabled,JSON.stringify(actual));await settle();
    assert.equal(await page.evaluate(()=>Workbench.focus),true);assert.equal(await pane('left').isVisible(),false);
  }
  await pane('right').locator('[data-wb-action="focus"]').click();await settle();
