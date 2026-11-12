@@ -14,6 +14,7 @@ const report={checks:[],errors:[],limitations:['native Windows','physical cross-
  await page.locator('[data-kn-document="right"]').click({button:'right'});await page.getByRole('menuitem',{name:'在右侧分屏打开',exact:true}).click();
  await page.locator('[data-kn-side="right"] .cm-content').waitFor();await page.waitForFunction(()=>knowledgeCurrentEntry('owner')?.view&&knowledgeCurrentEntry('right')?.view);
  assert.equal(await page.locator('.knowledge-pane').count(),2);
+ assert.equal(await page.evaluate(()=>knowledgeToolbarBindings.size),2);
  await page.evaluate(()=>{window.__splitLeft=knowledgeCurrentEntry('owner');window.__splitRight=knowledgeCurrentEntry('right');});
  assert.equal(await page.evaluate(()=>knowledgeActiveDocument().id),'right');
  await pane('left').locator('.cm-content').click();await page.keyboard.press(mod+'+Home');await page.keyboard.insertText('LEFT-EDIT ');
@@ -42,7 +43,14 @@ const report={checks:[],errors:[],limitations:['native Windows','physical cross-
  for(const enabled of [true,false]){
    const actual=await app.evaluate(async({BrowserWindow},enabled)=>{
      const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/index.html'));
-     return new Promise(resolve=>{const timer=setTimeout(()=>resolve(w.isFullScreen()),7000);w.once(enabled?'enter-full-screen':'leave-full-screen',()=>{clearTimeout(timer);resolve(w.isFullScreen());});w.setFullScreen(enabled);});
+     // Electron 42 on Windows emits this event before updating IsFullscreen().
+     // Read on the next event-loop turn, after SetFullScreen has returned.
+     return new Promise((resolve,reject)=>{
+       const event=enabled?'enter-full-screen':'leave-full-screen';
+       const changed=()=>{clearTimeout(timer);setImmediate(()=>resolve(w.isFullScreen()));};
+       const timer=setTimeout(()=>{w.removeListener(event,changed);reject(Error('Native fullscreen transition timed out: '+enabled));},10000);
+       w.once(event,changed);w.setFullScreen(enabled);
+     });
    },enabled);assert.equal(actual,enabled);await settle();
    assert.equal(await page.evaluate(()=>Workbench.focus),true);assert.equal(await pane('left').isVisible(),false);
  }
