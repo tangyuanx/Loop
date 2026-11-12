@@ -203,9 +203,16 @@ function shellNodeStatusButtonLabel(node) {
   return `${node.title}：${shellNodeStatusLabel(node.status)}，切换为${shellNodeStatusLabel(nextNodeStatus(node.status))}`;
 }
 
+// Keep the first levels distinct, then use shorter steps without changing the
+// actual tree depth. The same coordinates drive text, rails and draft rows.
+function shellFlowIndentStyle(depth) {
+  const offset = level => `calc(${Math.min(level, 4)} * var(--flow-indent) + ${Math.max(0, level - 4)} * var(--flow-deep-indent))`;
+  return `--node-depth:${depth};--node-offset:${offset(depth)};--node-parent-offset:${offset(Math.max(0, depth - 1))};--node-step:var(${depth > 4 ? '--flow-deep-indent' : '--flow-indent'})`;
+}
+
 function renderShellNodeDraft(task, depth = 0) {
   const parentId = state.focusNodeTitleId ? shellParentIdOf(task, state.focusNodeTitleId) : null;
-  return `<li class="flow-item node-draft" style="--node-depth:${depth}"><div class="flow-row adding"><div class="flow-node-main"><span class="draft-spacer"></span><span class="node-status-slot">${shellNodeStatusChip("todo")}</span><textarea class="node-title-input" id="node-title-draft" rows="1" aria-label="${parentId ? "子节点标题" : "节点标题"}" placeholder="输入节点标题" maxlength="160" autocomplete="off" data-shell-node-draft="1">${esc(shellNodeTitle(task,state.focusNodeTitleId))}</textarea></div></div></li>`;
+  return `<li class="flow-item node-draft" style="${shellFlowIndentStyle(depth)}"><div class="flow-row adding"><div class="flow-node-main"><span class="draft-spacer"></span><span class="node-status-slot"><span class="node-status todo" role="img" aria-label="未完成">${briefFieldIcon('circle')}</span></span><textarea class="node-title-input" id="node-title-draft" rows="1" aria-label="${parentId ? "子节点标题" : "节点标题"}" placeholder="输入节点标题" maxlength="160" autocomplete="off" data-shell-node-draft="1">${esc(shellNodeTitle(task,state.focusNodeTitleId))}</textarea></div></div></li>`;
 }
 
 function shellNodeTitle(task, nodeId) {
@@ -257,7 +264,7 @@ function renderShellNodeConclusion(task, node) {
   const expanded = shellExpandedConclusions.has(shellConclusionKey(task.id, node.id));
   if (!value.trim()) return `<div class="flow-conclusion is-empty" data-conclusion-node="${escAttr(node.id)}"></div>`;
   return `<div class="flow-conclusion ${expanded ? "expanded" : ""}" data-conclusion-node="${escAttr(node.id)}">
-    <button class="node-conclusion-text" type="button" data-action="read-node-conclusion" ${attrs} aria-label="结论：${escAttr(node.title)}，双击编辑" title="${escAttr(value)}"><span class="node-conclusion-preview">${esc(value.replace(/\n\s*\n/g, "\n"))}</span></button>
+    <button class="node-conclusion-text" type="button" data-action="read-node-conclusion" ${attrs} aria-label="结论：${escAttr(node.title)}，双击编辑" title="${escAttr(value)}"><span class="node-conclusion-preview">${esc(value)}</span></button>
   </div>`;
 }
 
@@ -282,7 +289,7 @@ function renderShellFlowNode(task, node, depth = 0) {
     // Keep the actual indentation and ancestry; a completed parent's collapse
     // state must never conceal unfinished descendants while its row is hidden.
     const nested = sort(node.children || []).map((child) => renderShellFlowNode(task, child, depth + 1)).join("");
-    return nested ? `<li class="flow-item flow-hidden-parent" style="--node-depth:${depth}"><ol class="flow-children">${nested}</ol></li>` : "";
+    return nested ? `<li class="flow-item flow-hidden-parent" style="${shellFlowIndentStyle(depth)}"><ol class="flow-children">${nested}</ol></li>` : "";
   }
   if (shellIsDraftNode(task, node)) {
     const children = node.children || [];
@@ -307,7 +314,7 @@ function renderShellFlowNode(task, node, depth = 0) {
   const nested = hasChildren
     ? `<div class="flow-branch" data-branch-node="${escAttr(node.id)}" data-expanded="${!displayCollapsed}" ${displayCollapsed ? 'inert aria-hidden="true"' : ""}>${keepChildren ? `<ol class="flow-children">${children.map((child) => renderShellFlowNode(task, child, depth + 1)).join("")}</ol>` : ""}</div>`
     : "";
-  return `<li class="flow-item" data-flow-id="${escAttr(node.id)}" data-flow-depth="${depth}" style="--node-depth:${depth}">${body}${nested}</li>`;
+  return `<li class="flow-item" data-flow-id="${escAttr(node.id)}" data-flow-depth="${depth}" style="${shellFlowIndentStyle(depth)}">${body}${nested}</li>`;
 }
 
 function shellFlowDepth(nodes) {
@@ -335,8 +342,12 @@ function renderShellFlow(task) {
         <button class="icon-button" type="button" data-action="open-flow-locator" aria-label="定位处理流节点" title="定位节点" aria-haspopup="dialog">${shellIcon("search")}</button>
       </div>
     </div>
-    <div class="flow-scroll" data-context="flow-root" data-task-id="${escAttr(task.id)}">
-      <div class="flow-outline" style="--flow-depth:${shellFlowDepth(task.nodes || [])};--flow-title-track:${state.flowWidths.title}fr;--flow-note-track:${state.flowWidths.note}fr">
+    <div class="flow-context-bar">
+      <nav class="flow-breadcrumb" aria-label="当前节点层级" data-flow-breadcrumb></nav>
+      <button class="text-button flow-status-history-trigger" type="button" data-flow-status-history aria-haspopup="dialog">节点状态记录</button>
+    </div>
+    <div class="flow-scroll" data-context="flow-root" data-task-id="${escAttr(task.id)}" data-processing-flow-scroll data-processing-flow-view="${escAttr(processingFlowViewKey(task))}">
+      <div class="flow-outline" style="--flow-depth:${shellFlowDepth(task.nodes || [])};${shellFlowIndentStyle(shellFlowDepth(task.nodes || []))};--flow-title-track:${state.flowWidths.title}fr;--flow-note-track:${state.flowWidths.note}fr">
       <ol class="flow-tree">
         ${roots.map((node) => renderShellFlowNode(task, node, 0)).join("")}
       </ol>
@@ -489,7 +500,7 @@ function shellAnimateBranches(previous, animate) {
   }
 }
 
-const SHELL_FOCUS_KEYS = ["data-node-id", "data-action", "data-bulk-action", "data-field"];
+const SHELL_FOCUS_KEYS = ["data-node-id", "data-action", "data-bulk-action", "data-field", "data-flow-nav-id", "data-flow-nav-overflow", "data-flow-status-history"];
 const SHELL_REPOSITORY_FOCUS_KEYS = [...SHELL_FOCUS_KEYS, "data-group-id", "data-task-id", "data-bulk-id", "data-value", "data-tag", "data-setting-button"];
 
 function shellBeforeRender() {

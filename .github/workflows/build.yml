@@ -55,6 +55,8 @@ jobs:
       - name: Verify inline conclusions and existing node interactions
         run: |
           node tests/flow-outline.ui.cjs
+          npm run test:ui:flow-navigation
+          npm run test:ui:node-draft
           npm run test:ui:node-interactions
           npm run test:ui:flow-filter
       - name: Verify memo improvements

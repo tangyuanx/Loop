@@ -234,6 +234,22 @@
     return [...new Set((Array.isArray(value) ? value : []).filter(id => typeof id === 'string' && id.trim()))];
   }
 
+  // A split partitions the existing task tab list; it never owns another copy
+  // of a document. Legacy splits put every other tab beside the left document.
+  function normalizeSplitLayout(value, tabs) {
+    if (!value || typeof value !== 'object') return null;
+    const grouped = Array.isArray(value.leftTabs) && Array.isArray(value.rightTabs);
+    if (!grouped && (value.leftId === value.rightId || !tabs.includes(value.leftId) || !tabs.includes(value.rightId))) return null;
+    const leftTabs = normalizeNoteLinks(grouped ? value.leftTabs : tabs.filter(id => id !== value.rightId)).filter(id => tabs.includes(id));
+    const rightTabs = normalizeNoteLinks(grouped ? value.rightTabs : [value.rightId]).filter(id => tabs.includes(id) && !leftTabs.includes(id));
+    for (const id of tabs) if (!leftTabs.includes(id) && !rightTabs.includes(id)) leftTabs.push(id);
+    if (!leftTabs.length || !rightTabs.length) return null;
+    const mode = value => ['edit', 'source', 'preview'].includes(value) ? value : 'edit';
+    return {leftId:leftTabs.includes(value.leftId)?value.leftId:leftTabs.at(-1),rightId:rightTabs.includes(value.rightId)?value.rightId:rightTabs.at(-1),
+      active:value.active==='right'?'right':'left',ratio:Math.max(.25,Math.min(.75,Number(value.ratio)||.5)),
+      leftMode:mode(value.leftMode),rightMode:mode(value.rightMode),leftTabs,rightTabs};
+  }
+
   function normalizeWorkspace(value, tasks = [], documents = []) {
     const source = value && typeof value === 'object' ? value : {};
     const live = new Set([...tasks.filter(note => note.notes?.trim() || note.knowledgeNote?.filePath), ...documents]
@@ -254,23 +270,23 @@
     }
     const taskId = tasks.some(task => task.id === source.taskId) ? source.taskId : '';
     const openIds = tabsByTask[taskId]?.slice() || [];
-    const activeId = live.has(source.activeId) && openIds.includes(source.activeId) ? source.activeId : openIds.at(-1) || '';
+    let activeId = live.has(source.activeId) && openIds.includes(source.activeId) ? source.activeId : openIds.at(-1) || '';
     const saveDirectoriesByTask=Object.fromEntries(tasks.filter(task=>typeof source.saveDirectoriesByTask?.[task.id]==='string'&&source.saveDirectoriesByTask[task.id].trim()).map(task=>[task.id,source.saveDirectoriesByTask[task.id]]));
     const splitsByTask = {};
     for (const task of tasks) {
       const split = source.splitsByTask?.[task.id], tabs = tabsByTask[task.id] || [];
-      if (!split || split.leftId === split.rightId || !tabs.includes(split.leftId) || !tabs.includes(split.rightId)) continue;
-      const mode = value => ['edit', 'source', 'preview'].includes(value) ? value : 'edit';
-      splitsByTask[task.id] = { leftId: split.leftId, rightId: split.rightId, active: split.active === 'right' ? 'right' : 'left',
-        ratio: Math.max(.25, Math.min(.75, Number(split.ratio) || .5)), leftMode: mode(split.leftMode), rightMode: mode(split.rightMode) };
+      const layout = normalizeSplitLayout(split, tabs);
+      if (layout) { splitsByTask[task.id] = layout; lastByTask[task.id] = layout[layout.active+'Id']; }
     }
-    return {openIds, activeId, saveDirectoriesByTask, recentIds: normalizeNoteLinks([...(Array.isArray(source.recentIds)?source.recentIds:[]),...(Array.isArray(source.openIds)?source.openIds:[])]).filter(id => live.has(id)).slice(0, 40),
+    if (splitsByTask[taskId]) { activeId = splitsByTask[taskId][splitsByTask[taskId].active+'Id']; lastByTask[taskId] = activeId; }
+    return {openIds, activeId, saveDirectoriesByTask, recentIds: normalizeNoteLinks([...(Array.isArray(source.recentIds)?source.recentIds:[]),...(Array.isArray(source.openIds)?source.openIds:[]),...openIds]).filter(id => live.has(id)).slice(0, 40),
       taskId, lastByTask, tabsByTask, ...(Object.keys(splitsByTask).length ? {splitsByTask} : {}), resourceOpenMode:source.resourceOpenMode==='external'?'external':'internal', visible: source.visible === true};
   }
 
   return Object.freeze({
     normalizeDocuments,
     normalizeNoteLinks,
+    normalizeSplitLayout,
     normalizeWorkspace,
     DOCUMENT_STATES,
     imageReferences: typeof module === "object" && module.exports ? require("./knowledge-core.js").imageReferences : globalThis.LoopKnowledgeCore.imageReferences,

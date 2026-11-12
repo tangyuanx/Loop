@@ -72,7 +72,7 @@ const report={checks:[],errors:[],limitations:['native Windows','physical cross-
    await pane('left').locator('.kn-find [name="close"]').click();await pane('right').locator('.kn-find [name="close"]').click();
  }
  await pane('right').locator('[data-wb-action="more"]').click();await page.locator('[data-wb-mode="preview"]').click();await page.waitForFunction(()=>knowledgeCurrentEntry('right').mode==='preview');assert.equal(await entry('owner',e=>e.mode),'source');
- await page.locator('.kn-document-new').click();
+ await pane('right').locator('.kn-document-new').click();
  await page.waitForFunction(()=>!['owner','right','third'].includes(knowledgeActiveDocument()?.id)&&knowledgeCurrentEntry()?.view&&knowledgeCurrentEntry().mode==='edit');
  await page.evaluate(()=>knowledgeCurrentEntry().insertText('右栏新草稿'));
  assert.equal(await entry('owner',e=>e.mode),'source');assert.ok((await entry('owner',e=>e.getEditorText())).startsWith('LEFT-EDIT '));
@@ -85,7 +85,7 @@ const report={checks:[],errors:[],limitations:['native Windows','physical cross-
  await page.evaluate(async()=>{captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});save();await flushSave();});
  const disk=JSON.parse(await fs.readFile(path.join(profile,'task-data.json'),'utf8'));assert.ok(disk.knowledgeWorkspace.splitsByTask.owner);assert.ok(disk.tasks[0].notes.startsWith('LEFT-EDIT '));
  await page.reload();await page.waitForFunction(()=>knowledgeSplitLayout()&&knowledgeCurrentEntry('owner')?.view&&knowledgeCurrentEntry('right')?.view);assert.equal(await page.locator('.knowledge-pane').count(),2);
- await page.locator('[data-kn-detach="right"]').click();await page.waitForFunction(()=>!document.querySelector('.kn-split'));assert.equal(await page.evaluate(()=>knowledgeActiveDocument().id),'owner');
+ await wb.minimizeTaskInfo(page);await page.locator('[data-kn-detach="right"]').click();await page.waitForFunction(()=>!document.querySelector('.kn-split'));assert.equal(await page.evaluate(()=>knowledgeActiveDocument().id),'owner');
  check('independent view modes, merge, cached editor reuse, disk/reload and closing either side retain documents');
  assert.deepEqual(run.errors,[]);report.status='passed';
  }catch(e){report.status='failed';report.error=e.stack;await page.screenshot({path:path.join(out,'failure.png')}).catch(()=>{});throw e;}finally{await fs.writeFile(path.join(out,'result.json'),JSON.stringify(report,null,2));await run.close();}

@@ -87,6 +87,9 @@ jobs:
         run: |
           node --test tests/desktop.test.cjs
           node tests/flow-outline.ui.cjs
+          npm run test:ui:flow-navigation
+          npm run test:ui:node-draft
+          npm run test:ui:knowledge-split-tabs
           node tests/node-interactions.ui.cjs
           node tests/flow-completed-filter.ui.cjs
       - name: Cache historical Windows upgrade installers

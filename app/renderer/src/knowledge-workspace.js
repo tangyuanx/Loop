@@ -11,8 +11,9 @@ const knowledgeBacklinkCache = new Map();
 const knowledgeDeferredFileEvents = new Map();
 let knowledgeIndexTimer = 0;
 let knowledgeLastTabClick = null;
-let knowledgeTabClickSuppressedUntil = 0;
-let knowledgeTabsBinding = null;
+let knowledgeTabDragClickPending = false;
+const knowledgeTabLandings = new WeakMap();
+const knowledgeTabsBindings = new Map();
 const knowledgeTabSessions = new WeakMap();
 const knowledgeToolbarBindings = new Map();
 const knowledgeResourceTabs=new Map(),knowledgeResourceActive=new Map(),knowledgeResourcePending=new Set();
@@ -24,11 +25,14 @@ const knowledgeNavigationHistory=new Map(),knowledgeReadingPositions=new Map();
 // owned by the existing per-document session and file/recovery queues.
 function knowledgeSplitLayout(owner = activeTask()) {
   const split = state.knowledgeWorkspace.splitsByTask?.[owner?.id];
-  if (!split || split.leftId === split.rightId) return null;
-  return [split.leftId,split.rightId].every(id => {
-    const note = knowledgeFindDocument(id);
-    return note && !note.knowledgeNote?.isDeleted && (state.knowledgeWorkspace.tabsByTask[owner.id]||[]).includes(id);
-  }) ? split : null;
+  if (!split) return null;
+  const tabs = (state.knowledgeWorkspace.tabsByTask[owner.id]||[]).filter(id => {
+    const note = knowledgeFindDocument(id);return note && !note.knowledgeNote?.isDeleted;
+  });
+  const normalized = knowledgeDocument.normalizeSplitLayout(split,tabs);
+  if (!normalized) return null;
+  // Preserve the live object used by divider/drag sessions.
+  Object.assign(split,normalized);return split;
 }
 function knowledgePane(taskId = knowledgeActiveDocument()?.id) {
   return taskId ? document.querySelector(`.knowledge-pane[data-task-id="${CSS.escape(taskId)}"]`) : document.querySelector('.knowledge-pane');
@@ -46,7 +50,8 @@ function knowledgeActivateSide(side) {
   split.active = side; session.activeId = target; session.lastByTask[state.activeTaskId] = target;
   for (const pane of document.querySelectorAll('[data-kn-side]')) pane.dataset.active = String(pane.dataset.knSide === side);
   for (const tab of document.querySelectorAll('[data-kn-document]')) {
-    const selected = tab.dataset.knDocument === target;
+    const side = tab.closest('[data-kn-tab-side]')?.dataset.knTabSide;
+    const selected = tab.dataset.knDocument === (side ? split[side+'Id'] : target);
     tab.setAttribute('aria-selected',String(selected)); tab.tabIndex = selected ? 0 : -1;
   }
   if (changed) { knowledgeResourceEpoch++; save(); }
@@ -68,7 +73,7 @@ function renderKnowledgeSplitActions() {
   const split = knowledgeSplitLayout(), available = state.knowledgeWorkspace.openIds.length > 1;
   return `<div class="menu-divider"></div><button type="button" class="button" role="menuitem" data-kn-layout="split" ${!available?'disabled title="请先打开两篇笔记"':''}>${split?'更换另一栏笔记…':'左右分屏'}</button>${split?'<button type="button" class="button" role="menuitem" data-kn-layout="merge">合并为单栏</button>':''}`;
 }
-function knowledgeSplitOpen(noteId, side = 'right') {
+function knowledgeSplitOpen(noteId, side = 'right', { keepSplit = true } = {}) {
   const session = state.knowledgeWorkspace, owner = activeTask(), current = knowledgeActiveDocument();
   if (!owner || !current) return;
   let target = knowledgeFindDocument(noteId);
@@ -76,24 +81,63 @@ function knowledgeSplitOpen(noteId, side = 'right') {
   captureMountedMilkdownDrafts(); flushNodeNoteDrafts({persist:true});
   const split = knowledgeSplitLayout(owner);
   if (split) {
-    const other = side === 'left' ? 'right' : 'left';
-    if (split[other+'Id'] === target.id) {
-      [split.leftId,split.rightId] = [split.rightId,split.leftId];
-      [split.leftMode,split.rightMode] = [split.rightMode,split.leftMode];
-    } else { split[side+'Id'] = target.id; split[side+'Mode'] = shellKnowledgeMode(target.id); }
-    split.active = side;
+    if (split[side+'Tabs'].includes(target.id)) knowledgeAttach(target);
+    else knowledgeMoveTab(target.id,side,null,keepSplit);
+    return;
   } else {
-    if (current.id === target.id) target = session.openIds.map(knowledgeFindDocument).find(note => note && note.id !== current.id && !note.knowledgeNote?.isDeleted);
-    if (!target) { shellToast('请先打开另一篇笔记，再左右分屏'); return; }
+    const other = current.id !== target.id ? current : session.openIds.map(knowledgeFindDocument).find(note => note && note.id !== target.id && !note.knowledgeNote?.isDeleted);
+    if (!other) { shellToast('请先打开另一篇笔记，再左右分屏'); return; }
     const mode = shellKnowledgeMode();
-    (session.splitsByTask ||= {})[owner.id] = {leftId:side==='left'?target.id:current.id,rightId:side==='right'?target.id:current.id,active:side,ratio:.5,leftMode:mode,rightMode:mode};
+    session.openIds = knowledgeDocument.normalizeNoteLinks([...session.openIds,target.id]);
+    const rest = session.openIds.filter(id=>id!==target.id);
+    (session.splitsByTask ||= {})[owner.id] = {leftId:side==='left'?target.id:other.id,rightId:side==='right'?target.id:other.id,active:side,ratio:.5,leftMode:mode,rightMode:mode,
+      leftTabs:side==='left'?[target.id]:rest,rightTabs:side==='right'?[target.id]:rest};
   }
-  const layout = knowledgeSplitLayout(owner);
-  session.openIds = knowledgeDocument.normalizeNoteLinks([...session.openIds,target.id]);
   session.tabsByTask[owner.id] = session.openIds.slice();
+  const layout = knowledgeSplitLayout(owner);
   session.activeId = layout[side+'Id']; session.lastByTask[owner.id] = session.activeId;
   knowledgeResourceActive.delete(owner.id); knowledgeResourceEpoch++;
   shellCloseOverlay({restoreFocus:false}); save(); render();
+}
+
+function knowledgeCommitTabGroups(split) {
+  const session=state.knowledgeWorkspace,owner=activeTask();
+  if (!owner) return;
+  session.openIds=knowledgeDocument.normalizeNoteLinks([...split.leftTabs,...split.rightTabs]);
+  session.tabsByTask[owner.id]=session.openIds.slice();
+  if (!split.leftTabs.length || !split.rightTabs.length) {
+    const remaining=split.leftTabs.length?'left':'right';
+    session.activeId=split[remaining+'Id'];
+    delete session.splitsByTask[owner.id];applySetting('knowledge-mode',split[remaining+'Mode']);
+  } else session.activeId=split[split.active+'Id'];
+  session.lastByTask[owner.id]=session.activeId;
+}
+
+// Move the tab identity, retaining the document's original editor/recovery.
+// The split command can keep both panes by exchanging their current tabs.
+// Dragging the last tab to the other pane closes the empty source pane.
+function knowledgeMoveTab(noteId,side,index=null,keepSplit=false) {
+  const split=knowledgeSplitLayout(),session=state.knowledgeWorkspace;
+  if (!split || !['left','right'].includes(side) || !knowledgeFindDocument(noteId)) return;
+  captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});
+  const from=split.leftTabs.includes(noteId)?'left':split.rightTabs.includes(noteId)?'right':'';
+  const mode=knowledgeCurrentEntry(noteId)?.mode||(from?split[from+'Mode']:shellKnowledgeMode());
+  if (from) {
+    const previousIndex=split[from+'Tabs'].indexOf(noteId);
+    split[from+'Tabs']=split[from+'Tabs'].filter(id=>id!==noteId);
+    if (split[from+'Id']===noteId) split[from+'Id']=split[from+'Tabs'][Math.max(0,previousIndex-1)]||'';
+    if (from!==side&&keepSplit&&!split[from+'Tabs'].length) {
+      const replacement=split[side+'Id'];
+      split[side+'Tabs']=split[side+'Tabs'].filter(id=>id!==replacement);
+      split[from+'Tabs']=[replacement];split[from+'Id']=replacement;split[from+'Mode']=split[side+'Mode'];
+    }
+  }
+  const tabs=split[side+'Tabs'];
+  tabs.splice(index===null?tabs.length:Math.max(0,Math.min(tabs.length,index)),0,noteId);
+  split[side+'Id']=noteId;split[side+'Mode']=mode;split.active=side;
+  knowledgeCommitTabGroups(split);
+  knowledgeResourceActive.delete(state.activeTaskId);knowledgeResourceEpoch++;
+  shellCloseOverlay({restoreFocus:false});save();render();requestAnimationFrame(knowledgeRevealActiveTab);
 }
 function knowledgeMergeSplit() {
   const split = knowledgeSplitLayout(); if (!split) return;
@@ -160,11 +204,14 @@ document.addEventListener('click',event=>{
   if(action){event.preventDefault();event.stopImmediatePropagation();if(action.dataset.knLayout==='merge')knowledgeMergeSplit();else knowledgeSplitMenu(action);return;}
   const note=event.target.closest('[data-kn-split-note]');
   if(note){event.preventDefault();event.stopImmediatePropagation();knowledgeSplitOpen(note.dataset.knSplitNote,note.dataset.side);}
+  const move=event.target.closest('[data-kn-move-tab]');
+  if(move){event.preventDefault();event.stopImmediatePropagation();knowledgeMoveTab(move.dataset.knMoveTab,move.dataset.side);}
 },true);
 document.addEventListener('contextmenu',event=>{
   const tab=event.target.closest('[data-kn-document]');if(!tab)return;
   event.preventDefault();event.stopImmediatePropagation();
-  shellMountSurface(`<div class="surface-popover kn-split-menu" role="menu" aria-label="笔记页签操作"><button type="button" class="button" role="menuitem" data-kn-split-note="${escAttr(tab.dataset.knDocument)}" data-side="left">在左侧分屏打开</button><button type="button" class="button" role="menuitem" data-kn-split-note="${escAttr(tab.dataset.knDocument)}" data-side="right">在右侧分屏打开</button>${knowledgeSplitLayout()?'<button type="button" class="button" role="menuitem" data-kn-layout="merge">合并为单栏</button>':''}</div>`,tab,210);
+  const split=knowledgeSplitLayout(),other=split?.leftTabs.includes(tab.dataset.knDocument)?'right':'left';
+  shellMountSurface(`<div class="surface-popover kn-split-menu" role="menu" aria-label="笔记页签操作"><button type="button" class="button" role="menuitem" data-kn-split-note="${escAttr(tab.dataset.knDocument)}" data-side="left">在左侧分屏打开</button><button type="button" class="button" role="menuitem" data-kn-split-note="${escAttr(tab.dataset.knDocument)}" data-side="right">在右侧分屏打开</button>${split?`<button type="button" class="button" role="menuitem" data-kn-move-tab="${escAttr(tab.dataset.knDocument)}" data-side="${other}">移动到${other==='left'?'左':'右'}栏</button><button type="button" class="button" role="menuitem" data-kn-layout="merge">合并为单栏</button>`:''}</div>`,tab,210);
 },true);
 function knowledgeLocation() {
   const resource=knowledgeActiveResource();
@@ -385,30 +432,36 @@ function knowledgeBindToolbar() {
   }
 }
 
-function knowledgeUpdateTabScroll() {
-  if(!knowledgeTabsBinding)return;
-  const {bar,viewport,session}=knowledgeTabsBinding;
+function knowledgeUpdateTabScroll(binding) {
+  for(const current of binding?[binding]:knowledgeTabsBindings.values()){
+  const {bar,viewport,session}=current;
   session.scroll=viewport.scrollLeft;
   bar.querySelector('[data-kn-scroll="-1"]').disabled=viewport.scrollLeft<=1;
   bar.querySelector('[data-kn-scroll="1"]').disabled=viewport.scrollLeft+viewport.clientWidth>=viewport.scrollWidth-1;
+  }
 }
 
-function knowledgeRevealActiveTab() {
-  const viewport=document.querySelector('.kn-document-tabs');
+function knowledgeRevealBindingTab(binding) {
+  const {viewport}=binding;
   const tab=viewport?.querySelector('[aria-selected="true"]')?.parentElement;
   if(!tab)return;
   const rect=tab.getBoundingClientRect(),visible=viewport.getBoundingClientRect();
   if(rect.left<visible.left)viewport.scrollLeft+=rect.left-visible.left;
   else if(rect.right>visible.right)viewport.scrollLeft+=rect.right-visible.right;
-  knowledgeUpdateTabScroll();
+  knowledgeUpdateTabScroll(binding);
 }
 
-function knowledgeLayoutTabs() {
-  const bar=knowledgeTabsBinding?.bar;
+function knowledgeRevealActiveTab(side) {
+  const target=['left','right'].includes(side)?side:document.querySelector('.kn-split')?knowledgeSplitLayout()?.active||'':'';
+  for(const binding of knowledgeTabsBindings.values())if(binding.bar.dataset.knTabSide===target)knowledgeRevealBindingTab(binding);
+}
+
+function knowledgeLayoutTabs(binding) {
+  const bar=binding?.bar;
   if(!bar?.isConnected)return;
-  const resized=knowledgeTabsBinding.width!==undefined&&knowledgeTabsBinding.width!==bar.clientWidth;
-  knowledgeTabsBinding.width=bar.clientWidth;
-  const {viewport}=knowledgeTabsBinding,count=viewport.children.length;
+  const resized=binding.width!==undefined&&binding.width!==bar.clientWidth;
+  binding.width=bar.clientWidth;
+  const {viewport}=binding,count=viewport.children.length;
   const css=getComputedStyle(bar),gap=parseFloat(getComputedStyle(viewport).columnGap);
   const minimum=parseFloat(css.getPropertyValue('--kn-tab-min-width'));
   const maximum=parseFloat(css.getPropertyValue('--kn-tab-max-width'));
@@ -421,48 +474,47 @@ function knowledgeLayoutTabs() {
     button.hidden=fitted>=minimum;
     if(button.hidden&&button===document.activeElement)viewport.querySelector('[aria-selected="true"]')?.focus({preventScroll:true});
   }
-  if(resized)knowledgeRevealActiveTab();
-  else knowledgeUpdateTabScroll();
+  if(resized)knowledgeRevealBindingTab(binding);
+  else knowledgeUpdateTabScroll(binding);
 }
 
 function knowledgeBindTabs() {
-  const bar=document.querySelector('.kn-document-bar');
-  for(const close of bar?.querySelectorAll('[data-kn-detach]')||[]){
+  const bars=[...document.querySelectorAll('.kn-document-bar')];
+  for(const [bar,binding]of knowledgeTabsBindings)if(!bars.includes(bar)){
+    binding.controller.abort();binding.observer.disconnect();knowledgeTabsBindings.delete(bar);
+  }
+  const owner=activeTask();if(!owner)return;
+  const sessions=knowledgeTabSessions.get(owner)||new Map();knowledgeTabSessions.set(owner,sessions);
+  for(const bar of bars){
+  for(const close of bar.querySelectorAll('[data-kn-detach]')){
     const note=knowledgeFindDocument(close.dataset.knDetach);
     close.toggleAttribute('data-unsaved',Boolean(note&&(!note.knowledgeNote.filePath||note.knowledgeNote.dirty||nodeNoteDrafts.has(noteDraftKey(note.id,'')))));
   }
-  if(bar===knowledgeTabsBinding?.bar){
+  const retained=knowledgeTabsBindings.get(bar);
+  if(retained){
     // Retained regions briefly leave the document during render, which resets
     // their native scrollLeft even though the same nodes are mounted again.
-    const scroll=knowledgeTabsBinding.session.scroll;
-    knowledgeLayoutTabs();
-    knowledgeTabsBinding.viewport.scrollLeft=scroll;
-    knowledgeUpdateTabScroll();return;
+    const scroll=retained.session.scroll;
+    knowledgeLayoutTabs(retained);
+    retained.viewport.scrollLeft=scroll;
+    knowledgeUpdateTabScroll(retained);continue;
   }
-  if(knowledgeTabsBinding){
-    knowledgeTabsBinding.observer.disconnect();
-    knowledgeTabsBinding.controller.abort();
-    knowledgeTabsBinding=null;
-  }
-  if(!bar)return;
   const viewport=bar.querySelector('.kn-document-tabs');
-  const owner=activeTask();
-  if(!owner)return;
-  const session=knowledgeTabSessions.get(owner)||{scroll:0,activeId:''};
-  knowledgeTabSessions.set(owner,session);
+  const side=bar.dataset.knTabSide||'',session=sessions.get(side)||{scroll:0,activeId:''};sessions.set(side,session);
   const activeId=viewport.querySelector('[aria-selected="true"]')?.dataset.knDocument||'';
   const changed=activeId!==session.activeId;
   session.activeId=activeId;
   const scroll=session.scroll;
   const controller=new AbortController();
-  const observer=new ResizeObserver(knowledgeLayoutTabs);
-  knowledgeTabsBinding={bar,viewport,session,controller,observer};
-  knowledgeLayoutTabs();
+  const binding={bar,viewport,session,controller};
+  const observer=new ResizeObserver(()=>knowledgeLayoutTabs(binding));binding.observer=observer;
+  knowledgeTabsBindings.set(bar,binding);
+  knowledgeLayoutTabs(binding);
   viewport.scrollLeft=scroll;
-  if(changed)knowledgeRevealActiveTab();
-  knowledgeUpdateTabScroll();
+  if(changed)knowledgeRevealBindingTab(binding);
+  knowledgeUpdateTabScroll(binding);
   observer.observe(bar);
-  viewport.addEventListener('scroll',knowledgeUpdateTabScroll,{passive:true,signal:controller.signal});
+  viewport.addEventListener('scroll',()=>knowledgeUpdateTabScroll(binding),{passive:true,signal:controller.signal});
   viewport.addEventListener('wheel',event=>{
     if(event.ctrlKey||viewport.scrollWidth<=viewport.clientWidth)return;
     const delta=Math.abs(event.deltaX)>Math.abs(event.deltaY)?event.deltaX:event.deltaY;
@@ -470,78 +522,214 @@ function knowledgeBindTabs() {
     const unit=event.deltaMode===1?16:event.deltaMode===2?viewport.clientWidth:1;
     event.preventDefault();
     viewport.scrollLeft+=delta*unit;
-    knowledgeUpdateTabScroll();
+    knowledgeUpdateTabScroll(binding);
   },{passive:false,signal:controller.signal});
   knowledgeBindTabReordering(viewport,owner,controller.signal);
+  }
 }
 
 function knowledgeSaveTabOrder(viewport,owner) {
   if(owner!==activeTask())return;
   const session=state.knowledgeWorkspace;
   const ids=[...viewport.querySelectorAll('[data-kn-document]')].map(tab=>tab.dataset.knDocument);
-  session.openIds=ids;
-  session.tabsByTask[owner.id]=ids.slice();
+  const side=viewport.closest('[data-kn-tab-side]')?.dataset.knTabSide,split=knowledgeSplitLayout(owner);
+  if(side&&split){split[side+'Tabs']=ids;knowledgeCommitTabGroups(split);}
+  else{session.openIds=ids;session.tabsByTask[owner.id]=ids.slice();}
   retainedRegionMarkup.delete('workspace');
   save();
 }
 
+function knowledgeLandDraggedTab(noteId, from) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const tab = document.querySelector(`[data-kn-document="${CSS.escape(noteId)}"]`)?.parentElement;
+  if (!tab) return;
+  const to = tab.getBoundingClientRect();
+  const x = from.left - to.left, y = from.top - to.top;
+  // Only settle short moves. A different pane layout can change tab widths
+  // or put the selected tab beyond the portion of the bar that was visible.
+  if (Math.abs(x) > 96 || Math.abs(y) > 30 || Math.abs(from.width - to.width) > 2 || Math.hypot(x, y) < 1) return;
+  knowledgeTabLandings.get(tab)?.cancel();
+  const animation = tab.animate([{transform:`translate(${x}px, ${y}px)`},{transform:'none'}], {
+    duration: 140, easing: 'cubic-bezier(.2,.75,.25,1)',
+  });
+  knowledgeTabLandings.set(tab, animation);
+}
+
+document.addEventListener('pointerdown', () => { knowledgeTabDragClickPending = false; }, true);
+
 function knowledgeBindTabReordering(viewport,owner,bindingSignal) {
   viewport.addEventListener('pointerdown',event=>{
     const button=event.target.closest('[data-kn-document]');
-    if(event.button!==0||!button||event.target.closest('input,textarea,[data-kn-detach]'))return;
+    if(event.button!==0||!event.isPrimary||!button||event.target.closest('input,textarea,[data-kn-detach]'))return;
     const tab=button.parentElement,original=[...viewport.children],startX=event.clientX,startY=event.clientY,startScroll=viewport.scrollLeft;
+    const sourceSide=viewport.closest('.kn-document-bar').dataset.knTabSide;
+    const onlyTabInPane=Boolean(sourceSide)&&viewport.querySelectorAll('[data-kn-document]').length===1;
+    const mergesInto=side=>onlyTabInPane&&Boolean(side)&&side!==sourceSide;
+    const startBounds=tab.getBoundingClientRect();
+    const grabX=startX-startBounds.left,grabY=startY-startBounds.top;
     const gesture=new AbortController(),signal=gesture.signal;
-    let dragging=false,autoFrame=0,pointerX=startX;
+    let dragging=false,finished=false,autoFrame=0,pointerX=startX,pointerY=startY,drop=null,preview=null,ghost=null;
+    const clearMarks=()=>{
+      for(const item of document.querySelectorAll('[data-tab-insert],[data-tab-after]')){
+        item.removeAttribute('data-tab-insert');
+        item.removeAttribute('data-tab-after');
+      }
+    };
+    const clearPreview=()=>{preview?.remove();preview=null;};
+    const showPreview=(side,bounds,label)=>{
+      if(!preview){
+        preview=document.createElement('div');preview.className='kn-tab-drop-preview';preview.setAttribute('aria-hidden','true');
+        preview.append(document.createElement('span'));document.body.append(preview);
+      }
+      preview.dataset.knDropSide=side;
+      Object.assign(preview.style,{left:bounds.left+'px',top:bounds.top+'px',width:bounds.width+'px',height:bounds.height+'px'});
+      preview.firstElementChild.textContent=label;
+    };
+    const peerAnimations=new Map();
+    const followPointer=()=>{
+      if(!ghost){
+        ghost=document.createElement('div');
+        ghost.className='kn-tab-drag-ghost';ghost.setAttribute('aria-hidden','true');
+        ghost.style.width=startBounds.width+'px';ghost.style.height=startBounds.height+'px';
+        ghost.toggleAttribute('data-selected',button.getAttribute('aria-selected')==='true');
+        const compact=viewport.closest('.kn-document-bar').hasAttribute('data-compact');
+        ghost.toggleAttribute('data-compact',compact);
+        const title=document.createElement('span');title.className='kn-tab-drag-title';
+        const label=button.querySelector('span')?.textContent||button.getAttribute('aria-label')||'笔记';
+        title.textContent=compact?Array.from(label)[0]:label;ghost.append(title);
+        const workspace=getComputedStyle(viewport);
+        for(const name of ['--canvas','--text','--line'])ghost.style.setProperty(name,workspace.getPropertyValue(name));
+        document.body.append(ghost);document.body.classList.add('kn-tab-drag-active');
+      }
+      // Track the grab point directly, keeping the full tab readable at the window edge.
+      const x=Math.max(0,Math.min(pointerX-grabX,window.innerWidth-startBounds.width));
+      const y=Math.max(0,Math.min(pointerY-grabY,window.innerHeight-startBounds.height));
+      ghost.style.transform=`translate3d(${x}px,${y}px,0)`;
+    };
+    const scrolled=new Map([[viewport,startScroll]]);
+    const restore=()=>{viewport.append(...original);for(const [target,scroll]of scrolled)target.scrollLeft=scroll;};
     const finish=cancel=>{
+      if(finished)return;finished=true;
       gesture.abort();
       cancelAnimationFrame(autoFrame);
       bindingSignal.removeEventListener('abort',cancelGesture);
+      const landing=ghost?.getBoundingClientRect();
+      const committedDrop=!cancel&&owner===activeTask()?drop:null;
+      const sameBar=committedDrop?.kind==='bar'&&committedDrop.viewport===viewport;
+      if(!sameBar)for(const animation of peerAnimations.values())animation.cancel();
+      if(viewport.hasPointerCapture(event.pointerId))viewport.releasePointerCapture(event.pointerId);
       tab.classList.remove('kn-tab-dragging');
-      viewport.querySelector('[data-tab-insert]')?.removeAttribute('data-tab-insert');
+      clearMarks();clearPreview();ghost?.remove();document.body.classList.remove('kn-tab-drag-active');
       if(dragging){
-        knowledgeTabClickSuppressedUntil=performance.now()+300;knowledgeLastTabClick=null;
-        if(cancel){viewport.append(...original);viewport.scrollLeft=startScroll;}
-        else knowledgeSaveTabOrder(viewport,owner);
+        knowledgeLastTabClick=null;
+        if(!committedDrop)restore();
+        else if(sameBar)knowledgeSaveTabOrder(viewport,owner);
+        else{
+          restore();
+          if(committedDrop.kind==='bar')knowledgeMoveTab(button.dataset.knDocument,committedDrop.side,committedDrop.index);
+          else knowledgeSplitOpen(button.dataset.knDocument,committedDrop.side,{keepSplit:committedDrop.keepSplit});
+        }
         knowledgeUpdateTabScroll();
+        if(committedDrop?.kind==='bar'&&landing)knowledgeLandDraggedTab(button.dataset.knDocument,landing);
       }
-      if(button.hasPointerCapture(event.pointerId))button.releasePointerCapture(event.pointerId);
     };
     const cancelGesture=()=>finish(true);
     bindingSignal.addEventListener('abort',cancelGesture,{once:true});
-    const place=()=>{
-      const peers=[...viewport.querySelectorAll('[data-kn-document]')].map(item=>item.parentElement).filter(item=>item!==tab);
-      const next=peers.find(item=>{const rect=item.getBoundingClientRect();return pointerX<rect.left+rect.width/2;});
-      const anchor=next||viewport.querySelector('[data-kn-resource]')?.parentElement||null;
-      if(tab.nextElementSibling!==anchor){
+    const place=target=>{
+      const peers=[...target.querySelectorAll('[data-kn-document]')].map(item=>item.parentElement).filter(item=>item!==tab);
+      // Compare against layout positions. Transforming neighbours must not
+      // shift the hit thresholds while they slide into their new positions.
+      const contentLeft=target.getBoundingClientRect().left-target.scrollLeft;
+      const next=peers.find(item=>pointerX<contentLeft+item.offsetLeft+item.offsetWidth/2);
+      const anchor=next||target.querySelector('[data-kn-resource]')?.parentElement||null;
+      if(target===viewport&&tab.nextElementSibling!==anchor){
         const before=new Map(peers.map(item=>[item,item.getBoundingClientRect().left]));
-        viewport.insertBefore(tab,anchor);
+        for(const animation of peerAnimations.values())animation.cancel();
+        peerAnimations.clear();
+        target.insertBefore(tab,anchor);
         if(!matchMedia('(prefers-reduced-motion: reduce)').matches)for(const item of peers){
           const shift=before.get(item)-item.getBoundingClientRect().left;
-          if(shift)item.animate([{transform:`translateX(${shift}px)`},{transform:'translateX(0)'}],{duration:130,easing:'ease-out'});
+          if(shift)peerAnimations.set(item,item.animate([{transform:`translateX(${shift}px)`},{transform:'none'}],{duration:130,easing:'ease-out'}));
         }
       }
-      viewport.querySelector('[data-tab-insert]')?.removeAttribute('data-tab-insert');
-      tab.setAttribute('data-tab-insert','');
+      clearMarks();
+      if(target===viewport)tab.setAttribute('data-tab-insert','');
+      else if(next)next.setAttribute('data-tab-insert','');
+      else peers.at(-1)?.setAttribute('data-tab-after','');
+      return next?peers.indexOf(next):peers.length;
+    };
+    const contains=(rect,x,y)=>rect.width>0&&rect.height>0&&x>=rect.left&&x<=rect.right&&y>=rect.top&&y<=rect.bottom;
+    const hit=()=>{
+      clearMarks();drop=null;
+      // Header hit testing wins: even at the extreme edge it is only sorting
+      // or a cross-pane move, never a request to create a split.
+      const bar=[...document.querySelectorAll('.kn-document-bar')].find(bar=>contains(bar.getBoundingClientRect(),pointerX,pointerY));
+      if(bar){
+        const target=bar.querySelector('.kn-document-tabs'),side=bar.dataset.knTabSide;
+        if(!scrolled.has(target))scrolled.set(target,target.scrollLeft);
+        drop={kind:'bar',viewport:target,side,index:place(target)};
+        const destination=mergesInto(side)&&bar.closest('.kn-split-pane')?.querySelector('.knowledge-note-surface');
+        if(destination)showPreview(side,destination.getBoundingClientRect(),'松手合并为单栏');
+        else clearPreview();
+        return;
+      }
+      const pointedElement=document.elementFromPoint(pointerX,pointerY);
+      const pointedPane=pointedElement?.closest('.kn-split-pane');
+      const surface=pointedElement?.closest('.knowledge-note-surface')
+        || (mergesInto(pointedPane?.dataset.knSide)&&pointedPane.querySelector('.knowledge-note-surface'));
+      if(!surface||!state.knowledgeWorkspace.openIds.some(id=>id!==button.dataset.knDocument)){
+        clearPreview();return;
+      }
+
+      const bounds=surface.getBoundingClientRect();
+      const split=surface.closest('.kn-split');
+      const focused=Boolean(split?.dataset.knFocus);
+      const half=bounds.width/2;
+      const side=split&&!focused
+        ? surface.closest('[data-kn-side]').dataset.knSide
+        : pointerX<bounds.left+half?'left':'right';
+      let previewLeft=bounds.left,previewWidth=bounds.width;
+      if(!split){
+        const dividerWidth=parseFloat(getComputedStyle(viewport).getPropertyValue('--kn-divider-width'));
+        previewWidth=half;
+        if(side==='right'){
+          previewLeft+=half+dividerWidth;
+          previewWidth-=dividerWidth;
+        }
+      }
+      drop={kind:'split',side,keepSplit:focused};
+      const sideName=side==='left'?'左':'右';
+      const label=!focused&&mergesInto(side)?'松手合并为单栏':split?`在${sideName}栏打开`:`在${sideName}侧分屏`;
+      showPreview(side,{left:previewLeft,top:bounds.top,width:previewWidth,height:bounds.height},label);
     };
     const autoScroll=()=>{
       autoFrame=0;if(!dragging||signal.aborted)return;
-      const bounds=viewport.getBoundingClientRect(),before=viewport.scrollLeft;
+      if(drop?.kind!=='bar')return;
+      const target=drop.viewport,bounds=target.getBoundingClientRect(),before=target.scrollLeft;
       const delta=pointerX<bounds.left+30?-18:pointerX>bounds.right-30?18:0;
       if(!delta)return;
-      viewport.scrollLeft+=delta;
-      if(viewport.scrollLeft!==before){place();knowledgeUpdateTabScroll();autoFrame=requestAnimationFrame(autoScroll);}
+      target.scrollLeft+=delta;
+      if(target.scrollLeft!==before){drop.index=place(target);knowledgeUpdateTabScroll();autoFrame=requestAnimationFrame(autoScroll);}
     };
     window.addEventListener('pointermove',move=>{
       if(move.pointerId!==event.pointerId)return;
       if(!dragging&&Math.hypot(move.clientX-startX,move.clientY-startY)<5)return;
-      move.preventDefault();pointerX=move.clientX;
-      if(!dragging){dragging=true;button.setPointerCapture(event.pointerId);tab.classList.add('kn-tab-dragging');}
-      place();if(!autoFrame)autoFrame=requestAnimationFrame(autoScroll);
+      move.preventDefault();pointerX=move.clientX;pointerY=move.clientY;
+      if(!dragging){
+        dragging=true;knowledgeTabDragClickPending=true;
+        viewport.setPointerCapture(event.pointerId);
+        knowledgeTabLandings.get(tab)?.cancel();
+        tab.classList.add('kn-tab-dragging');
+      }
+      followPointer();hit();if(!autoFrame)autoFrame=requestAnimationFrame(autoScroll);
     },{passive:false,signal});
     window.addEventListener('pointerup',up=>{if(up.pointerId===event.pointerId)finish(false);},{signal});
     window.addEventListener('pointercancel',cancel=>{if(cancel.pointerId===event.pointerId)cancelGesture();},{signal});
+    viewport.addEventListener('lostpointercapture',lost=>{
+      if(dragging&&lost.pointerId===event.pointerId&&!viewport.hasPointerCapture(event.pointerId))cancelGesture();
+    },{signal});
     window.addEventListener('blur',cancelGesture,{signal});
-    document.addEventListener('keydown',key=>{if(key.key==='Escape'){key.preventDefault();key.stopImmediatePropagation();cancelGesture();}},{capture:true,signal});
+    document.addEventListener('keydown',key=>{if(dragging&&key.key==='Escape'){key.preventDefault();key.stopImmediatePropagation();cancelGesture();}},{capture:true,signal});
   },{signal:bindingSignal});
 }
 
@@ -587,13 +775,14 @@ function knowledgeAttach(note,anchor='',source=null) {
   if(note.knowledgeNote?.isDeleted)return;
   const split=knowledgeSplitLayout(task);
   if(split){
-    const side=split.leftId===note.id?'left':split.rightId===note.id?'right':split.active;
+    const side=split.leftTabs.includes(note.id)?'left':split.rightTabs.includes(note.id)?'right':split.active;
     if(split[side+'Id']===note.id&&!knowledgeActiveResource(task)){
       knowledgeCapturePosition();knowledgeRecordNavigation(source,{kind:'note',id:note.id});
       knowledgeActivateSide(side);
       if(anchor)knowledgeCurrentEntry(note.id)?.locateAnchor(anchor);
       return;
     }
+    if(!split[side+'Tabs'].includes(note.id))split[side+'Tabs'].push(note.id);
     split[side+'Id']=note.id;split.active=side;
   }
   knowledgeCapturePosition();knowledgeRecordNavigation(source,{kind:'note',id:note.id});
@@ -604,6 +793,7 @@ function knowledgeAttach(note,anchor='',source=null) {
   session.openIds=knowledgeDocument.normalizeNoteLinks([...session.openIds,note.id]);
   session.activeId=note.id;session.taskId=task.id;session.lastByTask[task.id]=note.id;
   session.tabsByTask[task.id]=session.openIds.slice();
+  if(split)knowledgeCommitTabGroups(split);
   session.recentIds=[note.id,...session.recentIds.filter(id=>id!==note.id)].slice(0,40);
   state.taskPane='notes';save();shellCloseOverlay({restoreFocus:false});render();
   requestAnimationFrame(knowledgeRevealActiveTab);
@@ -614,19 +804,22 @@ function knowledgeDetach(noteId) {
   const task=state.tasks.find(t=>t.id===state.activeTaskId);if(!task)return;
   captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});
   const session=state.knowledgeWorkspace,index=session.openIds.indexOf(noteId);
-  const split=session.splitsByTask?.[task.id];
-  if(split&&(split.leftId===noteId||split.rightId===noteId)){
-    session.activeId=split.leftId===noteId?split.rightId:split.leftId;
-    applySetting('knowledge-mode',split[split.leftId===noteId?'rightMode':'leftMode']);
-    delete session.splitsByTask[task.id];
-  }
+  const split=knowledgeSplitLayout(task);
   const returning=!knowledgeActiveResource()&&session.activeId===noteId?knowledgeTakeReturn({kind:'note',id:noteId}):null;
+  if(split){
+    for(const side of ['left','right']){
+      const position=split[side+'Tabs'].indexOf(noteId);
+      split[side+'Tabs']=split[side+'Tabs'].filter(id=>id!==noteId);
+      if(split[side+'Id']===noteId)split[side+'Id']=split[side+'Tabs'][Math.max(0,position-1)]||'';
+    }
+    knowledgeCommitTabGroups(split);
+  }
   session.openIds=session.openIds.filter(id=>id!==noteId);
   if(session.activeId===noteId)session.activeId=session.openIds[Math.max(0,index-1)]||'';
   session.lastByTask[task.id]=session.activeId;
   session.tabsByTask[task.id]=session.openIds.slice();
   save();if(returning)knowledgeReturnTo(returning);else render();
-  const focus=document.querySelector('.kn-document-tabs [aria-selected="true"]')||document.querySelector('.knowledge-pane [data-wb-action="more"]');
+  const focus=document.querySelector(`[data-kn-document="${CSS.escape(session.activeId)}"]`)||document.querySelector('.knowledge-pane [data-wb-action="more"]');
   focus?.focus({preventScroll:true});
 }
 function knowledgePreserveTaskNote(task) {
@@ -1279,7 +1472,9 @@ function knowledgeInsertMenu(trigger) {
   });
 }
 document.addEventListener('click',event=>{
-  if(event.target.closest('.kn-document-bar')&&performance.now()<knowledgeTabClickSuppressedUntil){event.preventDefault();event.stopImmediatePropagation();return;}
+  if(event.detail>0&&knowledgeTabDragClickPending&&event.target.closest('.kn-document-bar')){
+    knowledgeTabDragClickPending=false;event.preventDefault();event.stopImmediatePropagation();return;
+  }
   const resource=event.target.closest('[data-kn-resource]');if(resource){knowledgeSelectResource(resource.dataset.knResource);return;}
   const resourceClose=event.target.closest('[data-kn-resource-close]');if(resourceClose){void knowledgeCloseResource(resourceClose.dataset.knResourceClose);return;}
   const tab=event.target.closest('[data-kn-document]');
@@ -1338,7 +1533,7 @@ document.addEventListener('keydown',event=>{
   }
   if(tab?.dataset.knResource&&['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){
     event.preventDefault();const tabs=[...tab.closest('[role=tablist]').querySelectorAll('[role=tab]')],index=tabs.indexOf(tab),next=tabs[event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:tabs.length-1))%tabs.length];
-    if(next.dataset.knResource)knowledgeSelectResource(next.dataset.knResource);else knowledgeAttach(knowledgeFindDocument(next.dataset.knDocument));document.querySelector('.kn-document-tabs [aria-selected=true]')?.focus();return;
+    if(next.dataset.knResource)knowledgeSelectResource(next.dataset.knResource);else knowledgeAttach(knowledgeFindDocument(next.dataset.knDocument));document.querySelector(next.dataset.knDocument?`[data-kn-document="${CSS.escape(next.dataset.knDocument)}"]`:'.kn-document-tabs [aria-selected=true]')?.focus();return;
   }
   if(tab&&event.key==='F2'&&!event.isComposing){
     event.preventDefault();knowledgeLastTabClick=null;
@@ -1349,7 +1544,7 @@ document.addEventListener('keydown',event=>{
   if(tab&&['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){
     event.preventDefault();const tabs=[...tab.closest('[role=tablist]').querySelectorAll('[role=tab]')],index=tabs.indexOf(tab);
     const next=tabs[event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:tabs.length-1))%tabs.length];
-    if(next.dataset.knResource)knowledgeSelectResource(next.dataset.knResource);else knowledgeAttach(knowledgeFindDocument(next.dataset.knDocument));document.querySelector('.kn-document-tabs [aria-selected=true]')?.focus();return;
+    if(next.dataset.knResource)knowledgeSelectResource(next.dataset.knResource);else knowledgeAttach(knowledgeFindDocument(next.dataset.knDocument));document.querySelector(next.dataset.knDocument?`[data-kn-document="${CSS.escape(next.dataset.knDocument)}"]`:'.kn-document-tabs [aria-selected=true]')?.focus();return;
   }
   if(event.isComposing||!(event.ctrlKey||event.metaKey)||state.taskPane!=='notes'||shellOverlayIsOpen())return;
   const key=event.key.toLowerCase();

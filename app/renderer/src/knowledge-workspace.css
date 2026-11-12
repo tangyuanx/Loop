@@ -2,7 +2,7 @@
  * editing; foundation remains last and owns all input/focus treatments. */
 .kn-split-workspace { position: relative; display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .kn-split-workspace > .wb-global-status { position: absolute; bottom: 8px; left: 8px; z-index: 9; max-width: calc(100% - 16px); background: var(--canvas); font-size: var(--type-12); }
-.kn-split { display: grid; grid-template-columns: minmax(0,var(--kn-left,50%)) 7px minmax(0,1fr); flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.kn-split { display: grid; grid-template-columns: minmax(0,var(--kn-left,50%)) var(--kn-divider-width) minmax(0,1fr); flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .kn-split-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .kn-split-pane > .knowledge-pane { flex: 1; min-width: 0; min-height: 0; }
 .kn-split-divider { cursor: col-resize; touch-action: none; position: relative; background: var(--canvas); }
@@ -23,6 +23,7 @@
 .kn-split-menu { padding: 5px; }
 .kn-split-menu > button { width: 100%; justify-content: flex-start; min-height: 32px; text-align: left; overflow-wrap: anywhere; white-space: normal; border: 0; }
 body .workspace.knowledge-workspace {
+  --kn-divider-width: 7px;
   --canvas: var(--workspace-canvas); --list: var(--workspace-list); --selected: var(--workspace-selected); --hover: var(--workspace-hover);
   --text: var(--workspace-text); --secondary: var(--workspace-secondary); --line: var(--workspace-line);
   --input-surface: color-mix(in srgb,var(--list) 97%,var(--text));
@@ -112,6 +113,7 @@ body[data-notebook23-enabled] .knowledge-footer {
   box-shadow: inset 0 -1px var(--line);
 }
 .kn-document-tabs {
+  position: relative;
   display: flex;
   align-items: stretch;
   flex: 0 1 auto;
@@ -133,7 +135,7 @@ body[data-notebook23-enabled] .knowledge-footer {
 }
 .kn-document-tab:has([aria-selected="true"]) { border-color: var(--line); background: var(--canvas); }
 .kn-document-tab:not(:has([aria-selected="true"])):hover { background: var(--hover); }
-body .knowledge-pane .kn-document-tab > button { border: 0; background: transparent; color: var(--secondary); cursor: pointer; }
+body .kn-document-bar .kn-document-tab > button { border: 0; background: transparent; color: var(--secondary); cursor: pointer; }
 .kn-document-tab [role="tab"] {
   display: flex;
   align-items: center;
@@ -200,9 +202,50 @@ body .kn-document-tab .kn-document-close:hover { color: var(--text); }
   .knowledge-note-actions .kn-find-count { min-width: 34px; }
 }
 /* Reordering moves only tab elements, keeping the live note editor attached. */
-.kn-document-tab.kn-tab-dragging { opacity: .55; cursor: grabbing; }
-.kn-document-tab[data-tab-insert] { box-shadow: inset 2px 0 var(--text); }
-.kn-document-tabs [data-kn-document] { touch-action: pan-y; }
+.kn-document-tab.kn-tab-dragging { border-color: transparent; background: var(--hover); }
+.kn-document-tab.kn-tab-dragging > button { opacity: 0; }
+.kn-document-tab:not(.kn-tab-dragging):is([data-tab-insert],[data-tab-after]) { position: relative; }
+.kn-document-tab:not(.kn-tab-dragging):is([data-tab-insert],[data-tab-after])::after {
+  content: ''; position: absolute; inset-block: 5px; left: -1px; width: 2px; border-radius: 2px; background: var(--text);
+}
+.kn-document-tab:not(.kn-tab-dragging)[data-tab-after]::after { left: auto; right: -1px; }
+.kn-document-tabs [data-kn-document] { touch-action: none; }
+.kn-tab-drag-active,.kn-tab-drag-active * { cursor: grabbing !important; user-select: none !important; }
+.kn-tab-drag-ghost {
+  position: fixed;
+  inset: 0 auto auto 0;
+  z-index: 220;
+  display: flex;
+  align-items: center;
+  padding-inline: 10px 28px;
+  box-sizing: border-box;
+  pointer-events: none;
+  border: 1px solid var(--line);
+  border-radius: 10px 10px 4px 4px;
+  background: var(--canvas);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--type-12);
+  box-shadow: 0 3px 10px rgb(0 0 0 / .18);
+  will-change: transform;
+}
+.kn-tab-drag-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kn-tab-drag-ghost[data-selected] { font-weight: var(--ui-emphasis-weight); }
+.kn-tab-drag-ghost[data-compact] { justify-content: center; padding-inline: 3px; }
+.kn-tab-drop-preview {
+  position: fixed;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 1px solid var(--secondary);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--secondary) 9%, transparent);
+  color: var(--text);
+  font-size: var(--type-12);
+}
+.kn-tab-drop-preview > span { padding: 5px 12px; border-radius: 6px; background: var(--canvas); box-shadow: 0 0 0 1px var(--line); }
 .wb-menu button[data-image-align] {
   display: flex; align-items: center; justify-content: flex-start; width: 100%; min-height: 28px;
   padding: 5px 8px; border: 0; border-radius: 4px; background: transparent;

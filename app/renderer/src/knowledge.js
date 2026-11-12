@@ -97,11 +97,13 @@ function shellKnowledgeRecoveryText(task) {
 // Pane
 // ------------------------------------------------------------
 
-function renderKnowledgeTabs(task) {
-  const active=knowledgeActiveDocument(task),resource=typeof knowledgeActiveResource==='function'?knowledgeActiveResource(task):null,notes=state.knowledgeWorkspace.openIds.map(knowledgeFindDocument).filter(note=>note&&!note.knowledgeNote?.isDeleted);
+function renderKnowledgeTabs(task,side='') {
+  const split=side?knowledgeSplitLayout(task):null;
+  const active=split?knowledgeFindDocument(split[side+'Id']):knowledgeActiveDocument(task),resource=typeof knowledgeActiveResource==='function'?knowledgeActiveResource(task):null;
+  const notes=(split?split[side+'Tabs']:state.knowledgeWorkspace.openIds).map(knowledgeFindDocument).filter(note=>note&&!note.knowledgeNote?.isDeleted);
   if(active&&!notes.some(note=>note.id===active.id))notes.unshift(active);
   const scrollButton=(direction,label)=>`<button type="button" class="kn-document-scroll" data-kn-scroll="${direction}" aria-label="${label}" title="${label}" hidden>${shellIcon('chevron')}</button>`;
-  return `<div class="kn-document-bar"><div class="kn-document-tabs" role="tablist" aria-label="已打开的笔记">${notes.map(note=>`<div class="kn-document-tab"><button type="button" role="tab" tabindex="${!resource&&active?.id===note.id?0:-1}" aria-selected="${!resource&&active?.id===note.id}" aria-label="${escAttr(LoopKnowledgeCore.noteTitle(note))}" aria-keyshortcuts="F2" data-kn-document="${escAttr(note.id)}" title="${escAttr(knowledgeTabTitle(note))}"><span>${esc(LoopKnowledgeCore.noteTitle(note))}</span></button><button type="button" class="kn-document-close" data-kn-detach="${escAttr(note.id)}" aria-label="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}" title="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}（草稿仍保留）">${shellIcon('close')}</button></div>`).join('')}${typeof renderKnowledgeResourceTabs==='function'?renderKnowledgeResourceTabs(task):''}</div>
+  return `<div class="kn-document-bar" data-kn-tab-side="${side}"><div class="kn-document-tabs" role="tablist" aria-label="${side?(side==='left'?'左侧':'右侧'):''}已打开的笔记">${notes.map(note=>`<div class="kn-document-tab"><button type="button" role="tab" tabindex="${!resource&&active?.id===note.id?0:-1}" aria-selected="${!resource&&active?.id===note.id}" aria-label="${escAttr(LoopKnowledgeCore.noteTitle(note))}" aria-keyshortcuts="F2" data-kn-document="${escAttr(note.id)}" title="${escAttr(knowledgeTabTitle(note))}"><span>${esc(LoopKnowledgeCore.noteTitle(note))}</span></button><button type="button" class="kn-document-close" data-kn-detach="${escAttr(note.id)}" aria-label="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}" title="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}（草稿仍保留）">${shellIcon('close')}</button></div>`).join('')}${(!side||side==='left')&&typeof renderKnowledgeResourceTabs==='function'?renderKnowledgeResourceTabs(task):''}</div>
     ${scrollButton(-1,'向左滚动页签')}${scrollButton(1,'向右滚动页签')}
     <button type="button" class="kn-document-new" data-kn-action="new-note" aria-label="新建笔记" title="新建笔记">${shellIcon('plus')}</button>
   </div>`;
@@ -125,8 +127,8 @@ function renderShellKnowledge(task) {
   task = knowledgeActiveDocument(task);
   const split = typeof knowledgeSplitLayout === 'function' ? knowledgeSplitLayout(owner) : null;
   if (split && !knowledgeActiveResource(owner)) {
-    const pane = side => `<div class="kn-split-pane" data-kn-side="${side}" data-active="${split.active === side}" role="group" aria-label="${side==='left'?'左':'右'}侧笔记：${escAttr(LoopKnowledgeCore.noteTitle(knowledgeFindDocument(split[side+'Id'])))}">${renderKnowledgeDocument(knowledgeFindDocument(split[side+'Id']), owner, false)}</div>`;
-    return `<div class="kn-split-workspace">${renderKnowledgeTabs(owner)}<div class="kn-split" style="--kn-left:${split.ratio*100}%" data-kn-focus="${Workbench.focus ? split.active : ''}">${pane('left')}<div class="kn-split-divider" role="separator" tabindex="0" aria-label="调整左右笔记宽度" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="${Math.round(split.ratio*100)}"></div>${pane('right')}</div><span class="wb-global-status" data-workspace-status ${!workspaceFeedback&&localSaveOutcome!=='failed'?'hidden':''}>${renderWorkspaceStatus()}</span></div>`;
+    const pane = side => `<div class="kn-split-pane" data-kn-side="${side}" data-active="${split.active === side}" role="group" aria-label="${side==='left'?'左':'右'}侧笔记：${escAttr(LoopKnowledgeCore.noteTitle(knowledgeFindDocument(split[side+'Id'])))}">${renderKnowledgeTabs(owner,side)}${renderKnowledgeDocument(knowledgeFindDocument(split[side+'Id']), owner, false)}</div>`;
+    return `<div class="kn-split-workspace"><div class="kn-split" style="--kn-left:${split.ratio*100}%" data-kn-focus="${Workbench.focus ? split.active : ''}">${pane('left')}<div class="kn-split-divider" role="separator" tabindex="0" aria-label="调整左右笔记宽度" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="${Math.round(split.ratio*100)}"></div>${pane('right')}</div><span class="wb-global-status" data-workspace-status ${!workspaceFeedback&&localSaveOutcome!=='failed'?'hidden':''}>${renderWorkspaceStatus()}</span></div>`;
   }
   return renderKnowledgeDocument(task, owner);
 }

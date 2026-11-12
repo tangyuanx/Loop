@@ -9595,14 +9595,42 @@ function clearCompletionNoticeElement() {
   document.querySelector(".task-brief label.needs-attention")?.classList.remove("needs-attention");
 }
 
-/**
- * Add a new node (step or subtask) to a task.
- * @param {string} taskId - Parent task ID
- * @param {string|null} parentId - null for root step, node ID for child
- */
+// Creation has one active title draft. Reuse a pristine draft at the same
+// insertion point, or remove it before moving the insertion point. This also
+// covers overlapping commands that arrive before click dismissal/render.
+function prepareBlankNodeDraft(taskId, parentId, afterId = '') {
+  if (!state.focusNodeTitleId) return null;
+  const owner = state.tasks.find(task => findNode(task.nodes, state.focusNodeTitleId));
+  const pending = owner && findNode(owner.nodes, state.focusNodeTitleId);
+  if (!pending || pending.id === parentId || pending.id === afterId
+    || pending.children.length || ['title','note','conclusion','hypothesis'].some(key => String(pending[key] || '').trim())
+    || pending.downstreamNodeIds?.length) return null;
+  const found = findNodeCollection(owner.nodes, pending.id);
+  const samePoint = owner.id === taskId && (pending.parentId || null) === (parentId || null)
+    && (afterId ? found.items[found.index - 1]?.id === afterId : found.index === found.items.length - 1);
+  if (samePoint) return pending;
+  owner.nodes = removeNode(owner.nodes, pending.id);
+  const parent = pending.parentId && findNode(owner.nodes, pending.parentId);
+  reorder(parent ? parent.children : owner.nodes);
+  owner.updatedAt = now();
+  state.focusNodeTitleId = '';
+  return null;
+}
+
+function activateNodeDraft(node) {
+  state.selectedNodeId = '';
+  state.nodeDetailFullscreen = false;
+  state.nodeDetailPosition = null;
+  state.focusNodeTitleId = node.id;
+}
+
+/** Add a step or child using the production tree and one active draft. */
 function addNode(taskId, parentId) {
   const task = state.tasks.find((item) => item.id === taskId);
   if (!task) return;
+  if (parentId && !findNode(task.nodes, parentId)) return;
+  const pending = prepareBlankNodeDraft(taskId, parentId);
+  if (pending) { activateNodeDraft(pending); return; }
   let created = null;
   if (!parentId) {
     created = makeNode(taskId, null, task.nodes.length + 1);
@@ -9615,26 +9643,23 @@ function addNode(taskId, parentId) {
     parent.children.push(created);
   }
   task.updatedAt = now();
-  state.selectedNodeId = "";
-  state.nodeDetailFullscreen = false;
-  state.nodeDetailPosition = null;
-  state.focusNodeTitleId = created.id;
+  activateNodeDraft(created);
 }
 
 function addSiblingNode(taskId, nodeId) {
   const task = state.tasks.find((item) => item.id === taskId);
   if (!task) return;
-  const found = findNodeCollection(task.nodes, nodeId);
+  let found = findNodeCollection(task.nodes, nodeId);
   if (!found) return;
+  const pending = prepareBlankNodeDraft(taskId, found.node.parentId || null, nodeId);
+  if (pending) { activateNodeDraft(pending); return; }
+  found = findNodeCollection(task.nodes, nodeId);
 
   const created = makeNode(taskId, found.node.parentId || null, found.index + 2);
   found.items.splice(found.index + 1, 0, created);
   reorder(found.items);
   task.updatedAt = now();
-  state.selectedNodeId = "";
-  state.nodeDetailFullscreen = false;
-  state.nodeDetailPosition = null;
-  state.focusNodeTitleId = created.id;
+  activateNodeDraft(created);
 }
 
 
