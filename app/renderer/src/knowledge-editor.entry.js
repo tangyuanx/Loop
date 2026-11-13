@@ -6,8 +6,8 @@ import {yamlFrontmatter} from '@codemirror/lang-yaml';
 import {languages} from '@codemirror/language-data';
 import {syntaxTree,syntaxHighlighting,HighlightStyle,indentUnit,bracketMatching,forceParsing} from '@codemirror/language';
 import {closeBrackets,closeBracketsKeymap,autocompletion,completionKeymap} from '@codemirror/autocomplete';
-import {searchKeymap,highlightSelectionMatches,search} from '@codemirror/search';
-import {KnowledgeFind} from './knowledge-search.js';
+import {searchKeymap,highlightSelectionMatches} from '@codemirror/search';
+import {KnowledgeFind,knowledgeFindMarks} from './knowledge-search.js';
 import {installTableControls} from './knowledge-table-controls.js';
 import {tags} from '@lezer/highlight';
 import {obsidianComments} from './knowledge-syntax.js';
@@ -237,20 +237,19 @@ class KnowledgeEditor {
       yamlFrontmatter({content:markdown({base:markdownLanguage,codeLanguages:languages,addKeymap:false,completeHTMLTags:false,extensions:[obsidianComments]})}),
       syntaxHighlighting(loopHighlight),indentUnit.of('    '),bracketMatching(),closeBrackets(),
       markdownLanguage.data.of({closeBrackets:{brackets:['(','[','{',"'",'"','`','*','~']}}),
-      // An invisible CM panel enables its match decorations; the actual search
-      // controls live in the workspace toolbar in every note mode.
-      search({caseSensitive:false,createPanel:()=>{const dom=document.createElement('div');dom.hidden=true;return {dom};}}),highlightSelectionMatches(),
+      knowledgeFindMarks,highlightSelectionMatches(),
       // Wiki completion is explicitly requested by [[; Enter should accept a
       // visible candidate even when it arrives less than 75ms before the key.
       autocompletion({override:[context=>this.complete(context)],interactionDelay:0}),
       Prec.high(keymap.of([
         {key:'Mod-s',run:()=>{options.onSave?.();return true;}},
         {key:'Mod-f',run:()=>{this.openSearch();return true;}},
+        ...['F3','Mod-g'].map(key=>({key,run:()=>this.find.step(1),shift:()=>this.find.step(-1),preventDefault:true})),
         {key:'Escape',run:()=>{if(!this.find?.active)return false;this.find.clear();return true;}},
         {key:'Enter',run:insertNewlineContinueMarkupCommand({nonTightLists:false})},
         {key:'Backspace',run:deleteMarkupBackward},
         {key:'Tab',run:indentMore},{key:'Shift-Tab',run:indentLess},
-      ])),keymap.of([...closeBracketsKeymap,...completionKeymap,...historyKeymap,...searchKeymap,...defaultKeymap,indentWithTab]),
+      ])),keymap.of([...closeBracketsKeymap,...completionKeymap,...historyKeymap,...searchKeymap.filter(binding=>!['Mod-f','F3','Mod-g','Escape'].includes(binding.key)),...defaultKeymap,indentWithTab]),
       this.decorations,
       // Skip hidden image syntax for keyboard navigation and deletion. Source
       // mode has no image decorations and remains fully editable as Markdown.
@@ -555,7 +554,7 @@ class KnowledgeEditor {
       if(this.mode==='preview')this.renderReading();
     }
     if(update.selectionSet)this.options.onSelectionChange?.();
-    if(update.docChanged||update.selectionSet||update.transactions.some(tr=>tr.effects.length))this.find?.update();
+    if(update.docChanged||update.selectionSet||update.viewportChanged||update.transactions.some(tr=>tr.effects.length))this.find?.update();
   }
   // Map a click inside a rendered fenced code block to its source line/column.
   codePositionAt(from,event) {
@@ -613,6 +612,8 @@ class KnowledgeEditor {
     const active=this.activeTableCell;if(!active)return;
     this.activeTableCell=null;active.cell.classList.remove('kn-cell-editing');active.input.remove();
     active.content.innerHTML=active.renderedHTML;active.content.replaceWith(...active.content.childNodes);
+    // A blurred table field restores rendered nodes without a transaction.
+    queueMicrotask(()=>{if(!this.destroyed&&this.find?.active)this.find.update();});
   }
   editTableCell(widget,cell,reveal=false,caret=null) {
     if(this.activeTableCell?.cell===cell)return;
@@ -751,7 +752,7 @@ class KnowledgeEditor {
       requestAnimationFrame(()=>{
         // A file reload or a quick mode switch can replace this document before
         // the frame runs. Its old offset must not be resolved in the new text.
-        if(this.destroyed||this.mode!=='preview'||this.view?.state.doc!==doc)return;
+        if(this.destroyed||this.mode!=='preview'||this.view?.state.doc!==doc||this.find?.matches.length)return;
         const anchors=[...this.readHost.querySelectorAll('[data-source-line]')];
         const line=this.view.state.doc.lineAt(pos).number-1;
         anchors.filter(el=>Number(el.dataset.sourceLine)<=line).at(-1)?.scrollIntoView({block:'nearest'});
@@ -759,9 +760,15 @@ class KnowledgeEditor {
     }
     if(this.view){
       this.view.dispatch({effects:[refreshEffect.of(null),this.lineConfig.reconfigure(mode==='source'?[lineNumbers(),highlightActiveLine()]:[])]});
-      if(prior==='preview'&&mode!=='preview'){this.view.requestMeasure();this.view.focus();this.view.dispatch({effects:EditorView.scrollIntoView(this.view.state.selection.main.head,{y:'nearest'})});}
+      if(prior==='preview'&&mode!=='preview'){
+        this.view.requestMeasure();
+        if(!this.find?.dom.contains(document.activeElement))this.view.focus();
+        this.view.dispatch({effects:EditorView.scrollIntoView(this.view.state.selection.main.head,{y:'nearest'})});
+      }
     }
+    this.find?.syncQuery();
     this.find?.update();
+    if(mode==='preview'&&this.find?.matches.length)this.find.reveal();
   }
   renderReading() {
     const scroll=this.readHost.scrollTop;
@@ -965,8 +972,7 @@ class KnowledgeEditor {
   }
   restoreSelection(r){this.view.dispatch({selection:{anchor:r.start,head:r.end}});this.view.focus();}
   getFormatState(){const node=syntaxTree(this.view.state).resolveInner(this.view.state.selection.main.head,-1);const names=[];for(let n=node;n;n=n.parent)names.push(n.name);return {bold:names.includes('StrongEmphasis'),italic:names.includes('Emphasis'),strike:names.includes('Strikethrough'),inline:names.includes('InlineCode'),heading:names.find(n=>/^ATXHeading\d/.test(n))?.slice(-1)||'0',undo:true,redo:true};}
-  openSearch(){this.find.open();}
-  searchScrollEffect(pos){return EditorView.scrollIntoView(pos,{y:'center'});}
+  openSearch(query){this.find.open(query);}
   tableIndex(pos) {
     let index=-1;syntaxTree(this.view.state).iterate({enter:node=>{if(node.name==='Table'&&node.from<=pos)index++;}});return index;
   }

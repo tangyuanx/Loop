@@ -1,30 +1,127 @@
-import {Text} from '@codemirror/state';
-import {EditorView} from '@codemirror/view';
+import {EditorSelection,StateField,Text} from '@codemirror/state';
+import {Decoration,EditorView,ViewPlugin,WidgetType} from '@codemirror/view';
 import {syntaxTree} from '@codemirror/language';
-import {SearchQuery,setSearchQuery,openSearchPanel,closeSearchPanel,findNext,findPrevious,replaceNext,replaceAll} from '@codemirror/search';
+import {SearchQuery,setSearchQuery} from '@codemirror/search';
 
 const paths={expand:'m9 5 7 7-7 7',up:'m6 15 6-6 6 6',down:'m6 9 6 6 6-6',close:'m6 6 12 12M6 18 18 6',search:'M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0'};
 const icon=name=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name]}"/></svg>`;
 
+function matchesIn(query,doc) {
+  if(!query?.valid)return [];
+  const cursor=query.getCursor(doc),matches=[];
+  for(let step=cursor.next();!step.done;step=cursor.next())matches.push(step.value);
+  return matches;
+}
+
+function matchIndex(matches,{from,to}) {
+  const index=firstMatch(matches,m=>m.from>=from);
+  return matches[index]?.from===from&&matches[index].to===to?index:-1;
+}
+
+function firstMatch(matches,predicate) {
+  let from=0,to=matches.length;
+  while(from<to){
+    const mid=(from+to)>>>1;
+    if(predicate(matches[mid]))to=mid;else from=mid+1;
+  }
+  return from;
+}
+
+const sourceFind=StateField.define({
+  create:()=>({query:null,matches:[]}),
+  update(value,tr){
+    let query=value.query;
+    for(const effect of tr.effects)if(effect.is(setSearchQuery))query=effect.value;
+    if(!tr.docChanged&&(query===value.query||query?.eq(value.query||{})))return value;
+    return {query,matches:matchesIn(query,tr.state)};
+  }
+});
+
+const matchMark=Decoration.mark({class:'cm-searchMatch'});
+const currentMark=Decoration.mark({class:'cm-searchMatch cm-searchMatch-selected'});
+class EmptyMatch extends WidgetType {
+  constructor(current){super();this.current=current;}
+  eq(other){return this.current===other.current;}
+  toDOM(){
+    const mark=document.createElement('span');
+    mark.className=this.current?'cm-searchMatch cm-searchMatch-selected kn-find-empty':'cm-searchMatch kn-find-empty';
+    mark.setAttribute('aria-hidden','true');return mark;
+  }
+}
+
+export const knowledgeFindMarks=[sourceFind,ViewPlugin.fromClass(class {
+  constructor(view){this.draw(view);}
+  update(update){
+    if(update.viewportChanged||update.selectionSet||update.state.field(sourceFind)!==update.startState.field(sourceFind))this.draw(update.view);
+  }
+  draw(view){
+    const {matches}=view.state.field(sourceFind),selection=view.state.selection.main;
+    const {from,to}=view.viewport,ranges=[];
+    for(let i=firstMatch(matches,m=>m.to>=from);i<matches.length&&matches[i].from<=to;i++){
+      const match=matches[i],current=match.from===selection.from&&match.to===selection.to;
+      if(match.from===match.to)ranges.push(Decoration.widget({widget:new EmptyMatch(current),side:1}).range(match.from));
+      else ranges.push((current?currentMark:matchMark).range(match.from,match.to));
+    }
+    this.decorations=Decoration.set(ranges,true);
+  }
+},{decorations:plugin=>plugin.decorations})];
+
 function renderedMatches(root,query) {
-  const nodes=[],matches=[],walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
-  let node,text='';
-  while((node=walker.nextNode())) {
-    if(node.parentElement.closest('button,script,style,svg,.katex-mathml,[hidden]'))continue;
-    const collapsed=node.parentElement.closest('details:not([open])');if(collapsed&&!node.parentElement.closest('summary'))continue;
+  const nodes=[],matches=[],walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT|NodeFilter.SHOW_ELEMENT);
+  let node,text='',block=null;
+  while((node=walker.nextNode())){
+    const parent=node.nodeType===Node.TEXT_NODE?node.parentElement:node;
+    if(parent.closest('button,script,style,svg,.katex-mathml,.kn-table-cell-content,[hidden]'))continue;
+    const collapsed=parent.closest('details:not([open])');if(collapsed&&!parent.closest('summary'))continue;
+    if(node.nodeName==='BR'){text+='\n';continue;}
+    if(node.nodeType!==Node.TEXT_NODE||!node.length)continue;
+    const current=parent.closest('p,h1,h2,h3,h4,h5,h6,li,td,th,pre,summary,blockquote,div');
+    if(text&&current!==block)text+='\n';
+    block=current;
     const start=text.length;text+=node.nodeValue;nodes.push({node,start,end:text.length});
   }
-  const cursor=query.getCursor(Text.of(text.split('\n')));
-  for(let match=cursor.next();!match.done;match=cursor.next()) {
-    const {from,to}=match.value;if(from===to)continue;
-    const first=nodes.find(n=>n.end>from),last=nodes.find(n=>n.end>=to);if(!first||!last)continue;
-    const range=document.createRange();range.setStart(first.node,from-first.start);range.setEnd(last.node,to-last.start);matches.push({from,to,range});
+  let first=0,last=0;
+  for(const {from,to} of matchesIn(query,Text.of(text.split('\n')))){
+    if(from===to)continue;
+    while(nodes[first]?.end<=from)first++;
+    last=Math.max(last,first);
+    while(nodes[last]?.end<to)last++;
+    const start=nodes[first],end=nodes[last];
+    if(!start||!end||from<start.start||to<=end.start)continue;
+    const range=document.createRange();range.setStart(start.node,from-start.start);range.setEnd(end.node,to-end.start);matches.push({range});
   }
   return matches;
 }
 
+function revealRect(rect,element,body,tools) {
+  if(!rect||!body?.clientHeight)return;
+  let {left,right,top,bottom}=rect;
+  for(let parent=element;parent&&parent!==body;parent=parent.parentElement){
+    const style=getComputedStyle(parent);
+    const x=parent.scrollWidth>parent.clientWidth&&/^(auto|scroll)$/.test(style.overflowX);
+    const y=parent.scrollHeight>parent.clientHeight&&/^(auto|scroll)$/.test(style.overflowY);
+    if(!x&&!y)continue;
+    const box=parent.getBoundingClientRect();
+    if(x){
+      const before=parent.scrollLeft;
+      parent.scrollLeft+=left<box.left?left-box.left:Math.max(0,right-box.left-parent.clientWidth);
+      const moved=parent.scrollLeft-before;left-=moved;right-=moved;
+    }
+    if(y){
+      const before=parent.scrollTop;
+      parent.scrollTop+=top<box.top?top-box.top:Math.max(0,bottom-box.top-parent.clientHeight);
+      const moved=parent.scrollTop-before;top-=moved;bottom-=moved;
+    }
+  }
+  const box=body.getBoundingClientRect(),toolbar=tools?.getBoundingClientRect();
+  const upper=toolbar&&left<toolbar.right&&right>toolbar.left?Math.max(box.top,toolbar.bottom+4):box.top;
+  const lower=box.top+body.clientHeight;
+  if(top<upper||bottom>lower)body.scrollTop+=(top+bottom-upper-lower)/2;
+}
+
 // The controls belong to the workspace toolbar, not a modal or a CodeMirror
-// panel. CodeMirror still owns editor matches, replacements and undo history.
+// panel. CodeMirror's query cursor, editor positions and undo history are used
+// directly so counts, marks and navigation can share the exact same matches.
 export class KnowledgeFind {
   constructor(owner) {
     this.owner=owner;this.matches=[];this.index=-1;this.composing=false;
@@ -47,8 +144,8 @@ export class KnowledgeFind {
     </div>`;
     this.input=this.dom.querySelector('[name=search]');this.replacement=this.dom.querySelector('[name=replace]');this.count=this.dom.querySelector('output');
     this.dom.addEventListener('compositionstart',()=>{this.composing=true;});
-    this.dom.addEventListener('compositionend',()=>{this.composing=false;this.apply();});
-    this.dom.addEventListener('input',()=>{if(!this.composing)this.apply();});
+    this.dom.addEventListener('compositionend',event=>{this.composing=false;if(event.target===this.input)this.apply();});
+    this.input.addEventListener('input',()=>{if(!this.composing)this.apply();});
     this.dom.addEventListener('focusin',()=>{if(!this.active)this.apply(false);});
     this.dom.addEventListener('click',event=>{
       const name=event.target.closest('button')?.name;if(!name)return;
@@ -64,8 +161,13 @@ export class KnowledgeFind {
     });
     this.dom.addEventListener('keydown',event=>{
       if(event.isComposing||this.composing||event.keyCode===229)return;
-      if(event.key==='Escape'){event.preventDefault();event.stopPropagation();this.clear();}
-      else if(event.key==='Enter'){event.preventDefault();event.stopPropagation();if(event.target===this.replacement)this.replace(false);else this.move(event.shiftKey?-1:1);}
+      if(event.key==='F3'||((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='g'&&!event.altKey)){
+        event.preventDefault();event.stopPropagation();this.move(event.shiftKey?-1:1);
+      }else if(event.key==='Escape'){event.preventDefault();event.stopPropagation();this.clear();}
+      else if(event.key==='Enter'&&(event.target===this.input||event.target===this.replacement)){
+        event.preventDefault();event.stopPropagation();
+        if(event.target===this.replacement)this.replace(false);else this.move(event.shiftKey?-1:1);
+      }
     });
     this.update();
   }
@@ -75,52 +177,52 @@ export class KnowledgeFind {
     const trigger=pane?.querySelector('[data-kn-action=find]');
     trigger?.setAttribute('aria-expanded',String(!this.dom.hidden));trigger?.setAttribute('aria-controls',this.dom.id);
   }
-  query() {
+  query(replace='') {
     const enabled=name=>this.dom.querySelector(`[name=${name}]`).getAttribute('aria-pressed')==='true';
-    return new SearchQuery({search:this.input.value,replace:this.replacement.value,caseSensitive:enabled('caseSensitive'),wholeWord:enabled('wholeWord'),regexp:enabled('regexp'),literal:true});
+    return new SearchQuery({search:this.input.value,replace,caseSensitive:enabled('caseSensitive'),wholeWord:enabled('wholeWord'),regexp:enabled('regexp'),literal:true});
   }
   renderedRoot() {
-    if(this.owner.mode==='preview')return this.owner.readHost;
-    if(this.owner.mode==='edit')return this.owner.rich?.editable;
-    return null;
+    return this.owner.mode==='preview'?this.owner.readHost:null;
   }
-  open() {
+  open(query) {
     this.dom.hidden=false;
     this.attach();
-    const selected=this.renderedRoot() ? window.getSelection().toString()
-      : this.owner.view.state.sliceDoc(this.owner.view.state.selection.main.from,this.owner.view.state.selection.main.to);
+    const root=this.renderedRoot(),selection=window.getSelection();
+    const selected=query??(root?(root.contains(selection?.anchorNode)&&root.contains(selection?.focusNode)?selection.toString():'')
+      : this.owner.view.state.sliceDoc(this.owner.view.state.selection.main.from,this.owner.view.state.selection.main.to));
     if(selected&&!selected.includes('\n')&&selected.length<=200)this.input.value=selected;
     this.apply(false);this.input.focus({preventScroll:true});this.input.select();
   }
   apply(navigate=true) {
-    this.active=true;const query=this.query(),view=this.owner.view;
-    if(!this.renderedRoot()){openSearchPanel(view);view.dispatch({effects:setSearchQuery.of(query)});}
+    this.active=true;
+    const query=this.query();
+    if(!this.renderedRoot())this.syncQuery(query);
     this.update();
-    if(navigate&&query.valid&&this.matches.length) {
-      // Include a currently selected occurrence when updating the query.
-      this.move(1,true);
-    }
+    if(navigate)this.move(1,true);
+  }
+  syncQuery(query=this.active&&!this.renderedRoot()?this.query():new SearchQuery({search:''})){
+    const view=this.owner.view;
+    if(!query.eq(view.state.field(sourceFind).query||{}))view.dispatch({effects:setSearchQuery.of(query)});
   }
   update(force=false) {
-    const query=this.query(),owner=this.owner,view=owner.view;
-    const rendered=this.renderedRoot();
-    const cached=!force&&this.active&&this.cachedQuery?.eq(query)&&this.cachedDoc===view?.state.doc&&this.cachedMode===owner.mode&&this.cachedReading===rendered?.firstChild;
-    if(!cached)this.matches=[];this.index=-1;
-    if(query.valid&&view&&this.active) {
-      if(rendered) {
-        if(!cached)this.matches=renderedMatches(rendered,query);
-        this.index=Math.min(this.readIndex??0,this.matches.length-1);this.highlightReading();
-      }else {
-        if(!cached){const cursor=query.getCursor(view.state);
-        for(let match=cursor.next();!match.done;match=cursor.next())this.matches.push(match.value);}
-        const selection=view.state.selection.main;this.index=this.matches.findIndex(m=>m.from===selection.from&&m.to===selection.to);
-        // Tables and other live widgets replace Markdown spans. Highlight their
-        // visible text too, so a found table cell never looks like a blank hit.
-        const widgets=[...owner.editHost.querySelectorAll('.kn-live-widget')].flatMap(el=>renderedMatches(el,query));
-        this.setHighlights(widgets.map(m=>m.range));
+    const query=this.query(),view=this.owner.view,rendered=this.renderedRoot();
+    if(!query.valid||!this.active){
+      this.matches=[];this.index=-1;this.cachedReading=null;this.clearHighlights();
+    }else if(rendered){
+      const sameQuery=this.cachedReading?.query.eq(query);
+      if(force||!sameQuery||this.cachedReading.firstChild!==rendered.firstChild){
+        this.matches=renderedMatches(rendered,query);
+        this.index=Math.min(sameQuery?Math.max(this.index,0):0,this.matches.length-1);
+        this.cachedReading={query,firstChild:rendered.firstChild};
+        this.highlightReading();
       }
-    }else this.clearHighlights();
-    this.cachedDoc=view?.state.doc;this.cachedQuery=query;this.cachedMode=owner.mode;this.cachedReading=rendered?.firstChild;
+    }else{
+      this.cachedReading=null;
+      this.matches=view.state.field(sourceFind).matches;
+      this.index=matchIndex(this.matches,view.state.selection.main);
+      if(this.owner.mode==='edit'&&this.matches.length)this.highlightWidgets(query);
+      else this.clearHighlights();
+    }
     const invalid=Boolean(this.input.value&&!query.valid);
     this.input.setAttribute('aria-invalid',String(invalid));
     this.count.textContent=invalid?'无效正则':!this.input.value?'':!this.matches.length?'无结果':`${this.index<0?0:this.index+1}/${this.matches.length}`;
@@ -130,18 +232,92 @@ export class KnowledgeFind {
     this.dom.querySelector('[name=toggleReplace]').title=rendered?'展开替换（切换到源码）':this.dom.querySelector('.kn-replace-row').hidden?'展开替换':'收起替换';
   }
   move(direction,includeCurrent=false) {
-    if(!this.matches.length)return;
+    if(!this.matches.length)return false;
     if(this.renderedRoot()) {
-      this.readIndex=includeCurrent?0:((this.index+direction+this.matches.length)%this.matches.length);this.index=this.readIndex;this.highlightReading();
-      const range=this.matches[this.index].range;range.startContainer.parentElement.scrollIntoView({block:'center',behavior:'instant'});this.update();
+      this.index=includeCurrent?0:this.wrap(this.index+direction);
+      this.highlightReading();this.update();this.reveal();
     }else {
-      const view=this.owner.view;
-      if(includeCurrent) {
-        const at=view.state.selection.main.from,next=this.matches.find(m=>m.from>=at)||this.matches[0];
-        view.dispatch({selection:{anchor:next.from,head:next.to},effects:this.owner.searchScrollEffect(next.from)});
-      }else (direction>0?findNext:findPrevious)(view);
-      this.update();
+      const {from,to}=this.owner.view.state.selection.main;
+      const next=includeCurrent?firstMatch(this.matches,m=>m.from>=from)
+        :this.index>=0?this.index+direction
+        :direction>0?firstMatch(this.matches,m=>m.from>=to):firstMatch(this.matches,m=>m.to>from)-1;
+      this.selectSource(this.matches[this.wrap(next)]);
     }
+    return true;
+  }
+  step(direction){
+    if(this.active)this.move(direction);
+    else this.open();
+    return true;
+  }
+  wrap(index){return (index+this.matches.length)%this.matches.length;}
+
+  selectSource(match){
+    const view=this.owner.view;
+    view.dispatch({
+      selection:{anchor:match.from,head:match.to},
+      effects:EditorView.scrollIntoView(EditorSelection.cursor(match.from,1),{y:'center'}),
+      userEvent:'select.search'
+    });
+    this.reveal();
+  }
+
+  reveal(){
+    cancelAnimationFrame(this.revealFrame);
+    this.revealFrame=requestAnimationFrame(()=>{
+      const match=this.matches[this.index],owner=this.owner;
+      if(!this.active||!match||!owner.root.isConnected)return;
+      const pane=owner.root.closest('.knowledge-pane'),body=owner.root.closest('.knowledge-body');
+      const tools=pane?.querySelector('.knowledge-note-actions');
+      const range=match.range||this.widgetRanges?.get(match);
+      if(range){
+        const rect=[...range.getClientRects()].find(rect=>rect.width&&rect.height);
+        revealRect(rect,range.startContainer.parentElement,body,tools);
+      }else if(!this.renderedRoot()){
+        const {view}=owner;
+        const start=view.coordsAtPos(match.from,1),end=view.coordsAtPos(match.to,-1);
+        if(start&&end&&Math.abs(start.top-end.top)<start.bottom-start.top){
+          revealRect({...start,left:Math.min(start.left,end.left),right:Math.max(start.right,end.right)},view.contentDOM,body,tools);
+        }else revealRect(start,view.contentDOM,body,tools);
+      }
+    });
+  }
+
+  highlightWidgets(query){
+    this.widgetRanges=new Map();
+    const owner=this.owner;
+    const project=(element,from,to)=>{
+      const matches=[];
+      for(let i=firstMatch(this.matches,m=>m.from>=from);i<this.matches.length&&this.matches[i].from<to;i++){
+        const match=this.matches[i];
+        if(match.from<match.to&&match.to<=to)matches.push(match);
+      }
+      if(!matches.length)return;
+      // Pair matches within the same source span, never across widget rows or
+      // cells. Skip the projection if markup contributed a source-only match.
+      const visible=renderedMatches(element,query);
+      if(visible.length===matches.length)matches.forEach((match,i)=>this.widgetRanges.set(match,visible[i].range));
+    };
+    for(const widget of owner.editHost.querySelectorAll('.kn-live-widget')){
+      const from=Number(widget.dataset.sourcePos),to=Number(widget.dataset.sourceTo);
+      const first=firstMatch(this.matches,m=>m.from>=from);
+      if(first===this.matches.length||this.matches[first].from>=to)continue;
+      if(widget.classList.contains('kn-table-widget')){
+        // GFM tables have one source line per rendered row, plus the delimiter
+        // after the header. Only resolve cells in rows that contain a hit.
+        const doc=owner.view.state.doc,header=doc.lineAt(from).number;
+        const lines=new Set();
+        for(let i=first;i<this.matches.length&&this.matches[i].from<to;i++)lines.add(doc.lineAt(this.matches[i].from).number-header);
+        const table=widget.querySelector('table');
+        for(const line of lines)for(const cell of (line===1?[]:table.rows[line===0?0:line-1]?.cells||[])){
+          const row=cell.parentElement;
+          const source=owner.tableCellRange(widget,row.rowIndex,cell.cellIndex);
+          if(source)project(cell,source.from,source.to);
+        }
+      }else project(widget,from,to);
+    }
+    const current=this.widgetRanges.get(this.matches[this.index]);
+    this.setHighlights(this.widgetRanges.values(),current?[current]:[]);
   }
   replace(all) {
     if(!this.matches.length||this.composing)return;
@@ -150,56 +326,65 @@ export class KnowledgeFind {
     if(this.renderedRoot())this.owner.options.onEditForSearch?.();
     if(this.renderedRoot())return;
     this.apply(false);
-    const view=this.owner.view,state=view.state,query=this.query();
+    const view=this.owner.view,state=view.state,query=this.query(this.replacement.value);
+    if(state.readOnly||!this.matches.length)return;
+    const engine=query.create();
     // A pipe in a replacement inside a table cell would split the cell and
     // silently drop the neighbouring value, so escape it for table matches.
-    if(query.valid&&String(query.replace||'').includes('|')){
-      const engine=query.create();
-      const inTable=from=>{let node=syntaxTree(state).resolveInner(from,1);for(;node;node=node.parent)if(node.name==='Table')return true;return false;};
-      const escape=text=>String(text).replace(/(?<!\\)\|/g,'\\|');
-      const text=all?this.replaceAllInTables(query,engine,inTable,escape):this.replaceNextInTables(query,engine,inTable,escape);
-      if(text!==false){this.update();return;}
+    const change=match=>{
+      let insert=engine.getReplacement(match);
+      if(insert.includes('|')){
+        let node=syntaxTree(state).resolveInner(match.from,1);
+        for(;node;node=node.parent)if(node.name==='Table'){
+          insert=insert.replace(/(?<!\\)\|/g,'\\|');break;
+        }
+      }
+      return {from:match.from,to:match.to,insert};
+    };
+    if(all){
+      const changes=this.matches.filter(m=>m.precise).map(change);
+      if(changes.length)view.dispatch({changes,userEvent:'input.replace.all'});
+      return;
     }
-    (all?replaceAll:replaceNext)(view);this.update();
+    const current=this.matches[this.index],selection=state.selection.main;
+    const start=current?this.index:firstMatch(this.matches,m=>m.from>=selection.from);
+    const match=this.preciseFrom(start);
+    if(!match)return;
+    if(match!==current){this.selectSource(match);return;}
+    const changes=state.changes(change(match)),next=this.preciseFrom(start+1,this.matches.length-1);
+    const target=next?EditorSelection.range(next.from,next.to).map(changes):null;
+    view.dispatch({changes,selection:target?EditorSelection.create([target]):undefined,
+      effects:target?EditorView.scrollIntoView(EditorSelection.cursor(target.from,1),{y:'center'}):[],
+      userEvent:'input.replace'});
+    if(target)this.reveal();
   }
-  replaceAllInTables(query,engine,inTable,escape) {
-    const {state}=this.owner.view,changes=[],cursor=query.getCursor(state);let step;
-    while(!(step=cursor.next()).done){const match=step.value;const insert=engine.getReplacement(match);changes.push({from:match.from,to:match.to,insert:inTable(match.from)?escape(insert):insert});}
-    if(!changes.length)return false;
-    this.owner.view.dispatch({changes,userEvent:'input.replace'});return true;
-  }
-  replaceNextInTables(query,engine,inTable,escape) {
-    const view=this.owner.view,state=view.state,selection=state.selection.main;
-    let match=engine.nextMatch(state,selection.from,selection.from);
-    if(!match)return false;
-    if(!match.precise)match=engine.nextMatch(state,match.from,match.to);
-    if(!(match.from===selection.from&&match.to===selection.to)){
-      // First press selects the match, exactly like the built-in command.
-      const after=engine.nextMatch(state,match.from,match.to);
-      view.dispatch({selection:{anchor:match.from,head:match.to},effects:after?EditorView.scrollIntoView(match.from,{y:'nearest'}):[]});
-      return true;
+  preciseFrom(start,limit=this.matches.length){
+    for(let i=0;i<limit;i++){
+      const match=this.matches[this.wrap(start+i)];
+      if(match.precise)return match;
     }
-    const insert=engine.getReplacement(match);
-    const text=inTable(match.from)?escape(insert):insert;
-    view.dispatch({changes:{from:match.from,to:match.to,insert:text},selection:{anchor:match.from+text.length},userEvent:'input.replace'});
-    return true;
+    return null;
   }
   highlightReading() {
     this.setHighlights(this.matches.map(m=>m.range),this.matches[this.index]?[this.matches[this.index].range]:[]);
   }
   setHighlights(ranges,active=[]) {
     if(!window.Highlight)return;
-    CSS.highlights.set(this.highlightKey,new Highlight(...ranges));
-    CSS.highlights.set(this.highlightKey+'-active',new Highlight(...active));
+    const ordinary=new Highlight(),current=new Highlight();
+    for(const range of ranges)ordinary.add(range);
+    for(const range of active)current.add(range);
+    current.priority=1;
+    CSS.highlights.set(this.highlightKey,ordinary);
+    CSS.highlights.set(this.highlightKey+'-active',current);
     if(!this.style) {this.style=document.createElement('style');this.style.textContent=`::highlight(${this.highlightKey}){background:var(--kn-find-match);color:var(--text)}::highlight(${this.highlightKey}-active){background:var(--kn-find-current);color:var(--text)}`;document.head.append(this.style);}
   }
-  clearHighlights(){CSS.highlights?.delete(this.highlightKey);CSS.highlights?.delete(this.highlightKey+'-active');}
+  clearHighlights(){this.widgetRanges=null;CSS.highlights?.delete(this.highlightKey);CSS.highlights?.delete(this.highlightKey+'-active');}
   clear() {
-    this.active=false;this.dom.hidden=true;this.attach();this.input.value='';this.replacement.value='';this.readIndex=0;
+    this.active=false;this.dom.hidden=true;this.attach();this.input.value='';this.replacement.value='';this.composing=false;
     this.dom.querySelector('.kn-replace-row').hidden=true;const toggle=this.dom.querySelector('[name=toggleReplace]');toggle.setAttribute('aria-expanded','false');toggle.setAttribute('aria-label','展开替换');toggle.title='展开替换';
-    this.owner.view.dispatch({effects:setSearchQuery.of(this.query())});closeSearchPanel(this.owner.view);this.update();
+    cancelAnimationFrame(this.revealFrame);this.syncQuery();this.update();
     const rendered=this.renderedRoot();
     if(rendered)rendered.focus({preventScroll:true});else this.owner.view.focus();
   }
-  destroy(){this.clearHighlights();this.style?.remove();this.dom.remove();}
+  destroy(){cancelAnimationFrame(this.revealFrame);this.clearHighlights();this.style?.remove();this.dom.remove();}
 }

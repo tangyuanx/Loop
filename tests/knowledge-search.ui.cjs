@@ -2,16 +2,34 @@ const wb=require('./workbench-helpers.cjs');
 /* Real Electron and production storage, with isolated synthetic notes. */
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
 const {_electron}=require('playwright-core');
-const {writeTaskData}=require('../app/main/storage.cjs');
+const {readTaskData,writeTaskData}=require('../app/main/storage.cjs');
+const {readKnowledgeDocument}=require('../app/main/knowledge-file.cjs');
 const source=path.resolve(__dirname,'..'),results=[],errors=[];
 const original='# 行内查找验收\n\n测试第一行，测试第二处。\n\n中文 **测试** 与 Test test tester。\n\n'+Array.from({length:65},(_,i)=>`第 ${i+1} 行普通内容。`).join('\n')+'\n\n末尾测试，定位到对应行。\n';
+const readMatch=()=>page.evaluate(()=>{
+ const e=knowledgeCurrentEntry(),range=[...CSS.highlights.get(e.find.highlightKey+'-active')||[]][0];
+ if(!range)return null;
+ const rect=range.getBoundingClientRect(),body=e.root.closest('.knowledge-body').getBoundingClientRect();
+ const tools=e.find.dom.closest('.knowledge-note-actions').getBoundingClientRect();
+ const covered=rect.left<tools.right&&rect.right>tools.left&&rect.top<tools.bottom&&rect.bottom>tools.top;
+ const cell=range.startContainer.parentElement.closest('th,td');
+ return {text:range.toString(),offset:range.startOffset,row:cell?.parentElement.rowIndex,column:cell?.cellIndex,
+   visible:rect.width>0&&rect.top>=body.top&&rect.bottom<=body.bottom&&rect.left>=body.left&&rect.right<=body.right&&!covered};
+});
+const afterScroll=()=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
 let app,page,out;
 async function mode(name){await wb.mode(page,name);await page.waitForFunction(name=>knowledgeCurrentEntry()?.mode===name,name);}
 async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catch(e){results.push({id,status:'FAIL',error:e.stack});await page.screenshot({path:path.join(out,id+'-failure.png')});}console.log(JSON.stringify(results.at(-1)));}
 (async()=>{
  const run=path.resolve(process.env.LOOP_SEARCH_QA_DIR||await fs.mkdtemp(path.join(os.tmpdir(),'loop-search-')));out=path.join(run,'evidence');await fs.mkdir(out,{recursive:true});
  const profile=path.join(run,'user-data'),stamp=new Date().toISOString();await fs.access(path.join(profile,'task-data.json')).then(()=>{throw Error('Refusing existing data')},()=>{});
- await writeTaskData(profile,{version:2,taskFilter:'all',activeTaskId:'a',tasks:[['a','行内查找与跳转',original],['b','第二篇笔记','# 第二篇\n\n独立内容与独立查找。\n']].map(([id,title,notes])=>({id,title,notes,nodes:[],createdAt:stamp,updatedAt:stamp,knowledgeNote:{noteId:'search-'+id,title,documentState:'DRAFT'}}))});
+ const saved='# 保存状态验收\r\n\r\n关键词一，关键词二。\r\n',bound=path.join(run,'saved.md');
+ await fs.writeFile(bound,saved);
+ const disk=await readKnowledgeDocument(bound);
+ await writeTaskData(profile,{version:2,taskFilter:'all',activeTaskId:'a',tasks:[
+  ['a','行内查找与跳转',original],['b','第二篇笔记','# 第二篇\n\n独立内容与独立查找。\n'],
+  ['saved','保存状态验收',saved,{...disk,filePath:bound,documentState:'SAVED',dirty:false}]
+ ].map(([id,title,notes,note])=>({id,title,notes,nodes:[],createdAt:stamp,updatedAt:stamp,knowledgeNote:{noteId:'search-'+id,title,documentState:'DRAFT',...note}}))});
  const env={...process.env,LOOP_USER_DATA_DIR:profile};delete env.ELECTRON_RUN_AS_NODE;
  app=await _electron.launch({executablePath:process.env.LOOP_APP_EXECUTABLE||require('electron'),args:process.env.LOOP_APP_EXECUTABLE?[]:(process.env.LOOP_NO_SANDBOX?['--no-sandbox',source]:[source]),cwd:source,env});
  try{
@@ -136,6 +154,95 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
    await page.evaluate(()=>render());await frame();assert.equal(await page.locator('.knowledge-pane [role=search]').count(),1);
    assert.equal(await page.evaluate(()=>knowledgeToolbarBindings.size),1);
    assert.deepEqual(errors,[]);
+  });
+  await test('S09-overlapping-text-uses-one-result-order',async()=>{
+   await mode('source');
+   const markdown='# aaaaa\n\n- aa\n';
+   await page.evaluate(text=>{const {view}=knowledgeCurrentEntry();view.dispatch({changes:{from:0,to:view.state.doc.length,insert:text},selection:{anchor:0}});},markdown);
+   await openFind();
+   await input.fill('aa');
+   const check=async(index,offset)=>{
+    assert.equal(await count.innerText(),`${index}/3`);
+    assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().view.state.selection.main.from),offset);
+    assert.equal(await page.locator('.cm-searchMatch-selected').innerText(),'aa');
+   };
+   await check(1,2);
+   await input.press('Enter');await check(2,4);
+   await input.press('Shift+Enter');await check(1,2);
+   const previous=page.locator('.kn-find [name=previous]');
+   await previous.focus();await previous.press('Enter');await check(3,11);
+   await previous.click();await check(2,4);
+   await page.locator('.kn-find [name=next]').click();await check(3,11);
+   await input.press('Shift+F3');await check(2,4);
+   await input.press(process.platform==='darwin'?'Meta+g':'Control+g');await check(3,11);
+   await page.locator('.kn-find [name=next]').click();await check(1,2);
+   await input.press('Escape');
+  });
+  await test('S10-reading-scrolls-to-the-actual-line',async()=>{
+   const markdown='# 开头\n\n目标在第一行。'+ '长段落的普通正文。'.repeat(520)+'末行有目标。\n';
+   await page.evaluate(text=>{const {view}=knowledgeCurrentEntry();view.dispatch({changes:{from:0,to:view.state.doc.length,insert:text},selection:{anchor:0}});},markdown);
+   await mode('preview');await openFind();await input.fill('目标');
+   await input.press('Enter');assert.equal(await count.innerText(),'2/2');await afterScroll();
+   const active=await readMatch();assert.equal(active?.text,'目标');assert.equal(active?.visible,true);
+   await input.press('Enter');assert.equal(await count.innerText(),'1/2');await afterScroll();assert.equal((await readMatch())?.visible,true);
+   await input.press('Escape');
+  });
+  await test('S11-table-current-range-and-edit-invalidation',async()=>{
+   await mode('edit');
+   const rows=Array.from({length:55},(_,i)=>`| 第 ${i+1} 行 | 普通文字 | 普通文字 |`);
+   rows[53]='| 末段 | 普通文字 | **定位**与定位 |';
+   const filler=Array.from({length:160},(_,i)=>`第 ${i+1} 段普通正文。`+'用于拉开查找结果的测试内容。'.repeat(6));
+   const markdown=['# 定位标题','','- 列表里的定位','',...filler,'','| 行号 | 说明 | 内容 |','| --- | --- | --- |',...rows,''].join('\n');
+   await page.evaluate(text=>{
+    const e=knowledgeCurrentEntry();
+    e.view.dispatch({changes:{from:0,to:e.view.state.doc.length,insert:text},selection:{anchor:0}});
+   },markdown);
+   const snapshot=()=>page.evaluate(()=>{
+    const task=knowledgeActiveDocument(),entry=knowledgeCurrentEntry();
+    return {markdown:entry.getMarkdown(),dirty:task.knowledgeNote.dirty,documentState:task.knowledgeNote.documentState};
+   });
+   const before=await snapshot();
+   await openFind();await input.fill('定位');assert.equal(await count.innerText(),'1/4');
+   assert.equal(await page.locator('.kn-heading .cm-searchMatch-selected').innerText(),'定位');
+   const automaticMatch=page.locator('.cm-selectionMatch:not(.cm-searchMatch)').first();
+   if(await automaticMatch.count())assert.equal(await automaticMatch.evaluate(el=>getComputedStyle(el).backgroundColor),'rgba(0, 0, 0, 0)');
+   await input.press('Enter');assert.equal(await count.innerText(),'2/4');
+   assert.equal(await page.locator('.cm-searchMatch-selected').innerText(),'定位');
+   await input.press('Enter');assert.equal(await count.innerText(),'3/4');await afterScroll();
+   await page.waitForFunction(()=>document.querySelector('.kn-table-widget table')?.rows.length===56);
+   await page.evaluate(()=>knowledgeCurrentEntry().resizeTableColumn(1,1300,document.querySelector('.kn-table-widget')));
+   await input.press('Shift+Enter');assert.equal(await count.innerText(),'2/4');
+   await input.press('Enter');assert.equal(await count.innerText(),'3/4');await afterScroll();
+   assert.deepEqual(await readMatch(),{text:'定位',offset:0,row:54,column:2,visible:true});
+   await page.locator('.kn-find [name=next]').click();assert.equal(await count.innerText(),'4/4');await afterScroll();
+   assert.deepEqual(await readMatch(),{text:'定位',offset:1,row:54,column:2,visible:true});
+   assert.deepEqual(await snapshot(),before);
+   // Change an earlier occurrence while find remains open, shifting all table offsets.
+   await page.evaluate(()=>{const e=knowledgeCurrentEntry(),to=e.getEditorText().indexOf('定位标题')+2;e.view.dispatch({changes:{from:to-2,to,insert:'重新命名'}});});
+   assert.equal(await count.innerText(),'3/3');
+   await input.press('Shift+Enter');assert.equal(await count.innerText(),'2/3');await afterScroll();
+   assert.deepEqual(await readMatch(),{text:'定位',offset:0,row:54,column:2,visible:true});
+   await input.press('Escape');
+   assert.equal(await page.evaluate(()=>CSS.highlights.has(knowledgeCurrentEntry().find.highlightKey)),false);
+  });
+  await test('S12-search-preserves-saved-file-and-undo-history',async()=>{
+   await page.locator('[data-task-row=saved] .task-select').click();
+   await page.waitForFunction(()=>knowledgeCurrentEntry()?.options.noteId==='search-saved');
+   const record=()=>page.evaluate(()=>{
+    const task=knowledgeActiveDocument(),entry=knowledgeCurrentEntry();
+    return {markdown:entry.getMarkdown(),file:task.knowledgeNote.filePath,dirty:task.knowledgeNote.dirty,
+      documentState:task.knowledgeNote.documentState,lastSavedHash:task.knowledgeNote.lastSavedHash};
+   });
+   const before=await record();
+   assert.equal(before.documentState,'SAVED');assert.equal(before.dirty,false);
+   await openFind();await input.fill('关键词');await input.press('Enter');
+   assert.match(await count.innerText(),/\/2$/);
+   await input.press('Shift+Enter');await input.press('Escape');
+   assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().format('undo')),false);
+   assert.deepEqual(await record(),before);assert.equal(await fs.readFile(bound,'utf8'),saved);
+   await page.evaluate(async()=>{save();await flushSave();});
+   const persisted=(await readTaskData(profile)).tasks.find(task=>task.id==='saved');
+   assert.equal(persisted.knowledgeNote.dirty,false);assert.equal(persisted.knowledgeNote.lastSavedHash,before.lastSavedHash);
   });
  }finally{await fs.writeFile(path.join(out,'results.json'),JSON.stringify({source,run,results,errors},null,2));await app.close();}
  if(results.some(r=>r.status==='FAIL')||errors.length)process.exitCode=1;
