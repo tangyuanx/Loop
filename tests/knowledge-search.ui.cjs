@@ -212,7 +212,21 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
    await page.waitForFunction(()=>document.querySelector('.kn-table-widget table')?.rows.length===56);
    await page.evaluate(()=>knowledgeCurrentEntry().resizeTableColumn(1,1300,document.querySelector('.kn-table-widget')));
    await input.press('Shift+Enter');assert.equal(await count.innerText(),'2/4');
+   // Simulate a late layout adjustment from the virtualized widget being
+   // measured again. The current result must end up visible after it settles.
+   await input.evaluate(el=>el.addEventListener('keydown',()=>{
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+     const body=document.querySelector('.knowledge-body');
+     body.scrollTop-=body.clientHeight;
+    }));
+   },{once:true}));
    await input.press('Enter');assert.equal(await count.innerText(),'3/4');await afterScroll();
+   await page.waitForFunction(()=>{
+    const e=knowledgeCurrentEntry(),range=[...CSS.highlights.get(e.find.highlightKey+'-active')||[]][0];
+    if(!range)return false;
+    const hit=range.getBoundingClientRect(),body=e.root.closest('.knowledge-body').getBoundingClientRect();
+    return hit.width>0&&hit.top>=body.top&&hit.bottom<=body.bottom&&hit.left>=body.left&&hit.right<=body.right;
+   });
    assert.deepEqual(await readMatch(),{text:'定位',offset:0,row:54,column:2,visible:true});
    await page.locator('.kn-find [name=next]').click();assert.equal(await count.innerText(),'4/4');await afterScroll();
    assert.deepEqual(await readMatch(),{text:'定位',offset:1,row:54,column:2,visible:true});

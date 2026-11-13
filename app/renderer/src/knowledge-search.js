@@ -94,8 +94,9 @@ function renderedMatches(root,query) {
 }
 
 function revealRect(rect,element,body,tools) {
-  if(!rect||!body?.clientHeight)return;
+  if(!rect||!body?.clientHeight)return false;
   let {left,right,top,bottom}=rect;
+  let moved=false;
   for(let parent=element;parent&&parent!==body;parent=parent.parentElement){
     const style=getComputedStyle(parent);
     const x=parent.scrollWidth>parent.clientWidth&&/^(auto|scroll)$/.test(style.overflowX);
@@ -105,18 +106,23 @@ function revealRect(rect,element,body,tools) {
     if(x){
       const before=parent.scrollLeft;
       parent.scrollLeft+=left<box.left?left-box.left:Math.max(0,right-box.left-parent.clientWidth);
-      const moved=parent.scrollLeft-before;left-=moved;right-=moved;
+      const delta=parent.scrollLeft-before;left-=delta;right-=delta;moved||=delta!==0;
     }
     if(y){
       const before=parent.scrollTop;
       parent.scrollTop+=top<box.top?top-box.top:Math.max(0,bottom-box.top-parent.clientHeight);
-      const moved=parent.scrollTop-before;top-=moved;bottom-=moved;
+      const delta=parent.scrollTop-before;top-=delta;bottom-=delta;moved||=delta!==0;
     }
   }
   const box=body.getBoundingClientRect(),toolbar=tools?.getBoundingClientRect();
   const upper=toolbar&&left<toolbar.right&&right>toolbar.left?Math.max(box.top,toolbar.bottom+4):box.top;
   const lower=box.top+body.clientHeight;
-  if(top<upper||bottom>lower)body.scrollTop+=(top+bottom-upper-lower)/2;
+  if(top<upper-1||bottom>lower+1){
+    const before=body.scrollTop;
+    body.scrollTop+=(top+bottom-upper-lower)/2;
+    moved||=body.scrollTop!==before;
+  }
+  return !moved;
 }
 
 // The controls belong to the workspace toolbar, not a modal or a CodeMirror
@@ -264,23 +270,42 @@ export class KnowledgeFind {
 
   reveal(){
     cancelAnimationFrame(this.revealFrame);
-    this.revealFrame=requestAnimationFrame(()=>{
-      const match=this.matches[this.index],owner=this.owner;
-      if(!this.active||!match||!owner.root.isConnected)return;
+    const owner=this.owner,doc=owner.view.state.doc,mode=owner.mode,index=this.index,query=this.query();
+    const match=this.matches[index];
+    if(!match)return;
+    // A far-away table may still be source lines on the first frame.
+    // CodeMirror mounts and measures the widget in later viewport updates,
+    // and its own scroll effect can move the pane again during that process.
+    const deadline=performance.now()+450;
+    let settled=0;
+    const frame=()=>{
+      const current=this.matches[this.index];
+      if(!this.active||!current||!owner.root.isConnected||owner.mode!==mode||owner.view.state.doc!==doc||this.index!==index||!query.eq(this.query()))return;
       const pane=owner.root.closest('.knowledge-pane'),body=owner.root.closest('.knowledge-body');
       const tools=pane?.querySelector('.knowledge-note-actions');
-      const range=match.range||this.widgetRanges?.get(match);
+      const range=current.range||this.widgetRanges?.get(current);
+      let stable=false;
       if(range){
         const rect=[...range.getClientRects()].find(rect=>rect.width&&rect.height);
-        revealRect(rect,range.startContainer.parentElement,body,tools);
+        stable=revealRect(rect,range.startContainer.parentElement,body,tools);
       }else if(!this.renderedRoot()){
         const {view}=owner;
         const start=view.coordsAtPos(match.from,1),end=view.coordsAtPos(match.to,-1);
-        if(start&&end&&Math.abs(start.top-end.top)<start.bottom-start.top){
-          revealRect({...start,left:Math.min(start.left,end.left),right:Math.max(start.right,end.right)},view.contentDOM,body,tools);
-        }else revealRect(start,view.contentDOM,body,tools);
+        const rect=start&&end&&Math.abs(start.top-end.top)<start.bottom-start.top
+          ?{...start,left:Math.min(start.left,end.left),right:Math.max(start.right,end.right)}:start;
+        stable=revealRect(rect,view.contentDOM,body,tools);
+        if(mode==='edit'&&this.inSourceTable(match.from))stable=false;
       }
-    });
+      settled=stable?settled+1:0;
+      if(settled<3&&performance.now()<deadline)this.revealFrame=requestAnimationFrame(frame);
+    };
+    this.revealFrame=requestAnimationFrame(frame);
+  }
+
+  inSourceTable(from){
+    let node=syntaxTree(this.owner.view.state).resolveInner(from,1);
+    for(;node;node=node.parent)if(node.name==='Table')return true;
+    return false;
   }
 
   highlightWidgets(query){
@@ -333,12 +358,7 @@ export class KnowledgeFind {
     // silently drop the neighbouring value, so escape it for table matches.
     const change=match=>{
       let insert=engine.getReplacement(match);
-      if(insert.includes('|')){
-        let node=syntaxTree(state).resolveInner(match.from,1);
-        for(;node;node=node.parent)if(node.name==='Table'){
-          insert=insert.replace(/(?<!\\)\|/g,'\\|');break;
-        }
-      }
+      if(insert.includes('|')&&this.inSourceTable(match.from))insert=insert.replace(/(?<!\\)\|/g,'\\|');
       return {from:match.from,to:match.to,insert};
     };
     if(all){
