@@ -241,7 +241,7 @@ test("overlay backdrop dismisses without click-through and preserves the creatio
     state.createDraft = savedDraft;
     globalThis.captureCount = 0;
     globalThis.renderCount = 0;
-    globalThis.dialog = { contains: target => target.inside === true };
+    globalThis.dialog = { contains: target => target.inside === true, hasAttribute: () => false };
     globalThis.overlay = {
       firstElementChild: {},
       querySelector: selector => selector === ".dialog" ? dialog : null,
