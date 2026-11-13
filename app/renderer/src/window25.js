@@ -31,6 +31,7 @@
 
   const bridge = window.personalTaskTrack;
   const controls = bridge?.windowControls;
+  document.documentElement.dataset.platform = bridge?.platform || "";
   // darwin keeps the Demo's Mac arrangement (controls on the left). Every other
   // platform has its controls on the right, which is the Demo's Windows one.
   const platform = bridge?.platform === "darwin" ? "mac" : "windows";

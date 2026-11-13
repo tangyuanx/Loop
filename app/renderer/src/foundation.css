@@ -50,6 +50,16 @@
   --field22-focus: var(--input-focus);
 }
 
+/* Windows light: give the rail and selected rows less gray while keeping
+ * strong text readable at compact sizes on lower-density displays. */
+:root[data-platform="win32"]:not([data-theme="dark"]) {
+  --surface-navigation: #f6f6f6;
+  --surface-navigation-hover: #ededed;
+  --surface-navigation-selected: #e2e2e2;
+  --surface-task-selected: #e9e9e9;
+  --workspace-text: #2a2a2a;
+}
+
 :root[data-theme="dark"] {
   color-scheme: dark;
   --workspace-canvas: #181818;

@@ -74,6 +74,10 @@ body[data-window25="windows"] {
   --windows-supporting: #67716b;
   --windows-completed: #6b756f;
 }
+:root[data-platform="win32"]:not([data-theme="dark"]) body[data-window25="windows"] {
+  --windows-supporting: var(--workspace-secondary);
+  --windows-completed: #686868;
+}
 :root[data-theme="dark"] body[data-window25="windows"] {
   --windows-supporting: #a2afa7;
   --windows-completed: #99a79e;

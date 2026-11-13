@@ -43,7 +43,8 @@ class Node {
 }
 function header(platform = 'darwin', delayedState = false) {
   const body = new Node('', { 'data-window25-enabled': '' }); body.root = true;
-  const document = { body, activeElement: body, querySelector: selector => body.querySelector(selector), createElement: () => new Node() };
+  const document = { body, documentElement: new Node('html'), activeElement: body,
+    querySelector: selector => body.querySelector(selector), createElement: () => new Node() };
   body.document = document;
   const app = new Node('app'); body.append(app);
   const handlers = new Map();
@@ -100,6 +101,14 @@ test('title identity survives independently replaced navigation and topbar regio
     h.render({ nav: true, bar: true }); assertIdentity(h, platform);
   }
 });
+test('Linux and Windows share the caption layout but keep their own appearance platform', () => {
+  for (const platform of ['linux', 'win32', 'darwin']) {
+    const h = header(platform);
+    assert.equal(h.document.documentElement.dataset.platform, platform);
+    assert.equal(h.body.dataset.window25, platform === 'darwin' ? 'mac' : 'windows');
+  }
+});
+
 test('native caption follows the rendered title bar across themes, independently of body canvas', () => {
   const h = header('win32');
   assert.equal(h.chromeColors.at(-1).background, '#f4f4f4');
