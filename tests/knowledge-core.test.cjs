@@ -142,6 +142,15 @@ test('heading anchors share outline rules for Setext, ATX and excluded syntax',(
  assert.equal(core.anchorOffset(text,'不存在'),null);
  assert.equal(core.headings('* 列表项\n---\n').length,0);
 });
+test('formatted heading anchors keep exact matches and fall back only to a unique title',()=>{
+ const doc='# 1 接口 API\n\n## 1.1 React *组件*\n\n# 12 同名标题\n\n# 22 同名标题\n';
+ assert.equal(core.anchorOffset(doc,'9、 接口API'),0);
+ assert.equal(core.anchorOffset(doc,'React组件'),doc.indexOf('##'));
+ assert.match(core.fragment(doc,'接口API'),/^# 1 接口 API/);
+ assert.equal(core.anchorOffset(doc,'同名标题'),null);
+ assert.equal(core.anchorOffset(doc,'22 同名标题'),doc.indexOf('# 22'));
+ assert.equal(core.unnumberedHeading('2026 年度计划'),'2026 年度计划');
+});
 test('table editing preserves alignment, escaped pipes and surrounding Markdown',()=>{
  const text='前文\n\n| A | B |\n| :--- | ---: |\n| a\\|b | `x|y` |\n| c | d |\n\n后文';
  const pos=text.indexOf('a\\|b'),table=core.tableAt(text,pos);

@@ -12,6 +12,7 @@ import {installTableControls} from './knowledge-table-controls.js';
 import {tags} from '@lezer/highlight';
 import {obsidianComments} from './knowledge-syntax.js';
 import {createRenderer,safeURL,escape,imageLayout} from './knowledge-renderer.js';
+import {documentFormat,spacingAt,typedSpacing} from './knowledge-format.js';
 const core=window.LoopKnowledgeCore;
 const viewportEffect=StateEffect.define(),refreshEffect=StateEffect.define(),tableWidthsEffect=StateEffect.define();
 const instances=new WeakMap();
@@ -230,6 +231,11 @@ class KnowledgeEditor {
       this.tableWidths,invertedEffects.of(tr=>tr.effects.some(e=>e.is(tableWidthsEffect))?[tableWidthsEffect.of(tr.startState.field(this.tableWidths))]:[]),
       this.lineEndings,invertedEffects.of(tr=>tr.docChanged||tr.effects.some(e=>e.is(restoreLineEndings))?[restoreLineEndings.of(tr.startState.field(this.lineEndings))]:[]),
       history(),drawSelection(),rectangularSelection(),crosshairCursor(),EditorView.lineWrapping,
+      EditorState.transactionFilter.of(tr=>{
+        if(!options.autoSpacing?.() || this.mode==='preview' || !tr.docChanged || !tr.isUserEvent('input.type') || tr.isUserEvent('input.type.compose'))return tr;
+        const changes=typedSpacing(tr);
+        return changes.length?[tr,{changes,sequential:true}]:tr;
+      }),
       placeholder('开始记录，支持 Markdown…'),
       EditorState.phrases.of({'Find':'查找','Replace':'替换','next':'下一个','previous':'上一个','all':'全选匹配',
         'match case':'区分大小写','regexp':'正则表达式','by word':'全词匹配','replace':'替换','replace all':'全部替换','close':'关闭',
@@ -282,6 +288,17 @@ class KnowledgeEditor {
     ]})});
     this.find=new KnowledgeFind(this);this.setMode(this.mode);instances.set(options.root,this);
     this.events=new AbortController();const signal=this.events.signal;
+    this.view.contentDOM.addEventListener('compositionend',()=>{
+      // CodeMirror flushes the final composition mutation in a microtask.
+      requestAnimationFrame(()=>{
+        if(this.destroyed || this.view.composing)return;
+        const ranges=this.compositionRanges;
+        this.compositionRanges=null;
+        if(!options.autoSpacing?.() || this.mode==='preview')return;
+        const changes=spacingAt(this.view.state,ranges?[ranges]:[]);
+        if(changes.length)this.view.dispatch({changes,userEvent:'input.type'});
+      });
+    },{signal});
     this.root.addEventListener('mousedown',event=>{
       this.pointerLink=event.target.closest('a,[data-note-target],.kn-external-link');
       if(event.target.closest('.kn-image-resize'))return;
@@ -543,6 +560,16 @@ class KnowledgeEditor {
       if(this.mode==='preview')this.renderReading();
     }
     if(update.docChanged){
+      for(const tr of update.transactions){
+        if(!tr.docChanged)continue;
+        if(tr.isUserEvent('input.type.compose')&&this.options.autoSpacing?.()){
+          const prior=tr.isUserEvent('input.type.compose.start')?null:this.compositionRanges;
+          let start=prior?tr.changes.mapPos(prior.from,-1):Infinity;
+          let end=prior?tr.changes.mapPos(prior.to,1):-1;
+          tr.changes.iterChangedRanges((_a,_b,from,to)=>{if(to>from){start=Math.min(start,from);end=Math.max(end,to);}});
+          this.compositionRanges=end>=start?{from:start,to:end}:null;
+        }else this.compositionRanges=null;
+      }
       const cell=this.activeTableCell;
       if(cell&&!cell.writing&&!cell.composing){
         const range=this.tableCellRange(cell.widget,cell.row,cell.column);
@@ -631,11 +658,30 @@ class KnowledgeEditor {
     const content=document.createElement('span');content.className='kn-table-cell-content';content.setAttribute('aria-hidden','true');content.textContent=input.value||'\u200b';
     const active={widget,cell,input,content,renderedHTML:cell.innerHTML,row,column,...range,composing:false,writing:false};this.activeTableCell=active;
     cell.classList.add('kn-cell-editing');cell.replaceChildren(content,input);
-    const commit=(formatting=false)=>{
+    const commit=(formatting=false,autoSpacing=false)=>{
       if(active.composing||this.activeTableCell!==active)return;
       const raw=input.value.replace(/\r\n?/g,'\n'),caret=input.selectionStart??raw.length;let value='',before=0;
       for(let i=0;i<raw.length;i++){const part=raw[i]==='\n'?'<br>':raw[i]==='|'&&!core.escaped(raw,i)?'\\|':raw[i];value+=part;if(i<caret)before+=part.length;}
-      const from=active.from,to=active.to,insert=active.prefix+value+active.suffix;
+      const from=active.from,to=active.to;
+      const valueFrom=from+active.prefix.length;
+      if(autoSpacing&&this.options.autoSpacing?.()){
+        const previous=this.view.state.sliceDoc(from,to);
+        const next=active.prefix+value+active.suffix;
+        let start=0,end=0;
+        while(start<Math.min(previous.length,next.length)&&previous[start]===next[start])start++;
+        while(end<Math.min(previous.length,next.length)-start&&previous.at(-1-end)===next.at(-1-end))end++;
+        if(start<next.length-end){
+          const candidate=this.view.state.update({changes:{from,to,insert:next}}).state;
+          const spaces=spacingAt(candidate,[{from:from+start,to:from+next.length-end}]);
+          for(const change of spaces.reverse()){
+            const at=change.from-valueFrom;
+            if(at<=0||at>=value.length)continue;
+            value=value.slice(0,at)+' '+value.slice(at);
+            if(at<=before)before++;
+          }
+        }
+      }
+      const insert=active.prefix+value+active.suffix;
       input.value=value.replace(/<br\s*\/?>/gi,'\n');const displayCaret=value.slice(0,before).replace(/<br\s*\/?>/gi,'\n').length;input.setSelectionRange(displayCaret,displayCaret);
       content.textContent=(input.value||'\u200b')+(input.value.endsWith('\n')?'\u200b':'');
       if(this.view.state.doc.sliceString(from,to)===insert)return;
@@ -669,9 +715,9 @@ class KnowledgeEditor {
         if(target)this.editTableCell(next,target,true);else this.view.focus();
       });
     });
-    input.addEventListener('input',()=>{content.textContent=input.value||'\u200b';commit();});
+    input.addEventListener('input',event=>{content.textContent=input.value||'\u200b';commit(false,event.inputType==='insertText');});
     input.addEventListener('compositionstart',()=>{active.composing=true;});
-    input.addEventListener('compositionend',()=>{active.composing=false;commit();});
+    input.addEventListener('compositionend',()=>{active.composing=false;commit(false,true);});
     input.addEventListener('blur',()=>{
       // CodeMirror can temporarily blur a reused widget while applying undo.
       // Wait until that transaction has reconciled the value before committing.
@@ -828,10 +874,42 @@ class KnowledgeEditor {
       this.readHost.querySelectorAll('h1,h2,h3,h4,h5,h6')[index]?.scrollIntoView({block:'start'});
     }else this.view.focus();
   }
+  formatDocument(rules) {
+    if(this.view.composing || this.activeTableCell?.composing)return null;
+    const result=documentFormat(this.view.state,rules);
+    if(!result?.changes.length)return result;
+    this.finishTableCell();
+    this.view.dispatch({changes:result.changes,annotations:isolateHistory.of('full'),userEvent:'input.format'});
+    return result;
+  }
+  selectedLink() {
+    const view=this.view,{from,to}=view.state.selection.main;
+    if(this.activeTableCell || view.state.doc.lineAt(from).number!==view.state.doc.lineAt(to).number)return null;
+    forceParsing(view,to);
+    let link=syntaxTree(view.state).resolveInner(from,1);
+    while(link&&link.name!=='Link')link=link.parent;
+    if(!link||link.to<to||!link.getChild('URL'))return null;
+    const marks=link.getChildren('LinkMark');
+    if(marks.length<4||marks[0].from!==link.from||view.state.sliceDoc(marks[1].from,marks[1].to)!==']')return null;
+    const labelFrom=marks[0].to,labelTo=marks[1].from;
+    if(from===to && (from<labelFrom || from>labelTo))return null;
+    return {from:link.from,to:link.to,labelFrom,label:view.state.sliceDoc(labelFrom,labelTo)};
+  }
+  canLinkSelection() {
+    const {from,to}=this.view.state.selection.main,doc=this.view.state.doc;
+    return !this.activeTableCell&&doc.lineAt(from).number===doc.lineAt(to).number;
+  }
   format(action,value) {
     if(this.mode==='preview')return false;
     const view=this.view,{from,to}=view.state.selection.main,doc=view.state.doc,text=doc.sliceString(from,to);
     if(action==='undo'||action==='redo'){const applied=(action==='undo'?undo:redo)(view);view.focus();return applied;}
+    if(action==='unlink'){
+      const link=this.selectedLink();if(!link)return false;
+      const map=pos=>link.from+Math.max(0,Math.min(pos-link.labelFrom,link.label.length));
+      const {anchor,head}=view.state.selection.main;
+      view.dispatch({changes:{from:link.from,to:link.to,insert:link.label},selection:{anchor:map(anchor),head:map(head)},annotations:isolateHistory.of('full'),userEvent:'input.format'});
+      view.focus();return true;
+    }
     const wraps={bold:'**',italic:'*',strike:'~~',inline:'`',highlight:'=='};
     // A focused table cell owns its own selection: format the textarea text and
     // commit it, instead of wrapping the (collapsed) CodeMirror selection at the
@@ -858,6 +936,11 @@ class KnowledgeEditor {
     if(wraps[action]){
       const token=wraps[action],changes=[],ranges=[];
       const first=doc.lineAt(from),last=doc.lineAt(to>from?to-1:to);
+      if(action==='inline'&&first.number!==last.number)return false;
+      forceParsing(view,last.to);
+      const type={bold:'StrongEmphasis',italic:'Emphasis',strike:'Strikethrough',inline:'InlineCode'}[action];
+      const marker=action==='inline'?'CodeMark':action==='strike'?'StrikethroughMark':'EmphasisMark';
+      let delta=0;
       for(let n=first.number;n<=last.number;n++){
         const line=doc.line(n);
         // Inline formatting leaves Markdown block markers outside emphasis.
@@ -866,20 +949,26 @@ class KnowledgeEditor {
         if(from===to)a=b=from;
         if(a>b || (a===b&&from!==to))continue;
         const text=doc.sliceString(a,b);
+        let enclosing=syntaxTree(view.state).resolveInner(a,1);
+        while(enclosing&&enclosing.name!==type)enclosing=enclosing.parent;
+        const markers=enclosing?.getChildren(marker);
         // A longer fence is required when the selection itself contains backticks,
         // otherwise the first inner backtick closes the span early.
         const fence=action==='inline'?inlineFence(text):token;
         const inner=action==='inline'&&/^`|`$/.test(text)?' '+text+' ':text;
         let insert,offset=0,length;
-        if(text.startsWith(fence)&&text.endsWith(fence)&&text.length>=2*fence.length){insert=text.slice(fence.length,-fence.length);length=insert.length;}
-        else if(a>=fence.length&&doc.sliceString(a-fence.length,a)===fence&&doc.sliceString(b,b+fence.length)===fence){a-=fence.length;b+=fence.length;insert=text;length=text.length;}
+        if(markers?.length===2&&a===markers[0].to&&b===markers[1].from){a=enclosing.from;b=enclosing.to;insert=text;length=text.length;}
+        else if(text.startsWith(fence)&&text.endsWith(fence)&&text.length>=2*fence.length){insert=text.slice(fence.length,-fence.length);length=insert.length;}
+        else if(action==='highlight'&&a>=fence.length&&doc.sliceString(a-fence.length,a)===fence&&doc.sliceString(b,b+fence.length)===fence){a-=fence.length;b+=fence.length;insert=text;length=text.length;}
         else {insert=fence+inner+fence;offset=fence.length;length=inner.length;}
-        const delta=changes.reduce((sum,c)=>sum+c.insert.length-(c.to-c.from),0);
         ranges.push({from:a+delta+offset,to:a+delta+offset+length});
         changes.push({from:a,to:b,insert});
+        delta+=insert.length-(b-a);
       }
       if(!changes.length)return false;
-      view.dispatch({changes,selection:{anchor:ranges[0].from,head:ranges.at(-1).to},annotations:isolateHistory.of('full'),userEvent:'input.format'});view.focus();return true;
+      const backward=view.state.selection.main.anchor>view.state.selection.main.head;
+      const start=ranges[0].from,end=ranges.at(-1).to;
+      view.dispatch({changes,selection:{anchor:backward?end:start,head:backward?start:end},annotations:isolateHistory.of('full'),userEvent:'input.format'});view.focus();return true;
     }
     if(['heading','bullet','ordered','task','quote'].includes(action)){
       const first=doc.lineAt(from);let last=doc.lineAt(to>from?to-1:to);
@@ -896,6 +985,7 @@ class KnowledgeEditor {
       }
       view.dispatch({changes,annotations:isolateHistory.of('full'),userEvent:'input.format'});view.focus();return true;
     }
+    if(action==='link'&&!this.canLinkSelection())return false;
     const blocks={
       code:'```text\n'+text+'\n```',
       diagram:'```mermaid\nflowchart LR\n  A[开始] --> B[处理]\n  B --> C[完成]\n```',
@@ -908,7 +998,9 @@ class KnowledgeEditor {
     if(!(action in blocks))return false;
     const insert=action==='link'||action==='image'?blocks[action]:'\n\n'+blocks[action]+'\n\n';
     const anchor=action==='code'?from+2+'```text\n'.length:action==='table'?from+2+blocks.table.lastIndexOf('|  |  |')+2:from+insert.length;
-    view.dispatch({changes:{from,to,insert},selection:{anchor},annotations:isolateHistory.of('full'),userEvent:'input.format'});view.focus();
+    const labelEnd=action==='link'?from+insert.lastIndexOf(']('):0;
+    const backward=view.state.selection.main.anchor>view.state.selection.main.head;
+    view.dispatch({changes:{from,to,insert},selection:action==='link'&&text?{anchor:backward?labelEnd:from+1,head:backward?from+1:labelEnd}:{anchor},annotations:isolateHistory.of('full'),userEvent:'input.format'});view.focus();
     if(action==='table'&&this.mode==='edit'){
       // A prior code block can leave incremental parsing behind this edit.
       // Materialize the new table before choosing its first editable cell.

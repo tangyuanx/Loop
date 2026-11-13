@@ -862,6 +862,7 @@ function knowledgeEditorOptions(task) {
   const noteId = LoopKnowledgeCore.noteId(task);
   return { noteId, getNotes: knowledgeNotes, getCurrentNote: () => knowledgeAllDocuments().find(t => t.id === task.id),
     getContent: knowledgeText, noteDetail: knowledgeDetail,
+    autoSpacing: () => state.uiPreferences.knowledgeAutoSpacing,
     resolveImage: (_id, source) => {
       if (source.startsWith('task-image:')) return state.attachments?.images?.[source.slice(11)] || '';
       const scope=state.knowledgeAssetScopes?.[_id]||{};

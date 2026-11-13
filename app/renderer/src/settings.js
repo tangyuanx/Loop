@@ -129,6 +129,7 @@ function shellSettingsKnowledge() {
     ${shellSettingsChoice("knowledge-width", "", shellSettingsChoiceOptions("knowledge-width"), shellNoteWidth())}
     ${shellSettingsChoice("knowledge-mode", "与笔记内的视图切换同步。", shellSettingsChoiceOptions("knowledge-mode"), shellKnowledgeMode())}
     ${shellSettingsChoice('resource-open-mode','网页与本地文件共用；代码预览为只读。',shellSettingsChoiceOptions('resource-open-mode'),state.knowledgeWorkspace.resourceOpenMode)}
+    ${shellSettingsToggle('中英文自动加空格', '在笔记中输入或确认输入法文字时，在相邻的汉字和英文字母之间插入一个空格。', state.uiPreferences.knowledgeAutoSpacing, 'data-action="toggle-knowledge-auto-spacing"')}
     <p class="prefs-native-caption">笔记的字体与字号跟随「外观」设置。</p>`;
 }
 

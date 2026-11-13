@@ -1999,6 +1999,9 @@ async function shellAction(data, event) {
         settingsMotion = "page";
       }
       return true;
+    case "toggle-knowledge-auto-spacing":
+      LoopUiPreferences.update({ knowledgeAutoSpacing: !state.uiPreferences.knowledgeAutoSpacing });
+      return true;
     case "open-settings-choice":
       shellSettingsChoiceMenu(trigger, data.key);
       return true;
@@ -2609,7 +2612,9 @@ function shellBindOverlayDismissal() {
     // multi-select shortcuts from also reacting to the same key press.
     event.stopImmediatePropagation();
     if (shellOverlayDismissBlocked()) return;
+    const lightDismiss = shellOverlay().firstElementChild?.hasAttribute("data-light-dismiss");
     shellCloseOverlay();
+    if (lightDismiss) return;
     state.taskMenuOpen = false;
     state.contextMenu = null;
     render();
@@ -2628,6 +2633,10 @@ function shellBindOverlayDismissal() {
     // Contextual branches share this overlay but are positioned as siblings
     // to avoid clipping. Clicking a branch is still an inside interaction.
     if (event.target.closest?.("#overlay .wb-submenu")) return;
+    if (surface?.hasAttribute("data-light-dismiss")) {
+      if (!event.target.closest?.(surface.dataset.returnFocus)) shellCloseOverlay({ restoreFocus: false });
+      return;
+    }
     if (event.target.closest(SHELL_OVERLAY_TRIGGERS)) return;
     consumeOutsideClick = event.button === 0;
     if (shellOverlayDismissBlocked()) { event.preventDefault(); return; }

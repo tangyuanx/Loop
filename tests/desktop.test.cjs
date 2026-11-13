@@ -7729,13 +7729,13 @@ test('interaction preferences migrate from legacy cache but restored workspace v
   const h = await rendererHarness({storage:{read:async()=>stored,write:async data=>writes.push(data)}});
   h.evaluate(`localStorage.setItem('loop.interaction28',JSON.stringify({continuous:false,follow:false})); localStorage.setItem('loop-work-rhythm-v1:enabled','1')`);
   const legacy = await h.evaluate('loadAppData()');
-  assert.deepEqual(JSON.parse(JSON.stringify(legacy.uiPreferences)), {continuous:false,follow:false,workNavigationEnabled:true,nodeConclusionHintSeen:false});
+  assert.deepEqual(JSON.parse(JSON.stringify(legacy.uiPreferences)), {continuous:false,follow:false,workNavigationEnabled:true,nodeConclusionHintSeen:false,knowledgeAutoSpacing:false});
   stored = {tasks:[],uiPreferences:{continuous:true,follow:true,workNavigationEnabled:false}};
   const restored = await h.evaluate('loadAppData()');
-  assert.deepEqual(JSON.parse(JSON.stringify(restored.uiPreferences)), {...stored.uiPreferences,nodeConclusionHintSeen:false});
-  h.evaluate(`state.uiPreferences = normalizeUiPreferences({continuous:true,follow:true,workNavigationEnabled:false}); LoopUiPreferences.update({follow:false})`);
+  assert.deepEqual(JSON.parse(JSON.stringify(restored.uiPreferences)), {...stored.uiPreferences,nodeConclusionHintSeen:false,knowledgeAutoSpacing:false});
+  h.evaluate(`state.uiPreferences = normalizeUiPreferences({continuous:true,follow:true,workNavigationEnabled:false}); LoopUiPreferences.update({follow:false,knowledgeAutoSpacing:true})`);
   await h.evaluate('flushSave()');
-  assert.deepEqual(JSON.parse(JSON.stringify(writes[0].uiPreferences)), {continuous:true,follow:false,workNavigationEnabled:false,nodeConclusionHintSeen:false});
+  assert.deepEqual(JSON.parse(JSON.stringify(writes[0].uiPreferences)), {continuous:true,follow:false,workNavigationEnabled:false,nodeConclusionHintSeen:false,knowledgeAutoSpacing:true});
 });
 
 test('changing default task range within settings keeps the current settings page visible', async () => {

@@ -198,6 +198,28 @@
     }
     return {content:output,changed:matches.length};
   }
+  function unnumberedHeading(text) {
+    if (/^(?:19|20)\d{2}[ \t]+/.test(text)) return text;
+    return text.replace(/^\d+(?:\.\d+)*[.)、]?[ \t]+(?=\S)/, '');
+  }
+  function headingAnchorKey(text) {
+    return normalized(unnumberedHeading(text).replace(/(?<!\w)_{1,2}(?=\S)|(?<=\S)_{1,2}(?!\w)|~~/g, '')
+      .replace(/(?<=\p{Script=Han})(?=\p{Script=Latin})|(?<=\p{Script=Latin})(?=\p{Script=Han})/gu, ' ')
+      .replace(/[ \t]+/g, ' '));
+  }
+  function headingIndex(headings, anchor) {
+    const target = normalized(anchor);
+    const exact = headings.findIndex(heading => normalized(heading.text) === target);
+    if (exact >= 0) return exact;
+    const key = headingAnchorKey(anchor);
+    let match = -1;
+    for (let i = 0; i < headings.length; i++) {
+      if (headingAnchorKey(headings[i].text) !== key) continue;
+      if (match >= 0) return -1;
+      match = i;
+    }
+    return match;
+  }
   function headings(text) {
     const excluded = excludedRanges(String(text)); let offset = 0, i = 0;
     const out = [];
@@ -228,7 +250,7 @@
       }
       return null;
     }
-    const hs = headings(text); const at = hs.findIndex(h => normalized(h.text) === normalized(anchor));
+    const hs = headings(text); const at = headingIndex(hs, anchor);
     if (at < 0) return null;
     const end = hs.slice(at+1).find(h => h.level <= hs[at].level)?.offset ?? text.length;
     return text.slice(hs[at].offset,end);
@@ -250,8 +272,8 @@
       }
       return null;
     }
-    const target=normalized(anchor);
-    return headings(text).find(heading=>normalized(heading.text)===target)?.offset ?? null;
+    const hs = headings(text);
+    return hs[headingIndex(hs, anchor)]?.offset ?? null;
   }
   // Relative Markdown links that can point at another note on disk. Used for
   // backlinks alongside wiki links; images, code and comments are excluded.
@@ -341,5 +363,5 @@
       return next.finally(()=>{ if(this.queues.get(key)===next) this.queues.delete(key); });
     }
   }
-  return {sourceFormat,serializeSource,excludedRanges,escaped,parseTarget,links,imageReferences,noteId,noteTitle,resolve,stableLink,noteFileBase,validateNoteName,canonicalPath,resolvePath,relativePathBetween,linksToFile,rewriteLinksToFile,headings,anchorOffset,fragment,relativeLinks,splitRow,tableAt,editTable,pasteTable,SerialQueue};
+  return {sourceFormat,serializeSource,excludedRanges,escaped,parseTarget,links,imageReferences,noteId,noteTitle,resolve,stableLink,noteFileBase,validateNoteName,canonicalPath,resolvePath,relativePathBetween,linksToFile,rewriteLinksToFile,headings,unnumberedHeading,headingAnchorKey,anchorOffset,fragment,relativeLinks,splitRow,tableAt,editTable,pasteTable,SerialQueue};
 });

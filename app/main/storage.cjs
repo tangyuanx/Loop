@@ -196,6 +196,7 @@ function normalizeTaskData(data) {
       follow: safeData.uiPreferences.follow !== false,
       workNavigationEnabled: safeData.uiPreferences.workNavigationEnabled === true,
       nodeConclusionHintSeen: safeData.uiPreferences.nodeConclusionHintSeen === true,
+      knowledgeAutoSpacing: safeData.uiPreferences.knowledgeAutoSpacing === true,
     } : null,
     workNavigation: workNavigationModel.normalizeWorkNavigation(safeData.workNavigation, {
       groupIds: taskGroups.map((group) => group.id),

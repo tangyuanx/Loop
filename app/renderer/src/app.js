@@ -1038,7 +1038,9 @@ function loadBrowserTypography() {
 }
 
 function normalizeUiPreferences(value) {
-  return { continuous: value?.continuous !== false, follow: value?.follow !== false, workNavigationEnabled: value?.workNavigationEnabled === true, nodeConclusionHintSeen: value?.nodeConclusionHintSeen === true };
+  return { continuous: value?.continuous !== false, follow: value?.follow !== false,
+    workNavigationEnabled: value?.workNavigationEnabled === true, nodeConclusionHintSeen: value?.nodeConclusionHintSeen === true,
+    knowledgeAutoSpacing: value?.knowledgeAutoSpacing === true };
 }
 
 function loadBrowserUiPreferences() {
@@ -2082,7 +2084,7 @@ function save() {
       localStorage.setItem(NEW_TASK_PRIORITY_KEY, state.newTaskPriority);
       localStorage.setItem(KNOWLEDGE_WIDTH_KEY, payload.knowledgeWidth);
       localStorage.setItem(KNOWLEDGE_MODE_KEY, payload.markdownMode);
-      localStorage.setItem("loop.interaction28", JSON.stringify({ continuous: state.uiPreferences.continuous, follow: state.uiPreferences.follow, nodeConclusionHintSeen: state.uiPreferences.nodeConclusionHintSeen }));
+      localStorage.setItem("loop.interaction28", JSON.stringify({ continuous: state.uiPreferences.continuous, follow: state.uiPreferences.follow, nodeConclusionHintSeen: state.uiPreferences.nodeConclusionHintSeen, knowledgeAutoSpacing: state.uiPreferences.knowledgeAutoSpacing }));
       localStorage.setItem("loop-work-rhythm-v1:enabled", state.uiPreferences.workNavigationEnabled ? "1" : "0");
       localStorage.setItem(INSTALLATION_ID_KEY, state.installationId);
       localStorage.setItem(WORK_NAVIGATION_KEY, JSON.stringify(state.workNavigation));

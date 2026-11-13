@@ -243,6 +243,7 @@ function shellKnowledgeFileMenu(trigger) {
       ${typeof renderKnowledgeSplitActions === 'function' ? renderKnowledgeSplitActions() : ''}
       <div class="menu-divider"></div>
       <button class="button" type="button" role="menuitem" data-wb-action="format">格式与插入…</button>
+      <button class="button" type="button" role="menuitem" data-wb-action="format-document">格式化文档…</button>
       <button class="button" type="button" role="menuitem" data-kn-action="panels" aria-pressed="${knowledgePanels.has(task.id)}">笔记大纲</button>
       <button class="button" type="button" role="menuitem" data-kn-action="backlinks" aria-pressed="${knowledgeBacklinkPanels.has(task.id)}">反向链接</button>
       ${renderShellKnowledgeWidthButton()}
