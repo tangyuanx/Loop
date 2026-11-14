@@ -48,8 +48,13 @@ async function launch(profile) {
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ executablePath: executable || require('electron'), args: executable ? [] : [root], cwd: root, env });
   try {
-    const page = await app.firstWindow({ timeout: 20000 });
-    await page.waitForURL(/\/app\/renderer\/index\.html$/);
+    let page;
+    const deadline = Date.now() + 20000;
+    while (!page && Date.now() < deadline) {
+      page = app.windows().find(window => window.url().endsWith('/app/renderer/index.html'));
+      if (!page) await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    assert.ok(page, 'The packaged main window opens');
     await page.locator('.app').waitFor();
     const runtime = await app.evaluate(({ app }) => ({ appPath: app.getAppPath(), profile: app.getPath('userData'), version: app.getVersion() }));
     assert.equal(path.resolve(runtime.profile), path.resolve(profile));
@@ -102,7 +107,7 @@ async function exportedPack(run, output) {
     assert.equal(await page.locator('#task-share-scope').isVisible(), false);
     const summary = page.locator('#task-share-summary');
     await summary.getByText(/个节点|预览未完成/).waitFor();
-    assert.match(await summary.textContent(), /2 个节点（含记录）.*3 篇笔记.*2 个附件/,
+    assert.match(await summary.textContent(), /2 个节点（含记录）.*3 篇任务笔记.*2 个附件/,
       await page.locator('[data-task-share-dialog]').innerText());
     await page.locator('#task-share-format').selectOption('pack');
     await page.locator('#task-share-export').click();
@@ -161,6 +166,7 @@ async function importedPack(run, input) {
     assert.equal(task.nodes[0].conclusion, '结论\n保留长行');
     assert.equal(task.nodes[0].note, '节点记录');
     assert.equal(task.knowledgeNote.documentState, 'DRAFT');
+    assert.equal(task.knowledgeNoteIds.length, 3);
     assert.ok(!task.knowledgeNote.filePath);
     const target = saved.knowledgeDocuments.find(note => note.notes.includes('目标正文 A'));
     const sameTitle = saved.knowledgeDocuments.find(note => note.notes.includes('保留正文 B'));

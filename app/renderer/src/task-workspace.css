@@ -445,7 +445,7 @@ body .task-share-settings :is(.task-share-field, .task-share-title, .task-share-
   overflow: auto;
 }
 .task-share-notes { padding: 0 4px; }
-.task-share-notes small { color: var(--secondary); font-size: var(--type-11); }
+.task-share-notes small { display: block; color: var(--secondary); font-size: var(--type-11); }
 .task-share-preview ul, .task-share-missing ul { padding-inline-start: 20px; margin-block: 4px; }
 .task-share-preview pre {
   margin-block: 6px 0;
@@ -466,6 +466,35 @@ body .task-share-send .text-button:hover { text-decoration: underline; text-unde
   font-size: var(--type-12);
 }
 #task-share-issues[hidden] { display: none; }
+body .task-share-note-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 34px;
+  margin: 4px 4px 8px;
+  padding-inline: 10px;
+  border-radius: 5px;
+}
+body[data-controls22-enabled] .task-share-note-search input.control22-field,
+body[data-controls22-enabled] .task-share-note-search input.control22-field:is(:hover, :focus, :focus-visible) {
+  flex: 1;
+  min-height: 34px;
+  height: 34px;
+  padding-inline: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  outline: none;
+  box-shadow: none;
+}
+body .task-share-note-search > svg { flex-shrink: 0; width: 14px; height: 14px; color: var(--secondary); }
+.task-share-issue-groups { padding-inline-start: 8px; }
+.task-share-issue-groups ul { max-height: 14em; overflow: auto; padding: 0 4px; list-style: none; }
+.task-share-issue-groups li { display: flex; align-items: flex-start; gap: 12px; padding-block: 8px; }
+.task-share-issue-groups li > span { flex: 1; min-width: 0; }
+.task-share-issue-groups li small { display: block; color: var(--secondary); font-size: var(--type-12); }
+.task-share-issue-groups .button { flex-shrink: 0; }
 .task-share-feedback:has(> :not([hidden])) { padding-block: 6px; }
 body .task-share-feedback .error { margin: 0; }
 body .task-share-send-dialog > footer {

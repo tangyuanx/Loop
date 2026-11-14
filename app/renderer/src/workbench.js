@@ -163,6 +163,7 @@ document.addEventListener('click',event=>{
   const button=event.target.closest('button');if(!button)return;
   const action=button.dataset.wbAction,sub=button.dataset.wbSub,format=button.dataset.wbFormat,mode=button.dataset.wbMode;
   if(!action&&!sub&&!format&&!mode){
+    if(button.dataset.knAction==='membership')return;
     if(button.closest('.wb-more-menu,.wb-menu')&&(button.dataset.knAction||button.dataset.action||button.dataset.recovery26)){
       if(button.dataset.knAction==='upload'||button.dataset.knAction==='table-tools')if(!workbenchRestore())return;
       workbenchClose(false);

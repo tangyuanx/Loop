@@ -553,7 +553,7 @@ function loadBrowserTasks() {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? normalizeTasks(parsed) : [];
+    return Array.isArray(parsed) ? normalizeTasks(parsed, loadBrowserKnowledgeDocuments()) : [];
   } catch {
     return [];
   }
@@ -702,6 +702,7 @@ function knowledgeActiveDocument(task=state.tasks.find(t=>t.id===state.activeTas
       target={id:documentId,title,creatorTaskId:task.id,notes:'',createdAt:stamp,updatedAt:stamp,
         knowledgeNote:knowledgeDocument.createKnowledgeNoteMetadata({taskId:documentId,title,createdAt:stamp})};
       state.knowledgeDocuments.push(target);
+      task.knowledgeNoteIds = knowledgeDocument.normalizeNoteLinks([...knowledgeDocument.taskNoteIds(task, state.knowledgeDocuments), documentId]);
       session.recentIds=[documentId,...session.recentIds].slice(0,40);
     }
     session.taskId=task.id;
@@ -714,7 +715,7 @@ function knowledgeActiveDocument(task=state.tasks.find(t=>t.id===state.activeTas
   return note&&!note.knowledgeNote?.isDeleted?note:null;
 }
 
-function normalizeTasks(tasks) {
+function normalizeTasks(tasks, documents = []) {
   const seenTaskIds = new Set();
   return (Array.isArray(tasks) ? tasks : [])
     .filter(isRecord)
@@ -738,6 +739,7 @@ function normalizeTasks(tasks) {
         groupId: Object.hasOwn(task, "groupId") ? normalizeIdentifier(task.groupId) : defaultTaskGroup.id,
         title: normalizeText(task.title),
         knowledgeLinks: knowledgeDocument.normalizeNoteLinks(task.knowledgeLinks),
+        knowledgeNoteIds: knowledgeDocument.taskNoteIds({ ...task, id: taskId }, Array.isArray(documents) ? documents : []),
         activeKnowledgeId: normalizeIdentifier(task.activeKnowledgeId),
         knowledgeNote: knowledgeDocument.normalizeKnowledgeNote(task.knowledgeNote, {
           taskId,
@@ -1868,7 +1870,7 @@ async function loadAppData() {
     try {
       const stored = await desktopStorage.read();
       taskShareRevision = stored?.shareRevision ?? 0;
-      const tasks = stored && Array.isArray(stored.tasks) ? normalizeTasks(stored.tasks) : [];
+      const tasks = stored && Array.isArray(stored.tasks) ? normalizeTasks(stored.tasks, stored.knowledgeDocuments) : [];
       const nodeStates = LoopNodeStates.normalizeDefinitions(stored?.nodeStates);
       const taskGroups = normalizeTaskGroups(stored?.taskGroups, tasks);
       const activeGroupId = stored && Object.hasOwn(stored, "activeGroupId")

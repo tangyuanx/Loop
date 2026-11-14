@@ -6,7 +6,8 @@ const taskShareImagePending = new Set();
 function taskShareAssetOwner(href, requested) {
   if (requested) return requested;
   const id = href.split('#')[0].slice('loop-asset:'.length);
-  return state.tasks.find(task => task.id === state.activeTaskId)?.sharedAssets?.find(asset => asset.id === id)?.owners?.[0] || '';
+  return [...state.tasks, ...state.knowledgeDocuments, ...state.recentlyDeleted.map(entry=>entry.record).filter(Boolean)]
+    .flatMap(task=>task.sharedAssets||[]).find(asset=>asset.id===id)?.owners?.[0] || '';
 }
 
 function taskShareImage(owner, href) {
@@ -54,11 +55,20 @@ function taskShareSnapshot(taskId, noteId) {
   const brief = Object.fromEntries(['description', 'hypothesis', 'conclusion'].map(field => [field,
     state.shellDrafts?.[`${taskId}:${field}`] ?? task[field]]));
   const tabIds = state.knowledgeWorkspace.tabsByTask?.[taskId] || [];
+  const ownerTitles = new Map();
+  for (const owner of state.tasks) {
+    if (owner.id === taskId) continue;
+    for (const id of knowledgeDocument.taskNoteIds(owner, state.knowledgeDocuments)) {
+      if (!ownerTitles.has(id)) ownerTitles.set(id, []);
+      ownerTitles.get(id).push(owner.title || '未命名任务');
+    }
+  }
   return {
     task: { ...task, ...brief, nodes: cloneNodes(task.nodes), notes: knowledgeText(task) },
     documents: knowledgeAllDocuments().filter(item => item.id !== taskId).map(item => ({
       id: item.id, creatorTaskId: item.creatorTaskId, title: item.title,
-      knowledgeNote: { ...item.knowledgeNote }, notes: knowledgeText(item) })),
+      knowledgeNote: { ...item.knowledgeNote }, notes: knowledgeText(item),
+      ownerTitles: ownerTitles.get(item.id) || [] })),
     tabIds: [...new Set([...tabIds, ...(noteId ? [noteId] : [])])],
     nodeStates: state.nodeStates.map(item => ({ ...item })),
     noteId,
@@ -102,6 +112,7 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
   let redactPaths = resume?.redactPaths ?? false;
   let prepareTimer;
   let displayed = null;
+  let referenceQuery = '';
   const available = () => LoopTaskShare.candidates(snapshot.task, snapshot.documents, snapshot.tabIds);
   const startPreset = preset => {
     if (preset === 'custom' && selection) { selection = { ...selection, preset }; return; }
@@ -175,13 +186,31 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
     get('options').querySelector('[data-share-field="records"]').disabled = !selection.flow;
     if (nodeId) get('depth').hidden = !selection.nodeId || !selection.flow;
     get('title-field').hidden = get('format').value !== 'pack' || selection.preset === 'full';
-    if (get('note-count')) get('note-count').textContent = `已选 ${selection.noteIds.length} 篇`;
+    const selectedNotes=available().filter(note=>selection.noteIds.includes(note.id));
+    if (get('note-count')) get('note-count').textContent = `已选 ${selectedNotes.filter(note=>note.relation==='owned').length} 篇`;
+    if (get('reference-count')) {
+      const count=selectedNotes.filter(note=>note.relation!=='owned').length;
+      get('reference-count').textContent=count?`已选 ${count} 篇`:'';
+    }
+  }
+
+  function noteChoices(notes) {
+    return notes.map(note=>`<label class="node-share-check"><input type="checkbox" data-share-note="${escAttr(note.id)}" ${selection.noteIds.includes(note.id)?'checked':''}><span>${esc(note.title)}${note.ownerTitles.length?`<small>所属任务 · ${esc(note.ownerTitles.join('、'))}</small>`:''}</span></label>`).join('');
+  }
+
+  function showReferenceNotes() {
+    const query=referenceQuery.trim().toLocaleLowerCase();
+    const notes=available().filter(note=>note.relation!=='owned'&&
+      (query?[note.title,...note.ownerTitles].join(' ').toLocaleLowerCase().includes(query):
+        ['open','linked'].includes(note.relation)||note.main||note.id===noteId||selection.noteIds.includes(note.id)));
+    get('reference-list').innerHTML=noteChoices(notes)||(query?'<p class="task-share-meta">没有匹配的参考笔记</p>':'');
   }
 
   function showOptions() {
     const notes = available();
     const notesOpen = get('notes')?.open;
-    const relation = { main: '主笔记', owned: '任务创建', linked: '已关联', open: '仅打开' };
+    const referencesOpen=get('references')?.open;
+    const owned=notes.filter(note=>note.relation==='owned');
     get('options').innerHTML = `
       <div class="task-share-fields task-share-toggles">
         ${checkbox('brief', '任务简报', selection.brief)}${checkbox('flow', '处理流', selection.flow)}
@@ -189,9 +218,15 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
         ${checkbox('priority', '优先级', selection.priority)}${checkbox('deadline', '截止日期', selection.deadline)}
       </div>
       ${nodeId ? `<div id="task-share-depth" class="task-share-fields"><label>子节点深度<select data-share-field="childDepth">${taskShareOptions(depthOptions, selection.childDepth)}</select></label><label>下游关联层数<select data-share-field="downstreamDepth">${taskShareOptions(depthOptions, selection.downstreamDepth)}</select></label></div>` : ''}
-      ${notes.length ? `<details id="task-share-notes" ${notesOpen ? 'open' : ''}>${disclosure('知识笔记', '<span id="task-share-note-count" class="task-share-meta"></span>')}<div class="task-share-notes">${notes.map(note => `<label class="node-share-check"><input type="checkbox" data-share-note="${escAttr(note.id)}" ${selection.noteIds.includes(note.id) ? 'checked' : ''}><span>${esc(note.title)} <small>${relation[note.relation]}</small></span></label>`).join('')}</div></details>` : ''}
+      ${owned.length ? `<details id="task-share-notes" ${notesOpen ? 'open' : ''}>${disclosure('本任务笔记', '<span id="task-share-note-count" class="task-share-meta"></span>')}<div class="task-share-notes">${noteChoices(owned)}</div></details>` : ''}
+      <details id="task-share-references" ${referencesOpen?'open':''}>
+        ${disclosure('额外包含参考笔记','<span id="task-share-reference-count" class="task-share-meta"></span>')}
+        <div class="kn-switcher-search task-share-note-search">${shellIcon('search')}<input id="task-share-reference-query" type="search" value="${escAttr(referenceQuery)}" placeholder="搜索其他知识笔记…" aria-label="搜索参考笔记"></div>
+        <div class="task-share-notes" id="task-share-reference-list"></div>
+      </details>
       <label class="task-share-title" id="task-share-title-field">导入后的任务名（可选）<input maxlength="200" data-share-field="title" value="${escAttr(selection.title || '')}" placeholder="自动取自分享内容"></label>`;
     syncOptions();
+    showReferenceNotes();
   }
 
   function clearReceipt() {
@@ -203,16 +238,21 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
     const incomplete = (preview?.issues.length || get('format').value === 'pdf' && preview?.files.length) && !get('allow-incomplete')?.checked;
     get('export').disabled = Boolean(busy || !preview || incomplete);
     get('export').textContent = busy === 'export' ? '正在导出…' : formats[get('format').value].action;
+    get('format').disabled=Boolean(busy);
+    get('adjust').inert=Boolean(busy);
+    get('issues').inert=Boolean(busy);
+    dialog.setAttribute('aria-busy',String(Boolean(busy)));
   }
 
   function showPrepared(result, project) {
     preview = result;
     displayed = project;
     const count = LoopNodeShare.indexNodes(project.task.nodes).size;
+    const ownedNotes=new Set(available().filter(note=>note.relation==='owned').map(note=>note.id));
     const summary = [
       Object.hasOwn(project.task, 'description') && '任务简报',
       count && `${count} 个节点${project.records ? '（含记录）' : ''}`,
-      project.notes.length && `${project.notes.length} 篇笔记`,
+      project.notes.length && `${project.notes.length} 篇${project.notes.every(note=>ownedNotes.has(note.id))?'任务':''}笔记`,
       result.files.length && `${result.files.length} 个附件`,
     ];
     get('summary').textContent = summary.filter(Boolean).join(' · ');
@@ -223,11 +263,27 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
     const tree = taskShareNodeList(project.task.nodes);
     get('preview-lists').innerHTML = `
       ${tree ? `<details class="task-share-tree">${disclosure('所选节点')}${tree}</details>` : ''}
-      ${result.files.length ? `<details>${disclosure('附件清单')}<ul>${result.files.map(file => `<li>${esc(file.name)} · ${taskShareSize(file.size)}</li>`).join('')}</ul></details>` : ''}`;
+      ${result.files.length ? `<details>${disclosure('附件清单')}<ul>${result.files.map(file => `<li>${esc(file.name)} · ${taskShareSize(file.size)}</li>`).join('')}</ul></details>` : ''}
+      ${result.references?.length?`<details>${disclosure('外部笔记引用',`<span class="task-share-meta">${result.references.length} 项</span>`)}<ul>${result.references.map(ref=>`<li>${esc(ref.context)} · ${esc(ref.label)}</li>`).join('')}</ul></details>`:''}`;
+    const issueGroups=new Map();
+    for(const issue of result.issues){
+      const key=issue.owner||issue.context||'正文';
+      if(!issueGroups.has(key))issueGroups.set(key,[]);
+      issueGroups.get(key).push(issue);
+    }
+    const missingOpen=get('missing')?.open;
+    const openSources=new Set([...get('issues').querySelectorAll('[data-share-issue-source][open]')].map(item=>item.dataset.shareIssueSource));
     get('issues').innerHTML = `
       ${result.localPaths?.length ? `<div><p>这些正文中可能有本机路径：${result.localPaths.map(esc).join('、')}</p><label class="node-share-check"><input type="checkbox" id="task-share-redact" ${redactPaths ? 'checked' : ''}>遮盖疑似本机路径</label></div>` : ''}
       ${conflicts.length ? '<p>所选笔记有外部文件变更或缺失。本次使用当前 Loop 草稿，可取消后处理冲突。</p>' : ''}
-      ${result.issues.length ? `<div class="task-share-missing"><p>部分附件需要重新选择。</p><ul>${result.issues.map(item => `<li>${esc(item.context || '正文')} · ${esc(item.name)} <button type="button" class="button" data-share-locate="${escAttr(item.id)}">重新选择</button></li>`).join('')}</ul><label class="node-share-check"><input type="checkbox" id="task-share-allow-incomplete">排除这些附件并保留占位</label></div>` : get('format').value === 'pdf' && result.files.length ? '<label class="node-share-check"><input type="checkbox" id="task-share-allow-incomplete">PDF 中保留附件说明，继续导出</label>' : ''}`;
+      ${result.issues.length ? `<details id="task-share-missing" class="task-share-missing" ${missingOpen?'open':''}>
+        ${disclosure(`${result.issues.length} 项附件不可用`,`<span class="task-share-meta">${issueGroups.size} 处正文</span>`)}
+        <div class="task-share-issue-groups">${[...issueGroups].map(([source,issues])=>`<details data-share-issue-source="${escAttr(source)}" ${openSources.has(source)?'open':''}>
+          ${disclosure(esc(issues[0].context||'正文'),`<span class="task-share-meta">${issues.length} 项</span>`)}
+          <ul>${issues.map(item=>`<li><span>${esc(item.name)}<small>${esc(item.reason||'附件文件已移动或无法读取。')}</small></span><button type="button" class="button" data-share-locate="${escAttr(item.id)}">重新选择</button></li>`).join('')}</ul>
+        </details>`).join('')}</div>
+        <label class="node-share-check"><input type="checkbox" id="task-share-allow-incomplete">排除这些附件并保留说明</label>
+      </details>` : get('format').value === 'pdf' && result.files.length ? '<label class="node-share-check"><input type="checkbox" id="task-share-allow-incomplete">PDF 中保留附件说明，继续导出</label>' : ''}`;
     get('issues').hidden = !get('issues').childElementCount;
     updateExportButton();
   }
@@ -284,7 +340,7 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
   };
   get('options').onchange = event => {
     const { shareField, shareNote } = event.target.dataset;
-    if (shareField === 'title') return;
+    if (shareField === 'title'||(!shareField&&!shareNote)) return;
     if (shareField) selection[shareField] = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     if (shareNote) selection.noteIds = event.target.checked ? [...selection.noteIds, shareNote] : selection.noteIds.filter(id => id !== shareNote);
     if (!selection.flow) {
@@ -296,6 +352,11 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
     queuePreview();
   };
   get('options').oninput = event => {
+    if(event.target.id==='task-share-reference-query'){
+      referenceQuery=event.target.value;
+      showReferenceNotes();
+      return;
+    }
     if (event.target.dataset.shareField !== 'title') return;
     selection.title = event.target.value;
     queuePreview();

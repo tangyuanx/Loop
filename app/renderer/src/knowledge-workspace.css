@@ -251,3 +251,11 @@ body .kn-document-tab .kn-document-close:hover { color: var(--text); }
   padding: 5px 8px; border: 0; border-radius: 4px; background: transparent;
   font: var(--type-13)/1.4 var(--sans); color: var(--text);
 }
+body .knowledge-membership-copy, body .knowledge-membership-error {
+  margin: 4px 8px;
+  font-size: var(--type-12);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+body .knowledge-membership-copy { color: var(--secondary); }
+body .knowledge-membership-error { color: var(--orange); }

@@ -120,6 +120,17 @@ jobs:
           $executable = Join-Path $PWD "release/win-unpacked/Loop.exe"
           if (-not (Test-Path -LiteralPath $executable)) { throw "Packaged Loop.exe is missing." }
           "LOOP_APP_EXECUTABLE=$executable" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Test packaged task-note membership
+        run: npm run test:ui:knowledge-membership
+      - name: Preserve task-note membership evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: knowledge-membership-${{ matrix.platform }}
+          path: .local-review/note-task-ownership-*
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
       - name: Test packaged knowledge notes before publishing
         env:
           LOOP_KNOWLEDGE_QA_DIR: ${{ runner.temp }}/knowledge-export

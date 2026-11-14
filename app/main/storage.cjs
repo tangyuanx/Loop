@@ -158,11 +158,11 @@ function assertSupportedDataVersion(data) {
 
 function normalizeTaskData(data) {
   const safeData = migrateKnowledgeTaskData(data);
-  const tasks = normalizeTasks(safeData.tasks);
+  const tasks = normalizeTasks(safeData.tasks, safeData.knowledgeDocuments);
   const taskGroups = normalizeTaskGroups(safeData.taskGroups, tasks);
   const legacyFonts = migrateLegacyFont(safeData.font);
   return {
-    version: tasks.some(task => task.sharedAssets?.length) || safeData.recentlyDeleted?.some?.(entry => entry.record?.sharedAssets?.length) ? DATA_VERSION : 2,
+    version: tasks.some(task => task.sharedAssets?.length) || safeData.knowledgeDocuments?.some?.(note => note.sharedAssets?.length) || safeData.recentlyDeleted?.some?.(entry => entry.record?.sharedAssets?.length) ? DATA_VERSION : 2,
     knowledgeSchemaVersion: KNOWLEDGE_MIGRATION_VERSION,
     recentlyDeletedSchemaVersion: RECENTLY_DELETED_SCHEMA_VERSION,
     recentlyDeleted: normalizeRecentlyDeleted(safeData.recentlyDeleted),
@@ -332,7 +332,7 @@ function normalizeTaskHistory(history) {
     .slice(0, TASK_HISTORY_LIMIT);
 }
 
-function normalizeTasks(tasks) {
+function normalizeTasks(tasks, documents = []) {
   const seenTaskIds = new Set();
   return (Array.isArray(tasks) ? tasks : [])
     .filter(isRecord)
@@ -350,6 +350,7 @@ function normalizeTasks(tasks) {
         groupId: Object.hasOwn(task, "groupId") ? normalizeIdentifier(task.groupId) : DEFAULT_GROUP.id,
         title: normalizeText(task.title),
         knowledgeLinks: knowledgeDocument.normalizeNoteLinks(task.knowledgeLinks),
+        knowledgeNoteIds: knowledgeDocument.taskNoteIds({ ...task, id: taskId }, Array.isArray(documents) ? documents : []),
         activeKnowledgeId: normalizeIdentifier(task.activeKnowledgeId),
         knowledgeNote: knowledgeDocument.normalizeKnowledgeNote(task.knowledgeNote, {
           taskId,

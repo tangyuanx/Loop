@@ -5,7 +5,7 @@ const path = require('node:path');
 const { _electron: electron } = require('playwright-core');
 const { assertElectronStartupAllowed } = require('../tools/electron-startup-guard.cjs');
 
-async function launchRepository(data, name = 'repository') {
+async function launchRepository(data, name = 'repository', executablePath = '') {
   const root = path.resolve(__dirname, '..');
   await assertElectronStartupAllowed(root);
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), `loop-${name}-`));
@@ -15,7 +15,7 @@ async function launchRepository(data, name = 'repository') {
   delete env.ELECTRON_RUN_AS_NODE;
   let app;
   try {
-    app = await electron.launch({ executablePath: require('electron'), args: [root], cwd: root, env });
+    app = await electron.launch({ executablePath: executablePath || require('electron'), args: executablePath ? [] : [root], cwd: root, env });
     const deadline = Date.now() + 15000;
     let page;
     while (!page && Date.now() < deadline) {

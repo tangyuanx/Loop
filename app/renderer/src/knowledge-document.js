@@ -225,6 +225,7 @@
       const createdAt = normalizeTimestamp(record.createdAt, new Date().toISOString());
       const title = normalizeText(record.title) || '未命名笔记';
       return { id: record.id, title, notes: normalizeText(record.notes), creatorTaskId: normalizeText(record.creatorTaskId),
+        ...(Array.isArray(record.sharedAssets) ? { sharedAssets: record.sharedAssets } : {}),
         createdAt, updatedAt: normalizeTimestamp(record.updatedAt, createdAt),
         knowledgeNote: normalizeKnowledgeNote(record.knowledgeNote, {taskId:record.id,title,createdAt}) };
     });
@@ -232,6 +233,15 @@
 
   function normalizeNoteLinks(value) {
     return [...new Set((Array.isArray(value) ? value : []).filter(id => typeof id === 'string' && id.trim()))];
+  }
+
+  function taskNoteIds(task, documents = []) {
+    if (!task?.id) return [];
+    if (Object.hasOwn(task, 'knowledgeNoteIds')) return normalizeNoteLinks(task.knowledgeNoteIds);
+    // Migrate provenance once. An explicit empty list stays empty after restart.
+    const legacyText = task.notes ?? (typeof task.knowledgeNote === 'string' ? task.knowledgeNote : '');
+    const main = normalizeText(legacyText).trim() || task.knowledgeNote?.filePath ? [task.id] : [];
+    return normalizeNoteLinks([...main, ...documents.filter(note => note?.creatorTaskId === task.id).map(note => note.id)]);
   }
 
   // A split partitions the existing task tab list; it never owns another copy
@@ -286,6 +296,7 @@
   return Object.freeze({
     normalizeDocuments,
     normalizeNoteLinks,
+    taskNoteIds,
     normalizeSplitLayout,
     normalizeWorkspace,
     DOCUMENT_STATES,

@@ -216,6 +216,7 @@ function prepareImport(data, pack, options = {}, idFactory = prefix => `${prefix
     documents.push({ id, title: note.title, notes: note.content, creatorTaskId: taskId, createdAt: stamp, updatedAt: stamp, knowledgeNote: metadata });
   }
   task.knowledgeLinks = tabs.filter(id => id !== taskId);
+  task.knowledgeNoteIds = tabs.slice();
   task.activeKnowledgeId = tabs[0] ?? '';
   return { task, documents, nodeStates, tabs, documentIdMap };
 }

@@ -23,6 +23,13 @@ function plainReference(ref, fallback = '未共享的链接') {
   return escapeMarkdown(ref.autolink || ref.label === ref.destination ? fallback : ref.label || fallback);
 }
 function link(label, dest, image = false) { return `${image ? '!' : ''}[${escapeMarkdown(label)}](<${dest}>)`; }
+function markdownReference(destination) {
+  try { destination = decodeURIComponent(destination); } catch { /* Keep malformed text inert. */ }
+  return /\.(?:md|mdown|markdown)(?:[?#]|$)/i.test(destination);
+}
+function unavailableResource(reason) {
+  throw Object.assign(new Error(reason), { code: 'SHARE_RESOURCE_UNAVAILABLE' });
+}
 function validAssetHeader(bytes, extension) {
   const head = bytes.subarray(0, 16);
   if (extension === 'png') return head.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'));
@@ -75,13 +82,15 @@ async function prepareContent(data, source, { directory, signal, userData, appro
   const cached = new Map();
   const issues = new Map();
   const localPaths = new Set();
+  const externalReferences = new Map();
   const activeResources = new Set();
   const sourceTitle = sourceTask?.title || source.task.title;
 
-  function missing(ref, owner, context) {
+  function missing(ref, owner, context, reason) {
     const key = `${owner}\0${ref.destination}`;
     if (!issues.has(key)) issues.set(key, { id: randomUUID(), owner, destination: ref.destination,
-      name: safeName(ref.label || path.basename(ref.destination.replaceAll('\\', '/')).split('#')[0]), context });
+      name: safeName(ref.label || path.basename(ref.destination.replaceAll('\\', '/')).split('#')[0]), context,
+      reason: reason || '附件文件已移动或无法读取，请重新选择。' });
     return escapeMarkdown(`[附件未包含：${ref.autolink || ref.label === ref.destination ? '本地文件' : ref.label || '本地文件'}]`);
   }
 
@@ -102,33 +111,34 @@ async function prepareContent(data, source, { directory, signal, userData, appro
       extension = embedded[1].toLowerCase();
       assertSize(Math.ceil(embedded[2].length * 3 / 4), limits.asset + 3);
       bytes = Buffer.from(embedded[2], 'base64');
-      if (!validAssetHeader(bytes, extension)) return null;
+      if (!validAssetHeader(bytes, extension)) unavailableResource('图片内容无法识别，请重新选择有效图片。');
       name = `${safeName(ref.label, '图片')}.${extension}`;
     } else if (assetRef.test(ref.destination) && !approved) {
       const item = await managedAsset(userData, data, assetRef.exec(ref.destination)[1], owner).catch(() => null);
-      if (!item) return null;
+      if (!item) unavailableResource('Loop 管理的附件文件已不可用。');
       diskFile = item.file; name = item.name; extension = path.extname(item.file).slice(1);
     } else {
-      if (!approved && (!originPath || /^(?:[a-z][a-z0-9+.-]*:|\/|\\)/i.test(destination))) return null;
+      if (!approved && !originPath) unavailableResource('当前草稿缺少原文件位置，请重新选择此附件。');
+      if (!approved && /^(?:[a-z][a-z0-9+.-]*:|\/|\\)/i.test(destination)) unavailableResource('需要明确选择此本机文件后才能附带。');
       try {
         const requested = approved || resolveResource(destination, originPath).filePath;
         diskFile = await fs.realpath(requested);
         const stat = await fs.stat(diskFile);
-        if (!stat.isFile()) return null;
+        if (!stat.isFile()) unavailableResource('此链接指向目录，无法作为附件分享。');
         if (!approved) {
           const root = await fs.realpath(path.dirname(originPath));
           const relative = path.relative(root, diskFile);
-          if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) return null;
+          if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) unavailableResource('文件位于笔记目录之外，请重新选择以附带。');
         }
         assertSize(stat.size, limits.asset);
         extension = path.extname(diskFile).slice(1).toLowerCase();
         name = safeName(path.basename(requested));
       } catch (error) {
-        if (error.code === 'SHARE_LIMIT') throw error;
-        return null;
+        if (['SHARE_LIMIT', 'SHARE_RESOURCE_UNAVAILABLE'].includes(error.code)) throw error;
+        unavailableResource(['EACCES', 'EPERM'].includes(error.code) ? '没有读取此附件的权限。' : '附件文件已移动或无法读取。');
       }
     }
-    if (!Object.hasOwn(assetTypes, extension) || ref.image && !assetTypes[extension].startsWith('image/')) return null;
+    if (!Object.hasOwn(assetTypes, extension) || ref.image && !assetTypes[extension].startsWith('image/')) unavailableResource('此附件类型暂不支持，请选择有效文件或排除。');
     let asset;
     if (bytes) {
       await fs.writeFile(staged, bytes, { flag: 'wx', mode: 0o600, signal });
@@ -167,7 +177,10 @@ async function prepareContent(data, source, { directory, signal, userData, appro
         if (id) {
           const label = String(ref.label || core.noteTitle(target.note)).replace(/[\[\]|\r\n]/g, ' ');
           replacements.set(ref, `${ref.image ? '!' : ''}[[note:${id}${ref.anchor ? `#${ref.anchor}` : ''}|${label}]]`);
-        } else replacements.set(ref, plainReference(ref));
+        } else {
+          externalReferences.set(`${owner}\0${dest}`, { context, label: ref.label || '参考笔记' });
+          replacements.set(ref, plainReference(ref));
+        }
         continue;
       }
       if (allowedLink.test(dest)) {
@@ -175,27 +188,37 @@ async function prepareContent(data, source, { directory, signal, userData, appro
         else if (ref.reference) replacements.set(ref, { destination: dest });
         continue;
       }
-      if (originPath && !ref.image && /\.md(?:#|$)/i.test(dest)) {
+      if (!ref.image && markdownReference(dest)) {
         let target;
         try {
-          const resolved = resolveResource(dest, originPath);
-          target = notesOnDisk.find(note => note.knowledgeNote?.filePath && path.resolve(note.knowledgeNote.filePath) === resolved.filePath);
-          if (target) {
-            const id = noteMap.get(target.id);
-            replacements.set(ref, id ? `[[note:${id}${resolved.anchor ? `#${resolved.anchor}` : ''}|${String(ref.label || core.noteTitle(target)).replace(/[\[\]|\r\n]/g, ' ')}]]` : plainReference(ref));
-            continue;
+          if (originPath) {
+            const resolved = resolveResource(dest, originPath);
+            target = notesOnDisk.find(note => note.knowledgeNote?.filePath && path.resolve(note.knowledgeNote.filePath) === resolved.filePath);
+            if (target) {
+              const id = noteMap.get(target.id);
+              replacements.set(ref, id ? `[[note:${id}${resolved.anchor ? `#${resolved.anchor}` : ''}|${String(ref.label || core.noteTitle(target)).replace(/[\[\]|\r\n]/g, ' ')}]]` : plainReference(ref));
+              if (!id) externalReferences.set(`${owner}\0${dest}`, { context, label: ref.label || '参考笔记' });
+              continue;
+            }
           }
-        } catch { /* Let the resource pass report an invalid destination. */ }
+        } catch { /* An unresolved note stays a readable reference. */ }
+        externalReferences.set(`${owner}\0${dest}`, { context, label: ref.autolink || ref.label === dest ? '参考笔记' : ref.label || '参考笔记' });
+        replacements.set(ref, plainReference(ref, '参考笔记'));
+        continue;
       }
       if (/^(?:javascript|vbscript|blob|loop|about):/i.test(dest) || /^data:/i.test(dest) && !imageData.test(dest)) {
         replacements.set(ref, plainReference(ref));
         continue;
       }
       let asset;
+      let reason;
       try { asset = await collect(ref, owner, originPath); }
-      catch (error) { if (!['SHARE_FORMAT', 'ENOENT', 'EACCES', 'EPERM'].includes(error.code)) throw error; }
+      catch (error) {
+        if (!['SHARE_FORMAT', 'SHARE_RESOURCE_UNAVAILABLE', 'ENOENT', 'EACCES', 'EPERM'].includes(error.code)) throw error;
+        reason = error.message;
+      }
       const destination = asset && `loop-asset:${asset.id}${dest.includes('#') ? dest.slice(dest.indexOf('#')) : ''}`;
-      replacements.set(ref, asset ? (ref.autolink ? link(asset.name, destination) : { destination }) : missing(ref, owner, context));
+      replacements.set(ref, asset ? (ref.autolink ? link(asset.name, destination) : { destination }) : missing(ref, owner, context, reason));
     }
     const edits = new Map([...replacements].map(([ref, replacement]) => [`${ref.from}:${ref.to}`, replacement]));
     const cleaned = rewrite(text, references, ref => edits.get(`${ref.from}:${ref.to}`));
@@ -235,7 +258,7 @@ async function prepareContent(data, source, { directory, signal, userData, appro
   const resources = [...assets.values()].map(({ id, entry, name, type }) => ({ id, entry, name, type }));
   return { pack: { scope: source.scope, records: source.records, task, notes: documents, resources,
     nodeStates: source.nodeStates.map(({ id, name, color }) => ({ id: statusMap.get(id), name, color })) },
-    assets, issues: [...issues.values()], localPaths: [...localPaths] };
+    assets, issues: [...issues.values()], localPaths: [...localPaths], references: [...externalReferences.values()] };
 }
 
 function portableBody(content, pack, from = '', inlined = false) {

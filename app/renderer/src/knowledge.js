@@ -227,6 +227,14 @@ function shellKnowledgeFileMenu(trigger) {
     return;
   }
   const bound = Boolean(task.knowledgeNote?.filePath);
+  const owner=state.tasks.find(item=>item.id===state.activeTaskId);
+  const member=Boolean(owner&&knowledgeDocument.taskNoteIds(owner,state.knowledgeDocuments).includes(task.id));
+  const otherOwners=state.tasks.filter(item=>item.id!==owner?.id&&knowledgeDocument.taskNoteIds(item,state.knowledgeDocuments).includes(task.id));
+  const membership=owner?`<div class="menu-divider"></div>
+    <div class="note23-menu-label">${member?'本任务笔记':'参考笔记'}</div>
+    ${otherOwners.length?`<p class="knowledge-membership-copy">所属任务 · ${esc(otherOwners.map(item=>item.title||'未命名任务').join('、'))}${!member?'。加入后共用这篇笔记。':''}</p>`:''}
+    <button class="button" type="button" role="menuitem" data-kn-action="membership" data-owner-task-id="${escAttr(owner.id)}" data-note-id="${escAttr(task.id)}" data-joined="${!member}" ${knowledgeMembershipBusy.has(owner.id)?'disabled':''}>${member?'改为参考笔记':'加入本任务'}</button>
+    <p class="knowledge-membership-error" data-kn-membership-status role="alert" hidden></p>`:'';
   const savePresentation=typeof knowledgeSavePresentation==='function'?knowledgeSavePresentation(task):{menuLabel:'保存笔记',state:'saved'};
   // Phase26: a body that is not stored anywhere outside Loop can be removed into
   // 最近删除 from this same menu, exactly like the Demo's own file menu.
@@ -240,6 +248,7 @@ function shellKnowledgeFileMenu(trigger) {
       <div class="menu-divider"></div>
       <div class="note23-menu-label">笔记</div>
       ${renderKnowledgeDocumentActions()}
+      ${membership}
       ${typeof renderKnowledgeSplitActions === 'function' ? renderKnowledgeSplitActions() : ''}
       <div class="menu-divider"></div>
       <button class="button" type="button" role="menuitem" data-wb-action="format">格式与插入…</button>

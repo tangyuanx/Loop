@@ -1,6 +1,7 @@
 /* Independent document sessions reuse Loop's storage/recovery/file IPC.
    Legacy task.notes retain their identity until explicitly removed. */
 const knowledgeFileWriteBusy = new Set();
+const knowledgeMembershipBusy = new Set();
 const knowledgeSaveQueue = new LoopKnowledgeCore.SerialQueue();
 const knowledgeAutosaveTimers = new Map();
 const knowledgeSaveResults = new Map();
@@ -755,21 +756,54 @@ function knowledgeText(task) { return nodeNoteDrafts.get(noteDraftKey(task.id, '
 function knowledgeCurrentEntry(taskId = knowledgeActiveDocument()?.id) { return milkdownEditors.get(noteDraftKey(taskId, ''))?.instance; }
 function knowledgeSaveOwner(task) {
   const active=state.tasks.find(t=>t.id===state.activeTaskId);
-  if(active&&(active.id===task.id||state.knowledgeWorkspace.tabsByTask[active.id]?.includes(task.id)))return active;
-  return state.tasks.find(t=>t.id===task.creatorTaskId||t.id===task.id);
+  if(active&&knowledgeDocument.taskNoteIds(active,state.knowledgeDocuments).includes(task.id))return active;
+  return state.tasks.find(t=>knowledgeDocument.taskNoteIds(t,state.knowledgeDocuments).includes(task.id));
 }
 function knowledgeSaveDirectory(task,ownerId) {
-  const owner=ownerId?state.tasks.find(t=>t.id===ownerId):knowledgeSaveOwner(task);if(!owner)return '';
+  const owner=ownerId===undefined?knowledgeSaveOwner(task):state.tasks.find(t=>t.id===ownerId);if(!owner)return '';
   const remembered=state.knowledgeWorkspace.saveDirectoriesByTask?.[owner.id];if(remembered)return remembered;
-  const ids=new Set([owner.id,...state.knowledgeWorkspace.tabsByTask[owner.id]||[],...owner.knowledgeLinks||[]]);
-  const saved=knowledgeAllDocuments().filter(n=>(ids.has(n.id)||n.creatorTaskId===owner.id)&&n.knowledgeNote?.filePath&&n.knowledgeNote.lastSavedHash)
+  const ids=new Set(knowledgeDocument.taskNoteIds(owner,state.knowledgeDocuments));
+  const saved=knowledgeAllDocuments().filter(n=>ids.has(n.id)&&n.knowledgeNote?.filePath&&n.knowledgeNote.lastSavedHash)
     .sort((a,b)=>(b.knowledgeNote.lastSavedMtime||0)-(a.knowledgeNote.lastSavedMtime||0));
   return saved[0]?.knowledgeNote.filePath.replace(/[\\/][^\\/]+$/,'')||'';
 }
 function knowledgeRememberSaveDirectory(task,filePath,ownerId) {
-  const owner=ownerId?state.tasks.find(t=>t.id===ownerId):knowledgeSaveOwner(task);if(!owner||!filePath)return;
+  const owner=ownerId===undefined?knowledgeSaveOwner(task):state.tasks.find(t=>t.id===ownerId);if(!owner||!filePath)return;
   const directories=state.knowledgeWorkspace.saveDirectoriesByTask||={};
   directories[owner.id]=filePath.replace(/[\\/][^\\/]+$/,'');
+}
+async function knowledgeSetMembership(taskId,noteId,joined,button) {
+  const owner=state.tasks.find(task=>task.id===taskId),note=knowledgeFindDocument(noteId);
+  if(!owner||!note||note.knowledgeNote?.isDeleted||knowledgeMembershipBusy.has(taskId))return;
+  const status=button?.closest('[role="menu"]')?.querySelector('[data-kn-membership-status]');
+  const report=message=>{
+    if(status?.isConnected){status.textContent=message;status.hidden=!message;}
+    else if(message)showWorkspaceError(message);
+  };
+  if(dataProtectionMessage||dataTransferInProgress||taskShareCommitBusy){report('当前数据暂时无法写入，请稍后重试。');return;}
+  knowledgeMembershipBusy.add(taskId);
+  if(button){button.disabled=true;button.textContent='正在保存归属…';}
+  report('');
+  const ids=knowledgeDocument.taskNoteIds(owner,state.knowledgeDocuments);
+  owner.knowledgeNoteIds=joined?knowledgeDocument.normalizeNoteLinks([...ids,noteId]):ids.filter(id=>id!==noteId);
+  try{
+    save();
+    if(!await flushSave())throw Error('笔记归属保存失败，当前选择已保留，请重试。');
+    if(button?.isConnected){
+      workbenchClose(false);
+      knowledgePane(noteId)?.querySelector('[data-wb-action="more"]')?.focus({preventScroll:true});
+    }
+    return {success:true};
+  }catch(error){
+    report(error.message||'笔记归属保存失败，请重试。');
+    if(button?.isConnected)button.textContent='重试保存归属';
+    return {success:false};
+  }finally{
+    knowledgeMembershipBusy.delete(taskId);
+    for(const item of document.querySelectorAll('[data-kn-action="membership"]')){
+      if(item.dataset.ownerTaskId===taskId)item.disabled=false;
+    }
+  }
 }
 function knowledgeAttach(note,anchor='',source=null) {
   const task=state.tasks.find(t=>t.id===state.activeTaskId);if(!task||!note)return;
@@ -824,9 +858,17 @@ function knowledgeDetach(noteId) {
   focus?.focus({preventScroll:true});
 }
 function knowledgePreserveTaskNote(task) {
-  if(task.knowledgeNote?.isDeleted||(!task.notes?.trim()&&!task.knowledgeNote?.filePath))return false;
-  if(!state.knowledgeDocuments.some(note=>note.id===task.id))state.knowledgeDocuments.push({id:task.id,title:LoopKnowledgeCore.noteTitle(task),creatorTaskId:task.id,notes:task.notes,knowledgeNote:structuredClone(task.knowledgeNote),createdAt:task.createdAt,updatedAt:task.updatedAt});
-  return true;
+  const keepMain=!task.knowledgeNote?.isDeleted&&Boolean(task.notes?.trim()||task.knowledgeNote?.filePath);
+  if(keepMain&&!state.knowledgeDocuments.some(note=>note.id===task.id))state.knowledgeDocuments.push({id:task.id,title:LoopKnowledgeCore.noteTitle(task),creatorTaskId:task.id,notes:task.notes,knowledgeNote:structuredClone(task.knowledgeNote),createdAt:task.createdAt,updatedAt:task.updatedAt});
+  // An imported note can outlive the source task and its Recently Deleted entry.
+  for(const note of state.knowledgeDocuments){
+    const assets=(task.sharedAssets||[]).filter(asset=>asset.owners?.includes(note.id));
+    if(!assets.length)continue;
+    const byId=new Map((note.sharedAssets||[]).map(asset=>[asset.id,asset]));
+    for(const asset of assets)byId.set(asset.id,{...asset,taskId:asset.taskId||task.id,owners:[note.id]});
+    note.sharedAssets=[...byId.values()];
+  }
+  return keepMain;
 }
 function knowledgeRejoinTaskNote(task) {
   const note=state.knowledgeDocuments.find(note=>note.id===task.id);if(!note)return;
@@ -1165,6 +1207,8 @@ async function knowledgeCreate(title='',origin=knowledgeAllDocuments().find(t=>t
   const stamp=now(),noteId=id('document'),creatorTaskId=state.activeTaskId;
   const content=title?'# '+title.replace(/[\r\n]/g,' ')+'\n\n':'';title=title||'未命名';
   const task={id:noteId,title,creatorTaskId,notes:content,createdAt:stamp,updatedAt:stamp,knowledgeNote:knowledgeDocument.createKnowledgeNoteMetadata({taskId:noteId,title,createdAt:stamp})};
+  const owner=state.tasks.find(task=>task.id===creatorTaskId);
+  if(owner)owner.knowledgeNoteIds=knowledgeDocument.normalizeNoteLinks([...knowledgeDocument.taskNoteIds(owner,state.knowledgeDocuments),noteId]);
   state.knowledgeDocuments.push(task);task.knowledgeNote=knowledgeDocument.markDocumentEdited(task.knowledgeNote);
   if(shellKnowledgeMode()==='preview'){
     const split=knowledgeSplitLayout();
@@ -1508,6 +1552,10 @@ document.addEventListener('click',event=>{
   const back=event.target.closest('[data-kn-note]');if(back){const note=knowledgeAllDocuments().find(t=>t.id===back.dataset.knNote);if(note)knowledgeAttach(note);return;}
   const button=event.target.closest('[data-kn-action]');if(!button)return;
   const action=button.dataset.knAction;
+  if(action==='membership'){
+    void knowledgeSetMembership(button.dataset.ownerTaskId,button.dataset.noteId,button.dataset.joined==='true',button);
+    return;
+  }
   if(action==='new-note'){void knowledgeNewDialog();return;}
   if(action==='open-file'){shellCloseOverlay({restoreFocus:false});void knowledgeOpenFile();return;}
   if(action==='recent'){knowledgeShowRecent();return;}

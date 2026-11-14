@@ -70,9 +70,28 @@ test('independent documents and task associations survive desktop normalization 
  const stamp='2026-10-28T00:00:00.000Z';
  const input={version:2,tasks:[{id:'t',title:'任务',knowledgeLinks:['d','d',null],activeKnowledgeId:'d'}],knowledgeDocuments:[{id:'d',title:'独立方案',creatorTaskId:'t',notes:'| A |\n| --- |\n| 数据 |',createdAt:stamp,knowledgeNote:{noteId:'stable-d',tableColumnWidths:[[240]]}}]};
  const data=normalizeTaskData(input);assert.equal(data.tasks.length,1);assert.deepEqual(data.tasks[0].knowledgeLinks,['d']);assert.equal(data.tasks[0].activeKnowledgeId,'d');assert.equal(data.knowledgeDocuments[0].knowledgeNote.noteId,'stable-d');assert.deepEqual(data.knowledgeDocuments[0].knowledgeNote.tableColumnWidths,[[240]]);
+ assert.deepEqual(data.tasks[0].knowledgeNoteIds,['d']);
  assert.deepEqual(normalizeTaskData(data),data);
  const {boundFilePaths}=require('../app/main/knowledge-access.cjs');data.knowledgeDocuments[0].knowledgeNote.filePath='/tmp/独立方案.md';assert.deepEqual(boundFilePaths(data),['/tmp/独立方案.md']);
  assert.equal(metadata.normalizeDocuments([null,{id:'t'},input.knowledgeDocuments[0],input.knowledgeDocuments[0]],data.tasks).length,1);
+});
+
+test('task membership migration ignores open and linked references and preserves explicit removals',()=>{
+ const documents=[
+  {id:'own',creatorTaskId:'a',notes:'Owned'},
+  {id:'reference',creatorTaskId:'b',notes:'Reference'},
+ ];
+ const legacy={id:'a',notes:'Main',knowledgeLinks:['reference']};
+ assert.deepEqual(metadata.taskNoteIds(legacy,documents),['a','own']);
+ const data=normalizeTaskData({tasks:[legacy,{id:'b',knowledgeNoteIds:[]}],knowledgeDocuments:documents,
+  knowledgeWorkspace:{tabsByTask:{a:['reference']}}});
+ assert.deepEqual(data.tasks[0].knowledgeNoteIds,['a','own']);
+ data.tasks[0].knowledgeNoteIds=[];
+ assert.deepEqual(normalizeTaskData(data).tasks.map(task=>task.knowledgeNoteIds),[[],[]]);
+ assert.deepEqual(metadata.taskNoteIds({...legacy,knowledgeNoteIds:['reference','reference',null]},documents),['reference']);
+ const missingId=normalizeTaskData({tasks:[{notes:'Old task note'}]}).tasks[0];
+ assert.deepEqual(missingId.knowledgeNoteIds,[missingId.id]);
+ assert.deepEqual(metadata.taskNoteIds({id:'legacy-text',knowledgeNote:'Old string note'}),['legacy-text']);
 });
 
 test('table boundary edits keep valid Markdown and protect header and final column',()=>{

@@ -84,10 +84,11 @@ function registerTaskShare({ ipcMain, dialog, shell, app, getWindow, store, expo
   }
 
   function exportSummary(lease) {
-    const { pack, assets, issues, localPaths } = lease.prepared;
+    const { pack, assets, issues, localPaths, references } = lease.prepared;
     const files = [...assets.values()].map(({ name, size, type }) => ({ name, size, type }));
     const preview = markdownDocuments(pack)[0].bytes.toString('utf8');
-    return { success: true, token: lease.token, files, localPaths, issues: issues.map(({ id, name, context }) => ({ id, name, context })),
+    return { success: true, token: lease.token, files, localPaths, references,
+      issues: issues.map(({ id, name, context, owner, reason }) => ({ id, name, context, owner, reason })),
       bytes: files.reduce((sum, file) => sum + file.size, Buffer.byteLength(preview)), preview: preview.slice(0, 64000), document: staticDocument(pack) };
   }
 

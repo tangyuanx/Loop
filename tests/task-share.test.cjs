@@ -4,7 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const test = require('node:test');
-const { project } = require('../app/renderer/src/task-share-model.js');
+const { candidates, project } = require('../app/renderer/src/task-share-model.js');
 const { scan, updateDestinations } = require('../app/renderer/src/task-share-markdown.js');
 const { prepareContent, markdownDocuments } = require('../app/main/task-share-content.cjs');
 const { readTaskPackage, writeTaskPackage } = require('../app/main/task-share-format.cjs');
@@ -28,7 +28,7 @@ async function fixture(t) {
 test('scope projection includes only selected tree, notes and scheduling fields', () => {
   const full = project(snapshot, { preset: 'full' });
   assert.equal(full.records, true);
-  assert.deepEqual(full.notes.map(note => note.id), ['linked', 'task']);
+  assert.deepEqual(full.notes.map(note => note.id), ['task']);
   assert.equal(full.task.nodes[0].note, 'record-a');
   assert.equal(full.task.deadlineAt, snapshot.task.deadlineAt);
   assert.doesNotMatch(JSON.stringify(full), /private-group|deadlineReminderMinutes|Open contents/);
@@ -41,6 +41,36 @@ test('scope projection includes only selected tree, notes and scheduling fields'
   const custom = project(snapshot, { preset: 'custom', noteIds: ['open'], flow: true });
   assert.equal(custom.records, false);
   assert.deepEqual(custom.notes.map(note => note.id), ['open']);
+});
+
+test('explicit task membership controls defaults independently of provenance and open tabs', () => {
+  const source = { ...snapshot, task: { ...snapshot.task, knowledgeNoteIds: ['open'] } };
+  assert.deepEqual(project(source, { preset: 'full' }).notes.map(note => note.id), ['open']);
+  assert.deepEqual(project({ ...source, tabIds: [] }, { preset: 'full' }).notes.map(note => note.id), ['open']);
+  assert.deepEqual(project({ ...source, task: { ...source.task, knowledgeNoteIds: [] } }, { preset: 'full' }).notes, []);
+  assert.equal(candidates(source.task, source.documents, source.tabIds).find(note => note.id === 'linked').defaultSelected, false);
+  assert.deepEqual(project(source, { preset: 'custom', noteIds: ['linked'] }).notes.map(note => note.id), ['linked']);
+  assert.deepEqual(source.task.knowledgeNoteIds, ['open'], 'one-time export selection does not change membership');
+});
+
+test('external Markdown references never request attachments and selected note links still resolve', async t => {
+  const root = await fixture(t);
+  const source = { ...snapshot.task, knowledgeNoteIds: ['task'], notes:
+    '[Other](./not-registered.md)\n[Encoded](./%E5%8F%82%E8%80%83%2Emd)\n[Local](<C:/private/missing.markdown>)\n' +
+    '[Selected](./selected.md#target)\n[File](./missing.pdf)\n\n`[Sample](./literal.md)`\n',
+    knowledgeNote: { filePath: path.join(root, 'main.md') } };
+  const selected = { id: 'selected', title: 'Selected', notes: '### target', knowledgeNote: { filePath: path.join(root, 'selected.md') } };
+  const data = { tasks: [source], knowledgeDocuments: [selected] };
+  const result = await prepareContent(data, { taskId: source.id, ...project({ task: source, documents: [selected] },
+    { preset: 'full', noteIds: ['task', 'selected'] }) }, { directory: root, userData: root });
+  assert.equal(result.references.length, 3);
+  assert.equal(result.issues.length, 1);
+  assert.equal(result.issues[0].name, 'File');
+  assert.ok(result.issues[0].reason);
+  const main = result.pack.notes.find(note => note.main).content;
+  assert.match(main, /\[\[note:note_2#target\|Selected\]\]/);
+  assert.match(main, /`\[Sample\]\(\.\/literal\.md\)`/);
+  assert.doesNotMatch(main, /C:\/private|not-registered\.md|%2Emd/);
 });
 
 test('package and readable Markdown preserve source while local paths and omitted documents are removed', async t => {

@@ -17,15 +17,16 @@ function localPath(userData, taskId, file) {
 async function managedAsset(userData, taskData, id, ownerId) {
   if (!ownerId || typeof id !== 'string' || !localId.test(id)) return null;
   const archived = (taskData?.recentlyDeleted || []).filter(entry => ['task', 'quick'].includes(entry.kind)).map(entry => entry.record).filter(Boolean);
-  for (const task of [...(taskData?.tasks || []), ...archived]) {
+  for (const task of [...(taskData?.tasks || []), ...(taskData?.knowledgeDocuments || []), ...archived]) {
     const item = task.sharedAssets?.find?.(asset => asset.id === id && Array.isArray(asset.owners) && asset.owners.includes(ownerId));
     if (!item) continue;
-    const file = localPath(userData, task.id, item.file);
+    const storageTaskId = item.taskId || task.id;
+    const file = localPath(userData, storageTaskId, item.file);
     if (!file) return null;
     const root = await fs.realpath(path.join(userData, ASSET_DIRECTORY));
     const real = await fs.realpath(file);
     const relative = path.relative(root, real);
-    if (relative !== path.join(task.id, item.file) || !(await fs.stat(real)).isFile()) return null;
+    if (relative !== path.join(storageTaskId, item.file) || !(await fs.stat(real)).isFile()) return null;
     return { ...item, file: real, url: pathToFileURL(real).href };
   }
   return null;

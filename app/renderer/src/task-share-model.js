@@ -1,10 +1,10 @@
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('./node-share-model.js'));
+    module.exports = factory(require('./node-share-model.js'), require('./knowledge-document.js'));
   } else {
-    root.LoopTaskShare = factory(root.LoopNodeShare);
+    root.LoopTaskShare = factory(root.LoopNodeShare, root.KnowledgeDocument);
   }
-})(typeof globalThis === 'object' ? globalThis : this, function (nodeShare) {
+})(typeof globalThis === 'object' ? globalThis : this, function (nodeShare, knowledgeDocument) {
   const presets = new Set(['full', 'brief', 'flow', 'node', 'notes', 'custom']);
   const standardNodeStates = new Set(['todo', 'done', 'review']);
   const priorities = new Set(['low', 'medium', 'high']);
@@ -16,6 +16,7 @@
   function candidates(task, documents, tabIds) {
     if (!task?.id) return [];
     const linked = new Set(list(task.knowledgeLinks));
+    const owned = new Set(knowledgeDocument.taskNoteIds(task, list(documents)));
     const open = new Set(list(tabIds));
     const byId = new Map([[task.id, task]]);
     for (const document of list(documents)) {
@@ -29,11 +30,10 @@
       if (!document || metadata?.isDeleted) continue;
       const main = id === task.id;
       let relation;
-      if (main) relation = 'main';
-      else if (document.creatorTaskId === task.id) relation = 'owned';
+      if (owned.has(id)) relation = 'owned';
       else if (linked.has(id)) relation = 'linked';
       else if (open.has(id)) relation = 'open';
-      else continue;
+      else relation = 'reference';
       const content = text(document.notes ?? document.content);
       const hasContent = Boolean(content.trim() || text(metadata?.filePath).trim());
       rows.push({
@@ -43,7 +43,8 @@
         content,
         main,
         relation,
-        defaultSelected: relation !== 'open' && hasContent,
+        ownerTitles: list(document.ownerTitles),
+        defaultSelected: relation === 'owned' && hasContent,
         documentState: text(metadata?.documentState),
       });
     }

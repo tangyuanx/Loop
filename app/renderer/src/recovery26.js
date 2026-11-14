@@ -882,7 +882,7 @@ function recovery26RestoreEntry(entry, { target = "", name = "", restoreMoved = 
   if (problem) return { ok: false, title: entry.title, message: problem };
   let message = "已恢复";
   if (entry.kind === "task" || entry.kind === "quick") {
-    const record = normalizeTasks([structuredClone(entry.record)])[0];
+    const record = normalizeTasks([structuredClone(entry.record)], state.knowledgeDocuments)[0];
     if (typeof knowledgeRejoinTaskNote === 'function') knowledgeRejoinTaskNote(record);
     const resolved = (target && r26Group(target)) ? target : recovery26RestoreTarget(entry);
     record.groupId = resolved;
