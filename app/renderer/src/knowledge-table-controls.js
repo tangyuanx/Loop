@@ -1,6 +1,8 @@
 // Contextual controls for the production Markdown table widget. Every edit is
 // delegated to the editor transaction/history; no second table model exists.
 const icons={plus:'M8 2v12M2 8h12',more:'M3 8h.01M8 8h.01M13 8h.01',grip:'M5 3h.01M11 3h.01M5 8h.01M11 8h.01M5 13h.01M11 13h.01'};
+// Only one clicked range is shown, including when several editors are mounted.
+let clearTableHighlight=null;
 function button(label,icon,className='') {
   const el=document.createElement('button');el.type='button';el.className=className;el.title=label;el.setAttribute('aria-label',label);
   el.innerHTML=`<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${icons[icon]}"/></svg>`;
@@ -27,7 +29,27 @@ export function installTableControls(owner,widget) {
   addRow.dataset.tableAction='row-add';addColumn.dataset.tableAction='column-add';controls.append(addRow,addColumn);
   addRow.onclick=()=>{if(!owner.activeTableCell?.composing&&tablePosition(owner,widget,table.rows.length-1,0))owner.table('row-add',0);};
   addColumn.onclick=()=>{const column=table.rows[0].cells.length-1;if(!owner.activeTableCell?.composing&&tablePosition(owner,widget,0,column))owner.table('column-add',column);};
-  const handles=[],resizers=[];let frame=0,gesture=null;
+  const handles=[],resizers=[];let frame=0,gesture=null,clearHighlight=()=>{};
+  function highlight(kind,index,trigger) {
+    clearTableHighlight?.();
+    if(!widget.isConnected)return;
+    const cells=kind==='row'?[...table.rows[index].cells]:[...table.rows].map(row=>row.cells[index]);
+    const abort=new AbortController();
+    for(const cell of cells)cell.dataset.tableHighlight=kind;
+    trigger.dataset.tableActive='true';
+    clearHighlight=()=>{
+      abort.abort();
+      for(const cell of cells)delete cell.dataset.tableHighlight;
+      delete trigger.dataset.tableActive;
+      if(clearTableHighlight===clearHighlight)clearTableHighlight=null;
+    };
+    clearTableHighlight=clearHighlight;
+    // Capture runs before an outside action replaces/removes its own target.
+    // Click also covers keyboard activation of a menu item outside the table.
+    const outside=event=>{if(!widget.contains(event.target))clearHighlight();};
+    document.addEventListener('pointerdown',outside,{capture:true,signal:abort.signal});
+    document.addEventListener('click',outside,{capture:true,signal:abort.signal});
+  }
   const queue=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(layout);};
   function layout() {
     if(!widget.isConnected||owner.destroyed)return;
@@ -64,7 +86,7 @@ export function installTableControls(owner,widget) {
     window.addEventListener('pointermove',move=>{
       if(!widget.isConnected){finish(true);return;}
       if(Math.hypot(move.clientX-current.origin[0],move.clientY-current.origin[1])<5&&!current.moved)return;
-      current.moved=true;widget.classList.add('kn-table-dragging');
+      current.moved=true;clearHighlight();widget.classList.add('kn-table-dragging');
       if(kind==='resize') {
         current.width=Math.max(80,Math.min(1600,Math.round(widths[index]+move.clientX-current.origin[0])));
         const next=widths.slice();next[index]=current.width;table.style.tableLayout='fixed';table.style.width=next.reduce((a,b)=>a+b,0)+'px';
@@ -88,7 +110,10 @@ export function installTableControls(owner,widget) {
     el.onclick=event=>{if(event.detail&&el.dataset.dragged==='true'){delete el.dataset.dragged;return;}
       if(owner.activeTableCell?.composing)return;
       const row=kind==='row'?index:0,column=kind==='column'?index:0;
-      if(tablePosition(owner,widget,row,column))owner.options.onTableMenu?.({widget,row,column,scope:kind,trigger:el});
+      if(tablePosition(owner,widget,row,column)){
+        highlight(kind,index,el);
+        owner.options.onTableMenu?.({widget,row,column,scope:kind,trigger:el});
+      }
     };
     // Native click follows pointerup. Mark it before the global listener runs.
     el.addEventListener('pointerup',()=>{if(gesture?.moved)el.dataset.dragged='true';});
@@ -100,5 +125,5 @@ export function installTableControls(owner,widget) {
     el.addEventListener('pointerdown',event=>start(event,'resize',column));controls.append(el);resizers.push({el,column});
   }
   const observer=new ResizeObserver(queue);observer.observe(table);queue();
-  widget.tableControls={refresh:queue,destroy(){finish(true);observer.disconnect();cancelAnimationFrame(frame);}};
+  widget.tableControls={refresh:queue,destroy(){clearHighlight();finish(true);observer.disconnect();cancelAnimationFrame(frame);}};
 }

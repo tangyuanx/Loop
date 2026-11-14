@@ -47,6 +47,8 @@
 .kn-rendered table {border-collapse:collapse;margin:16px 0;max-width:100%;font-size:.95em;display:block;overflow-x:auto;width:max-content;}
 .kn-rendered th,.kn-rendered td {border:1px solid color-mix(in srgb,currentColor 18%,transparent);padding:7px 13px;min-width:80px;}
 .kn-rendered th {font-weight:600;background:color-mix(in srgb,currentColor 4%,transparent);}
+/* Clicked row/column feedback is transient and follows the actual cells. */
+.kn-table-widget :is(th,td)[data-table-highlight] {background:color-mix(in srgb,var(--text) 10%,var(--canvas));}
 /* CodeMirror measures block widget bounds without vertical margins. Keep the
    same table spacing inside those bounds so later text uses the correct Y.
    The stage fills the widget instead of growing with the table: CodeMirror
@@ -60,6 +62,7 @@
 .kn-table-controls-layer svg {width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;}
 .kn-table-widget:is(:hover,:focus-within,.kn-table-dragging) .kn-table-controls-layer button {opacity:1;}
 .kn-table-controls-layer button:hover,.kn-table-controls-layer [data-drop-target] {background:var(--hover);color:var(--text);}
+.kn-table-controls-layer .kn-table-handle[data-table-active] {background:var(--hover);color:var(--text);opacity:1;}
 .kn-table-controls-layer button:focus-visible {opacity:1;outline:1px solid var(--focus-line-strong);outline-offset:-1px;}
 .kn-table-menu-trigger {top:-21px;left:-20px;width:18px;height:18px;}
 .kn-table-add-row {left:0;height:18px;}

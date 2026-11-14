@@ -74,7 +74,7 @@ module.exports=async({page,profile,fs,readTaskData,choose,mode,markdown,append,p
  // Native-file picker result is the only substitution; actual read/write/gate
  // services handle this new document and survive a process-style reload.
  const file=path.join(profile,'独立外部文件.md');await fs.writeFile(file,'# 外部方案\n\n原始内容');await setChosenPath(file);
- await wb.more(page);await page.locator('.wb-more-menu [data-kn-action="open-file"]').click();await page.waitForFunction(()=>knowledgeActiveDocument()?.knowledgeNote.filePath?.endsWith('独立外部文件.md'));
+ await wb.more(page);await page.locator('.wb-more-menu [data-kn-action="open-file"]').click();await page.waitForFunction(()=>knowledgeActiveDocument()?.knowledgeNote.filePath?.endsWith('独立外部文件.md')&&knowledgeCurrentEntry()?.view&&knowledgeCurrentEntry().options.noteId===knowledgeActiveDocument().knowledgeNote.noteId);
  const fileId=await page.evaluate(()=>knowledgeActiveDocument().id);assert.equal(await page.evaluate(()=>state.activeTaskId),'b');assert.match(await markdown(),/原始内容/);
  await append('\n外部文件修改');assert.equal((await page.evaluate(id=>saveKnowledgeTask(id),fileId)).success,true);assert.match(await fs.readFile(file,'utf8'),/外部文件修改/);
  const documentsBefore=await page.evaluate(()=>state.knowledgeDocuments.length);await wb.more(page);await page.locator('.wb-more-menu [data-kn-action="open-file"]').click();await page.waitForTimeout(100);assert.equal(await page.evaluate(()=>state.knowledgeDocuments.length),documentsBefore);

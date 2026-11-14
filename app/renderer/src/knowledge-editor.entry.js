@@ -126,8 +126,8 @@ class TableWidget extends RenderWidget {
     el.setAttribute('aria-label',`表格 ${Math.max(0,(table?.rows.length||1)-1)} 行 ${table?.rows[0]?.cells.length||0} 列，回车编辑`);
     el.addEventListener('keydown',event=>{
       if(event.isComposing||event.keyCode===229)return;
-      // Keys typed in the cell field (notably the space key) belong to the field.
-      if(event.target!==el&&event.target.closest?.('.kn-table-cell-editor'))return;
+      // Cell typing and native button activation belong to their own controls.
+      if(event.target!==el&&event.target.closest?.('button,.kn-table-cell-editor'))return;
       if(!['Enter',' ','ArrowDown','ArrowUp','ArrowLeft','ArrowRight'].includes(event.key))return;
       const body=el.querySelector('table tbody td')||el.querySelector('table th');
       if(!body)return;
