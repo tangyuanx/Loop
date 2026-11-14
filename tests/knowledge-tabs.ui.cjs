@@ -247,7 +247,11 @@ async function until(check) {
       await tab('group-26-25').press('Home');
       await active('group-26-0');
       await until(() => left().isDisabled());
-      for (let i = 25; i >= 8; i--) await page.locator('[data-kn-detach="group-26-' + i + '"]').click();
+      for (let i = 25; i >= 8; i--) {
+        await page.locator('[data-kn-detach="group-26-' + i + '"]').click();
+        await page.locator('[data-knowledge-close] [data-kn-close-choice="keep"]').click();
+        await tab('group-26-' + i).waitFor({state:'detached'});
+      }
       assert.equal(await right().isVisible(), false);
       assert.ok((await measure()).widths.every(width => width > 40));
       return { wide, narrow, compact };
@@ -280,11 +284,16 @@ async function until(check) {
     await test('single tab, empty workspace and new note', async () => {
       await wb.minimizeTaskInfo(page);
       await page.locator('[data-kn-detach=long]').click();
+      await page.locator('[data-knowledge-close] [data-kn-close-choice="keep"]').click();
+      await tab('long').waitFor({state:'detached'});
       await page.locator('[data-kn-detach=draft]').click();
+      await page.locator('[data-knowledge-close] [data-kn-close-choice="keep"]').click();
+      await tab('draft').waitFor({state:'detached'});
       assert.equal(await page.locator('.kn-document-tabs [role=tab]').count(), 1);
       await tab('main').dblclick();
       await page.locator('#kn-rename-title').waitFor();
       await page.keyboard.press('Escape');
+      await page.waitForFunction(()=>knowledgeFindDocument('main').knowledgeNote.documentState==='SAVED');
       await page.locator('[data-kn-detach=main]').click();
       await page.locator('.kn-empty-document').waitFor();
       assert.equal(await page.locator('.knowledge-pane [data-kn-action]').count(),1);

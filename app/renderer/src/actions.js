@@ -89,6 +89,7 @@ function shellCloseOverlay({ restoreFocus = true } = {}) {
   const host = overlay.querySelector("[data-return-focus]");
   const selector = host?.dataset.returnFocus || "";
   overlay.innerHTML = "";
+  if (typeof knowledgeQueueConflictPrompt === "function") knowledgeQueueConflictPrompt();
   if (!selector) return;
   const trigger = document.querySelector(selector);
   if (trigger?.hasAttribute("aria-haspopup") || trigger?.hasAttribute("aria-expanded")) trigger.setAttribute("aria-expanded", "false");
@@ -105,7 +106,8 @@ function shellCloseOverlay({ restoreFocus = true } = {}) {
 }
 
 function shellOverlayDismissBlocked() {
-  return Boolean((state.feedbackSubmitting && document.querySelector("#help14-form"))
+  return Boolean(document.querySelector("#overlay :is([data-knowledge-conflict], [data-knowledge-close])[aria-busy='true']")
+    || (state.feedbackSubmitting && document.querySelector("#help14-form"))
     || (typeof taskShareCommitBusy !== "undefined" && taskShareCommitBusy && document.querySelector("#task-share-import-confirm"))
     || (typeof recovery26Busy !== "undefined" && recovery26Busy && document.querySelector("#overlay .recovery26-manager, #overlay .recovery26-confirm")));
 }
@@ -1953,7 +1955,7 @@ async function shellAction(data, event) {
       openTaskShare(state.activeTaskId, { noteId: data.taskId, trigger });
       return true;
     case "knowledge-conflict":
-      shellKnowledgeConflict(knowledgeActiveDocument());
+      shellKnowledgeConflict(knowledgeFindDocument(data.taskId) || knowledgeActiveDocument());
       return true;
     case "note-format":
       if (data.format === "link") shellKnowledgeLink(trigger);

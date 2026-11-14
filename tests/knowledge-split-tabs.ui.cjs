@@ -184,7 +184,9 @@ const out=path.resolve(process.env.LOOP_SPLIT_TABS_QA_DIR||'.local-review/knowle
    await begin('c',await bodyPoint('left'));assert.equal(await preview.getAttribute('data-kn-drop-side'),'left');
    await page.screenshot({path:path.join(out,`split-preview-${theme}-1024-largest.png`)});await page.keyboard.press('Escape');await end();
   }
-  await page.locator('[data-kn-detach="c"]').click();await page.waitForFunction(()=>!document.querySelector('.kn-split'));
+  await page.locator('[data-kn-detach="c"]').click();
+  await page.locator('[data-knowledge-close] [data-kn-close-choice="keep"]').click();
+  await page.waitForFunction(()=>!document.querySelector('.kn-split'));
   assert.deepEqual(await ids(),['a','b','d']);assert.equal(await page.evaluate(()=>knowledgeActiveDocument().id),'a');
   assert.equal(await page.evaluate(()=>knowledgeFindDocument('c')!==undefined),true);
   check('minimum-window light/dark preview stays in the body; closing the last tab merges the empty pane without deleting the note');

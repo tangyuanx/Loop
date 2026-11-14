@@ -10,6 +10,8 @@ const knowledgeBacklinkPanels = new Set();
 const knowledgeGenerations = new Map();
 const knowledgeBacklinkCache = new Map();
 const knowledgeDeferredFileEvents = new Map();
+const knowledgePresentedConflicts = new WeakMap();
+let knowledgeConflictFrame = 0;
 let knowledgeIndexTimer = 0;
 let knowledgeLastTabClick = null;
 let knowledgeTabDragClickPending = false;
@@ -57,6 +59,7 @@ function knowledgeActivateSide(side) {
   }
   if (changed) { knowledgeResourceEpoch++; save(); }
   knowledgeSyncFocus();
+  if (changed) knowledgeQueueConflictPrompt();
 }
 function knowledgeSyncFocus() {
   const enabled = Workbench.focus && state.taskPane === 'notes' && !!document.querySelector('.knowledge-pane');
@@ -490,7 +493,7 @@ function knowledgeBindTabs() {
   for(const bar of bars){
   for(const close of bar.querySelectorAll('[data-kn-detach]')){
     const note=knowledgeFindDocument(close.dataset.knDetach);
-    close.toggleAttribute('data-unsaved',Boolean(note&&(!note.knowledgeNote.filePath||note.knowledgeNote.dirty||nodeNoteDrafts.has(noteDraftKey(note.id,'')))));
+    close.toggleAttribute('data-unsaved',Boolean(note&&knowledgeHasUnsavedContent(note)));
   }
   const retained=knowledgeTabsBindings.get(bar);
   if(retained){
@@ -805,15 +808,19 @@ async function knowledgeSetMembership(taskId,noteId,joined,button) {
     }
   }
 }
-function knowledgeAttach(note,anchor='',source=null) {
+function knowledgeAttach(note,anchor='',source=null,diskFile=null) {
   const task=state.tasks.find(t=>t.id===state.activeTaskId);if(!task||!note)return;
   if(note.knowledgeNote?.isDeleted)return;
+  knowledgePresentedConflicts.delete(note);
+  if (diskFile) void handleKnowledgeFileChange({...diskFile,type:'external-changed',noteId:note.knowledgeNote.noteId});
+  else if (note.knowledgeNote.filePath) void knowledgeInspectFileChange(note);
   const split=knowledgeSplitLayout(task);
   if(split){
     const side=split.leftTabs.includes(note.id)?'left':split.rightTabs.includes(note.id)?'right':split.active;
     if(split[side+'Id']===note.id&&!knowledgeActiveResource(task)){
       knowledgeCapturePosition();knowledgeRecordNavigation(source,{kind:'note',id:note.id});
       knowledgeActivateSide(side);
+      knowledgeQueueConflictPrompt();
       if(anchor)knowledgeCurrentEntry(note.id)?.locateAnchor(anchor);
       return;
     }
@@ -835,6 +842,84 @@ function knowledgeAttach(note,anchor='',source=null) {
   if(anchor){let attempts=0;const locate=()=>{if(knowledgeActiveDocument()?.id!==note.id)return;const entry=knowledgeCurrentEntry();if(entry?.root?.isConnected)entry.locateAnchor(anchor);else if(attempts++<30)requestAnimationFrame(locate);};requestAnimationFrame(locate);}
   else knowledgeRestorePosition(knowledgeReadingPositions.get(JSON.stringify([task.id,'note',note.id])));
 }
+function knowledgeHasUnsavedContent(note) {
+  return note.knowledgeNote.filePath ? note.knowledgeNote.dirty
+    : Boolean(nodeNoteDrafts.get(noteDraftKey(note.id, ''))?.markdown ?? note.notes);
+}
+
+function knowledgeRequestClose(noteId, trigger) {
+  const note = knowledgeFindDocument(noteId);
+  if (!note || !state.knowledgeWorkspace.openIds.includes(noteId)) return { canceled: true };
+  captureMountedMilkdownDrafts();
+  flushNodeNoteDraft(noteDraftKey(noteId, ''), { persist: true });
+  if (!knowledgeHasUnsavedContent(note)) {
+    shellCloseOverlay({ restoreFocus: false });
+    knowledgeDetach(noteId);
+    return { success: true };
+  }
+
+  clearTimeout(knowledgeAutosaveTimers.get(noteId));
+  knowledgeAutosaveTimers.delete(noteId);
+  const ownerId = state.activeTaskId;
+  const needsNewFile = () => ['EXTERNAL_CHANGED', 'FILE_MISSING', 'READ_ONLY'].includes(note.knowledgeNote.documentState);
+  const returnFocus = trigger?.dataset.knDetach
+    ? `[data-kn-detach="${CSS.escape(noteId)}"]`
+    : `.knowledge-pane[data-task-id="${CSS.escape(noteId)}"] [data-action="knowledge-file-menu"]`;
+  shellKnowledgeDialog('关闭前保存笔记？',
+    `<p class="knowledge-dialog-copy">「${esc(LoopKnowledgeCore.noteTitle(note))}」还有未保存到文件的内容。</p>
+     <p class="knowledge-dialog-copy" role="status" data-kn-close-status></p>
+     <p class="knowledge-dialog-copy" role="alert" data-kn-close-error hidden></p>`,
+    `<button class="button" type="button" data-action="close-dialog" autofocus>取消</button>
+     <button class="button" type="button" data-kn-close-choice="keep">保留草稿并关闭</button>
+     <button class="button primary" type="button" data-kn-close-choice="save"></button>`, 460, returnFocus);
+  const dialog = shellOverlay().querySelector('.knowledge-dialog');
+  dialog.dataset.knowledgeClose = noteId;
+  const keep = dialog.querySelector('[data-kn-close-choice="keep"]');
+  const commit = dialog.querySelector('[data-kn-close-choice="save"]');
+  const closeButtons = [...dialog.querySelectorAll('button')];
+  const status = dialog.querySelector('[data-kn-close-status]');
+  const error = dialog.querySelector('[data-kn-close-error]');
+  const updateLabel = () => { commit.textContent = needsNewFile() ? '另存并关闭' : '保存并关闭'; };
+  updateLabel();
+  dialog.querySelector('[autofocus]')?.focus();
+
+  async function finish(saveFile) {
+    if (dialog.hasAttribute('aria-busy')) return;
+    dialog.setAttribute('aria-busy', 'true');
+    closeButtons.forEach(button => { button.disabled = true; });
+    status.textContent = saveFile ? '正在保存笔记…' : '正在保留草稿…';
+    error.hidden = true;
+    try {
+      if (saveFile) {
+        const result = await saveKnowledgeTask(noteId, { saveAs: needsNewFile() });
+        if (result?.canceled) return;
+        if (!result?.success) throw new Error(result?.message || '保存失败，请重试。');
+        if (note.knowledgeNote.dirty) throw new Error('保存期间笔记又有修改，请再次保存。');
+      } else {
+        await flushKnowledgeRecovery(note.knowledgeNote.noteId, { strict: true });
+        save();
+        if (!(await flushSave())) throw new Error('草稿未能保存到 Loop，请重试。');
+      }
+      if (!dialog.isConnected || state.activeTaskId !== ownerId || !knowledgeHasDocument(note)) return;
+      dialog.removeAttribute('aria-busy');
+      shellCloseOverlay({ restoreFocus: false });
+      knowledgeDetach(noteId);
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+    } finally {
+      dialog.removeAttribute('aria-busy');
+      closeButtons.forEach(button => { button.disabled = false; });
+      status.textContent = '';
+      updateLabel();
+      if (dialog.isConnected) (saveFile ? commit : keep).focus({ preventScroll: true });
+    }
+  }
+  keep.onclick = () => void finish(false);
+  commit.onclick = () => void finish(true);
+  return { canceled: true };
+}
+
 function knowledgeDetach(noteId) {
   const task=state.tasks.find(t=>t.id===state.activeTaskId);if(!task)return;
   captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});
@@ -883,7 +968,7 @@ async function knowledgeOpenFile() {
   const result=await desktopKnowledgeFile.choose({boundPaths:[]});if(result?.canceled)return;
   if(!result?.success){shellToast(result?.message||'打开文件失败，请重试。');return;}
   const canonical=path=>knowledgeDocument.canonicalFilePath(path,desktopPlatform);
-  let note=knowledgeAllDocuments().find(n=>n.knowledgeNote.filePath&&canonical(n.knowledgeNote.filePath)===canonical(result.filePath));
+  let note=knowledgeAllDocuments().find(n=>!n.knowledgeNote.isDeleted&&n.knowledgeNote.filePath&&canonical(n.knowledgeNote.filePath)===canonical(result.filePath));
   if(!note){
     const stamp=now(),documentId=id('document'),title=result.filePath.split(/[\\/]/).at(-1).replace(/\.md$/i,'');
     note={id:documentId,title,creatorTaskId:'',notes:result.content,createdAt:stamp,updatedAt:stamp,knowledgeNote:knowledgeDocument.markDocumentSaved(knowledgeDocument.createKnowledgeNoteMetadata({taskId:documentId,title,createdAt:stamp}),result)};
@@ -891,8 +976,11 @@ async function knowledgeOpenFile() {
     state.knowledgeDocuments.push(note);rememberKnowledgeAssetFiles(result.assetFiles,note.knowledgeNote.noteId);rememberKnowledgeAssetDiagnostics(note.knowledgeNote.noteId,result);
     await syncKnowledgeFileWatcher(note);
   }
-  if(owner.id===state.activeTaskId)knowledgeAttach(note);
-  else {const session=state.knowledgeWorkspace;session.tabsByTask[owner.id]=knowledgeDocument.normalizeNoteLinks([...(session.tabsByTask[owner.id]||[]),note.id]);session.recentIds=[note.id,...session.recentIds.filter(id=>id!==note.id)].slice(0,40);session.lastByTask[owner.id]=note.id;save();}
+  if(owner.id===state.activeTaskId)knowledgeAttach(note,'',null,result);
+  else {
+    await handleKnowledgeFileChange({...result,type:'external-changed',noteId:note.knowledgeNote.noteId});
+    const session=state.knowledgeWorkspace;session.tabsByTask[owner.id]=knowledgeDocument.normalizeNoteLinks([...(session.tabsByTask[owner.id]||[]),note.id]);session.recentIds=[note.id,...session.recentIds.filter(id=>id!==note.id)].slice(0,40);session.lastByTask[owner.id]=note.id;save();
+  }
 }
 function knowledgeDetail(task) {
   const note=task.knowledgeNote,updated=note.updatedAt||task.updatedAt;
@@ -981,9 +1069,9 @@ function knowledgeSavePresentation(task) {
 function knowledgeReceiptState(task) {
   const status = knowledgeSaveStatus(task), note = task.knowledgeNote;
   if (knowledgeFileWriteBusy.has(task.id)) return {text:'保存中…', state:'saving'};
+  if (['EXTERNAL_CHANGED','FILE_MISSING','READ_ONLY'].includes(note.documentState)) return {text:SHELL_KNOWLEDGE_STATE_LABELS[note.documentState]+' · 当前内容仍保留',state:'conflict'};
   if (status?.error) return {text:'保存失败 · 点击保存重试', state:'failed'};
   if (note.filePath && state.knowledgeFileIssues?.[note.noteId]) return {text:'文件未同步 · 当前内容仍保留',state:'failed'};
-  if (['EXTERNAL_CHANGED','FILE_MISSING','READ_ONLY'].includes(note.documentState)) return {text:SHELL_KNOWLEDGE_STATE_LABELS[note.documentState]+' · 当前内容仍保留',state:'conflict'};
   if (nodeNoteDrafts.has(noteDraftKey(task.id,'')) || knowledgeAutosaveTimers.has(task.id)) return {text:'等待保存…',state:'pending'};
   if (localSaveOutcome === 'failed') return {text:'本地保存失败 · 当前内容仍在本页',state:'failed'};
   if (note.filePath && note.dirty) return {text:pendingPayload||saveInFlight||knowledgeRecoveryTimers.has(note.noteId)?'文件未同步 · 正在保留草稿…':'草稿已保留 · 文件尚未同步',state:'pending'};
@@ -1000,7 +1088,7 @@ function knowledgeUpdateChrome(task) {
     const title=LoopKnowledgeCore.noteTitle(task),close=button.parentElement.querySelector('[data-kn-detach]');
     button.querySelector('span').textContent=title;button.title=knowledgeTabTitle(task);button.setAttribute('aria-label',title);
     close?.setAttribute('aria-label','关闭笔记：'+title);
-    if(close){close.title='关闭笔记：'+title+'（草稿仍保留）';close.toggleAttribute('data-unsaved',!task.knowledgeNote.filePath||task.knowledgeNote.dirty||nodeNoteDrafts.has(noteDraftKey(task.id,'')));}
+    if(close){close.title='关闭笔记：'+title;close.toggleAttribute('data-unsaved',knowledgeHasUnsavedContent(task));}
   });
   const receipt = knowledgeReceipt(task), target = pane.querySelector('[data-kn-receipt]');
   if (target) {target.textContent = receipt.text;target.dataset.state=receipt.state;target.title=knowledgeSaveStatus(task)?.error||receipt.text;target.hidden=!['failed','conflict'].includes(receipt.state);}
@@ -1037,7 +1125,7 @@ function knowledgeDidEdit(taskId) {
 async function knowledgeAutoSave(taskId) {
   const task=knowledgeAllDocuments().find(t=>t.id===taskId); if(!task)return;
   if(task.knowledgeNote.filePath) {
-    if(['SAVED','DIRTY'].includes(task.knowledgeNote.documentState)) await saveKnowledgeTask(taskId,{automatic:true});
+    if(task.knowledgeNote.documentState==='DIRTY') await saveKnowledgeTask(taskId,{automatic:true});
     return;
   }
   return knowledgeSaveQueue.run(taskId,async()=>{
@@ -1062,6 +1150,8 @@ saveKnowledgeTask = function knowledgeSerializedSave(taskId, options={}) {
   if(unbound && !unbound.knowledgeNote.filePath && options.automatic) return knowledgeAutoSave(taskId);
   return knowledgeSaveQueue.run(taskId,async()=>{
     const task=knowledgeAllDocuments().find(t=>t.id===taskId);if(!task)return {canceled:true};
+    if(options.automatic && (task.knowledgeNote.documentState!=='DIRTY' ||
+        shellOverlay()?.querySelector('[data-knowledge-close]')?.dataset.knowledgeClose===taskId)) return {canceled:true};
     const generation=knowledgeGenerations.get(taskId)||0;
     knowledgeFileWriteBusy.add(taskId);knowledgeSaveResults.delete(taskId);knowledgeUpdateChrome(task);
     let result;
@@ -1072,11 +1162,12 @@ saveKnowledgeTask = function knowledgeSerializedSave(taskId, options={}) {
       result=await knowledgePriorSave(taskId,options);
       if((knowledgeGenerations.get(taskId)||0)!==generation)return result;
       if(result?.success)knowledgeSaveResults.set(taskId,{content:result.content??task.notes,filePath:task.knowledgeNote.filePath||null});
-      else if(!result?.canceled)knowledgeSaveResults.set(taskId,{error:result?.message||'保存未完成，请重试',filePath:task.knowledgeNote.filePath||null});
+      else if(!result?.canceled && result?.code!=='EXTERNAL_CHANGE_REQUIRES_CONFIRMATION')knowledgeSaveResults.set(taskId,{error:result?.message||'保存未完成，请重试',filePath:task.knowledgeNote.filePath||null});
     }catch(error){result={success:false,code:'SAVE_FAILED',message:error.message};knowledgeSaveResults.set(taskId,{error:error.message,filePath:task.knowledgeNote.filePath||null});}
     finally{
       knowledgeFileWriteBusy.delete(taskId);knowledgeUpdateChrome(task);
-      if(knowledgeDeferredFileEvents.has(taskId)){knowledgeDeferredFileEvents.delete(taskId);void knowledgeInspectDeferredChange(task);}
+      if(knowledgeDeferredFileEvents.has(taskId)){knowledgeDeferredFileEvents.delete(taskId);void knowledgeInspectFileChange(task);}
+      knowledgeQueueConflictPrompt();
       const pane=knowledgePane(taskId);
       if(pane?.dataset.taskId===taskId)knowledgeSyncNotice(task,pane);
     }
@@ -1085,7 +1176,7 @@ saveKnowledgeTask = function knowledgeSerializedSave(taskId, options={}) {
 };
 const knowledgePriorReload = reloadKnowledgeTask;
 reloadKnowledgeTask = async function knowledgeReloadWithReceipt(taskId) {
-  const result = await knowledgePriorReload(taskId);
+  const result = await knowledgeSaveQueue.run(taskId, () => knowledgePriorReload(taskId));
   if (result?.success) {
     knowledgeSaveResults.delete(taskId);
     const task=knowledgeAllDocuments().find(t=>t.id===taskId),pane=knowledgePane(taskId);
@@ -1100,9 +1191,6 @@ function knowledgeSyncNotice(task,pane) {
   const notice=document.createElement('div');notice.className='knowledge-notice attention';notice.dataset.knSaveError='true';notice.setAttribute('role','status');
   const text=document.createElement('span');text.textContent=error;notice.append(text);
   const retry=document.createElement('button');retry.type='button';retry.className='text-button';retry.textContent='重试';retry.onclick=()=>void saveKnowledgeTask(task.id);notice.append(retry);
-  if(task.knowledgeNote.documentState==='EXTERNAL_CHANGED') {
-    const resolve=document.createElement('button');resolve.type='button';resolve.className='text-button';resolve.textContent='处理冲突';resolve.onclick=()=>shellKnowledgeConflict(task);notice.append(resolve);
-  }
   pane.querySelector('.knowledge-note-surface')?.before(notice);
 }
 function knowledgeRefreshPanels(task) {
@@ -1496,6 +1584,7 @@ shellBindKnowledge = function() {
     const note=knowledgeFindDocument(pane.dataset.taskId);if(!note)continue;
     knowledgeCurrentEntry(note.id)?.setMode(shellKnowledgeMode(note.id));knowledgeUpdateChrome(note);knowledgeRefreshPanels(note);
   }
+  knowledgeQueueConflictPrompt();
 };
 function knowledgeInsertMenu(trigger) {
   const item=(action,icon,label,extra='')=>`<button class="button" type="button" role="menuitem" data-kn-action="${action}" ${extra}>${shellIcon(icon)}${label}</button>`;
@@ -1541,7 +1630,7 @@ document.addEventListener('click',event=>{
     return;
   }
   knowledgeLastTabClick=null;
-  const close=event.target.closest('[data-kn-detach]');if(close){knowledgeDetach(close.dataset.knDetach);return;}
+  const close=event.target.closest('[data-kn-detach]');if(close){knowledgeRequestClose(close.dataset.knDetach,close);return;}
   const scroll=event.target.closest('[data-kn-scroll]');
   if(scroll){
     const viewport=scroll.closest('.kn-document-bar').querySelector('.kn-document-tabs');
@@ -1615,13 +1704,34 @@ window.addEventListener('beforeunload',()=>{captureMountedMilkdownDrafts();flush
 // The single-instance desktop app scopes all notes to the current Loop data
 // directory. Its existing path gate remains the only disk-access authority.
 
-async function knowledgeInspectDeferredChange(task) {
+function knowledgeQueueConflictPrompt() {
+  if (knowledgeConflictFrame) return;
+  knowledgeConflictFrame = requestAnimationFrame(() => {
+    knowledgeConflictFrame = 0;
+    if (state.taskPane !== 'notes' || state.knowledgeDraftPrompt || shellOverlayIsOpen() || knowledgeActiveResource()) return;
+    const active = knowledgeActiveDocument();
+    const visible = [...document.querySelectorAll('.knowledge-pane[data-task-id]')];
+    const notes = [active, ...visible.map(pane => knowledgeFindDocument(pane.dataset.taskId))];
+    const note = notes.find(note => {
+      if (note?.knowledgeNote.documentState !== 'EXTERNAL_CHANGED' || knowledgeFileWriteBusy.has(note.id) ||
+          !knowledgePane(note.id)?.getClientRects().length || knowledgeCurrentEntry(note.id)?.view?.composing) return false;
+      const snapshot = knowledgeExternalSnapshots.get(note.knowledgeNote.noteId);
+      return snapshot && snapshot.lastSavedHash !== knowledgePresentedConflicts.get(note);
+    });
+    if (note) shellKnowledgeConflict(note);
+  });
+}
+
+document.addEventListener('compositionend', event => {
+  if (event.target.closest('.knowledge-pane')) knowledgeQueueConflictPrompt();
+});
+
+async function knowledgeInspectFileChange(task, options) {
   if(!knowledgeHasDocument(task)||!task.knowledgeNote.filePath)return;
   try {
     const current=await desktopKnowledgeFile.read({filePath:task.knowledgeNote.filePath});
     if(current?.success && current.lastSavedHash!==task.knowledgeNote.lastSavedHash) {
-      await handleKnowledgeFileChange({...current,type:'external-changed',noteId:task.knowledgeNote.noteId});
-      knowledgeUpdateChrome(task);
+      await handleKnowledgeFileChange({...current,type:'external-changed',noteId:task.knowledgeNote.noteId},options);
     }
-  } catch { /* The existing watcher will report an unavailable file on its next scan. */ }
+  } catch { /* The watcher reports unavailable files. */ }
 }

@@ -108,6 +108,7 @@ const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
 
     const external = '# 外部更新\n\n改名后真实文件监听。';
     await fs.writeFile(renamed, external);
+    await page.locator('[data-knowledge-conflict] [data-action="reload-knowledge"]').click();
     await page.waitForFunction(text => knowledgeCurrentEntry()?.getMarkdown()===text, external);
     assert.equal((await metadata()).documentState, 'SAVED');
     await record('watcher follows renamed path and loads a real external edit');

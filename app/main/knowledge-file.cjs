@@ -615,6 +615,17 @@ async function saveKnowledgeDocument(payload, {
     let copiedAssets = [];
     let committed = false;
     try {
+      const sourcePath = safePayload.sourceFilePath || safePayload.filePath;
+      if (safePayload.saveAs === true && sourcePath) {
+        const [source, destination] = await Promise.all([
+          fsOps.stat(sourcePath).catch(() => null),
+          fsOps.stat(filePath).catch(() => null),
+        ]);
+        const sameFile = source?.ino && source.ino === destination?.ino && source.dev === destination.dev;
+        if (hasDuplicateBinding(filePath, [sourcePath], platform) || sameFile) {
+          return { canceled: false, success: false, code: "SAVE_AS_SOURCE_FILE", filePath, message: "请选择另一个文件名或位置，原文件将保留。" };
+        }
+      }
       // Write through symlinks so the link itself survives; replacing the link
       // path would turn a symlink into an ordinary file (KN-13).
       let targetPath = filePath;

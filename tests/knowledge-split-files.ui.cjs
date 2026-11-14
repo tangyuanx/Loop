@@ -25,8 +25,11 @@ const out=path.resolve(process.env.LOOP_SPLIT_FILES_QA_DIR||'.local-review/memo-
  check('both files save separately; missing right file keeps its draft and error while left continues, then retry succeeds');
  await pane('owner').locator('.cm-content').click();
  await fs.writeFile(rightPath,'# 外部更新右文件\n\n应只提示右侧。\n');
- // The existing file contract automatically reloads a clean note; conflicts
- // require a dirty local draft. Keep that behavior when both notes are visible.
+ const conflict=page.locator('[data-knowledge-conflict][data-task-id="right"]');
+ await conflict.waitFor();
+ assert.match(await conflict.locator('.knowledge-version-grid').innerText(),/外部更新右文件/);
+ await conflict.getByRole('button',{name:'重新加载文件'}).click();
+ await conflict.waitFor({state:'detached'});
  await page.waitForFunction(()=>knowledgeCurrentEntry('right')?.getEditorText().includes('外部更新右文件'));
  assert.equal(await page.evaluate(()=>knowledgeActiveDocument().id),'owner');assert.equal(await pane('owner').locator('.knowledge-notice').count(),0);
  assert.equal(await page.evaluate(()=>knowledgeFindDocument('right').knowledgeNote.documentState),'SAVED');

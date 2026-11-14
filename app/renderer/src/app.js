@@ -1431,15 +1431,11 @@ async function verifyKnowledgeFileBeforeSave(task, { saveAs = false, allowExtern
   if (!currentFile?.success) return currentFile || { success: false, code: "FILE_READ_FAILED" };
 
   if (!note.lastSavedHash || currentFile.lastSavedHash !== note.lastSavedHash) {
-    knowledgeExternalSnapshots.set(note.noteId, currentFile);
-    task.knowledgeNote = knowledgeDocument.markDocumentExternalChanged(note);
-    task.knowledgeNote.updatedAt = now();
-    task.updatedAt = now();
-    save();
+    await handleKnowledgeFileChange({ ...currentFile, type: "external-changed", noteId: note.noteId }, { duringSave: true });
     return {
       success: false,
       code: "EXTERNAL_CHANGE_REQUIRES_CONFIRMATION",
-      message: "文件已被外部修改，请先重新加载、明确覆盖或另存为。",
+      message: "文件已被外部修改，请重新加载文件或另存当前内容。",
     };
   }
   return null;
@@ -1456,6 +1452,7 @@ function knowledgeFileFailure(result, fallback = "文件不可用") {
 
 async function reloadKnowledgeTask(taskId) {
   const task = knowledgeAllDocuments().find((item) => item.id === taskId);
+  captureMountedMilkdownDrafts(); flushNodeNoteDraft(noteDraftKey(taskId, ""), { persist: true });
   const note = task?.knowledgeNote;
   if (!task || !note?.filePath || !desktopKnowledgeFile?.read) return { success: false, code: "READ_UNAVAILABLE" };
   if (note.dirty && !(await confirmDestructiveAction("将放弃当前未保存的修改，并读取磁盘上的最新内容。此操作不会删除笔记或文件。", "reload-knowledge"))) {
@@ -1526,7 +1523,7 @@ async function reloadKnowledgeTask(taskId) {
     console.error("Failed to update knowledge file watcher baseline after reload.", error);
   }
   if (knowledgeExternalSnapshots.get(note.noteId) === conflictAtRead) knowledgeExternalSnapshots.delete(note.noteId);
-  if (!task.knowledgeNote.dirty && task.knowledgeNote.documentState === "SAVED" && task.notes === result.content) {
+  if (!task.knowledgeNote.dirty && task.notes === result.content) {
     await clearKnowledgeRecoveryRecord(note.noteId);
   }
   return result;
@@ -1612,7 +1609,9 @@ async function discardUnfiledKnowledgeDraft(taskId) {
 async function closeKnowledgeEditor(taskId) {
   const task = knowledgeAllDocuments().find((item) => item.id === taskId);
   if (!task) return { success: false, code: "TASK_NOT_FOUND" };
-  if (knowledgeActiveDocument()?.id === task.id && typeof knowledgeDetach === "function") { knowledgeDetach(task.id); return { success: true }; }
+  if (state.knowledgeWorkspace.openIds.includes(task.id) && typeof knowledgeRequestClose === "function") {
+    return knowledgeRequestClose(task.id);
+  }
   if (task.knowledgeNote?.documentState === "DRAFT" && String(task.notes || "").trim()) {
     knowledgeShowDraftPrompt(taskId, "close-editor");
     return { success: false, code: "DRAFT_REQUIRES_DECISION" };
@@ -1621,14 +1620,15 @@ async function closeKnowledgeEditor(taskId) {
   return { success: true };
 }
 
-async function handleKnowledgeFileChange(event) {
+async function handleKnowledgeFileChange(event, { duringSave = false } = {}) {
   const noteId = String(event?.noteId || "").trim();
   const task = knowledgeAllDocuments().find((item) => item.knowledgeNote?.noteId === noteId || item.id === noteId);
-  if (!task || !event?.filePath) return;
+  if (!task?.knowledgeNote?.filePath || task.knowledgeNote.isDeleted || !event?.filePath ||
+      knowledgeDocument.canonicalFilePath(task.knowledgeNote.filePath, desktopPlatform) !== knowledgeDocument.canonicalFilePath(event.filePath, desktopPlatform)) return;
   captureMountedMilkdownDrafts();
   flushNodeNoteDraft(noteDraftKey(task.id, ""), { persist: false });
   const note = task.knowledgeNote;
-  if (typeof knowledgeFileWriteBusy !== "undefined" && knowledgeFileWriteBusy.has(task.id)) {
+  if (!duringSave && typeof knowledgeFileWriteBusy !== "undefined" && knowledgeFileWriteBusy.has(task.id)) {
     // Our queued write updates the watcher baseline in main before its receipt.
     // A later external version is still checked by the next CAS save/read.
     if (event.type === "external-changed") {
@@ -1636,8 +1636,6 @@ async function handleKnowledgeFileChange(event) {
       return;
     }
   }
-  if (note.filePath && knowledgeDocument.canonicalFilePath(note.filePath, desktopPlatform) !== knowledgeDocument.canonicalFilePath(event.filePath, desktopPlatform)) return;
-
   if (event.type === "baseline") {
     rememberKnowledgeAssetDiagnostics(note.noteId, event);
     rememberKnowledgeAssetFiles(event.assetFiles, task.knowledgeNote.noteId, { replace: true });
@@ -1647,27 +1645,32 @@ async function handleKnowledgeFileChange(event) {
     const hasLocalDraft = nodeNoteDrafts.has(noteDraftKey(task.id, ""))
       || (typeof knowledgeAutosaveTimers !== "undefined" && knowledgeAutosaveTimers.has(task.id))
       || (typeof knowledgeFileWriteBusy !== "undefined" && knowledgeFileWriteBusy.has(task.id));
-    const restored = (note.documentState === "FILE_MISSING" || note.documentState === "DIRTY")
+    const restored = ["FILE_MISSING", "READ_ONLY", "EXTERNAL_CHANGED"].includes(note.documentState)
+      && !note.dirty
       && !hasLocalDraft
       && Boolean(event.lastSavedHash)
       && event.lastSavedHash === note.lastSavedHash;
     if (note.documentState === "SAVED" || restored) {
       task.knowledgeNote = knowledgeDocument.markDocumentSaved(note, event);
+      knowledgeExternalSnapshots.delete(note.noteId);
       save();
       // Self-write baselines must never detach a focused CodeMirror/IME host.
       // Attachments are refreshed as decorations, not by rebuilding the shell.
       milkdownEditors.get(noteDraftKey(task.id, ""))?.instance?.refresh?.();
       if (typeof knowledgeUpdateChrome === "function") knowledgeUpdateChrome(task);
+      if (restored) render();
     }
     return;
   }
   if (event.type === "read-only") {
+    if (note.documentState === "EXTERNAL_CHANGED") return;
     task.knowledgeNote = knowledgeDocument.markDocumentReadOnly(note);
     save();
     render();
     return;
   }
   if (event.type === "file-missing") {
+    if (note.documentState === "EXTERNAL_CHANGED") return;
     delete state.knowledgeFileIssues[note.noteId];
     task.knowledgeNote = knowledgeDocument.markDocumentFileMissing(note);
     save();
@@ -1682,29 +1685,13 @@ async function handleKnowledgeFileChange(event) {
     render();
     return;
   }
-  if (event.type !== "external-changed" || !event.success) return;
+  if (event.type !== "external-changed" || !event.success || event.lastSavedHash === note.lastSavedHash) return;
+  const previous = knowledgeExternalSnapshots.get(note.noteId);
+  if (note.documentState === "EXTERNAL_CHANGED" && previous?.lastSavedHash === event.lastSavedHash) return;
 
   knowledgeExternalSnapshots.set(note.noteId, event);
-  if (note.documentState === "SAVED") {
-    discardMountedKnowledgeEditor(task.id);
-    task.notes = event.content;
-    rememberKnowledgeAssetFiles(event.assetFiles, task.knowledgeNote.noteId);
-    rememberKnowledgeAssetDiagnostics(note.noteId, event);
-    task.knowledgeNote = knowledgeDocument.markDocumentSaved(note, event);
-    task.knowledgeNote.updatedAt = now();
-    task.updatedAt = now();
-    knowledgeExternalSnapshots.delete(note.noteId);
-    await clearKnowledgeRecoveryRecord(note.noteId);
-    discardMountedKnowledgeEditor(task.id);
-    save();
-    await syncKnowledgeFileWatcher(task);
-    render();
-    return;
-  }
-
+  delete state.knowledgeFileIssues[note.noteId];
   task.knowledgeNote = knowledgeDocument.markDocumentExternalChanged(note);
-  task.knowledgeNote.updatedAt = now();
-  task.updatedAt = now();
   save();
   render();
 }
@@ -1724,7 +1711,7 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
     const result = {
       success: false,
       code: "EXTERNAL_CHANGE_REQUIRES_CONFIRMATION",
-      message: "文件已被外部修改，请先重新加载、明确覆盖或另存为。",
+      message: "文件已被外部修改，请重新加载文件或另存当前内容。",
     };
     showWorkspaceError(result.message);
     return result;
@@ -1779,6 +1766,9 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
     });
     if (result?.canceled) return result;
     if (!result?.success) {
+      if (result?.code === "EXTERNAL_CHANGE_REQUIRES_CONFIRMATION" && typeof knowledgeInspectFileChange === "function") {
+        await knowledgeInspectFileChange(task, { duringSave: true });
+      }
       if (result?.code === "DUPLICATE_BINDING") {
         showWorkspaceError("这篇知识笔记已绑定该文件路径，请选择其他文件。");
       } else {
@@ -3327,8 +3317,7 @@ function renderTaskKnowledge(task) {
     : stateDetails[note.documentState] || stateDetails.DRAFT;
   const stateClass = String(note.documentState || "DRAFT").toLowerCase();
   const conflictActions = note.documentState === "EXTERNAL_CHANGED"
-    ? `<button type="button" data-action="reload-knowledge" data-task-id="${escAttr(task.id)}">重新加载</button>
-       <button type="button" data-action="save-knowledge-overwrite" data-task-id="${escAttr(task.id)}">仍然覆盖</button>`
+    ? `<button type="button" data-action="reload-knowledge" data-task-id="${escAttr(task.id)}">重新加载</button>`
     : note.documentState === "FILE_MISSING"
       ? `<button type="button" data-action="relocate-knowledge" data-task-id="${escAttr(task.id)}">重新定位</button>`
       : note.documentState === "READ_ONLY"
@@ -8274,12 +8263,11 @@ async function action(data, event = null) {
     insertIntoActiveEditor(editorSnippet(data.kind));
     return;
   }
-  if (["save-knowledge", "save-knowledge-as", "save-knowledge-overwrite", "reload-knowledge"].includes(data.action)) {
+  if (["save-knowledge", "save-knowledge-as", "reload-knowledge"].includes(data.action)) {
     await shellRunKnowledgeConflictAction(data, () => data.action === "reload-knowledge"
       ? reloadKnowledgeTask(data.taskId)
       : saveKnowledgeTask(data.taskId, {
         saveAs: data.action === "save-knowledge-as",
-        allowExternalOverwrite: data.action === "save-knowledge-overwrite",
       }));
     return;
   }
@@ -10752,6 +10740,10 @@ window.addEventListener("keydown", (event) => {
   if (event.isComposing) return;
 
   if (isKnowledgeSaveShortcut(event) && state.taskPane === "notes") {
+    if (shellOverlay()?.querySelector('[data-knowledge-conflict], [data-knowledge-close]')) {
+      event.preventDefault();
+      return;
+    }
     const task = activeTask();
     if (!task) return;
 

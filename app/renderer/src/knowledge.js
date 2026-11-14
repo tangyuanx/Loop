@@ -63,12 +63,12 @@ const SHELL_KNOWLEDGE_ATTENTION = ["EXTERNAL_CHANGED", "FILE_MISSING", "READ_ONL
 function shellKnowledgeState(task) {
   const note = task?.knowledgeNote || {};
   const unavailable = state.knowledgeFileIssues?.[note.noteId];
-  const key = unavailable ? "UNAVAILABLE" : String(note.documentState || "DRAFT");
+  const key = unavailable && note.documentState !== "EXTERNAL_CHANGED" ? "UNAVAILABLE" : String(note.documentState || "DRAFT");
   return {
     note,
     key,
     unavailable,
-    label: unavailable ? "文件暂时不可用" : SHELL_KNOWLEDGE_STATE_LABELS[key] || "草稿",
+    label: key === "UNAVAILABLE" ? "文件暂时不可用" : SHELL_KNOWLEDGE_STATE_LABELS[key] || "草稿",
     attention: unavailable ? true : SHELL_KNOWLEDGE_ATTENTION.includes(key),
   };
 }
@@ -173,7 +173,7 @@ function renderShellKnowledgeNotice(task, noteState) {
   let tone = "attention";
   if (noteState.key === "EXTERNAL_CHANGED") {
     text = "文件已在其他应用中修改，当前内容与草稿仍保留。";
-    actions = button("knowledge-conflict", "处理冲突") + button("save-knowledge-as", "另存为");
+    actions = button("knowledge-conflict", "查看并处理");
   } else if (noteState.key === "FILE_MISSING") {
     text = "找不到关联文件，当前笔记内容仍保留。";
     actions = button("relocate-knowledge", "重新定位") + button("save-knowledge-as", "另存为");
@@ -226,7 +226,8 @@ function shellKnowledgeFileMenu(trigger) {
     shellMountSurface(`<div class="surface-popover wb-more-menu" role="menu" aria-label="更多笔记操作">${renderKnowledgeDocumentActions()}</div>`,trigger,232);
     return;
   }
-  const bound = Boolean(task.knowledgeNote?.filePath);
+  const note = task.knowledgeNote;
+  const bound = Boolean(note.filePath);
   const owner=state.tasks.find(item=>item.id===state.activeTaskId);
   const member=Boolean(owner&&knowledgeDocument.taskNoteIds(owner,state.knowledgeDocuments).includes(task.id));
   const otherOwners=state.tasks.filter(item=>item.id!==owner?.id&&knowledgeDocument.taskNoteIds(item,state.knowledgeDocuments).includes(task.id));
@@ -262,6 +263,7 @@ function shellKnowledgeFileMenu(trigger) {
       <div class="menu-divider"></div><div class="note23-menu-label">文件</div>
       <button class="button" type="button" role="menuitem" data-knowledge-save-label data-action="save-knowledge" data-task-id="${escAttr(task.id)}" ${savePresentation.state==='saving'?'disabled':''}>${esc(savePresentation.menuLabel)}</button>
       <button class="button" type="button" role="menuitem" data-action="save-knowledge-as" data-task-id="${escAttr(task.id)}">另存为…</button>
+      ${bound ? `<button class="button" type="button" role="menuitem" data-action="${note.documentState === 'EXTERNAL_CHANGED' ? 'knowledge-conflict' : 'reload-knowledge'}" data-task-id="${escAttr(task.id)}">重新加载文件…</button>` : ""}
       <div class="menu-divider"></div>
       <div class="note23-menu-label">当前笔记</div>
       <button class="button" type="button" role="menuitem" data-action="knowledge-file-info" data-task-id="${escAttr(task.id)}">文件信息</button>
@@ -403,22 +405,13 @@ async function shellRunKnowledgeConflictAction(data, operation) {
   const surface = shellOverlay()?.querySelector("[data-knowledge-conflict]");
   const task = knowledgeAllDocuments().find(item => item.id === data.taskId);
   const noteId = task?.knowledgeNote?.noteId;
-  // Overwriting is bound to the version the user saw. If the disk changed again
-  // while the dialog was open, refresh it and ask for confirmation again.
-  if (data.action === "save-knowledge-overwrite" && surface && task?.knowledgeNote?.filePath && desktopKnowledgeFile?.read) {
-    const previewHash = surface.dataset.previewHash || "";
-    const current = await desktopKnowledgeFile.read({ filePath: task.knowledgeNote.filePath }).catch(() => null);
-    if (current?.success && previewHash && current.lastSavedHash !== previewHash) {
-      knowledgeExternalSnapshots.set(noteId, current);
-      task.knowledgeNote = knowledgeDocument.markDocumentExternalChanged(task.knowledgeNote);
-      shellKnowledgeConflict(task);
-      const error = shellOverlay()?.querySelector("[data-conflict-error]");
-      if (error) error.textContent = "文件在你确认前又发生了变化，预览已刷新，请重新确认。";
-      return { success: false, code: "EXTERNAL_CHANGE_REFRESHED" };
-    }
-  }
   if (!surface || surface.dataset.taskId !== data.taskId || surface.dataset.noteId !== noteId) {
+    if (data.action === "reload-knowledge") shellCloseOverlay({ restoreFocus: false });
     const result = await operation();
+    if (data.action === "reload-knowledge") {
+      if (result?.success) shellToast("已重新加载文件");
+      else if (!result?.canceled) showWorkspaceError(result?.message || "重新加载失败，请重试。");
+    }
     if (!result?.canceled) render();
     return result;
   }
@@ -430,6 +423,7 @@ async function shellRunKnowledgeConflictAction(data, operation) {
   }
   shellKnowledgeConflictOperations.add(noteId);
   const buttons = [...surface.querySelectorAll("footer button[data-task-id]")];
+  const selected = buttons.find(button => button === document.activeElement);
   buttons.forEach(button => { button.disabled = true; });
   surface.setAttribute("aria-busy", "true");
   status.textContent = data.action === "reload-knowledge" ? "正在重新加载…" : "正在保存…";
@@ -446,7 +440,7 @@ async function shellRunKnowledgeConflictAction(data, operation) {
   // #overlay is independent of render(). A late receipt must never dismiss a
   // newer dialog, act on another note, or move focus away from that note.
   const ownsSurface = surface.isConnected && shellOverlay()?.querySelector("[data-knowledge-conflict]") === surface &&
-    knowledgeActiveDocument()?.id === task.id && state.taskPane === "notes" &&
+    (knowledgeActiveDocument()?.id === task.id || (typeof knowledgePane === "function" && knowledgePane(task.id))) && state.taskPane === "notes" &&
     knowledgeHasDocument(task) && task.knowledgeNote.noteId === noteId;
   let closed = false;
   if (ownsSurface && result?.success === true && task.knowledgeNote.documentState !== "EXTERNAL_CHANGED") {
@@ -458,40 +452,46 @@ async function shellRunKnowledgeConflictAction(data, operation) {
       : result?.message || "操作未完成，当前草稿仍保留，请重试或另存为。";
     const previews = surface.querySelectorAll(".knowledge-version-grid pre");
     previews[0].textContent = String(task.notes || "").slice(0, 600);
-    previews[1].textContent = String(knowledgeExternalSnapshots.get(noteId)?.content || "文件暂时不可用，请重试读取。").slice(0, 600);
+    previews[1].textContent = String(knowledgeExternalSnapshots.get(noteId)?.content ?? "文件暂时不可用，请重试读取。").slice(0, 600);
   }
   if (!result?.canceled) render();
-  if (closed && !shellOverlay()?.firstElementChild && knowledgeActiveDocument()?.id === task.id && task.knowledgeNote.noteId === noteId) {
-    const entry = typeof knowledgeCurrentEntry === "function" ? knowledgeCurrentEntry(task.id) : null;
+  if (closed && !shellOverlay()?.firstElementChild && task.knowledgeNote.noteId === noteId) {
+    const active = knowledgeActiveDocument();
+    const entry = typeof knowledgeCurrentEntry === "function" ? knowledgeCurrentEntry(active?.id) : null;
     if (entry?.view?.dom?.isConnected && entry.mode !== "preview") entry.view.focus();
-    else document.querySelector('[data-action="knowledge-file-menu"]')?.focus({ preventScroll: true });
+    else {
+      const pane = typeof knowledgePane === "function" ? knowledgePane(active?.id) : document;
+      pane?.querySelector('[data-action="knowledge-file-menu"]')?.focus({ preventScroll: true });
+    }
+  } else if (ownsSurface && !closed) {
+    selected?.focus({ preventScroll: true });
   }
   return result;
 }
 
 function shellKnowledgeConflict(task) {
-  const note = task.knowledgeNote || {};
+  if (task?.knowledgeNote?.documentState !== "EXTERNAL_CHANGED") return;
+  const note = task.knowledgeNote;
+  const snapshot = knowledgeExternalSnapshots.get(note.noteId);
+  if (snapshot && typeof knowledgePresentedConflicts !== "undefined") knowledgePresentedConflicts.set(task, snapshot.lastSavedHash);
   shellKnowledgeDialog(
-    "文件与当前笔记有不同修改",
-    `<p class="knowledge-dialog-copy">当前草稿仍保留。选择作用于整篇笔记。</p>
+    "笔记文件已在外部修改",
+    `<p class="knowledge-dialog-copy">「${esc(LoopKnowledgeCore.noteTitle(task))}」可以重新加载磁盘上的版本，或把当前内容另存为新文件。</p>
      <div class="knowledge-version-grid">
-       <section><h3>当前编辑内容</h3><p>本页草稿</p><pre>${esc(String(task.notes || "").slice(0, 600))}</pre></section>
-       <section><h3>磁盘上的文件</h3><p>${esc(note.filePath || "本地文件")}</p><pre>${esc(String(knowledgeExternalSnapshots.get(note.noteId)?.content || note.externalPreview || note.savedContent || "文件内容已变化，重新加载后可查看。").slice(0, 600))}</pre></section>
+       <section><h3>当前笔记</h3><p>${note.dirty ? "含未保存的修改" : "原先打开的版本"}</p><pre>${esc(String(task.notes || "").slice(0, 600))}</pre></section>
+       <section><h3>磁盘上的文件</h3><p>${esc(note.filePath)}</p><pre>${esc(String(snapshot?.content ?? "重新加载后可查看。").slice(0, 600))}</pre></section>
      </div>
      <p class="knowledge-dialog-copy" role="status" data-conflict-status></p>
      <p class="knowledge-dialog-copy" role="alert" data-conflict-error></p>`,
     `<button class="button" type="button" data-action="close-dialog" autofocus>取消</button>
-     <button class="button" type="button" data-action="save-knowledge-as" data-task-id="${escAttr(task.id)}">另存为新文件</button>
-     <button class="button" type="button" data-action="reload-knowledge" data-task-id="${escAttr(task.id)}">重新加载文件</button>
-     <button class="button primary" type="button" data-action="save-knowledge-overwrite" data-task-id="${escAttr(task.id)}">仍然覆盖</button>`,
-    560,
+     <button class="button" type="button" data-action="save-knowledge-as" data-task-id="${escAttr(task.id)}">另存当前内容</button>
+     <button class="button primary" type="button" data-action="reload-knowledge" data-task-id="${escAttr(task.id)}">重新加载文件</button>`,
+    560, `.knowledge-pane[data-task-id="${CSS.escape(task.id)}"] [data-action="knowledge-conflict"]`,
   );
   const surface = shellOverlay().querySelector(".knowledge-dialog");
   surface.dataset.knowledgeConflict = id("knowledge-conflict");
   surface.dataset.taskId = task.id;
   surface.dataset.noteId = note.noteId;
-  // Version actually shown to the user; "仍然覆盖" must not overwrite a newer one.
-  surface.dataset.previewHash = knowledgeExternalSnapshots.get(note.noteId)?.lastSavedHash || note.lastSavedHash || "";
   document.querySelector("#overlay [autofocus]")?.focus();
 }
 

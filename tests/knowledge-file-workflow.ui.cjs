@@ -26,6 +26,13 @@ const source=path.resolve(__dirname,'..'),pause=ms=>new Promise(resolve=>setTime
  const current=()=>page.evaluate(()=>knowledgeActiveDocument()?.id||'');
  const select=async id=>{await page.evaluate(id=>knowledgeOpen(state.tasks.find(t=>t.id===id)),id);await page.waitForFunction(()=>!knowledgeActiveDocument()||knowledgeCurrentEntry()?.view);};
  const ready=async id=>page.waitForFunction(id=>knowledgeCurrentEntry()?.view&&knowledgeActiveDocument()?.id===id,id);
+ const closeTab=async id=>{
+  const button=page.locator(`[data-kn-detach="${id}"]`);
+  const unsaved=await button.evaluate(element=>element.hasAttribute('data-unsaved'));
+  await button.click();
+  if(unsaved)await page.locator('[data-knowledge-close] [data-kn-close-choice="keep"]').click();
+  await button.waitFor({state:'detached'});
+ };
  const edit=async text=>{await page.locator('.cm-content[contenteditable=true]').click();await page.keyboard.type(text);};
  const flush=()=>page.evaluate(async()=>{captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});await flushPendingKnowledgeRecoveries({strict:true});save();await flushSave();});
  const showRecent=async()=>{await wb.more(page);await page.locator('.wb-more-menu [data-kn-action=recent]').click();};
@@ -72,14 +79,14 @@ const source=path.resolve(__dirname,'..'),pause=ms=>new Promise(resolve=>setTime
   await edit('新任务自己的记录');await select('c');await ready(external);assert.match(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),/原始内容/);
   await select(createdTask);await ready(createdNote);assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),'新任务自己的记录');
   await select('c');await ready(external);
-  await select('b');await ready(d2);await page.locator(`[data-kn-detach="${d2}"]`).click();assert.equal(await page.locator(`[data-kn-document="${d2}"]`).count(),0);await recent(d2);assert.match(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),/第二篇仍是草稿/);
+  await select('b');await ready(d2);await closeTab(d2);await recent(d2);assert.match(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),/第二篇仍是草稿/);
   await select('a');await ready(d1);await select('b');await ready(d2);await flush();
   const disk=await readTaskData(profile);assert.equal(disk.knowledgeWorkspace.activeId,d2);assert.equal(disk.knowledgeWorkspace.lastByTask.a,d1);assert.equal(disk.knowledgeWorkspace.lastByTask.b,d2);
   assert.deepEqual(disk.knowledgeWorkspace.tabsByTask[createdTask],[createdNote]);assert.equal(disk.knowledgeWorkspace.tabsByTask.a.includes(d2),false);
   await app.close();app=null;await start();await ready(d2);assert.equal(await page.evaluate(()=>state.activeTaskId),'b');assert.match(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),/第二篇仍是草稿/);
   await select('a');await ready(d1);await select('b');await ready(d2);await select(createdTask);await ready(createdNote);assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),'新任务自己的记录');await select('b');await ready(d2);
   assert.doesNotMatch(await page.locator('.knowledge-pane').innerText(),/本任务创建|其他笔记/);
-  for(const id of await page.evaluate(()=>state.knowledgeWorkspace.openIds.filter(id=>id!==knowledgeActiveDocument().id)))await page.locator(`[data-kn-detach="${id}"]`).click();
+  for(const id of await page.evaluate(()=>state.knowledgeWorkspace.openIds.filter(id=>id!==knowledgeActiveDocument().id)))await closeTab(id);
   assert.equal(await page.locator('.kn-document-tabs [role=tab]').count(),1);assert.equal(await current(),d2);
   for(const theme of ['light','dark'])for(const width of [1024,1280]){
    await app.evaluate(({BrowserWindow},width)=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(width,820),width);
@@ -89,7 +96,7 @@ const source=path.resolve(__dirname,'..'),pause=ms=>new Promise(resolve=>setTime
    await showRecent();await page.screenshot({path:path.join(out,`recent-${theme}-${width}.png`)});await page.keyboard.press('Escape');
   }
   // Closing the final tab leaves an intentional empty workspace across restart.
-  await page.evaluate(()=>knowledgeDetach(knowledgeActiveDocument().id));await page.locator('.kn-empty-document').waitFor();await page.screenshot({path:path.join(out,'empty-workspace.png')});await flush();await app.close();app=null;
+  await closeTab(await current());await page.locator('.kn-empty-document').waitFor();await page.screenshot({path:path.join(out,'empty-workspace.png')});await flush();await app.close();app=null;
   await start();await page.locator('.kn-empty-document').waitFor();assert.equal(await current(),'');
   assert.equal(await page.locator('.knowledge-pane [data-kn-action]').count(),1);
   assert.equal(await page.locator('.kn-document-new[data-kn-action="new-note"]').isVisible(),true,'the empty workspace keeps the direct + creation entry');

@@ -12,7 +12,7 @@ async function reset(text,from=0,to=from,mode='edit'){await page.evaluate(({text
 const text=()=>page.evaluate(()=>knowledgeCurrentEntry().getEditorText());
 const focused=()=>page.evaluate(()=>knowledgeCurrentEntry().view.hasFocus);
 async function insert(kind){await wb.format(page,kind);}
-async function prompt(id){await open(id);await page.locator('[data-action="knowledge-file-menu"]').click();await page.locator('[data-action="close-knowledge-editor"]').click();await page.locator('.knowledge-draft-dialog').waitFor();}
+async function prompt(id){await open(id);await page.locator('[data-action="knowledge-file-menu"]').click();await page.locator('[data-action="close-knowledge-editor"]').click();await page.locator('[data-knowledge-close]').waitFor();}
 (async()=>{
  run=await fs.mkdtemp(path.join(os.tmpdir(),'loop-report-fixes-'));files=path.join(run,'files');out=path.join(run,'evidence');await fs.mkdir(files);await fs.mkdir(out);
  const stamp=new Date().toISOString(),ids=['edit','keep','delete','save','cancel','delete-task','delete-task-save','delete-task-keep','readonly','image'];
@@ -27,17 +27,21 @@ async function prompt(id){await open(id);await page.locator('[data-action="knowl
   await app.evaluate(({dialog},files)=>{dialog.showSaveDialog=async()=>({canceled:!global.__reportSave,filePath:global.__reportSave||undefined});dialog.showMessageBox=async()=>({response:1});},files);
   await test('D1-dialog-visible-keyboard-cancel',async()=>{
     await prompt('cancel');
-    for(const size of [[1024,680],[1440,900]]){await app.evaluate(({BrowserWindow},s)=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(...s),size);const box=await page.locator('.knowledge-draft-dialog').boundingBox();assert.ok(box.y>=0&&box.y+box.height<=size[1]&&box.x>=0);await page.screenshot({path:path.join(out,`draft-${size[0]}.png`)});}
-    assert.equal(await page.evaluate(()=>document.activeElement.classList.contains('knowledge-draft-dialog')),true);
-    await page.keyboard.press('Shift+Tab');assert.equal(await page.locator('.knowledge-draft-dialog button').last().evaluate(e=>e===document.activeElement),true);
-    await page.keyboard.press('Tab');assert.equal(await page.locator('.knowledge-draft-dialog button').first().evaluate(e=>e===document.activeElement),true);
-    await page.keyboard.press('Escape');assert.equal(await page.locator('.knowledge-draft-dialog').count(),0);assert.equal(await page.evaluate(()=>document.activeElement.dataset.action),'knowledge-file-menu');
+    const dialog=page.locator('[data-knowledge-close]');
+    for(const size of [[1024,680],[1440,900]]){await app.evaluate(({BrowserWindow},s)=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(...s),size);const box=await dialog.boundingBox();assert.ok(box.y>=0&&box.y+box.height<=size[1]&&box.x>=0);await page.screenshot({path:path.join(out,`draft-${size[0]}.png`)});}
+    assert.equal(await dialog.getByRole('button',{name:'取消'}).evaluate(e=>e===document.activeElement),true);
+    await page.keyboard.press('Shift+Tab');assert.equal(await dialog.getByRole('button',{name:'关闭',exact:true}).evaluate(e=>e===document.activeElement),true);
+    await page.keyboard.press('Shift+Tab');assert.equal(await dialog.getByRole('button',{name:'保存并关闭'}).evaluate(e=>e===document.activeElement),true);
+    await page.keyboard.press('Escape');await dialog.waitFor({state:'detached'});await page.waitForFunction(()=>document.activeElement.dataset.action==='knowledge-file-menu');
   });
   await test('D1-close-three-branches-and-save-cancel',async()=>{
-    await prompt('keep');await page.locator('[data-action="keep-knowledge-draft"]').click();assert.equal(await page.evaluate(()=>state.taskPane),'flow');assert.match(await page.evaluate(()=>state.tasks.find(t=>t.id==='keep').notes),/测试正文/);
-    await prompt('delete');await page.locator('[data-action="delete-knowledge-draft"]').click();await page.waitForFunction(()=>state.taskPane==='flow');assert.equal(await page.evaluate(()=>state.tasks.find(t=>t.id==='delete').notes),'');
-    await prompt('save');await page.locator('[data-action="save-knowledge-before-close"]').click();assert.equal(await page.locator('.knowledge-draft-dialog').count(),1,'native save cancel keeps prompt and draft');
-    const saved=path.join(files,'save.md');await app.evaluate((_e,p)=>{global.__reportSave=p},saved);await page.locator('[data-action="save-knowledge-before-close"]').click();await page.waitForFunction(()=>state.taskPane==='flow');assert.match(await fs.readFile(saved,'utf8'),/测试正文/);
+    await prompt('keep');await page.locator('[data-kn-close-choice="keep"]').click();
+    await page.locator('[data-kn-document="keep"]').waitFor({state:'detached'});assert.match(await page.evaluate(()=>state.tasks.find(t=>t.id==='keep').notes),/测试正文/);
+    await prompt('save');const saveButton=page.locator('[data-kn-close-choice="save"]');await saveButton.click();
+    await page.locator('[data-kn-close-choice="save"]:enabled').waitFor();
+    assert.match(await page.evaluate(()=>knowledgeFindDocument('save').notes),/测试正文/);
+    const saved=path.join(files,'save.md');await app.evaluate((_e,p)=>{global.__reportSave=p},saved);await saveButton.click();
+    await page.locator('[data-kn-document="save"]').waitFor({state:'detached'});assert.match(await fs.readFile(saved,'utf8'),/测试正文/);
   });
   await test('D1-delete-task-choices',async()=>{
     await open('delete-task');await page.evaluate(()=>deleteTask('delete-task'));await page.locator('.knowledge-draft-dialog').waitFor();await page.locator('[data-action="delete-knowledge-draft"]').click();await page.waitForSelector('.knowledge-draft-dialog',{state:'detached'});

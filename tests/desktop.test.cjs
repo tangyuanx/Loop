@@ -658,7 +658,7 @@ test("knowledge table column widths normalize and persist without dirtying markd
   assert.deepEqual(normalized.tableColumnWidths, [[], [], [104, 296]]);
 });
 
-test("knowledge document abnormal states remain explicit and dirty", () => {
+test("knowledge document file issues preserve whether the editor has unsaved changes", () => {
   const saved = knowledgeDocument.markDocumentSaved(
     knowledgeDocument.createDocumentSession({ taskId: "task_a", title: "笔记" }),
     { filePath: "/tmp/knowledge.md" },
@@ -666,7 +666,9 @@ test("knowledge document abnormal states remain explicit and dirty", () => {
   assert.equal(knowledgeDocument.markDocumentExternalChanged(saved).documentState, "EXTERNAL_CHANGED");
   assert.equal(knowledgeDocument.markDocumentFileMissing(saved).documentState, "FILE_MISSING");
   assert.equal(knowledgeDocument.markDocumentReadOnly(saved).documentState, "READ_ONLY");
-  assert.equal(knowledgeDocument.markDocumentExternalChanged(saved).dirty, true);
+  assert.equal(knowledgeDocument.markDocumentExternalChanged(saved).dirty, false);
+  const edited = knowledgeDocument.markDocumentEdited(saved);
+  assert.equal(knowledgeDocument.markDocumentExternalChanged(edited).dirty, true);
 });
 
 test("legacy tasks receive migration-safe knowledge metadata", async () => {
@@ -2179,7 +2181,7 @@ test("FileWatcher classifies startup failures and releases failed entries", () =
   unavailableWatcher.closeAll();
 });
 
-test("renderer reloads saved external changes and blocks silent overwrite while dirty", async () => {
+test("renderer waits for a reload choice for saved external changes and blocks silent overwrite while dirty", async () => {
   let changeListener = null;
   let saveCalls = 0;
   let lastSavePayload = null;
@@ -2227,6 +2229,10 @@ test("renderer reloads saved external changes and blocks silent overwrite while 
     lineEnding: "LF",
   });
   await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(harness.json(`state.tasks[0].notes`), "原始正文");
+  assert.equal(harness.json(`state.tasks[0].knowledgeNote.documentState`), "EXTERNAL_CHANGED");
+  assert.equal(harness.json(`state.tasks[0].knowledgeNote.dirty`), false);
+  assert.equal((await harness.evaluate(`reloadKnowledgeTask("external_task")`)).success, true);
   assert.equal(harness.json(`state.tasks[0].notes`), "外部正文");
   assert.equal(harness.json(`state.tasks[0].knowledgeNote.documentState`), "SAVED");
 
@@ -2911,7 +2917,7 @@ test("knowledge UI exposes every document state and the required recovery action
     ["DRAFT", "草稿", "尚未关联文件"],
     ["SAVED", "已保存", "knowledge-ui.md"],
     ["DIRTY", "已修改", "knowledge-ui.md"],
-    ["EXTERNAL_CHANGED", "文件有外部修改", "knowledge-ui.md", "knowledge-conflict", "save-knowledge-as"],
+    ["EXTERNAL_CHANGED", "文件有外部修改", "knowledge-ui.md", "knowledge-conflict"],
     ["FILE_MISSING", "文件已丢失", "knowledge-ui.md", "data-action=\"relocate-knowledge\"", "save-knowledge-as"],
     ["READ_ONLY", "文件不可写", "knowledge-ui.md", "data-action=\"retry-knowledge\"", "save-knowledge-as"],
   ];
@@ -2923,10 +2929,9 @@ test("knowledge UI exposes every document state and the required recovery action
     for (const action of actions) assert.match(html, new RegExp(action));
   }
 
-  // The conflict resolutions still exist, now behind the Demo's 处理冲突 dialog.
+  // The external-change dialog exposes both safe resolutions.
   const knowledge = await fs.readFile(path.join(__dirname, "..", "app", "renderer", "src", "knowledge.js"), "utf8");
   assert.match(knowledge, /data-action="reload-knowledge"/);
-  assert.match(knowledge, /data-action="save-knowledge-overwrite"/);
   assert.match(knowledge, /data-action="save-knowledge-as"/);
 
   const app = await fs.readFile(path.join(__dirname, "..", "app", "renderer", "src", "app.js"), "utf8");

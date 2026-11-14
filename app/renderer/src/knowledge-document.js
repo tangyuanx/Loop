@@ -112,7 +112,9 @@
     const normalizedTaskId = normalizeText(raw.taskId || taskId).trim();
     const filePath = normalizeNullableText(raw.filePath);
     const state = inferDocumentState(raw, filePath);
-    const dirty = state === "SAVED" ? false : state === "DRAFT" ? Boolean(raw.dirty) : true;
+    const dirty = state === "SAVED" ? false
+      : state === "DIRTY" ? true
+      : typeof raw.dirty === "boolean" ? raw.dirty : state !== "DRAFT";
     const fallback = createKnowledgeNoteMetadata({
       noteId: raw.noteId || normalizedTaskId,
       taskId: normalizedTaskId,
@@ -196,21 +198,18 @@
   function markDocumentExternalChanged(session) {
     const next = normalizeKnowledgeNote(session);
     next.documentState = "EXTERNAL_CHANGED";
-    next.dirty = true;
     return next;
   }
 
   function markDocumentFileMissing(session) {
     const next = normalizeKnowledgeNote(session);
     next.documentState = "FILE_MISSING";
-    next.dirty = true;
     return next;
   }
 
   function markDocumentReadOnly(session) {
     const next = normalizeKnowledgeNote(session);
     next.documentState = "READ_ONLY";
-    next.dirty = true;
     return next;
   }
 

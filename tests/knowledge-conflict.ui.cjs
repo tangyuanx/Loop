@@ -9,7 +9,7 @@ const { _electron } = require('playwright-core');
 const { writeTaskData } = require('../app/main/storage.cjs');
 const { readKnowledgeDocument } = require('../app/main/knowledge-file.cjs');
 const source = path.resolve(__dirname, '..');
-const ids = ['cancel','reload','missing','persist','draft','overwrite','saveas','late-a','late-b','again'];
+const ids = ['cancel','reload','missing','persist','draft','saveas','late-a','late-b','again','clean','reopen','close'];
 const results = [], errors = [];
 let app, page, run, profile, files, out;
 const local = id => '# 本地草稿 ' + id + '\n\n必须保留的输入。\n';
@@ -27,9 +27,11 @@ async function test(id, fn) {
 async function choose(id) {
   await page.keyboard.press('Escape');
   await page.locator(`[data-task-row="${id}"] .task-select`).click();
-  await page.locator('[data-pane="notes"]').click();
+  if (await page.locator('[data-pane="notes"]').getAttribute('aria-pressed') !== 'true') {
+    await page.locator('[data-pane="notes"]').click();
+  }
   await page.waitForFunction(id=>knowledgeCurrentEntry(id)?.view&&document.querySelector('.knowledge-pane')?.dataset.taskId===id,id);
-  await wb.minimizeTaskInfo(page);
+  if (!await page.locator('[data-knowledge-conflict]').count()) await wb.minimizeTaskInfo(page);
 }
 async function open(id) {
   await choose(id);
@@ -61,8 +63,9 @@ async function release() {await app.evaluate(()=>{global.__s2Release?.();global.
   await fs.access(path.join(profile,'task-data.json')).then(()=>{throw Error('Refusing to replace test data')},()=>{});
   const tasks=[];const stamp=new Date().toISOString();
   for(const id of ids) {
-    await fs.writeFile(file(id),disk(id));const read=await readKnowledgeDocument(file(id));
-    tasks.push({id,title:'S2 '+id,notes:local(id),nodes:[],createdAt:stamp,updatedAt:stamp,knowledgeNote:{...read,noteId:'note-'+id,title:'S2 '+id,documentState:'EXTERNAL_CHANGED',dirty:true,lastSavedHash:'old-'+id}});
+    const clean = ['clean','reopen','close'].includes(id);
+    await fs.writeFile(file(id),clean ? local(id) : disk(id));const read=await readKnowledgeDocument(file(id));
+    tasks.push({id,title:'S2 '+id,notes:local(id),nodes:[],createdAt:stamp,updatedAt:stamp,knowledgeNote:{...read,noteId:'note-'+id,title:'S2 '+id,documentState:clean?'SAVED':'EXTERNAL_CHANGED',dirty:!clean,lastSavedHash:clean?read.lastSavedHash:'old-'+id}});
   }
   tasks.push({id:'delete-task',title:'删除回归',notes:'',nodes:[{id:'delete-node',title:'删除节点回归',children:[]}]});
   await writeTaskData(profile,{version:2,knowledgeSchemaVersion:1,taskFilter:'all',activeTaskId:'cancel',tasks});
@@ -79,6 +82,7 @@ async function release() {await app.evaluate(()=>{global.__s2Release?.();global.
       global.__s2Dialogs=[];global.__s2Response=1;global.__s2SavePath='';global.__s2Fault={};
       dialog.showMessageBox=async(...args)=>{global.__s2Dialogs.push(args.at(-1));return {response:global.__s2Response}};
       dialog.showSaveDialog=async()=>global.__s2SavePath?{canceled:false,filePath:global.__s2SavePath}:{canceled:true};
+      dialog.showOpenDialog=async()=>({canceled:false,filePaths:[global.__s2OpenPath]});
       const fs=process.mainModule.require('node:fs/promises');
       const read=fs.readFile,open=fs.open;
       fs.readFile=async(...args)=>{
@@ -131,21 +135,34 @@ async function release() {await app.evaluate(()=>{global.__s2Release?.();global.
     await test('S2-05-draft-during-read-and-duplicate',async()=>{
       await open('draft');await prepareRecovery('draft');await unwatch('draft');await inject({readPath:file('draft'),delay:true});
       await page.locator('[data-knowledge-conflict] [data-action="reload-knowledge"]').click();await waitBlocked();
-      assert.equal(await page.locator('[data-knowledge-conflict] footer button[data-task-id]:disabled').count(),3);await shot('reload-in-progress');
+      assert.equal(await page.locator('[data-knowledge-conflict] footer button[data-task-id]:disabled').count(),2);await shot('reload-in-progress');
       await page.evaluate(()=>action({action:'reload-knowledge',taskId:'draft'}));
       await edit('draft','\n读取期间新增输入');await release();await idle();
       assert.match(await page.locator('[data-conflict-error]').innerText(),/读取期间笔记发生修改/);assert.match(await content('draft'),/新增输入/);assert.equal(await fs.readFile(file('draft'),'utf8'),disk('draft'));
       await shot('draft-change-protected');await click('reload-knowledge');await closed();
     });
-    await test('S2-06-overwrite-failure-retry',async()=>{
-      await open('overwrite');await prepareRecovery('overwrite');await inject({openPrefix:path.join(files,'.overwrite.md.tmp-')});await click('save-knowledge-overwrite');
-      assert.ok((await page.locator('[data-conflict-error]').innerText()).length);assert.equal(await content('overwrite'),local('overwrite'));assert.equal(await fs.readFile(file('overwrite'),'utf8'),disk('overwrite'));assert.equal(await recovery('overwrite'),local('overwrite'));
-      await shot('overwrite-failure');await inject({});await click('save-knowledge-overwrite');await closed();assert.equal(await fs.readFile(file('overwrite'),'utf8'),local('overwrite'));
+    await test('S2-06-clean-external-edit-prompts-and-reloads',async()=>{
+      await choose('clean');
+      await fs.writeFile(file('clean'),disk('clean'));
+      const dialog=page.locator('[data-knowledge-conflict]');
+      await dialog.waitFor();
+      assert.equal(await content('clean'),local('clean'));
+      assert.match(await dialog.locator('.knowledge-version-grid').innerText(),/原先打开的版本/);
+      const confirmations=await app.evaluate(()=>global.__s2Dialogs.length);
+      await shot('clean-external-change');
+      await fs.writeFile(file('clean'),'# 更新的磁盘版本\n');
+      await click('reload-knowledge');await closed();
+      assert.equal(await content('clean'),'# 更新的磁盘版本\n');
+      assert.equal(await app.evaluate(()=>global.__s2Dialogs.length),confirmations);
     });
     await test('S2-07-saveas-cancel-success',async()=>{
       await open('saveas');await prepareRecovery('saveas');await click('save-knowledge-as');
       assert.equal(await page.locator('[data-knowledge-conflict]').count(),1);assert.equal(await content('saveas'),local('saveas'));assert.equal(await recovery('saveas'),local('saveas'));
       assert.equal(await page.evaluate(()=>state.tasks.find(t=>t.id==='saveas').knowledgeNote.filePath),file('saveas'));
+      await app.evaluate((_e,p)=>{global.__s2SavePath=p},file('saveas'));
+      await click('save-knowledge-as');
+      assert.match(await page.locator('[data-conflict-error]').innerText(),/请选择另一个/);
+      assert.equal(await fs.readFile(file('saveas'),'utf8'),disk('saveas'));
       const saved=path.join(files,'另存为.md');await app.evaluate((_e,saved)=>{global.__s2SavePath=saved},saved);
       await inject({openPrefix:path.join(files,'.另存为.md.tmp-')});await click('save-knowledge-as');
       assert.ok((await page.locator('[data-conflict-error]').innerText()).length);assert.equal(await content('saveas'),local('saveas'));assert.equal(await page.evaluate(()=>state.tasks.find(t=>t.id==='saveas').knowledgeNote.filePath),file('saveas'));
@@ -155,15 +172,16 @@ async function release() {await app.evaluate(()=>{global.__s2Release?.();global.
     await test('S2-08-late-a-cannot-close-b',async()=>{
       await open('late-a');await prepareRecovery('late-a');await unwatch('late-a');await inject({readPath:file('late-a'),delay:true});
       await page.locator('[data-knowledge-conflict] [data-action="reload-knowledge"]').click();await waitBlocked();
-      await open('late-b');const identity=await page.locator('[data-knowledge-conflict]').getAttribute('data-knowledge-conflict');
+      await page.evaluate(()=>{knowledgeOpen(knowledgeFindDocument('late-b'));shellKnowledgeConflict(knowledgeFindDocument('late-b'));});
+      const identity=await page.locator('[data-knowledge-conflict]').getAttribute('data-knowledge-conflict');
       await page.evaluate(()=>{globalThis.__s2Focus=document.activeElement});await release();await until(async()=>await content('late-a')===disk('late-a'));await pause(300);
       assert.equal(await page.locator('[data-knowledge-conflict]').getAttribute('data-knowledge-conflict'),identity);assert.equal(await content('late-b'),local('late-b'));assert.equal(await page.evaluate(()=>document.activeElement===globalThis.__s2Focus),true);await shot('b-survives-late-a');
     });
     await test('S2-09-second-external-conflict',async()=>{
-      await open('again');await click('save-knowledge-overwrite');await closed();
+      await open('again');await click('reload-knowledge');await closed();
       await edit('again','\n第二轮本地草稿');await fs.writeFile(file('again'),'# 第二轮外部修改\n');
-      await page.waitForFunction(()=>state.tasks.find(t=>t.id==='again').knowledgeNote.documentState==='EXTERNAL_CHANGED');
-      assert.match(await content('again'),/第二轮本地草稿/);await page.locator('[data-action="knowledge-conflict"]').first().click();
+      await page.locator('[data-knowledge-conflict]').waitFor();
+      assert.match(await content('again'),/第二轮本地草稿/);
       assert.match(await page.locator('.knowledge-version-grid').innerText(),/第二轮外部修改/);await shot('second-conflict');await click('reload-knowledge');await closed();assert.equal(await content('again'),'# 第二轮外部修改\n');
     });
     await test('S2-10-real-task-node-delete-regression',async()=>{
@@ -174,6 +192,58 @@ async function release() {await app.evaluate(()=>{global.__s2Release?.();global.
       assert.equal(await page.evaluate(()=>deleteTask('delete-task',{skipDraftPrompt:true})),true);
       options=await app.evaluate(()=>global.__s2Dialogs.at(-1));assert.equal(options.title,'确认删除');assert.deepEqual(options.buttons,['取消','删除']);
       assert.equal(await page.evaluate(()=>state.tasks.some(t=>t.id==='delete-task')),false);return options;
+    });
+    await test('S2-11-reopen-uses-disk-without-watcher',async()=>{
+      await choose('reopen');await unwatch('reopen');
+      await page.locator('[data-kn-detach="reopen"]').click();
+      await page.locator('.kn-empty-document').waitFor();
+      await fs.writeFile(file('reopen'),disk('reopen'));
+      await app.evaluate((_e,p)=>{global.__s2OpenPath=p},file('reopen'));
+      await wb.more(page);
+      await page.locator('.wb-more-menu [data-kn-action="open-file"]').click();
+      await page.locator('[data-knowledge-conflict]').waitFor();
+      assert.match(await page.locator('.knowledge-version-grid').innerText(),/磁盘版本 reopen/);
+      await page.keyboard.press('Escape');await closed();
+      await page.locator('[data-kn-detach="reopen"]').click();
+      await wb.more(page);await page.locator('.wb-more-menu [data-kn-action="recent"]').click();
+      await page.locator('[data-kn-note="reopen"]').click();
+      await page.locator('[data-knowledge-conflict]').waitFor();
+      await click('reload-knowledge');await closed();
+      assert.equal(await content('reopen'),disk('reopen'));
+    });
+    await test('S2-12-close-dirty-tab-cancel-keep-and-save',async()=>{
+      await choose('close');
+      const tab=page.locator('[data-kn-document="close"]'), cross=page.locator('[data-kn-detach="close"]');
+      const dialog=page.locator('[data-knowledge-close]');
+      const change='\n关闭前的未保存修改\n';
+      await edit('close',change);await cross.click();await dialog.waitFor();await shot('close-unsaved');
+      await page.keyboard.press('Escape');await dialog.waitFor({state:'detached'});
+      await page.waitForFunction(()=>document.activeElement.matches('[data-kn-detach="close"]'));
+      assert.match(await content('close'),/关闭前的未保存修改/);
+      await cross.click();await dialog.getByRole('button',{name:'保留草稿并关闭'}).click();
+      await tab.waitFor({state:'detached'});assert.equal(await fs.readFile(file('close'),'utf8'),local('close'));
+      assert.match(await recovery('close'),/关闭前的未保存修改/);
+      await page.evaluate(()=>knowledgeAttach(knowledgeFindDocument('close')));
+      await cross.click();await dialog.getByRole('button',{name:'保存并关闭'}).click();
+      await tab.waitFor({state:'detached'});
+      assert.equal(await fs.readFile(file('close'),'utf8'),local('close')+change);
+    });
+    await test('S2-13-close-new-note-and-cancel-save-picker',async()=>{
+      await page.locator('.kn-document-new').click();
+      const newId=await page.evaluate(()=>knowledgeActiveDocument().id);
+      await page.waitForFunction(id=>knowledgeCurrentEntry(id)?.view,newId);
+      await edit(newId,'待保存的新笔记');
+      await page.locator('[data-kn-detach="'+newId+'"]').click();
+      const dialog=page.locator('[data-knowledge-close]');
+      await app.evaluate(()=>{global.__s2SavePath=''});
+      const saveButton=dialog.getByRole('button',{name:'保存并关闭'});
+      await saveButton.click();
+      await dialog.locator('[data-kn-close-choice="save"]:enabled').waitFor();
+      assert.equal(await page.evaluate(id=>knowledgeFindDocument(id).notes,newId),'待保存的新笔记');
+      const saved=path.join(files,'new-note.md');
+      await app.evaluate((_e,p)=>{global.__s2SavePath=p},saved);
+      await saveButton.click();await dialog.waitFor({state:'detached'});
+      assert.equal(await fs.readFile(saved,'utf8'),'待保存的新笔记');
     });
   } finally {await inject({}).catch(()=>{});await release().catch(()=>{});await app.close()}
   if(results.some(result=>result.status==='FAIL')||errors.length)process.exitCode=1;

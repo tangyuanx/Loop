@@ -69,7 +69,10 @@ module.exports=async({page,profile,fs,readTaskData,choose,mode,markdown,append,p
  await choose('a');await wb.more(page);await page.locator('.wb-more-menu [data-kn-action="recent"]').click();await page.locator(`[data-kn-note="${noteId}"]`).click();
  assert.equal(await page.evaluate(()=>state.activeTaskId),'a');assert.equal(await page.evaluate(()=>knowledgeActiveDocument().id),noteId);
  await append('\n跨任务共享修改');const firstTab=await page.locator('.kn-document-tabs [role=tab]').first().getAttribute('data-kn-document');await page.locator('.kn-document-tabs [aria-selected=true]').focus();await page.keyboard.press('Home');assert.equal(await page.evaluate(()=>knowledgeActiveDocument().id),firstTab);await page.keyboard.press('End');assert.equal(await page.evaluate(()=>knowledgeActiveDocument().id),noteId);
- await page.locator(`[data-kn-detach="${noteId}"]`).click();assert.equal(await page.evaluate(id=>state.knowledgeWorkspace.openIds.includes(id),noteId),false);assert.equal(await page.evaluate(id=>knowledgeFindDocument(id).notes.includes('跨任务共享修改'),noteId),true);
+ await page.locator(`[data-kn-detach="${noteId}"]`).click();
+ await page.locator('[data-knowledge-close] [data-kn-close-choice="keep"]').click();
+ await page.locator(`[data-kn-document="${noteId}"]`).waitFor({state:'detached'});
+ assert.equal(await page.evaluate(id=>state.knowledgeWorkspace.openIds.includes(id),noteId),false);assert.equal(await page.evaluate(id=>knowledgeFindDocument(id).notes.includes('跨任务共享修改'),noteId),true);
  await choose('b');await wb.more(page);await page.locator('.wb-more-menu [data-kn-action="recent"]').click();await page.locator(`[data-kn-note="${noteId}"]`).click();assert.match(await markdown(),/跨任务共享修改/);
  // Native-file picker result is the only substitution; actual read/write/gate
  // services handle this new document and survive a process-style reload.
