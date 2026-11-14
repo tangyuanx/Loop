@@ -84,7 +84,7 @@ async function exportedPack(run, output) {
   await fs.writeFile(path.join(sourceDirectory, '附件', '样 本.png'), picture);
   await fs.writeFile(path.join(sourceDirectory, '附件', '文 本.txt'), document);
   const primary = makeNote({ id: senderTaskId, title: '接收后另存', content: sourceMarkdown }, sourcePath);
-  const omitted = makeNote({ id: 'excluded-document', title: 'Excluded secret title', content: 'Excluded secret content' });
+  const omitted = { ...makeNote({ id: 'excluded-document', title: 'Excluded secret title', content: 'Excluded secret content' }), creatorTaskId: '' };
   const node = { id: 'sender-node', title: '完成节点', status: 'done', hypothesis: '进展', conclusion: '结论\n保留长行', note: '节点记录', updatedAt: stamp,
     children: [{ id: 'sender-child', title: '子节点', status: 'review', note: '子记录', hypothesis: '', conclusion: '子结论', updatedAt: stamp, children: [], downstreamNodeIds: [] }], downstreamNodeIds: [] };
   const sender = makeTask(senderTaskId, taskTitle, { description: '背景', hypothesis: '任务进展', conclusion: '任务结论',
@@ -95,17 +95,22 @@ async function exportedPack(run, output) {
   try {
     await page.waitForFunction(id => state.tasks.some(task => task.id === id), senderTaskId);
     await saveDialog(app, output);
-    const source = { taskId: senderTaskId, scope: 'full', records: true, nodeStates: [],
-      task: { title: taskTitle, description: '背景', hypothesis: '任务进展', conclusion: '任务结论', status: 'active', priority: 'medium', deadlineAt: deadline, nodes: [node] },
-      notes: [{ id: senderTaskId, title: '接收后另存', main: true, content: sourceMarkdown }, ...notes.map(note => ({ ...note, main: false }))] };
-    const prepared = assertSuccess(await page.evaluate(source => window.personalTaskTrack.taskShare.prepare({ source }), source));
-    assert.equal(prepared.issues.length, 0, JSON.stringify(prepared));
-    assert.equal(prepared.files.length, 2);
-    const receipt = assertSuccess(await page.evaluate(token => window.personalTaskTrack.taskShare.export({ token, format: 'pack' }), prepared.token));
-    assert.equal(receipt.fileName, path.basename(output));
+    await page.locator(`.task-select[data-task-id="${senderTaskId}"]`).click();
+    await page.locator(`.task-share-action[data-task-id="${senderTaskId}"]`).click();
+    assert.equal(await page.locator('.task-share-source h3').textContent(), taskTitle);
+    assert.equal(await page.locator('#task-share-format').inputValue(), 'md');
+    assert.equal(await page.locator('#task-share-scope').isVisible(), false);
+    const summary = page.locator('#task-share-summary');
+    await summary.getByText(/个节点|预览未完成/).waitFor();
+    assert.match(await summary.textContent(), /2 个节点（含记录）.*3 篇笔记.*2 个附件/,
+      await page.locator('[data-task-share-dialog]').innerText());
+    await page.locator('#task-share-format').selectOption('pack');
+    await page.locator('#task-share-export').click();
+    await page.locator('#task-share-receipt').getByText(path.basename(output), { exact: false }).waitFor();
     const unpack = path.join(run, 'export-verification');
     await fs.mkdir(unpack);
     const verified = await readTaskPackage(output, unpack);
+    assert.equal(verified.pack.task.title, taskTitle);
     assert.deepEqual([...verified.assets.values()].map(asset => asset.sha256).sort(), [digest(picture), digest(document)].sort());
     assert.doesNotMatch(JSON.stringify(verified.pack), /Excluded secret|sender-document-a|sender-node|源笔记\.md|附件\/样 本/);
     assert.match(verified.pack.notes[0].content, /\[loop-image width=42 align=center\]/);
