@@ -7,6 +7,8 @@ const knowledgeAutosaveTimers = new Map();
 const knowledgeSaveResults = new Map();
 const knowledgePanels = new Set();
 const knowledgeBacklinkPanels = new Set();
+const knowledgeOutlineWidths = new Map();
+const knowledgeOutlineBindings = new Map();
 const knowledgeGenerations = new Map();
 const knowledgeBacklinkCache = new Map();
 const knowledgeDeferredFileEvents = new Map();
@@ -201,7 +203,11 @@ function knowledgeSplitMenu(trigger) {
   const rows = state.knowledgeWorkspace.openIds.map(knowledgeFindDocument).filter(note=>note&&!note.knowledgeNote?.isDeleted&&note.id!==split[split.active+'Id']);
   shellMountSurface(`<div class="surface-popover kn-split-menu" role="menu" aria-label="选择另一栏笔记">${rows.map(note=>`<button class="button" type="button" role="menuitem" data-kn-split-note="${escAttr(note.id)}" data-side="${other}">${esc(LoopKnowledgeCore.noteTitle(note))}</button>`).join('')}</div>`,trigger,240);
 }
-document.addEventListener('pointerdown',event=>{const pane=event.target.closest('[data-kn-side]');if(pane)knowledgeActivateSide(pane.dataset.knSide);},true);
+document.addEventListener('pointerdown',event=>{
+  if(event.target.closest('.kn-outline-divider'))return;
+  const pane=event.target.closest('[data-kn-side]');
+  if(pane)knowledgeActivateSide(pane.dataset.knSide);
+},true);
 document.addEventListener('focusin',event=>{const pane=event.target.closest('[data-kn-side]');if(pane)knowledgeActivateSide(pane.dataset.knSide);},true);
 document.addEventListener('click',event=>{
   const action=event.target.closest('[data-kn-layout]');
@@ -1193,17 +1199,117 @@ function knowledgeSyncNotice(task,pane) {
   const retry=document.createElement('button');retry.type='button';retry.className='text-button';retry.textContent='重试';retry.onclick=()=>void saveKnowledgeTask(task.id);notice.append(retry);
   pane.querySelector('.knowledge-note-surface')?.before(notice);
 }
+function knowledgeBindOutlineDivider(body, aside, noteId) {
+  if (knowledgeOutlineBindings.has(body)) return;
+  const divider = document.createElement('div');
+  divider.className = 'kn-outline-divider';
+  divider.tabIndex = 0;
+  divider.setAttribute('role', 'separator');
+  divider.setAttribute('aria-label', '调整大纲宽度');
+  divider.setAttribute('aria-controls', aside.id);
+  divider.setAttribute('aria-orientation', 'vertical');
+  body.insertBefore(divider, aside);
+
+  const controller = new AbortController(), { signal } = controller;
+  let gesture = null;
+  let minimum = 144, maximum = 420, width = 0;
+  const applyWidth = requested => {
+    const next = Math.min(maximum, Math.max(minimum, Math.round(requested)));
+    if (next !== width) {
+      width = next;
+      body.style.setProperty('--kn-outline-width', `${width}px`);
+      divider.setAttribute('aria-valuenow', String(width));
+    }
+  };
+  const finish = cancel => {
+    if (!gesture) return;
+    const completed = gesture;
+    gesture = null;
+    document.body.classList.remove('kn-outline-resizing');
+    if (divider.hasPointerCapture(completed.id)) divider.releasePointerCapture(completed.id);
+    if (!cancel && width !== completed.width) knowledgeOutlineWidths.set(noteId, width);
+    sync();
+  };
+  const sync = () => {
+    // A narrow note pane already stacks the outline above the document.
+    // Keep its preferred side width for when it has room again.
+    if (!divider.getClientRects().length) {
+      finish(true);
+      return;
+    }
+    const dividerWidth = divider.offsetWidth;
+    maximum = Math.min(420, Math.max(0, body.clientWidth - dividerWidth - 260));
+    minimum = Math.min(144, maximum);
+    body.style.setProperty('--kn-outline-viewport-height', `${body.clientHeight}px`);
+    divider.setAttribute('aria-valuemin', String(minimum));
+    divider.setAttribute('aria-valuemax', String(maximum));
+    const defaultWidth = parseFloat(getComputedStyle(body).getPropertyValue('--kn-outline-default'));
+    applyWidth(gesture?.requested ?? knowledgeOutlineWidths.get(noteId) ?? defaultWidth);
+  };
+  const resize = new ResizeObserver(sync);
+  resize.observe(body);
+  knowledgeOutlineBindings.set(body, () => {
+    finish(true);
+    resize.disconnect();
+    controller.abort();
+    divider.remove();
+    body.style.removeProperty('--kn-outline-width');
+    body.style.removeProperty('--kn-outline-viewport-height');
+    knowledgeOutlineBindings.delete(body);
+  });
+  sync();
+
+  divider.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || !event.isPrimary || gesture) return;
+    event.preventDefault();
+    gesture = { id: event.pointerId, x: event.clientX, width };
+    divider.setPointerCapture(event.pointerId);
+    document.body.classList.add('kn-outline-resizing');
+  }, { signal });
+  divider.addEventListener('pointermove', event => {
+    if (gesture?.id !== event.pointerId) return;
+    event.preventDefault();
+    gesture.requested = gesture.width + gesture.x - event.clientX;
+    applyWidth(gesture.requested);
+  }, { signal });
+  divider.addEventListener('pointerup', event => {
+    if (gesture?.id === event.pointerId) finish(false);
+  }, { signal });
+  for (const type of ['pointercancel', 'lostpointercapture']) {
+    divider.addEventListener(type, event => {
+      if (gesture?.id === event.pointerId) finish(true);
+    }, { signal });
+  }
+  window.addEventListener('blur', () => finish(true), { signal });
+  window.addEventListener('keydown', event => {
+    if (!gesture || event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    finish(true);
+  }, { signal, capture: true });
+  divider.addEventListener('keydown', event => {
+    if (event.isComposing || gesture || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === 'Home' ? minimum : event.key === 'End' ? maximum
+      : width + (event.key === 'ArrowLeft' ? 1 : -1) * (event.shiftKey ? 40 : 10);
+    applyWidth(next);
+    knowledgeOutlineWidths.set(noteId, width);
+  }, { signal });
+}
+
 function knowledgeRefreshPanels(task) {
   const pane=knowledgePane(task?.id);if(!pane)return;
   const body=pane.querySelector('.knowledge-body');if(!body)return;
   let aside=pane.querySelector('.kn-side-panel');
   const backlinksOpen=knowledgeBacklinkPanels.has(task.id),open=knowledgePanels.has(task.id)||backlinksOpen;
   pane.querySelector('.knowledge-header [data-kn-action="panels"]')?.setAttribute('aria-expanded',String(open));
+  if(!open || backlinksOpen) knowledgeOutlineBindings.get(body)?.();
   if(!open){aside?.remove();return;}
-  if(!aside){aside=document.createElement('aside');aside.className='kn-side-panel';aside.id='kn-side-panel';body.append(aside);}
+  if(!aside){aside=document.createElement('aside');aside.className='kn-side-panel';aside.id=`kn-side-panel-${encodeURIComponent(task.id)}`;body.append(aside);}
   aside.setAttribute('aria-label',backlinksOpen?'反向链接':'笔记大纲');
   const headings=LoopKnowledgeCore.headings(knowledgeText(task));
   if(!backlinksOpen){
+    knowledgeBindOutlineDivider(body, aside, task.id);
     const base=Math.min(...headings.map(h=>h.level),6);
     const html=`<header><strong>大纲</strong><button type="button" class="icon-button" data-kn-action="panels" aria-label="关闭大纲">${shellIcon('close')}</button></header><nav aria-label="笔记大纲">${headings.length?headings.map((h,i)=>`<button type="button" class="kn-outline-link" style="padding-left:${8+(h.level-base)*12}px" data-kn-heading="${i}" title="${escAttr(h.text)}">${esc(h.text)}</button>`).join(''):'<p>添加标题后会显示在这里</p>'}</nav>`;
     if(aside.knowledgeHTML!==html){aside.innerHTML=html;aside.knowledgeHTML=html;}
@@ -1574,6 +1680,7 @@ function knowledgeTableTools(context=null) {
 const knowledgePriorBind = shellBindKnowledge;
 shellBindKnowledge = function() {
   knowledgePriorBind();
+  for (const [body, unbind] of knowledgeOutlineBindings) if (!body.isConnected) unbind();
   knowledgeBindTabs();
   knowledgeBindToolbar();
   knowledgeBindResources();
@@ -1656,7 +1763,7 @@ document.addEventListener('click',event=>{
   if(action==='panels'||action==='backlinks'){
     const closing=button.closest('.kn-side-panel'),current=action==='panels'?knowledgePanels:knowledgeBacklinkPanels,other=action==='panels'?knowledgeBacklinkPanels:knowledgePanels;
     if(current.has(task.id))current.delete(task.id);else{current.add(task.id);other.delete(task.id);}
-    shellCloseOverlay({restoreFocus:false});knowledgeRefreshPanels(task);if(closing)document.querySelector('[data-wb-action="more"]')?.focus({preventScroll:true});
+    shellCloseOverlay({restoreFocus:false});knowledgeRefreshPanels(task);if(closing)knowledgePane(task.id)?.querySelector('[data-wb-action="more"]')?.focus({preventScroll:true});
   }
   if(action==='rename')knowledgeRename(task,button);
   if(action==='find')knowledgeCurrentEntry()?.openSearch();
