@@ -52,6 +52,8 @@ jobs:
       - run: npm ci
       - run: npm run build:milkdown
       - run: npm run build:knowledge
+      - name: Verify knowledge emphasis glyphs
+        run: npm run test:ui:knowledge-emphasis
       - name: Verify inline conclusions and existing node interactions
         run: |
           node tests/flow-outline.ui.cjs

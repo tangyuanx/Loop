@@ -23,7 +23,12 @@
 .kn-editor-host .cm-completionDetail {opacity:.65;}
 .kn-heading {font-weight:700;line-height:1.5;padding-block:4px!important;}
 .kn-h1 {font-size:1.9em;}.kn-h2 {font-size:1.55em;}.kn-h3 {font-size:1.3em;}.kn-h4 {font-size:1.15em;}.kn-h5,.kn-h6 {font-size:1em;}
-.kn-strong {font-weight:700;}.kn-emphasis {font-style:italic;}.kn-strike {text-decoration:line-through;}.kn-highlight {background:#d8bc5045;border-radius:2px;}
+/* Font preferences include families with only a regular face. Allow their
+   missing styles on document marks while the UI keeps native glyph weights. */
+:is(.kn-strong, .kn-emphasis, .kn-rendered strong, .kn-rendered em) {font-synthesis:weight style;}
+:is(.kn-strong, .kn-rendered strong) {font-weight:700;}
+:is(.kn-emphasis, .kn-rendered em) {font-style:italic;}
+.kn-strike {text-decoration:line-through;}.kn-highlight {background:#d8bc5045;border-radius:2px;}
 .kn-inline-code {font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:color-mix(in srgb,currentColor 6%,transparent);border-radius:4px;padding:1px 2px;font-size:.92em;}
 .kn-quote {border-left:3px solid #6c9a8060;padding-left:16px!important;color:var(--muted,#68766c);}
 .kn-external-link,.kn-wiki {color:var(--accent,#387356);text-decoration:underline;text-underline-offset:3px;cursor:pointer;}

@@ -29,7 +29,7 @@ function mapLineEndings(format,changes) {
 const restoreLineEndings=StateEffect.define({map:mapLineEndings});
 const loopHighlight=HighlightStyle.define([
   {tag:tags.heading,color:'var(--text)',fontWeight:'600'},
-  {tag:tags.strong,fontWeight:'600'},{tag:tags.emphasis,fontStyle:'italic'},
+  {tag:tags.strong,class:'kn-strong'},{tag:tags.emphasis,class:'kn-emphasis'},
   {tag:tags.strikethrough,textDecoration:'line-through'},
   {tag:tags.link,color:'var(--green)',textDecoration:'underline'},
   {tag:tags.url,color:'var(--secondary)'},{tag:tags.meta,color:'var(--secondary)'},
