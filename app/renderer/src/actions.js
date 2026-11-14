@@ -1019,7 +1019,9 @@ function shellBindFlowNavigation() {
   const outline = pane.querySelector('.flow-outline');
   const nav = pane.querySelector('[data-flow-breadcrumb]');
   const bar = pane.querySelector('.flow-context-bar');
-  if (!scroll || !outline || !nav || !bar) return;
+  const progress = pane.querySelector('.flow-progress');
+  const optionsButton = pane.querySelector('[data-action="open-flow-options"]');
+  if (!scroll || !outline || !nav || !bar || !progress || !optionsButton) return;
   const taskId = scroll.dataset.taskId;
   const controller = new AbortController();
   const { signal } = controller;
@@ -1031,6 +1033,7 @@ function shellBindFlowNavigation() {
     for (let entry = nodes.get(id); entry; entry = nodes.get(entry.parent)) path.unshift(entry.node);
     return path;
   };
+  const pathSignature = path => JSON.stringify(path.map(node => node ? [node.id, node.title] : null));
   const measure = () => {
     nodes = new Map();
     const stack = (task()?.nodes || []).map(node => ({ node, parent: null }));
@@ -1043,7 +1046,7 @@ function shellBindFlowNavigation() {
     rows = [...outline.querySelectorAll('.flow-row[data-node-id]')].flatMap(row => {
       if (row.closest('[inert]')) return [];
       const rect = row.getBoundingClientRect();
-      return rect.height && nodes.has(row.dataset.nodeId) ? [{ id: row.dataset.nodeId, row, top: rect.top - top }] : [];
+      return rect.height && nodes.has(row.dataset.nodeId) ? [{ id: row.dataset.nodeId, top: rect.top - top }] : [];
     });
     dirty = false;
   };
@@ -1051,28 +1054,40 @@ function shellBindFlowNavigation() {
     frame = 0;
     if (!pane.isConnected) return;
     if (dirty) measure();
-    // The row crossing the top reading line remains current while its long
-    // conclusion is being read. Selecting another row does not move this line.
+    const atStart = scroll.scrollTop <= 1;
+    const readingLine = scroll.scrollTop + 2;
     let low = 0, high = rows.length;
     while (low < high) {
       const middle = (low + high) >>> 1;
-      if (rows[middle].top <= scroll.scrollTop + 2) low = middle + 1; else high = middle;
+      if (rows[middle].top <= readingLine) low = middle + 1; else high = middle;
     }
     const current = rows[Math.max(0, low - 1)];
     const path = current ? pathFor(current.id) : [];
     nav.dataset.currentNode = current?.id || '';
-    const narrow = nav.clientWidth < 480;
-    const shown = path.length > (narrow ? 2 : 4)
-      ? [path[0], null, ...(narrow ? path.slice(-1) : path.slice(-2))] : path;
-    const next = JSON.stringify(shown.map(node => node ? [node.id, node.title] : null));
-    if (next === signature) return;
-    signature = next;
+    const hidden = atStart || !current;
     const focused = nav.contains(document.activeElement) ? document.activeElement.dataset.flowNavId || 'overflow' : null;
+    const width = progress.clientWidth;
+    const narrow = width < 480;
+    const shown = hidden ? [] : path.length > (narrow ? 2 : 4)
+      ? (width < 220 ? [null, path.at(-1)] : [path[0], null, ...(narrow ? path.slice(-1) : path.slice(-2))]) : path;
+    const surface = shellOverlay()?.querySelector('.flow-navigation-menu');
+    const stale = surface && (!shown.includes(null) || surface.dataset.flowTaskId !== taskId || surface.dataset.flowPath !== pathSignature(path));
+    const returnPathFocus = stale && surface.contains(document.activeElement);
+    if (stale) shellCloseOverlay({ restoreFocus: false });
+    bar.hidden = hidden;
+    progress.classList.toggle('is-hidden', !hidden);
+    if (hidden && (focused || returnPathFocus)) optionsButton.focus({ preventScroll: true });
+    const next = pathSignature(shown);
+    if (next === signature && !returnPathFocus) return;
+    signature = next;
     nav.innerHTML = shown.length ? shown.map((node, index) => `${index ? shellIcon('chevron') : ''}${node
       ? `<button type="button" data-flow-nav-id="${escAttr(node.id)}" title="${escAttr(node.title)}"${node.id === current.id ? ' aria-current="location"' : ''}>${esc(node.title || '未命名节点')}</button>`
-      : '<button type="button" data-flow-nav-overflow aria-haspopup="dialog" aria-expanded="false" aria-label="查看完整节点路径" title="查看完整节点路径">…</button>'}`).join('')
-      : '<span class="flow-path-empty">暂无节点</span>';
-    if (focused) (nav.querySelector(`[data-flow-nav-id="${CSS.escape(focused)}"]`) || nav.querySelector('[data-flow-nav-overflow]') || nav.querySelector('button'))?.focus({ preventScroll: true });
+      : `<button type="button" data-flow-nav-overflow aria-haspopup="dialog" aria-expanded="${Boolean(surface?.isConnected)}" aria-label="查看完整节点路径" title="查看完整节点路径">${shellIcon('more')}</button>`}`).join('')
+      : '';
+    if (!hidden && (focused || returnPathFocus)) {
+      const match = focused && nav.querySelector(`[data-flow-nav-id="${CSS.escape(focused)}"]`);
+      (match || nav.querySelector('[data-flow-nav-overflow]') || nav.querySelector('button'))?.focus({ preventScroll: true });
+    }
     if (restoreFocus) {
       if (restoreFocus.revision === renderViewportEpoch && document.activeElement === document.body) nav.querySelector(restoreFocus.selector)?.focus({ preventScroll: true });
       restoreFocus = null;
@@ -1092,8 +1107,9 @@ function shellBindFlowNavigation() {
     if (!row) {
       // A completed ancestor may be hidden by a filter while its unfinished
       // descendants are visible. An explicit jump reveals that ancestor.
-      if (!shellFlowNodeVisible(path.at(-1))) shellHideCompletedNodes = false;
-      if (shellReviewOnly && path.at(-1).status !== 'review') shellReviewOnly = false;
+      const node = path.at(-1);
+      if (node.status === 'done') shellHideCompletedNodes = false;
+      if (shellReviewOnly && !shellFlowHasReview(node)) shellReviewOnly = false;
       path.slice(0, -1).forEach(node => { node.collapsed = false; });
       render();
       requestAnimationFrame(() => {
@@ -1113,6 +1129,8 @@ function shellBindFlowNavigation() {
     const path = pathFor(nav.dataset.currentNode);
     const surface = shellMountSurface(`<section class="surface-popover flow-path-menu flow-navigation-menu" role="dialog" aria-label="完整节点路径">${shellSurfaceHeader('节点路径')}${path.map((node, index) => `<button class="flow-result" type="button" data-flow-nav-id="${escAttr(node.id)}"><small>第 ${index + 1} 层</small><strong>${esc(node.title)}</strong></button>`).join('')}</section>`, trigger, 340);
     if (!surface) return;
+    surface.dataset.flowTaskId = taskId;
+    surface.dataset.flowPath = pathSignature(path);
     surface.dataset.returnFocus = '[data-flow-nav-overflow]';
     surface.addEventListener('click', event => {
       const button = event.target.closest('[data-flow-nav-id]');
@@ -1121,20 +1139,16 @@ function shellBindFlowNavigation() {
       shellFlowNavigationRuntime?.navigate(button.dataset.flowNavId);
     });
   };
-  bar.addEventListener('click', event => {
-    const button = event.target.closest('button');
+  pane.addEventListener('click', event => {
+    const button = event.target.closest('[data-flow-nav-id], [data-flow-nav-overflow]');
     if (!button || shellOverlayDismissBlocked()) return;
     event.preventDefault(); event.stopPropagation();
     if (button.hasAttribute('data-flow-nav-id')) navigate(button.dataset.flowNavId);
-    else if (button.hasAttribute('data-flow-nav-overflow')) openPath(button);
-    else if (button.hasAttribute('data-flow-status-history')) {
-      const surface = shellMountSurface(`<section class="surface-popover flow-status-history" role="dialog" aria-label="节点状态记录">${shellSurfaceHeader('节点状态记录')}<p>按最近更新显示节点当前状态。</p>${renderTaskHistory(task())}</section>`, button, 420);
-      if (surface) surface.dataset.returnFocus = '[data-flow-status-history]';
-    }
+    else openPath(button);
   }, { signal });
   scroll.addEventListener('scroll', () => schedule(), { passive: true, signal });
   const resized = new ResizeObserver(() => schedule(true));
-  resized.observe(scroll); resized.observe(outline); resized.observe(nav);
+  resized.observe(scroll); resized.observe(outline); resized.observe(progress);
   const mutated = new MutationObserver(() => schedule(true));
   mutated.observe(outline, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'style', 'inert'] });
   shellFlowNavigationRuntime = { pane, navigate, refresh: () => schedule(true), destroy() {
@@ -1147,6 +1161,29 @@ function shellBindFlowNavigation() {
 // ------------------------------------------------------------
 // Combined filter / update panel
 // ------------------------------------------------------------
+
+function shellOpenFlowOptions(trigger, task) {
+  if (!trigger || !task) return;
+  if (shellOverlay()?.querySelector('.flow-view-options')) {
+    shellCloseOverlay();
+    return;
+  }
+  const nodes = shellNodeList(task);
+  const branches = nodes.filter(node => node.id !== state.focusNodeTitleId && node.children?.length);
+  const allCollapsed = branches.every(node => node.collapsed);
+  const reviewCount = nodes.filter(node => node.status === "review").length;
+  const check = active => active ? shellIcon("check", "flow-option-check") : "";
+  const surface = shellMountSurface(`<section class="surface-popover flow-view-options" role="dialog" aria-label="处理流选项" data-light-dismiss>
+    <button type="button" data-action="toggle-review-nodes" aria-pressed="${shellReviewOnly}"><span>待确认 <small>${reviewCount}</small></span>${check(shellReviewOnly)}</button>
+    ${branches.length ? `<button type="button" data-action="toggle-all-nodes" data-task-id="${escAttr(task.id)}">${allCollapsed ? "展开全部" : "收起全部"}</button>` : ""}
+    <button type="button" data-action="toggle-completed-nodes" aria-pressed="${shellHideCompletedNodes}"><span>${shellHideCompletedNodes ? "显示已完成" : "隐藏已完成"}</span>${check(shellHideCompletedNodes)}</button>
+    <button type="button" data-action="open-flow-status-history">节点状态记录</button>
+  </section>`, trigger, 184);
+  if (!surface) return;
+  const right = trigger.getBoundingClientRect().right;
+  surface.style.left = `${right - surface.offsetWidth}px`;
+  shellClampFloatingSurface(surface);
+}
 
 function shellOption(value, label, selected) {
   return `<option value="${escAttr(value)}" ${String(selected) === String(value) ? "selected" : ""}>${esc(label)}</option>`;
@@ -1685,6 +1722,7 @@ async function shellAction(data, event) {
       shellToggleCompletedReading(data.taskId, data.nodeId, "summary");
       return true;
     case "toggle-review-nodes":
+      if (event?.target?.closest?.('.flow-view-options')) shellCloseOverlay();
       shellFinishNodeConclusionEdit(true);
       shellReviewOnly = !shellReviewOnly;
       state.selectedNodeId = "";
@@ -1701,9 +1739,13 @@ async function shellAction(data, event) {
       return true;
     }
     case "toggle-completed-nodes":
+      if (event?.target?.closest?.('.flow-view-options')) shellCloseOverlay();
       shellHideCompletedNodes = !shellHideCompletedNodes;
       try { localStorage.setItem(SHELL_HIDE_COMPLETED_KEY, shellHideCompletedNodes ? "1" : "0"); } catch {}
       return true;
+    case "toggle-all-nodes":
+      if (event?.target?.closest?.('.flow-view-options')) shellCloseOverlay();
+      return false;
     case "toggle-nav":
       state.navCollapsed = !state.navCollapsed;
       try { localStorage.setItem(NAV_COLLAPSED_KEY, state.navCollapsed ? "1" : "0"); } catch {}
@@ -1855,6 +1897,18 @@ async function shellAction(data, event) {
       }
       task.updatedAt = now();
       shellCloseOverlay({ restoreFocus: false });
+      return true;
+    }
+    case "open-flow-options":
+      if (shellOverlay()?.querySelector('.flow-status-history')) {
+        shellCloseOverlay();
+        return true;
+      }
+      shellOpenFlowOptions(trigger, task);
+      return true;
+    case "open-flow-status-history": {
+      const options = document.querySelector('.flow-tools [data-action="open-flow-options"]');
+      if (options && task) shellMountSurface(`<section class="surface-popover flow-status-history" role="dialog" aria-label="节点状态记录">${shellSurfaceHeader('节点状态记录')}<p>按最近更新显示节点当前状态。</p>${renderTaskHistory(task)}</section>`, options, 420);
       return true;
     }
     case "open-flow-locator":
@@ -2389,7 +2443,7 @@ function shellCancelNodeDraft({ renderView = true } = {}) {
       const nodes = shellNodeList(task);
       const count = document.querySelector('[data-pane="flow"] .pane-count');
       if (count) count.textContent = String(nodes.length);
-      const progress = document.querySelector(".flow-toolbar > span");
+      const progress = document.querySelector(".flow-progress");
       if (progress) progress.textContent = `${shellCountDoneNodes(task)} / ${nodes.length} 已完成`;
       document.querySelector(".flow-outline")?.style.setProperty("--flow-depth", shellFlowDepth(task.nodes || []));
       // The cached markup still contains the removed draft. A new empty draft
@@ -2547,7 +2601,7 @@ function shellBindNodeRecord() {
 }
 
 const SHELL_OVERLAY_TRIGGERS = [
-  "[data-flow-nav-id]", "[data-flow-nav-overflow]", "[data-flow-status-history]",
+  "[data-flow-nav-id]", "[data-flow-nav-overflow]", "[data-action='open-flow-options']",
   "[data-action='open-combined-filter']", "[data-action='open-update-panel']",
   "[data-action='open-flow-locator']", "[data-action='open-node-status']",
   "[data-action='open-node-operations']", "[data-action='open-node-path']",

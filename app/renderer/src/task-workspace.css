@@ -74,12 +74,32 @@ body .workspace .pane-tab.active::after { height: 1px; bottom: -1px; background:
 body .workspace .pane-count { background: transparent; color: var(--secondary); padding: 0; margin-left: 6px; font-variant-numeric: tabular-nums; }
 body .workspace .tabs-actions { color: var(--secondary); }
 
-body .flow-toolbar { padding-inline: 24px; min-height: 40px; height: auto; color: var(--secondary); flex-wrap: wrap; padding-block: 4px; }
-body .flow-toolbar > span { font-variant-numeric: tabular-nums; }
-body .flow-toolbar .flow-tools { gap: 4px; margin-right: 8px; flex-wrap: wrap; justify-content: flex-end; }
-body .flow-tools .text-button { padding-inline: 7px; }
-body .flow-toolbar .text-button { color: var(--secondary); font-size: var(--type-11); }
-body .flow-toolbar .text-button:hover { color: var(--text); background: var(--hover); }
+body .flow-toolbar {
+  display: grid; grid-template-columns: minmax(96px, 1fr) minmax(0, max-content);
+  align-items: center; min-height: 40px; height: auto; padding: 4px 24px;
+  color: var(--secondary);
+}
+body .flow-progress {
+  grid-area: 1 / 1; font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+body .flow-progress.is-hidden { visibility: hidden; }
+body .flow-toolbar .flow-tools { grid-area: 1 / 2; gap: 4px; justify-content: flex-end; }
+body .flow-options-trigger { position: relative; }
+body .flow-options-trigger[data-filter-active]::after {
+  content: ""; position: absolute; inset: 3px 3px auto auto;
+  width: 4px; height: 4px; border-radius: 50%; background: currentColor; pointer-events: none;
+}
+body .flow-tools .flow-options-trigger[aria-expanded="true"] { background: var(--hover); }
+body .flow-view-options { padding: 5px; box-shadow: var(--surface-shadow); }
+body .flow-view-options button {
+  display: flex; justify-content: space-between; align-items: center;
+  width: 100%; min-height: 30px; padding: 5px 8px; border-radius: 4px; text-align: start;
+}
+body .flow-view-options button:hover { background: var(--hover); }
+body .flow-view-options button:focus-visible { outline: none; box-shadow: inset 0 -1px var(--focus-line); }
+body .flow-view-options small { color: var(--secondary); font-size: var(--type-11); font-variant-numeric: tabular-nums; }
+body .flow-option-check { width: 14px; height: 14px; flex-shrink: 0; }
 body .flow-scroll { padding: 0 24px 24px; }
 body .flow-outline {
   --flow-indent: 24px;
@@ -201,18 +221,29 @@ body .flow-children::before { left: calc(16px + var(--node-offset)); }
 body .flow-children > .flow-item::before { left: calc(16px + var(--node-parent-offset)); width: var(--node-step); }
 body .flow-children > .flow-item:last-child::after { left: calc(16px + var(--node-parent-offset)); top: 15px; z-index: 2; pointer-events: none; }
 body .flow-row.selected .node-title { color: var(--text); }
-body .flow-tools [data-action="toggle-review-nodes"][aria-pressed="true"] { color: #a35e18; background: transparent; text-decoration: underline; text-underline-offset: 4px; }
-[data-theme="dark"] body .flow-tools [data-action="toggle-review-nodes"][aria-pressed="true"] { color: #e0b376; }
 
-body .flow-context-bar { display: flex; align-items: center; gap: 12px; flex-shrink: 0; min-height: 30px; padding: 0 24px 6px; color: var(--secondary); font-size: var(--type-11); }
-body .flow-breadcrumb { display: flex; flex: 1; align-items: center; gap: 4px; min-width: 0; height: 28px; }
-body .flow-breadcrumb button { display: block; flex: 0 1 auto; min-width: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 3px 4px; height: 26px; font: inherit; color: inherit; text-align: left; border-radius: 3px; }
-body .flow-breadcrumb button[aria-current] { color: var(--text); flex: 1; max-width: none; }
-body .flow-breadcrumb button[data-flow-nav-overflow] { flex-shrink: 0; }
-body .flow-breadcrumb > svg { width: 10px; height: 10px; flex-shrink: 0; }
-body .flow-context-bar button:hover { background: var(--hover); color: var(--text); }
-body .flow-context-bar button:focus-visible { outline: none; box-shadow: inset 0 -1px var(--focus-line); }
-body .flow-status-history-trigger { flex-shrink: 0; font-size: inherit; color: inherit; padding: 3px 4px; height: 26px; }
+body .flow-context-bar {
+  grid-area: 1 / 1; min-width: 0;
+  display: flex; align-items: center; gap: 4px; min-height: 28px;
+  color: var(--secondary); font-size: var(--type-11);
+}
+body .flow-context-bar[hidden] { display: none; }
+body .flow-path-icon { width: 13px; height: 13px; flex: none; }
+body .flow-breadcrumb { display: flex; flex: 1; align-items: center; gap: 3px; min-width: 0; }
+body .flow-breadcrumb button {
+  display: block; flex: 0 0 auto; min-width: 0; max-width: min(145px, 27%);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-height: 24px; padding: 2px 5px; font: inherit; color: inherit; text-align: left; border-radius: 4px;
+}
+body .flow-breadcrumb button[aria-current] {
+  flex-shrink: 1; max-width: 260px;
+  color: var(--text); font-weight: var(--ui-emphasis-weight);
+}
+body .flow-breadcrumb button[data-flow-nav-overflow] { display: grid; place-items: center; flex: 0 0 26px; max-width: none; padding-inline: 0; }
+body .flow-breadcrumb button[data-flow-nav-overflow] svg { width: 15px; height: 15px; }
+body .flow-breadcrumb > svg { width: 9px; height: 9px; flex: none; }
+body .flow-context-bar button:is(:hover,[aria-expanded="true"]) { background: var(--hover); color: var(--text); }
+body :is(.flow-context-bar button, .flow-options-trigger):focus-visible { outline: none; box-shadow: inset 0 -1px var(--focus-line); }
 body .flow-navigation-menu { max-height: min(420px,calc(100dvh - 32px)); overflow: auto; }
 body .flow-navigation-menu .flow-result { width: 100%; }
 body .flow-status-history { max-height: min(480px,calc(100dvh - 32px)); overflow: auto; }
@@ -223,8 +254,7 @@ body .flow-status-history .task-history-item b { font-weight: var(--ui-emphasis-
 body .flow-status-history p { color: var(--secondary); font-size: var(--type-11); line-height: 1.7; }
 @container processing-flow (max-width: 500px) {
   body .flow-outline { --flow-indent: 16px; --flow-deep-indent: 6px; }
-  body .flow-context-bar { padding-inline: 16px; gap: 6px; }
-  body .flow-breadcrumb button { max-width: 110px; }
+  body .flow-breadcrumb button[aria-current] { max-width: 215px; }
 }
 
 /* Node actions inherit the shared menu mechanics; this surface owns density. */

@@ -8707,7 +8707,7 @@ async function action(data, event = null) {
   render();
   if (cycleTrigger && document.activeElement === document.body) {
     const selector = `.node-status[data-task-id="${CSS.escape(data.taskId)}"][data-node-id="${CSS.escape(data.nodeId)}"]`;
-    (document.querySelector(selector) || document.querySelector(".flow-completed-toggle"))?.focus({ preventScroll: true });
+    (document.querySelector(selector) || document.querySelector('[data-action="open-flow-options"]'))?.focus({ preventScroll: true });
   }
 }
 

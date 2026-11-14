@@ -324,8 +324,8 @@ function shellFlowDepth(nodes) {
 
 function renderShellFlow(task) {
   const list = shellNodeList(task);
-  const branches = list.filter(node => node.id !== state.focusNodeTitleId && node.children?.length);
-  const allCollapsed = branches.length > 0 && branches.every(node => node.collapsed);
+  const filters = [shellReviewOnly && "仅待确认", shellHideCompletedNodes && "隐藏已完成"].filter(Boolean);
+  const optionsLabel = filters.length ? `处理流选项（${filters.join("、")}）` : "处理流选项";
   // The first draft is a temporary node. Keep the empty entry mounted beneath
   // it so cancelling a blank draft in place can reveal the same entry again.
   const empty = !list.length || (list.length === 1 && list[0].id === state.focusNodeTitleId);
@@ -334,17 +334,15 @@ function renderShellFlow(task) {
   const addButton = `<button class="add-node" type="button" data-action="add-root-node" data-task-id="${escAttr(task.id)}">${shellIcon("plus")}添加节点</button>`;
   return `<section class="flow-pane${empty ? " flow-empty" : ""}" aria-label="层级处理流">
     <div class="flow-toolbar">
-      <span>${shellCountDoneNodes(task)} / ${list.length} 已完成</span>
-      <div class="flow-tools">
-        <button class="text-button" type="button" data-action="toggle-review-nodes" aria-pressed="${shellReviewOnly}">待确认 ${list.filter(node => node.status === "review").length}</button>
-        ${branches.length ? `<button class="text-button collapse-all" type="button" data-action="toggle-all-nodes" data-task-id="${escAttr(task.id)}" title="${allCollapsed ? '展开所有子层级' : '收起所有子层级'}">${allCollapsed ? '展开全部' : '收起全部'}</button>` : ''}
-        <button class="text-button flow-completed-toggle" type="button" data-action="toggle-completed-nodes" aria-pressed="${shellHideCompletedNodes}" title="${shellHideCompletedNodes ? "显示所有已完成节点" : "隐藏已完成节点，保留未完成子节点"}">${shellHideCompletedNodes ? "显示已完成" : "隐藏已完成"}</button>
-        <button class="icon-button" type="button" data-action="open-flow-locator" aria-label="定位处理流节点" title="定位节点" aria-haspopup="dialog">${shellIcon("search")}</button>
+      <span class="flow-progress">${shellCountDoneNodes(task)} / ${list.length} 已完成</span>
+      <div class="flow-context-bar" hidden>
+        ${shellIcon("flowPath", "flow-path-icon")}
+        <nav class="flow-breadcrumb" aria-label="当前节点层级" data-flow-breadcrumb></nav>
       </div>
-    </div>
-    <div class="flow-context-bar">
-      <nav class="flow-breadcrumb" aria-label="当前节点层级" data-flow-breadcrumb></nav>
-      <button class="text-button flow-status-history-trigger" type="button" data-flow-status-history aria-haspopup="dialog">节点状态记录</button>
+      <div class="flow-tools">
+        <button class="icon-button" type="button" data-action="open-flow-locator" aria-label="定位处理流节点" title="定位节点" aria-haspopup="dialog">${shellIcon("search")}</button>
+        <button class="icon-button flow-options-trigger" type="button" data-action="open-flow-options" aria-haspopup="dialog" aria-expanded="false" aria-label="${escAttr(optionsLabel)}" title="${escAttr(optionsLabel)}" ${filters.length ? 'data-filter-active' : ''}>${shellIcon("more")}</button>
+      </div>
     </div>
     <div class="flow-scroll" data-context="flow-root" data-task-id="${escAttr(task.id)}" data-processing-flow-scroll data-processing-flow-view="${escAttr(processingFlowViewKey(task))}">
       <div class="flow-outline" style="--flow-depth:${shellFlowDepth(task.nodes || [])};${shellFlowIndentStyle(shellFlowDepth(task.nodes || []))};--flow-title-track:${state.flowWidths.title}fr;--flow-note-track:${state.flowWidths.note}fr">
@@ -500,7 +498,7 @@ function shellAnimateBranches(previous, animate) {
   }
 }
 
-const SHELL_FOCUS_KEYS = ["data-node-id", "data-action", "data-bulk-action", "data-field", "data-flow-nav-id", "data-flow-nav-overflow", "data-flow-status-history"];
+const SHELL_FOCUS_KEYS = ["data-node-id", "data-action", "data-bulk-action", "data-field", "data-flow-nav-id", "data-flow-nav-overflow"];
 const SHELL_REPOSITORY_FOCUS_KEYS = [...SHELL_FOCUS_KEYS, "data-group-id", "data-task-id", "data-bulk-id", "data-value", "data-tag", "data-setting-button"];
 
 function shellBeforeRender() {

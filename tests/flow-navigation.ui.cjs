@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const {launchRepository, task} = require('./electron-ui-helpers.cjs');
-const {minimizeTaskInfo} = require('./workbench-helpers.cjs');
+const {minimizeTaskInfo,openFlowOptions} = require('./workbench-helpers.cjs');
 
 const stamp = new Date().toISOString();
 const node = (id, children = [], fields = {}) => ({id, title:id, status:'todo', updatedAt:stamp, children, ...fields});
@@ -15,33 +15,86 @@ const long = Array.from({length:12},(_,i)=>`第${i+1}行：完整保留中英文
   const h=await launchRepository({activeTaskId:'flow',tasks:[task('flow',{history:[['昨天','已有任务记录']],nodes:[
     node('long',[],{conclusion:long}),deep,node('branch-b',[node('b-child')]),
     node('done-parent',[node('unfinished-child')],{status:'done',collapsed:true}),
+    node('review-parent',[node('review-child',[],{status:'review'})],{status:'done'}),
     ...Array.from({length:1000},(_,i)=>node('bulk-'+i)),
   ]}),task('empty')]},'flow-navigation');
   const {app,page:p,errors,profile}=h;
   const row=id=>p.locator(`.flow-row[data-node-id="${id}"]`);
   const title=id=>p.locator(`.node-title[data-node-id="${id}"]`);
   const nav=p.locator('[data-flow-breadcrumb]');
+  const bar=p.locator('.flow-context-bar');
   const settle=()=>p.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
   const go=async id=>{
-    await row(id).evaluate(el=>{const scroll=el.closest('.flow-scroll');scroll.scrollTop+=el.getBoundingClientRect().top-scroll.getBoundingClientRect().top;});
+    await row(id).evaluate(el=>{
+      const scroll=el.closest('.flow-scroll');
+      scroll.scrollTop+=el.getBoundingClientRect().top-scroll.getBoundingClientRect().top;
+    });
     await p.waitForFunction(id=>document.querySelector('[data-flow-breadcrumb]')?.dataset.currentNode===id,id);
   };
   const shot=async name=>{if(process.env.LOOP_REVIEW_OUTPUT){await fs.mkdir(process.env.LOOP_REVIEW_OUTPUT,{recursive:true});await p.screenshot({path:path.join(process.env.LOOP_REVIEW_OUTPUT,name+'.png')});}};
   try{
     await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/index.html')).setSize(1280,850));
-    await minimizeTaskInfo(p); await nav.waitFor(); await settle();
+    await minimizeTaskInfo(p); await nav.waitFor({state:'attached'}); await settle();
+    const scroll=p.locator('.flow-scroll');
+    const optionsButton=p.locator('[data-action="open-flow-options"]');
+    const progress=p.locator('.flow-progress');
+    const tools=p.locator('.flow-toolbar .flow-tools');
+    assert.equal(await nav.isVisible(),false,'the path is hidden at the very top');
+    assert.equal(await progress.isVisible(),true,'the completed count is shown at the top');
+    const progressSlot=await progress.boundingBox();
+    const toolsSlot=await tools.boundingBox();
+    assert.deepEqual(await tools.locator('button').evaluateAll(buttons=>buttons.map(button=>button.dataset.action)),['open-flow-locator','open-flow-options']);
+    assert.equal(await p.locator('.flow-line-number').count(),0);
+    const scrollTopEdge=(await scroll.boundingBox()).y;
+    const toolbarBottom=await p.locator('.flow-toolbar').evaluate(el=>el.getBoundingClientRect().bottom);
+    assert.ok(Math.abs(scrollTopEdge-toolbarBottom)<=1,'the node list starts directly after the toolbar');
     const original=await p.evaluate(()=>structuredClone(shellActiveTask().nodes));
     const conclusion=row('long').locator('.node-conclusion-preview');
     assert.equal(await conclusion.innerText(),long);
     assert.ok(await conclusion.evaluate(el=>el.clientHeight>=parseFloat(getComputedStyle(el).lineHeight)*11));
     assert.equal(await conclusion.evaluate(el=>el.scrollHeight<=el.clientHeight+1),true,'unfinished conclusions are fully readable');
+    await p.mouse.move(10,10);
     await go('deep-15');
+    assert.equal(await nav.isVisible(),true,'scrolling down reveals the path');
+    assert.equal(await progress.isVisible(),false,'the path replaces the completed count');
+    assert.equal((await scroll.boundingBox()).y,scrollTopEdge,'the navigation does not move the list');
+    const float=await bar.boundingBox();
+    assert.equal(float.x,progressSlot.x,'the path uses the completed count position');
+    assert.equal(float.width,progressSlot.width,'the path fills the toolbar slot');
+    assert.deepEqual(await tools.boundingBox(),toolsSlot,'the toolbar controls stay in place');
+    const currentLabel=nav.locator('[aria-current="location"]');
+    await currentLabel.hover();
+    assert.equal(await currentLabel.getAttribute('title'),deepTitle(15),'the truncated path label exposes the complete title');
     await p.locator('[data-flow-nav-overflow]').click();
     assert.equal(await p.locator('.flow-navigation-menu [data-flow-nav-id]').count(),16);
     await p.locator('.flow-navigation-menu [data-flow-nav-id="deep-6"]').focus();
     await p.keyboard.press('Enter'); await p.waitForFunction(()=>!shellOverlayIsOpen());
     await p.waitForFunction(()=>document.activeElement?.dataset.nodeId==='deep-6');
     await p.waitForFunction(()=>document.querySelector('[data-flow-breadcrumb]').dataset.currentNode==='deep-6');
+    assert.ok((await title('deep-6').boundingBox()).y>=scrollTopEdge-1,'a jump puts the target at the top of the list');
+
+    await go('deep-15');
+    await p.locator('[data-flow-nav-overflow]').click();
+    await scroll.evaluate(el=>{el.scrollTop=0;});
+    await nav.waitFor({state:'hidden'});
+    assert.equal(await progress.isVisible(),true,'returning to the top restores the count');
+    assert.deepEqual(await tools.boundingBox(),toolsSlot);
+    assert.equal(await p.locator('.flow-navigation-menu').count(),0,'returning to the top closes the full path');
+    assert.equal(await optionsButton.evaluate(el=>el===document.activeElement),true);
+    assert.equal((await scroll.boundingBox()).y,scrollTopEdge);
+    await shot('flow-at-top');
+
+    await go('deep-15');
+    await p.locator('[data-flow-nav-overflow]').click();
+    await go('b-child');
+    assert.equal(await p.locator('.flow-navigation-menu').count(),0,'switching branches closes the old full path');
+    assert.equal(await nav.locator('[data-flow-nav-id="branch-b"]').evaluate(el=>el===document.activeElement),true,'keyboard focus returns to the new path');
+    await row('branch-b').locator('.collapse').focus();
+    await p.keyboard.press('Enter');
+    await p.waitForFunction(()=>!document.querySelector('[data-flow-breadcrumb]').textContent.includes('b-child'));
+    await row('b-child').waitFor({state:'detached'});
+    await row('branch-b').locator('.collapse').focus();
+    await p.keyboard.press('Enter');
     await go('b-child');
     assert.match(await nav.innerText(),/branch-b/);
     await nav.locator('[data-flow-nav-id="branch-b"]').click();
@@ -60,6 +113,8 @@ const long = Array.from({length:12},(_,i)=>`第${i+1}行：完整保留中英文
 
     // Repeated renders retain one runtime, and same-task viewports are kept.
     await go('bulk-400');
+    assert.equal((await bar.boundingBox()).width,float.width,'a single short label keeps the same bar width as a deep path');
+    assert.equal((await bar.boundingBox()).height,float.height,'the bar stays one row tall');
     const before=await p.locator('.flow-scroll').evaluate(el=>el.scrollTop);
     await p.evaluate(()=>{render();render();render();}); await settle();
     assert.ok(Math.abs(await p.locator('.flow-scroll').evaluate(el=>el.scrollTop)-before)<2);
@@ -89,16 +144,39 @@ const long = Array.from({length:12},(_,i)=>`第${i+1}行：完整保留中英文
     assert.doesNotMatch(await nav.innerText(),/改名后的子节点/);
 
     // Hidden completed ancestors are navigable without deleting their history.
-    await p.locator('[data-action="toggle-completed-nodes"]').click();await go('unfinished-child');
+    await (await openFlowOptions(p)).getByRole('button',{name:'隐藏已完成'}).click();await go('unfinished-child');
+    assert.equal(await p.getByRole('button',{name:/处理流选项.*隐藏已完成/}).getAttribute('data-filter-active'),'');
     assert.match(await nav.innerText(),/done-parent/);
     await nav.locator('[data-flow-nav-id="done-parent"]').click();await settle();
     await row('done-parent').waitFor();
     assert.equal(await p.evaluate(()=>findNode(shellActiveTask().nodes,'done-parent').status),'done');
-    await p.locator('[data-flow-status-history]').click();
+
+    await (await openFlowOptions(p)).getByRole('button',{name:'隐藏已完成'}).click();
+    await (await openFlowOptions(p)).getByRole('button',{name:/^待确认/}).click();
+    // Keep review content above and below the target so the path is visible and can reach the reading line.
+    await p.evaluate(()=>{
+      const nodes=shellActiveTask().nodes;
+      findNode(nodes,'long').status='review';
+      for(const item of nodes.filter(item=>item.id.startsWith('bulk-')).slice(0,30)) item.status='review';
+      render();
+    });
+    await settle();
+    await go('review-child');
+    await nav.locator('[data-flow-nav-id="review-parent"]').click();
+    await p.waitForFunction(()=>document.activeElement?.dataset.nodeId==='review-parent');
+    const reviewFilter=(await openFlowOptions(p)).getByRole('button',{name:/^待确认/});
+    assert.equal(await reviewFilter.getAttribute('aria-pressed'),'true','showing a completed ancestor preserves an unrelated review filter');
+    await reviewFilter.click();
+    assert.equal(await p.getByRole('button',{name:'处理流选项',exact:true}).getAttribute('data-filter-active'),null);
+    const statusAction=(await openFlowOptions(p)).getByRole('button',{name:'节点状态记录'});
+    await statusAction.focus();
+    await p.keyboard.press('Enter');
+    await p.getByRole('dialog',{name:'节点状态记录'}).waitFor();
+    assert.equal(await p.getByRole('dialog',{name:'处理流选项'}).count(),0);
     assert.ok(await p.locator('.flow-status-history .task-history-item').count()>1000);
     assert.match(await p.locator('.flow-status-history').innerText(),/已完成/);
     await p.keyboard.press('Escape');await p.waitForFunction(()=>!shellOverlayIsOpen());
-    assert.equal(await p.locator('[data-flow-status-history]').evaluate(el=>el===document.activeElement),true);
+    assert.equal(await optionsButton.evaluate(el=>el===document.activeElement),true);
     await p.locator('[data-action="switch-task-pane"][data-pane="history"]').click();
     assert.match(await p.locator('.article-pane').innerText(),/已有任务记录/);
     assert.equal(await p.evaluate(()=>shellFlowNavigationRuntime),null);
@@ -127,7 +205,8 @@ const long = Array.from({length:12},(_,i)=>`第${i+1}行：完整保留中英文
     assert.ok(disk.tasks[0].history.some(entry=>entry[1]==='已有任务记录'));
     assert.equal(disk.tasks[0].nodes.find(n=>n.id==='long').conclusion,long);
     await p.evaluate(()=>{state.activeTaskId='empty';render();});await settle();
-    assert.equal(await nav.innerText(),'暂无节点');
+    assert.equal(await nav.isVisible(),false,'an empty task has no visible path');
+    assert.equal(await nav.getAttribute('data-current-node'),'');
     assert.equal(await nav.locator('button').count(),0);
     assert.deepEqual(errors,[]);
     console.log('PASS flow navigation: full conclusions; scroll paths/keyboard/overflow; live edits/tree changes; filtered ancestors; state records; draft and viewport continuity; 16 levels/1000 nodes; light/dark/minimum width/large type.');

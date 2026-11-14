@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const {launchRepository, task} = require('./electron-ui-helpers.cjs');
-const {minimizeTaskInfo} = require('./workbench-helpers.cjs');
+const {minimizeTaskInfo,openFlowOptions} = require('./workbench-helpers.cjs');
 const longTitle = '已完成的长标题：保留父子关系、配置字段、解析过程和验证结果。'.repeat(7);
 const oldNote = '旧浮窗中的完整记录。\n\n第二段证据与验证过程必须保留。';
 const longText = ('完整结论、分析证据和验证结果。'.repeat(8) + '\n').repeat(5);
@@ -79,8 +79,8 @@ const longText = ('完整结论、分析证据和验证结果。'.repeat(8) + '\
     await shot('outline-reading');
     // Filtering preserves ancestors and the actual data tree.
     const before=await page.evaluate(()=>structuredClone(shellActiveTask().nodes));
-    await page.locator('[data-action="toggle-review-nodes"]').click();assert.equal(await row('review').count(),1);assert.equal(await row('parent').count(),1);assert.equal(await row('blank').count(),0);
-    assert.deepEqual(await page.evaluate(()=>shellActiveTask().nodes),before);await page.locator('[data-action="toggle-review-nodes"]').click();
+    await (await openFlowOptions(page)).getByRole('button',{name:/^待确认/}).click();assert.equal(await row('review').count(),1);assert.equal(await row('parent').count(),1);assert.equal(await row('blank').count(),0);
+    assert.deepEqual(await page.evaluate(()=>shellActiveTask().nodes),before);await (await openFlowOptions(page)).getByRole('button',{name:/^待确认/}).click();
     await page.evaluate(()=>flushSave());const disk=JSON.parse(await fs.readFile(path.join(profile,'task-data.json'),'utf8'));
     assert.equal(disk.uiPreferences.nodeConclusionHintSeen,true);assert.equal(disk.tasks[0].nodes[0].children[1].status,'review');
     await page.reload();await page.locator('.flow-scroll').waitFor();assert.ok((await model('parent')).conclusion.includes('保存后的新内容'));assert.deepEqual(errors,[]);

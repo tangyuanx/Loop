@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { launchRepository, task } = require('./electron-ui-helpers.cjs');
+const { openFlowOptions } = require('./workbench-helpers.cjs');
 const node = (id, status, conclusion, children = []) => ({ id, title: id, status, conclusion, note: '记录-' + id, children });
 (async () => {
   const run = await launchRepository({ tasks: [task('task', { title: '二态勾选与结论行高', tags: { blocked: true, later: true }, nodes: [
@@ -98,12 +99,12 @@ const node = (id, status, conclusion, children = []) => ({ id, title: id, status
     await row('one').locator('.node-title').click();
     await row('one').locator('.node-record-action').click();
     await page.locator('[data-shell-node-record]').fill('切换完成前的记录');
-    await page.locator('[data-action="toggle-completed-nodes"]').click();
+    await (await openFlowOptions(page)).getByRole('button',{name:'隐藏已完成'}).click();
     await checkbox('one').click(); await settle();
     assert.equal(await row('one').count(), 0);
     assert.equal((await model('one')).note, '切换完成前的记录');
     assert.equal((await model('one')).conclusion, '一行短结论。');
-    await page.locator('[data-action="toggle-completed-nodes"]').click(); await settle();
+    await (await openFlowOptions(page)).getByRole('button',{name:'显示已完成'}).click(); await settle();
     await checkbox('one').click(); await settle();
     await page.evaluate(() => flushSave());
     const saved = JSON.parse(await fs.readFile(path.join(run.profile, 'task-data.json'), 'utf8'));

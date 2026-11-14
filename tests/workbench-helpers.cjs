@@ -33,4 +33,8 @@ async function format(page,kind,value){
 }
 async function panels(page){await more(page);await page.locator('.wb-more-menu [data-kn-action="panels"]').click();}
 async function width(page,value){await more(page);await page.locator('[data-action="knowledge-width-menu"]').click();await page.locator(`[data-action="set-note-width"][data-width="${value}"]`).click();}
-module.exports={minimizeTaskInfo,mode,more,context,format,panels,width};
+async function openFlowOptions(page){
+  await page.getByRole('button',{name:/^处理流选项/}).click();
+  return page.getByRole('dialog',{name:'处理流选项'});
+}
+module.exports={minimizeTaskInfo,mode,more,context,format,panels,width,openFlowOptions};

@@ -1,6 +1,7 @@
 // Real Electron regression using an isolated synthetic profile.
 const assert = require('node:assert/strict');
 const { launchRepository } = require('./electron-ui-helpers.cjs');
+const { openFlowOptions } = require('./workbench-helpers.cjs');
 
 (async () => {
   let run;
@@ -52,11 +53,13 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
     };
 
     // The tree toolbar acts on this task and handles mixed branch states.
-    const collapseAll = page.locator('.flow-toolbar [data-action="toggle-all-nodes"]');
+    const collapseAll = page.locator('.flow-view-options [data-action="toggle-all-nodes"]');
+    await openFlowOptions(page);
     assert.equal(await collapseAll.innerText(), '收起全部');
     await collapseAll.click();
     await page.waitForFunction(() => shellNodeList(shellActiveTask()).filter(n => n.children.length).every(n => n.collapsed));
     await page.waitForFunction(() => !document.querySelector('.node-title[data-node-id="ax"]'));
+    await openFlowOptions(page);
     assert.equal(await collapseAll.innerText(), '展开全部');
     await collapseAll.click();
     await page.waitForFunction(() => shellNodeList(shellActiveTask()).filter(n => n.children.length).every(n => !n.collapsed));
@@ -170,11 +173,14 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
     assert.equal(await title('d').getAttribute('aria-pressed'), 'false');
     await title('d').click({ position: { x: 25, y: 20 } }); await settle();
     assert.equal(await row('d').evaluate(el => el.classList.contains('selected')), true, 'the same row can be selected again');
-    const filter = page.locator('.flow-completed-toggle');
-    await filter.click();
-    assert.equal(await filter.getAttribute('aria-pressed'), 'true', 'the outside click also operates its destination');
+    const options=await openFlowOptions(page);
+    assert.equal(await options.isVisible(),true,'the outside click also opens the options');
     assert.equal(await page.locator('.flow-row.selected').count(), 0);
-    await filter.click();
+    await options.getByRole('button',{name:'隐藏已完成'}).click();
+    const activeOptions=await openFlowOptions(page);
+    const showCompleted=activeOptions.getByRole('button',{name:'显示已完成'});
+    assert.equal(await showCompleted.getAttribute('aria-pressed'),'true');
+    await showCompleted.click();
     await title('a').click({ position: { x: 25, y: 20 } }); await settle();
     await title('d').click({ position: { x: 25, y: 20 } }); await settle();
     assert.equal(await title('a').getAttribute('aria-pressed'), 'false');
