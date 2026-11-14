@@ -45,7 +45,7 @@ async function run() {
   });
   const markdown = () => page.evaluate(() => knowledgeCurrentEntry().getMarkdown());
   const undo = () => page.keyboard.press('ControlOrMeta+z');
-  const redo = () => page.keyboard.press('ControlOrMeta+Shift+z');
+  const redo = () => page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+z' : 'Control+y');
   const shortcut = async action => {
     await page.keyboard.press('Shift+F10');
     await menu.locator(`[data-wb-format="${action}"]`).click();
