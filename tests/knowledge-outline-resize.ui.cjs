@@ -196,7 +196,12 @@ async function main() {
     assert.deepEqual(indentation, ['8px','20px','32px','44px']);
     await heading.click();
     assert.equal(await heading.getAttribute('aria-current'), 'location');
-    assert.ok(await body.evaluate(el => el.scrollTop > 100));
+    // CodeMirror applies scrollIntoView in its measure phase after updating
+    // the selection. Wait for the actual viewport to follow the heading.
+    await page.waitForFunction(id => {
+      const body = document.querySelector(`.knowledge-pane[data-task-id="${id}"] .knowledge-body`);
+      return body.scrollTop > 100;
+    }, noteId);
     await close();
     await wb.more(page);
     await page.locator('.wb-more-menu [data-kn-action="backlinks"]').click();

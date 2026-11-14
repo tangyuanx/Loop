@@ -1,6 +1,6 @@
 {
   "name": "loop",
-  "version": "0.2.38",
+  "version": "0.2.39",
   "description": "Loop is a local-first personal task flow tracker for closing work from creation to completion.",
   "private": true,
   "license": "UNLICENSED",
