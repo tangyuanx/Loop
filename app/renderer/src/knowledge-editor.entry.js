@@ -1175,7 +1175,9 @@ class KnowledgeEditor {
   // Selection, history and pending upload anchors are mapped by CodeMirror.
   acceptSavedAssetReferences(assets){
     const doc=this.getEditorText(),changes=[];
-    for(const asset of assets||[]){if(!asset.source||!asset.relativePath)continue;for(const ref of core.imageReferences(doc)){if(ref.url===asset.source)changes.push({from:ref.from,to:ref.to,insert:asset.relativePath});}}
+    const managed=new Map((assets||[]).filter(asset=>asset.managed).map(asset=>[asset.source,asset.relativePath]));
+    if(managed.size){for(const ref of window.LoopShareMarkdown.scan(doc)){const destination=managed.get(ref.destination);if(destination&&Number.isInteger(ref.destinationFrom))changes.push({from:ref.destinationFrom,to:ref.destinationTo,insert:destination});}}
+    for(const asset of assets||[]){if(asset.managed||!asset.source||!asset.relativePath)continue;for(const ref of core.imageReferences(doc)){if(ref.url===asset.source)changes.push({from:ref.from,to:ref.to,insert:asset.relativePath});}}
     if(changes.length)this.view.dispatch({changes:changes.sort((a,b)=>a.from-b.from),annotations:Transaction.addToHistory.of(false),userEvent:'input.assets'});
   }
   refresh(){this.renderCache.clear();if(this.mode==='preview')this.renderReading();this.view.dispatch({effects:refreshEffect.of(null)});this.view.requestMeasure();}

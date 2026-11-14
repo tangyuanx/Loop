@@ -296,6 +296,7 @@ async function knowledgeCloseResource(resourceId) {
   document.querySelector('.kn-document-tabs [aria-selected="true"]')?.focus({preventScroll:true});
 }
 async function knowledgeOpenResource(href,origin=knowledgeActiveDocument(),{external=false,internal=false}={}) {
+  if (String(href).startsWith('loop-asset:') && typeof openTaskShareAsset === 'function') return openTaskShareAsset(href, origin?.id);
   const bridge=window.personalTaskTrack?.knowledgeResources;if(!bridge){shellToast('请在 Loop 桌面应用中打开资源链接');return;}
   const ownerId=state.activeTaskId,epoch=knowledgeResourceEpoch,pending=ownerId+'\n'+href;if(knowledgeResourcePending.has(pending))return;
   const source=knowledgeCapturePosition();
@@ -864,6 +865,10 @@ function knowledgeEditorOptions(task) {
     getContent: knowledgeText, noteDetail: knowledgeDetail,
     autoSpacing: () => state.uiPreferences.knowledgeAutoSpacing,
     resolveImage: (_id, source) => {
+      if (source.startsWith('loop-asset:') && typeof taskShareImage === 'function') {
+        const owner = knowledgeAllDocuments().find(item => LoopKnowledgeCore.noteId(item) === _id);
+        return taskShareImage(owner?.id || task.id, source);
+      }
       if (source.startsWith('task-image:')) return state.attachments?.images?.[source.slice(11)] || '';
       const scope=state.knowledgeAssetScopes?.[_id]||{};
       if(scope[source])return scope[source];

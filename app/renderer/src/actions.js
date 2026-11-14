@@ -106,6 +106,7 @@ function shellCloseOverlay({ restoreFocus = true } = {}) {
 
 function shellOverlayDismissBlocked() {
   return Boolean((state.feedbackSubmitting && document.querySelector("#help14-form"))
+    || (typeof taskShareCommitBusy !== "undefined" && taskShareCommitBusy && document.querySelector("#task-share-import-confirm"))
     || (typeof recovery26Busy !== "undefined" && recovery26Busy && document.querySelector("#overlay .recovery26-manager, #overlay .recovery26-confirm")));
 }
 
@@ -1947,6 +1948,9 @@ async function shellAction(data, event) {
       return true;
     case "export-knowledge-note":
       shellKnowledgeExportNote(knowledgeFindDocument(data.taskId) || knowledgeActiveDocument());
+      return true;
+    case "share-knowledge-note":
+      openTaskShare(state.activeTaskId, { noteId: data.taskId, trigger });
       return true;
     case "knowledge-conflict":
       shellKnowledgeConflict(knowledgeActiveDocument());

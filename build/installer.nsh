@@ -57,6 +57,17 @@ Var loopRegisteredInstallLocation
     StrCpy $loopUpgradeBackupCreated "1"
   ${EndIf}
 
+  ${If} ${FileExists} "${SOURCE_DIR}\task-share-assets\*.*"
+    CreateDirectory "$loopUpgradeBackupRoot\${LABEL}\task-share-assets"
+    ClearErrors
+    CopyFiles /SILENT "${SOURCE_DIR}\task-share-assets\*.*" "$loopUpgradeBackupRoot\${LABEL}\task-share-assets"
+    ${If} ${Errors}
+      MessageBox MB_OK|MB_ICONSTOP "Loop 无法在升级前备份任务分享附件。安装已停止，原软件和数据不会被删除。"
+      Abort
+    ${EndIf}
+    StrCpy $loopUpgradeBackupCreated "1"
+  ${EndIf}
+
   ${If} ${FileExists} "${SOURCE_DIR}\task-data.corrupt-*.json"
     ClearErrors
     CopyFiles /SILENT "${SOURCE_DIR}\task-data.corrupt-*.json" "$loopUpgradeBackupRoot\${LABEL}"

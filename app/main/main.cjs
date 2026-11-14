@@ -25,6 +25,12 @@ const { BugReportClientError, createBugReportClient } = require("./bug-report-cl
 const { dataFilePath, readTaskData, writeTaskData } = require("./storage.cjs");
 const { assetSourcePaths, createKnowledgePathGate, deniedPathResult } = require("./knowledge-access.cjs");
 const dataMaintenance = require("./data-maintenance.cjs");
+const { registerTaskShare } = require("./task-share-service.cjs");
+const { taskShareStore } = require("./task-share-store.cjs");
+const { recoverAssetImports, managedAsset } = require("./task-share-assets.cjs");
+const { prepareManagedKnowledgeSave } = require("./task-share-first-save.cjs");
+const { atomicOutput, limits: taskShareLimits } = require("./task-share-archive.cjs");
+let taskStore;
 const {
   chooseKnowledgeDocument,
   readKnowledgeDocument,
@@ -283,13 +289,15 @@ async function finishUpdateInstallPreparation(success) {
     return;
   }
   try {
-    await createPreInstallBackup({
+    const backup = () => createPreInstallBackup({
       appDataPath: app.getPath("appData"),
       userDataPath: app.getPath("userData"),
       installDirectory: path.dirname(process.execPath),
       currentVersion: app.getVersion(),
       targetVersion: updateController?.getState()?.version,
     });
+    if (taskStore) await taskStore.serialize(backup);
+    else await backup();
     // Stop auxiliary windows, shortcuts, watchers, and timers before the
     // updater launches NSIS. This shortens the interval in which a Loop child
     // process can keep the previous installation directory locked.
@@ -321,6 +329,9 @@ function requestUpdateInstallPreparation() {
 }
 
 function registerStorageHandlers() {
+  taskStore = taskShareStore({ read: () => readTaskData(app.getPath("userData")),
+    write: data => writeTaskData(app.getPath("userData"), data), assertWritable: dataMaintenance.assertWritable });
+  registerTaskShare({ ipcMain, dialog, shell, app, getWindow: () => mainWindow, store: taskStore, exportDocument: exportTaskDocument });
   const knowledgeGate = createKnowledgePathGate({
     userDataPath: app.getPath("userData"),
     dataFilePath: dataFilePath(app.getPath("userData")),
@@ -335,17 +346,14 @@ function registerStorageHandlers() {
       architecture: process.arch,
     };
   });
-  ipcMain.handle("task-data:read", () => readTaskData(app.getPath("userData")));
+  ipcMain.handle("task-data:read", () => taskStore.readForRenderer());
 /**
  * Export a task document as Markdown or PDF.
  * Shows a save dialog, renders PDF with a hidden BrowserWindow if needed.
  * @param {object} payload - { taskTitle, markdown?, html? }
  * @returns {Promise<{ canceled: boolean, filePath?: string }>}
  */
-  ipcMain.handle("task-data:write", (_event, data) => {
-    dataMaintenance.assertWritable();
-    return writeTaskData(app.getPath("userData"), data);
-  });
+  ipcMain.handle("task-data:write", (_event, data, revision) => taskStore.save(data, revision));
   ipcMain.handle("data-backup:export", async (event) => {
     const parent = BrowserWindow.fromWebContents(event.sender);
     const stamp = new Date().toISOString().slice(0, 19).replaceAll(":", "-");
@@ -356,11 +364,11 @@ function registerStorageHandlers() {
       properties: ["createDirectory", "showOverwriteConfirmation"],
     });
     if (selection.canceled || !selection.filePath) return { canceled: true };
-    const result = await exportPortableBackup({
+    const result = await taskStore.serialize(() => exportPortableBackup({
       userDataPath: app.getPath("userData"),
       destinationPath: selection.filePath,
       appVersion: app.getVersion(),
-    });
+    }));
     return { canceled: false, ...result };
   });
   ipcMain.handle("data-backup:import", async (event, value) => {
@@ -393,13 +401,13 @@ function registerStorageHandlers() {
     dataMaintenance.begin("manual-import");
     let result;
     try {
-      result = await importBackup({
+      result = await taskStore.serialize(() => importBackup({
         selectedPath,
         selectionType,
         appDataPath: app.getPath("appData"),
         userDataPath: app.getPath("userData"),
         installDirectory: process.platform === "win32" ? path.dirname(process.execPath) : "",
-      });
+      }));
     } catch (error) {
       // A failed rollback leaves a partial workspace. Keep every writer locked
       // until the user can recover the verified safety copy.
@@ -427,7 +435,12 @@ function registerStorageHandlers() {
       (sourcePath) => !knowledgeGate.isRecoveryAssetPath(sourcePath),
     );
     if (blockedAsset) return deniedPathResult(blockedAsset, "asset");
-    const result = await saveKnowledgeDocument(payload, { dialog, parent, platform: process.platform });
+    let managedAssets = [];
+    if (String(payload?.content || '').includes('loop-asset:')) {
+      try { managedAssets = await prepareManagedKnowledgeSave(app.getPath('userData'), (await taskStore.read()) || {}, payload.noteId, payload.content); }
+      catch (error) { return { success: false, code: error.code, message: error.message }; }
+    }
+    const result = await saveKnowledgeDocument(payload, { dialog, parent, platform: process.platform, managedAssets });
     if (result?.success && result.filePath) knowledgeGate.approve(result.filePath);
     if (result?.success && payload?.noteId) knowledgeWatcher.updateBaseline(payload.noteId, result);
     return result;
@@ -436,6 +449,27 @@ function registerStorageHandlers() {
     app.getPath("userData"),
     payload,
   ));
+  ipcMain.handle('task-share:asset', async (event, { href, ownerId, open = false } = {}) => {
+    if (event.sender !== mainWindow?.webContents || event.senderFrame !== mainWindow?.webContents.mainFrame) return { success: false };
+    const id = /^loop-asset:(asset_[a-f\d-]{36})(?:#.*)?$/.exec(String(href || ''))?.[1];
+    if (!id) return { success: false };
+    try {
+      const asset = await managedAsset(app.getPath('userData'), await taskStore.read(), id, ownerId);
+      if (!asset) return { success: false, message: '当前内容的附件不可用。' };
+      if (open) {
+        if (asset.type.startsWith('image/') || asset.type === 'application/pdf') {
+          const message = await shell.openPath(asset.file);
+          return { success: !message, message: message ? '附件无法打开。' : '' };
+        }
+        const destination = await dialog.showSaveDialog(mainWindow, { title: '保存附件副本', defaultPath: asset.name, properties: ['showOverwriteConfirmation'] });
+        if (destination.canceled || !destination.filePath) return { success: true, canceled: true };
+        await atomicOutput(destination.filePath, temp => fs.copyFile(asset.file, temp));
+        return { success: true };
+      }
+      if (!/^image\/(?:png|jpeg|gif|webp|avif|bmp)$/.test(asset.type) || (await fs.stat(asset.file)).size > taskShareLimits.asset) return { success: false };
+      return { success: true, dataUrl: `data:${asset.type};base64,${(await fs.readFile(asset.file)).toString('base64')}` };
+    } catch (error) { return { success: false, message: '附件读取失败，请检查文件后重试。' }; }
+  });
   ipcMain.handle("knowledge-document:read", async (_event, payload) => {
     if (!(await knowledgeGate.isAllowed(payload?.filePath))) return deniedPathResult(payload?.filePath, "read");
     return readKnowledgeDocument(payload?.filePath);
@@ -856,6 +890,7 @@ app.whenReady().then(async () => {
         recoverRicherLegacy: process.argv.includes("--updated"),
       });
     }
+    await recoverAssetImports(app.getPath("userData"));
   } catch (error) {
     console.error("Unable to complete legacy task-data recovery.", error?.code || error);
     dialog.showErrorBox(

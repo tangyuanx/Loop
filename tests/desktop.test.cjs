@@ -10,6 +10,7 @@ const vm = require("node:vm");
 const { UUID } = require("builder-util-runtime");
 const {
   DATA_FILE,
+  DATA_VERSION,
   KNOWLEDGE_MIGRATION_VERSION,
   RECENTLY_DELETED_SCHEMA_VERSION,
   normalizeRecentlyDeleted,
@@ -755,7 +756,7 @@ test("future task-data versions are rejected without normalization or overwrite"
 test("a normal save never overwrites a database written by a newer app version", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "personal-task-track-downgrade-"));
   const filePath = path.join(directory, "task-data.json");
-  const futureData = { version: 2 + 1, knowledgeSchemaVersion: 1, tasks: [{ id: "keep_me", title: "未来的任务", notes: "保留" }] };
+  const futureData = { version: DATA_VERSION + 1, knowledgeSchemaVersion: 1, tasks: [{ id: "keep_me", title: "未来的任务", notes: "保留" }] };
   const raw = `${JSON.stringify(futureData, null, 2)}\n`;
   await fs.writeFile(filePath, raw, "utf8");
   try {
@@ -796,7 +797,8 @@ test("the data maintenance lock blocks task-data writes until every holder relea
 
 test("the main process locks task-data writes while a data import is running", async () => {
   const mainSource = await fs.readFile(path.join(__dirname, "..", "app", "main", "main.cjs"), "utf8");
-  assert.match(mainSource, /task-data:write"[\s\S]*dataMaintenance\.assertWritable\(\)[\s\S]*writeTaskData\(app\.getPath\("userData"\), data\)/);
+  assert.match(mainSource, /assertWritable: dataMaintenance\.assertWritable/);
+  assert.match(mainSource, /task-data:write"[^\n]*taskStore\.save\(data, revision\)/);
   assert.match(mainSource, /dataMaintenance\.begin\("manual-import"\)/);
   assert.match(mainSource, /if \(error\?\.code !== "IMPORT_ROLLBACK_FAILED"\) dataMaintenance\.end\(\)/);
 });
@@ -3744,7 +3746,9 @@ test("release configuration uses deterministic updater artifacts and excludes de
   assert.match(buildScript, /new Set\(\["latest\.yml", "latest-mac\.yml"\]\)/);
   assert.doesNotMatch(branchWorkflow, /tags:|npm run dist:/, "branch checks must not duplicate release packaging");
   assert.match(workflow, /tags: \["v\*"\]/);
-  assert.match(workflow, /needs:\s*\[prepare, build\]/);
+  assert.match(workflow, /needs:\s*\[prepare, build, cross-platform-task-share\]/);
+  assert.match(workflow, /task-share-packaged\.ui\.cjs produce/);
+  assert.match(workflow, /task-share-packaged\.ui\.cjs consume/);
   assert.match(workflow, /actions\/upload-artifact@v4/);
   assert.match(workflow, /actions\/download-artifact@v4/);
   assert.match(workflow, /node tools\/verify-update-artifacts\.cjs release/);
@@ -7757,6 +7761,7 @@ test('native import releases the write lock on cancellation or successful rollba
       ipcMain: {handle:(_,fn)=>{handler=fn;}}, BrowserWindow:{fromWebContents:()=>({})}, path, process,
       dialog:{showOpenDialog:async()=>({canceled:scenario==='canceled',filePaths:['/synthetic/incoming.loopbackup']}),showMessageBox:async()=>({response:1})},
       app:{getPath:()=>'/synthetic/profile',relaunch(){},exit(){}}, dataMaintenance:lock,
+      taskStore:{serialize:fn=>fn()},
       importBackup:async()=>{ assert.equal(lock.isActive(),true); if(scenario!=='success') throw Object.assign(new Error(scenario),{code:scenario}); return {imported:true}; },
       setTimeout:()=>({unref(){}}),
     });

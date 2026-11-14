@@ -17,7 +17,8 @@ const node = (id, title, children = [], links = [], order = 0) => ({ id, title, 
       node('c', '交付结果', [], [], 4),
     ] })] }, 'node-share-ui');
     const { app, page, profile, errors } = run;
-    const open = async () => { await page.locator('.node-title[data-node-id=a]').click({button:'right'}); await page.getByRole('menuitem',{name:'分享此节点…'}).click(); await page.locator('.node-share-dialog').waitFor(); };
+    const openShare = async () => { await page.locator('.node-title[data-node-id=a]').click({button:'right'}); await page.getByRole('menuitem',{name:'分享此节点…'}).click(); await page.locator('#task-share-scope').waitFor(); };
+    const open = async () => { await openShare(); await page.locator('#task-share-relations').click(); await page.locator('.node-share-dialog').waitFor(); };
     const close = async () => { await page.keyboard.press('Escape'); await page.locator('.node-share-dialog').waitFor({ state: 'detached' }); };
     await open();
     assert.match(await page.locator('#node-share-count').textContent(), /6 个/);
@@ -39,7 +40,7 @@ const node = (id, title, children = [], links = [], order = 0) => ({ id, title, 
     await page.waitForFunction(() => document.activeElement?.matches('.node-title[data-node-id=a]'));
     await page.keyboard.press('Shift+F10');
     await page.getByRole('menuitem', { name: '分享此节点…' }).click();
-    await page.locator('.node-share-relations summary').click();
+    await page.locator('#task-share-relations').click();
     await page.locator('#node-share-search').fill('不相关');
     await page.locator('#node-share-links input[value=unrelated]').check();
     assert.equal(await page.locator('#node-share-export').isDisabled(), true);
@@ -48,44 +49,54 @@ const node = (id, title, children = [], links = [], order = 0) => ({ id, title, 
     // Saved associations survive a close/open; unsaved edits do not leak.
     await close(); await open();
     assert.match(await page.locator('#node-share-count').textContent(), /7 个/);
-    await page.locator('.node-share-relations summary').click();
     await page.locator('#node-share-links input[value=unrelated]').uncheck();
     await close(); await open();
     assert.match(await page.locator('#node-share-count').textContent(), /7 个/);
-    await page.locator('.node-share-relations summary').click();
     await page.locator('#node-share-links input[value=unrelated]').uncheck();
     await page.locator('#node-share-save-links').click();
     assert.match(await page.locator('#node-share-count').textContent(), /6 个/);
 
+    await page.locator('#node-share-return').click();
+    const shared = page.locator('[data-task-share-dialog]');
+    const output = page.locator('#task-share-export');
+    const summary = page.locator('#task-share-summary');
+    const closeShare = async () => { await page.keyboard.press('Escape'); await shared.waitFor({ state: 'detached' }); };
+    await summary.getByText(/3 个节点/).waitFor();
+    assert.equal(await shared.getByLabel('节点记录').isChecked(), false);
+    await shared.getByLabel('子节点深度').selectOption('0');
+    await summary.getByText(/1 个节点/).waitFor();
+    await shared.getByLabel('子节点深度').selectOption('all');
+    await shared.getByLabel('下游关联层数').selectOption('all');
+    await shared.getByLabel('节点记录').check();
+    await summary.getByText(/6 个节点/).waitFor();
+
     // Actual main-process exporter writes Markdown/PDF; only the OS path chooser is automated.
     const md = path.join(evidence, 'selected.md'), pdf = path.join(evidence, 'selected.pdf');
     await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }); }, md);
-    await page.locator('#node-share-export').click();
-    await page.locator('.node-share-dialog').waitFor({ state: 'detached' });
+    await output.click();
+    await summary.getByText(/已导出/).waitFor();
     const markdown = await fs.readFile(md, 'utf8');
     assert.match(markdown, /记录-a11/); assert.match(markdown, /核对需求与证据 → 验证解决方案/);
     assert.doesNotMatch(markdown, /不相关|不应泄露/);
-    await open();
-    await page.locator('#node-share-records').uncheck();
+    await shared.getByLabel('节点记录').uncheck();
     await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }); }, md);
-    await page.locator('#node-share-export').click();
-    await page.locator('.node-share-dialog').waitFor({ state: 'detached' });
+    await output.click();
+    await summary.getByText(/已导出/).waitFor();
     assert.doesNotMatch(await fs.readFile(md, 'utf8'), /记录-/);
-    await open();
+    await page.locator('#task-share-format').selectOption('pdf');
     await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }); }, pdf);
-    await page.locator('#node-share-export').click();
-    await page.locator('.node-share-dialog').waitFor({ state: 'detached' });
+    await output.click();
+    await summary.getByText(/已导出/).waitFor();
     assert.equal((await fs.readFile(pdf)).subarray(0, 4).toString(), '%PDF');
-    await open();
     await app.evaluate(({ dialog }) => { dialog.showSaveDialog = async () => ({ canceled: true }); });
-    await page.locator('#node-share-export').click();
-    await page.waitForFunction(() => !document.querySelector('#node-share-export').disabled);
-    assert.equal(await page.locator('.node-share-dialog').isVisible(), true);
+    await output.click();
+    await page.waitForFunction(() => !document.querySelector('#task-share-export').disabled);
+    assert.equal(await shared.isVisible(), true);
     await app.evaluate(({ dialog }) => { dialog.showSaveDialog = async () => { throw Error('synthetic export failure'); }; });
-    await page.locator('#node-share-export').click();
-    await page.locator('#node-share-error').getByText('导出失败，请重试。').waitFor();
-    assert.equal(await page.locator('#node-share-export').isEnabled(), true);
-    await close();
+    await output.click();
+    await page.locator('#task-share-error').getByText('任务分享操作未完成，请重试。').waitFor();
+    assert.equal(await output.isEnabled(), true);
+    await closeShare();
 
     const focusStates = [];
     for (const theme of ['light', 'dark']) for (const size of [[1024, 680], [1440, 900]]) {
@@ -100,7 +111,6 @@ const node = (id, title, children = [], links = [], order = 0) => ({ id, title, 
       await page.keyboard.press('Escape');
       await open();
       await page.screenshot({ path: path.join(evidence, `${theme}-${size[0]}-share-default.png`) });
-      await page.locator('.node-share-relations summary').click();
       const input = page.locator('#node-share-search');
       for (const interaction of ['default', 'hover', 'focus']) {
         if (interaction === 'hover') await input.hover();

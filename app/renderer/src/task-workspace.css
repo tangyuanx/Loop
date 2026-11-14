@@ -337,3 +337,15 @@ body :is(.flow-scroll,.node-record-window .record-editor,.article-pane) { scroll
 @media (prefers-reduced-motion: reduce) {
   body .flow-branch { transition: none; }
 }
+.task-share-dialog-body { display: grid; gap: 12px; padding: 0 18px 12px; overflow: auto; min-height: 0; }
+.task-share-dialog-body p { margin: 0; }
+.task-share-fields { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.task-share-fields label:not(.node-share-check), .task-share-title, #task-share-status-map label { display: grid; flex: 1; gap: 5px; min-width: 9em; }
+.task-share-toggles { margin-bottom: 9px; }
+.task-share-notes, .task-share-tree, .task-share-preview pre { max-height: 13em; overflow: auto; }
+.task-share-notes { display: grid; gap: 6px; padding: 7px 0; }
+.task-share-notes small { opacity: .68; }
+.task-share-dialog-body summary { cursor: pointer; }
+.task-share-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.task-share-missing li { overflow-wrap: anywhere; }
+.task-share-dialog-body :is(input, select):focus-visible { outline: 1px solid var(--muted); outline-offset: -1px; }

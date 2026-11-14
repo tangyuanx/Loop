@@ -432,6 +432,7 @@ function renderShellTaskList(list) {
         <h2 title="${escAttr(shellListTitle())}"><span class="list-title">${esc(shellListTitle())}</span><span class="count" role="status" aria-live="polite">${list.length}</span></h2>
         <div class="heading-list-actions">
           <button class="scope-filter ${filters.length ? "has-filters" : ""}" type="button" data-action="open-combined-filter" aria-label="筛选记录" aria-haspopup="dialog" title="${filters.length ? escAttr(filters.join(" · ")) : "筛选记录"}">筛选<span class="filter-indicator">${filters.length ? `<span class="filter-count">${filters.length}</span>` : shellIcon("filter")}</span></button>
+          ${shellRoute() === 'tasks' && window.personalTaskTrack?.taskShare ? `<button class="icon-button" type="button" data-action="import-task-share" aria-label="导入任务包" title="导入任务包…" aria-haspopup="dialog">${shellIcon('download')}</button>` : ''}
           <button class="icon-button" type="button" data-action="add-task" aria-label="新建${note ? "速记" : "任务"}" title="新建${note ? "速记" : "任务"}（${desktopPlatform === "darwin" ? "⌘" : "Ctrl"} + N）">${shellIcon("plus")}</button>
         </div>
       </div>

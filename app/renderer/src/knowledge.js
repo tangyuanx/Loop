@@ -261,6 +261,7 @@ function shellKnowledgeFileMenu(trigger) {
       <div class="menu-divider"></div>
       <div class="note23-menu-label">导出</div>
       <button class="button" type="button" role="menuitem" data-action="export-knowledge-note" data-task-id="${escAttr(task.id)}">导出笔记…</button>
+      ${window.personalTaskTrack?.taskShare ? `<button class="button" type="button" role="menuitem" data-action="share-knowledge-note" data-task-id="${escAttr(task.id)}">分享当前笔记…</button>` : ""}
       <button class="button" type="button" role="menuitem" data-action="share-task" data-task-id="${escAttr(state.activeTaskId)}">分享／导出任务…</button>
       ${removable}</div>`,
     trigger,

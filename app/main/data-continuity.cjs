@@ -19,6 +19,7 @@ const MANAGED_ENTRIES = new Set([
   TASK_DATA_FILE,
   "knowledge-note-recovery.json",
   "knowledge-note-recovery",
+  "task-share-assets",
   "deadline-reminders.json",
   "today-widget-preferences.json",
   "update-preferences.json",

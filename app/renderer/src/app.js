@@ -32,7 +32,7 @@ const RECENTLY_DELETED_KEY = "task-track-recently-deleted-v1";
 const RECENTLY_DELETED_SCHEMA_VERSION = 1;
 const KNOWLEDGE_RECOVERY_DEBOUNCE_MS = 800;
 const KNOWLEDGE_RECOVERY_MAX_INTERVAL_MS = 5000;
-const DATA_VERSION = 2;
+const DATA_VERSION = 3;
 const KNOWLEDGE_MIGRATION_VERSION = 2;
 const RECENTLY_DELETED_LIMIT = 500;
 /**
@@ -63,6 +63,8 @@ const RECENTLY_DELETED_LIMIT = 500;
 })();
 
 const desktopStorage = window.personalTaskTrack?.storage;
+let taskShareRevision = 0;
+let taskShareCommitBusy = false;
 const desktopDataBackup = window.personalTaskTrack?.dataBackup;
 const desktopKnowledgeRecovery = window.personalTaskTrack?.knowledgeRecovery;
 const desktopKnowledgeFile = window.personalTaskTrack?.knowledgeFile;
@@ -1795,8 +1797,10 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
     rememberKnowledgeAssetFiles(result.assetFiles, task.knowledgeNote.noteId);
     milkdownEditors.get(noteDraftKey(task.id, ""))?.instance?.acceptSavedAssetReferences?.(result.assetFiles);
     if (hasNewerDraft) {
+      const managed = new Map((result.assetFiles || []).filter(asset => asset.managed).map(asset => [asset.source, asset.relativePath]));
+      if (managed.size) task.notes = window.LoopShareMarkdown.updateDestinations(task.notes, managed);
       for (const asset of result.assetFiles || []) {
-        if (asset.source && asset.relativePath) {
+        if (!asset.managed && asset.source && asset.relativePath) {
           for (const reference of knowledgeDocument.imageReferences(task.notes).filter((item) => item.url === asset.source).reverse()) {
             task.notes = task.notes.slice(0, reference.from) + asset.relativePath + task.notes.slice(reference.to);
           }
@@ -1863,6 +1867,7 @@ async function loadAppData() {
   if (desktopStorage?.read) {
     try {
       const stored = await desktopStorage.read();
+      taskShareRevision = stored?.shareRevision ?? 0;
       const tasks = stored && Array.isArray(stored.tasks) ? normalizeTasks(stored.tasks) : [];
       const nodeStates = LoopNodeStates.normalizeDefinitions(stored?.nodeStates);
       const taskGroups = normalizeTaskGroups(stored?.taskGroups, tasks);
@@ -2029,7 +2034,7 @@ function tasksWithoutBlankNodeDraft() {
 }
 
 function save() {
-  if (dataProtectionMessage || dataTransferInProgress) { updateLocalSaveReceipt(); return; }
+  if (dataProtectionMessage || dataTransferInProgress || taskShareCommitBusy) { updateLocalSaveReceipt(); return; }
   state.knowledgeWorkspace.visible=state.taskPane==='notes';
   const payload = {
     version: DATA_VERSION,
@@ -2174,6 +2179,7 @@ function saveFlowWidths() {
  * Uses a save-in-flight flag to prevent concurrent writes.
  */
 async function flushSave() {
+  if (taskShareCommitBusy) return false;
   window.clearTimeout(saveTimer);
   saveTimer = 0;
   if (dataProtectionMessage || dataTransferInProgress) {
@@ -2197,7 +2203,7 @@ async function flushSave() {
   updateLocalSaveReceipt();
   saveInFlightPromise = (async () => {
     try {
-      await desktopStorage.write(payload);
+      await desktopStorage.write(payload, taskShareRevision);
       lastWrittenPayloadFingerprint = payloadFingerprintValue;
       lastWrittenPersistedRevision = payloadRevision;
       pendingPersistedRevision = payloadRevision;
@@ -8368,11 +8374,17 @@ async function action(data, event = null) {
     return;
   }
   if (data.action === "share-task") {
-    void shareTask(data.taskId);
+    if (window.personalTaskTrack?.taskShare) openTaskShare(data.taskId, { trigger: event?.currentTarget });
+    else void shareTask(data.taskId);
     return;
   }
   if (data.action === "share-node") {
-    openNodeShare(data.taskId, data.nodeId, nodeShareTrigger);
+    if (window.personalTaskTrack?.taskShare) openTaskShare(data.taskId, { nodeId: data.nodeId, trigger: nodeShareTrigger });
+    else openNodeShare(data.taskId, data.nodeId, nodeShareTrigger);
+    return;
+  }
+  if (data.action === "import-task-share") {
+    void openTaskPackageImport();
     return;
   }
   if (data.action === "scroll-sheets") {
@@ -10031,6 +10043,13 @@ function renderInlineMarkdown(value) {
   });
 
   output = output.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) => {
+    const cleaned = cleanMarkdownUrl(url);
+    if (/^loop-asset:asset_[a-f\d-]{36}(?:#.*)?$/.test(cleaned) && typeof taskShareImage === 'function') {
+      const source = taskShareImage('', cleaned);
+      const token = `@@RICH_${richTokens.length}@@`;
+      richTokens.push(`<img data-task-share-src="${escAttr(cleaned)}" ${source ? `src="${escAttr(source)}"` : ''} alt="${escAttr(alt)}" loading="lazy" />`);
+      return token;
+    }
     const safeUrl = resolveMarkdownImageUrl(url);
     if (!safeUrl) return esc(`![${alt}](${url})`);
     const token = `@@RICH_${richTokens.length}@@`;
@@ -10039,6 +10058,12 @@ function renderInlineMarkdown(value) {
   });
 
   output = output.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
+    const cleaned = cleanMarkdownUrl(url);
+    if (/^loop-asset:asset_[a-f\d-]{36}(?:#.*)?$/.test(cleaned)) {
+      const token = `@@RICH_${richTokens.length}@@`;
+      richTokens.push(`<a href="#" data-task-share-asset="${escAttr(cleaned)}">${label}</a>`);
+      return token;
+    }
     const safeUrl = safeMarkdownUrl(url);
     if (!safeUrl) return esc(`[${label}](${url})`);
     const token = `@@RICH_${richTokens.length}@@`;
@@ -10108,6 +10133,7 @@ function safeMarkdownUrl(value) {
 
 function resolveMarkdownImageUrl(value) {
   const cleaned = cleanMarkdownUrl(value);
+  if (cleaned.startsWith('loop-asset:') && typeof taskShareImage === 'function') return escAttr(taskShareImage('', cleaned));
   if (cleaned.startsWith("task-image:")) {
     const imageId = cleaned.slice("task-image:".length);
     const dataUrl = state.attachments?.images?.[imageId];

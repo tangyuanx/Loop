@@ -3,6 +3,8 @@ const fsNative = require("node:fs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { migrateKnowledgeAssets, readKnowledgeAssetFiles } = require("./knowledge-assets.cjs");
+const { copyManagedKnowledgeAssets } = require('./task-share-first-save.cjs');
+const { scan } = require('../renderer/src/task-share-markdown.js');
 const { imageReferences, validateNoteName } = require("../renderer/src/knowledge-core.js");
 
 const saveQueues = new Map();
@@ -275,7 +277,8 @@ async function atomicWriteFile(filePath, content, { fsOps, platform, beforeRepla
 
 // Relative image destinations that live next to the Markdown file.
 function relativeImageDestinations(content) {
-  return imageReferences(content).flatMap(({ url }) => {
+  const shared = scan(content).filter(ref => !ref.definition && /^\.\/attachments\/loop-[a-f\d]{64}\.[a-z\d]+(?:#|$)/.test(ref.destination || ''));
+  return [...imageReferences(content), ...shared.map(ref => ({ url: ref.destination }))].flatMap(({ url }) => {
     if (/^(?:[a-z][a-z0-9+.-]*:|\/|\\)/i.test(url)) return [];
     try {
       return [decodeURIComponent(url.split('#')[0])];
@@ -582,6 +585,7 @@ async function saveKnowledgeDocument(payload, {
   parent = null,
   platform = process.platform,
   fsOps: injectedFsOps,
+  managedAssets = [],
 } = {}) {
   const safePayload = payload && typeof payload === "object" ? payload : {};
   let filePath = safePayload.filePath ? String(safePayload.filePath) : "";
@@ -673,6 +677,17 @@ async function saveKnowledgeDocument(payload, {
           return assetMigrationFailure(error, filePath);
         }
       }
+      if (managedAssets.length) {
+        try {
+          const managed = await copyManagedKnowledgeAssets(targetPath, migrated.content, managedAssets, fsOps);
+          copiedAssets.push(...managed.createdFiles);
+          migrated.content = managed.content;
+          migrated.assetFiles.push(...managed.assetFiles);
+        } catch (error) {
+          await Promise.all((migrated.createdFiles || []).map(created => removeTemporaryFile(created, fsOps)));
+          return assetMigrationFailure(error, filePath);
+        }
+      }
       let written;
       try {
         written = await atomicWriteFile(targetPath, migrated.content, {
@@ -699,6 +714,11 @@ async function saveKnowledgeDocument(payload, {
         throw error;
       }
       committed = true;
+      if (managedAssets.length) {
+        const { assetFiles } = await readKnowledgeAssetFiles(targetPath, migrated.content, { fsOps });
+        const images = new Map(assetFiles.map(asset => [asset.relativePath, asset.dataUrl]));
+        for (const asset of migrated.assetFiles) if (asset.managed && images.has(asset.relativePath)) asset.dataUrl = images.get(asset.relativePath);
+      }
       const { replacement } = written;
       const stats = await fsOps.stat(targetPath);
       const lastSavedHash = crypto.createHash("sha256").update(Buffer.from(migrated.content, "utf8")).digest("hex");
@@ -726,7 +746,7 @@ async function saveKnowledgeDocument(payload, {
   };
   // A failed Save As must finish rolling back before another Save As can reuse
   // the files it created. Ordinary per-document saves retain their own queue.
-  return enqueueSave(queueKey, () => safePayload.sourceFilePath ? enqueueSave("relative-assets", save) : save());
+  return enqueueSave(queueKey, () => safePayload.sourceFilePath || managedAssets.length ? enqueueSave("relative-assets", save) : save());
 }
 
 module.exports = {

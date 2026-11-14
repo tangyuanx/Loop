@@ -1,5 +1,5 @@
 /* Node sharing uses the task document exporter and the real task tree. */
-function openNodeShare(taskId, nodeId, trigger) {
+function openNodeShare(taskId, nodeId, trigger, { onReturn } = {}) {
   const task = state.tasks.find(item => item.id === taskId);
   const node = task && findNode(task.nodes, nodeId);
   if (!node) return;
@@ -11,7 +11,7 @@ function openNodeShare(taskId, nodeId, trigger) {
     ? `.node-title[data-node-id="${CSS.escape(nodeId)}"]`
     : `[data-action="${CSS.escape(origin.dataset.action)}"][data-node-id="${CSS.escape(nodeId)}"]`;
   const levels = (label, id, zero) => `<label class="node-share-level" for="${id}"><span>${label}</span><select id="${id}"><option value="all">全部</option><option value="0">${zero}</option><option value="1">1 层</option><option value="2">2 层</option><option value="3">3 层</option></select></label>`;
-  shellKnowledgeDialog('分享节点', `<div class="node-share-panel">
+  shellKnowledgeDialog(onReturn ? '维护后续关联' : '分享节点', `<div class="node-share-panel">
     <p class="node-share-title">${shellIcon('note')}<span>${esc(node.title || '未命名节点')}</span></p>
     <div class="node-share-layout">
       <div class="node-share-settings">
@@ -29,12 +29,16 @@ function openNodeShare(taskId, nodeId, trigger) {
       <section class="node-share-preview" aria-label="分享范围预览"><div class="node-share-preview-head"><h3>内容预览</h3><p id="node-share-count" role="status" aria-live="polite" aria-atomic="true"></p></div><ul id="node-share-preview"></ul></section>
     </div>
     <p id="node-share-error" class="error" role="alert"></p>
-  </div>`, '<span class="node-share-format">Markdown / PDF</span><button class="button" type="button" data-action="close-dialog">取消</button><button class="button primary" type="button" id="node-share-export">导出…</button>', 720);
+  </div>`, onReturn ? '<button class="button primary" type="button" id="node-share-return">返回分享</button><button type="button" id="node-share-export" hidden></button>' : '<span class="node-share-format">Markdown / PDF</span><button class="button" type="button" data-action="close-dialog">取消</button><button class="button primary" type="button" id="node-share-export">导出…</button>', 720);
   const panel = document.querySelector('.node-share-panel');
   const dialog = panel.closest('.dialog');
   dialog.classList.add('node-share-dialog');
   dialog.parentElement.dataset.returnFocus = returnSelector;
   const get = id => dialog.querySelector(`#node-share-${id}`);
+  if (onReturn) {
+    dialog.querySelector('.node-share-relations').open = true;
+    get('return').onclick = onReturn;
+  }
   const options = () => ({ childDepth: get('children').value, downstreamDepth: get('downstream').value });
   const current = () => state.tasks.find(item => item.id === taskId);
   let draftLinks = new Set(node.downstreamNodeIds || []);

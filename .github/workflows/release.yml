@@ -139,6 +139,26 @@ jobs:
             ${{ runner.temp }}/knowledge-search/evidence
           retention-days: 7
           if-no-files-found: warn
+      - name: Export sample with the packaged Loop application
+        env:
+          LOOP_TASK_SHARE_QA_DIR: ${{ runner.temp }}/task-share-evidence
+        run: node tests/task-share-packaged.ui.cjs produce "${{ runner.temp }}/task-share-evidence/sample.looptask"
+      - name: Preserve task-package sender evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task-share-sender-${{ matrix.platform }}
+          path: ${{ runner.temp }}/task-share-evidence
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Preserve the packaged candidate for cross-platform verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: task-share-candidate-${{ matrix.platform }}
+          path: ${{ matrix.platform == 'macOS' && 'release/Loop-*.zip' || 'release/Loop-*-x64-setup.exe' }}
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
       - name: Verify update metadata against real bytes
         run: node tools/verify-update-artifacts.cjs release
       - name: Upload verified assets directly to draft
@@ -157,9 +177,81 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  cross-platform-task-share:
+    name: Verify task package on ${{ matrix.platform }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macOS
+            sender: Windows
+            os: macos-latest
+          - platform: Windows
+            sender: macOS
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            services/bug-report/package-lock.json
+      - run: npm ci
+      - name: Download the packaged receiver
+        uses: actions/download-artifact@v4
+        with:
+          name: task-share-candidate-${{ matrix.platform }}
+          path: ${{ runner.temp }}/task-share-candidate
+      - name: Download the opposite-platform sample
+        uses: actions/download-artifact@v4
+        with:
+          name: task-share-sender-${{ matrix.sender }}
+          path: ${{ runner.temp }}/task-share-sender
+      - name: Launch the packaged macOS application
+        if: matrix.platform == 'macOS'
+        shell: bash
+        run: |
+          arch=$(uname -m)
+          if [ "$arch" = x86_64 ]; then arch=x64; fi
+          archive=("$RUNNER_TEMP"/task-share-candidate/Loop-*-"$arch".zip)
+          test "${#archive[@]}" -eq 1 && test -f "${archive[0]}"
+          mkdir "$RUNNER_TEMP/task-share-receiver"
+          ditto -x -k "${archive[0]}" "$RUNNER_TEMP/task-share-receiver"
+          executable="$RUNNER_TEMP/task-share-receiver/Loop.app/Contents/MacOS/Loop"
+          test -x "$executable"
+          echo "LOOP_APP_EXECUTABLE=$executable" >> "$GITHUB_ENV"
+      - name: Install the Windows receiver
+        if: matrix.platform == 'Windows'
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'task-share-candidate') -Filter 'Loop-*-x64-setup.exe')
+          if ($installers.Count -ne 1) { throw 'Expected a single Windows candidate installer.' }
+          $destination = Join-Path $env:RUNNER_TEMP 'task-share-receiver'
+          $process = Start-Process -FilePath $installers[0].FullName -ArgumentList @('/S', "/D=$destination") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Windows installer failed: $($process.ExitCode)" }
+          $executable = Join-Path $destination 'Loop.exe'
+          if (-not (Test-Path -LiteralPath $executable)) { throw 'Packaged Loop.exe is missing.' }
+          "LOOP_APP_EXECUTABLE=$executable" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Import and first-save the opposite-platform sample
+        env:
+          LOOP_TASK_SHARE_QA_DIR: ${{ runner.temp }}/task-share-receiver-evidence
+        run: node tests/task-share-packaged.ui.cjs consume "${{ runner.temp }}/task-share-sender/sample.looptask"
+      - name: Preserve task-package receiver evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task-share-receiver-${{ matrix.platform }}
+          path: ${{ runner.temp }}/task-share-receiver-evidence
+          if-no-files-found: warn
+          retention-days: 7
+
   publish:
     name: Publish complete verified release
-    needs: [prepare, build]
+    needs: [prepare, build, cross-platform-task-share]
     concurrency:
       group: release-publication
       cancel-in-progress: false

@@ -12,7 +12,17 @@ contextBridge.exposeInMainWorld("personalTaskTrack", {
   environment: ipcRenderer.sendSync("app:environment"),
   storage: {
     read: () => ipcRenderer.invoke("task-data:read"),
-    write: (data) => ipcRenderer.invoke("task-data:write", data),
+    write: (data, revision) => ipcRenderer.invoke("task-data:write", data, revision),
+  },
+  taskShare: {
+    prepare: payload => ipcRenderer.invoke('task-share:prepare', payload),
+    locate: payload => ipcRenderer.invoke('task-share:locate', payload),
+    export: payload => ipcRenderer.invoke('task-share:export', payload),
+    reveal: payload => ipcRenderer.invoke('task-share:reveal', payload),
+    inspect: () => ipcRenderer.invoke('task-share:inspect'),
+    commit: payload => ipcRenderer.invoke('task-share:commit', payload),
+    asset: payload => ipcRenderer.invoke('task-share:asset', payload),
+    cancel: token => ipcRenderer.invoke('task-share:cancel', { token }),
   },
   dataBackup: {
     export: () => ipcRenderer.invoke("data-backup:export"),

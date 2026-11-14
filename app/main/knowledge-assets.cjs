@@ -187,7 +187,7 @@ async function readKnowledgeAssetFiles(markdownPath, content, { fsOps: injectedF
     const reference = match.url;
     if (!reference || /^(?:[a-z][a-z0-9+.-]*:|\/|\\)/i.test(reference)) return;
     let decoded;
-    try { decoded = decodeURIComponent(reference); } catch { return; }
+    try { decoded = decodeURIComponent(reference.split('#')[0]); } catch { return; }
     const extension = path.extname(decoded).slice(1).toLowerCase();
     if (!EXTENSION_MIME[extension] && extension !== "jpeg") return;
     if (decoded.split(/[\\/]/).includes("..")) return;
@@ -198,7 +198,7 @@ async function readKnowledgeAssetFiles(markdownPath, content, { fsOps: injectedF
   const result = [];
   const missingAssetFiles = [];
   for (const relativePath of references) {
-    const decoded = decodeURIComponent(relativePath);
+    const decoded = decodeURIComponent(relativePath.split('#')[0]);
     const relativeName = path.basename(decoded);
     const filePath = path.resolve(path.dirname(markdownPath), decoded);
     try {

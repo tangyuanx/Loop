@@ -99,6 +99,11 @@ try {
         $taskDataPath = Join-Path $userDataDir "task-data.json"
         Set-Content -LiteralPath $taskDataPath -Value "{`"marker`":`"$marker`",`"tasks`":[]}" -Encoding UTF8
         $beforeHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $taskDataPath).Hash
+        $shareAssetRelative = 'task-share-assets\task_178a2e09-1c92-4170-a8b2-3b20c30d27ef\attachment.txt'
+        $shareAsset = Join-Path $userDataDir $shareAssetRelative
+        New-Item -ItemType Directory -Path (Split-Path -Parent $shareAsset) -Force | Out-Null
+        Set-Content -LiteralPath $shareAsset -Value 'Loop #103 fixture' -Encoding UTF8
+        $assetHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $shareAsset).Hash
         New-LegacyBackupTree -InstalledVersion $installedVersion
 
         Invoke-Installer -Path $candidate -ExtraArguments @("--updated")
@@ -132,6 +137,10 @@ try {
             throw "The candidate copied historical installation backups into the fresh backup tree."
         }
         $markerFile = Join-Path $env:APPDATA "Personal Task Track Upgrade Backups\installer-pre-$expectedVersion\legacy-install-backups-location.txt"
+        $assetBackup = Join-Path (Split-Path -Parent $markerFile) (Join-Path (Split-Path -Leaf $userDataDir) $shareAssetRelative)
+        if (-not (Test-Path -LiteralPath $assetBackup -PathType Leaf) -or (Get-FileHash -Algorithm SHA256 -LiteralPath $assetBackup).Hash -ne $assetHash) {
+            throw "The installer did not preserve the task-share attachment backup while upgrading v$installedVersion."
+        }
         if (-not (Test-Path -LiteralPath $markerFile -PathType Leaf)) {
             throw "The quarantine marker is missing after upgrading v$installedVersion."
         }

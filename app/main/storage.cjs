@@ -19,7 +19,7 @@ const workNavigationModel = require("../renderer/src/work-navigation-model.js");
 const nodeStates = require("../renderer/src/node-states.js");
 
 const DATA_FILE = "task-data.json";
-const DATA_VERSION = 2;
+const DATA_VERSION = 3;
 const KNOWLEDGE_MIGRATION_VERSION = 2;
 // Phase26 -- Recently Deleted.
 //
@@ -162,7 +162,7 @@ function normalizeTaskData(data) {
   const taskGroups = normalizeTaskGroups(safeData.taskGroups, tasks);
   const legacyFonts = migrateLegacyFont(safeData.font);
   return {
-    version: DATA_VERSION,
+    version: tasks.some(task => task.sharedAssets?.length) || safeData.recentlyDeleted?.some?.(entry => entry.record?.sharedAssets?.length) ? DATA_VERSION : 2,
     knowledgeSchemaVersion: KNOWLEDGE_MIGRATION_VERSION,
     recentlyDeletedSchemaVersion: RECENTLY_DELETED_SCHEMA_VERSION,
     recentlyDeleted: normalizeRecentlyDeleted(safeData.recentlyDeleted),
@@ -598,6 +598,7 @@ async function backupCorruptData(userDataPath) {
 
 module.exports = {
   DATA_FILE,
+  DATA_VERSION,
   isNewerThanSupported,
   readOnDiskDataVersion,
   KNOWLEDGE_MIGRATION_VERSION,
