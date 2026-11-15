@@ -9,8 +9,28 @@ const report = { checks: [], layouts: [], limitations: ['Physical native title-b
   await fs.mkdir(evidence, { recursive: true });
   const run = await launchRepository({ tasks: [task('today', { title: '保留真实任务与处理流', tags: { today: true } })], activeTaskId: 'today', taskGroups: [{ id: 'work', title: '工作', order: 1 }] }, 'stage3-create-widget');
   const { app, page, errors, profile } = run;
+  const form = page.locator('#create-form');
+  const attribute = name => form.locator(`[data-entry16="${name}"]`);
+  const section = form.locator('#entry16-section');
   const check = text => { report.checks.push(text); console.log('PASS ' + text); };
   const settle = p => p.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const checkNeutralFields = async (selectors) => {
+    for (const selector of selectors) {
+      for (const state of ['default', 'hover', 'focus']) {
+        const el = form.locator(selector);
+        if (state === 'hover') await el.hover();
+        if (state === 'focus') await el.focus();
+        const paints = await el.evaluate(el => [el, el.parentElement, el.parentElement.parentElement].map(el => {
+          const style = getComputedStyle(el);
+          return [style.borderWidth === '0px' ? '' : style.borderColor, style.outlineStyle === 'none' ? '' : style.outlineColor, style.boxShadow];
+        }));
+        for (const value of paints.flat()) for (const match of value.matchAll(/rgba?\((\d+), (\d+), (\d+)(?:, ([\d.]+))?\)/g)) {
+          if (match[4] === '0') continue;
+          assert.ok(!(+match[2] > +match[1] + 12 && +match[2] > +match[3] + 8), `${selector} ${state}: ${value}`);
+        }
+      }
+    }
+  };
   const native = async (action, value) => app.evaluate(({ BrowserWindow }, { action, value }) => {
     const w = BrowserWindow.getAllWindows().find(w => w.webContents.getURL().endsWith('/today-widget.html'));
     if (action === 'bounds') return w.getBounds();
@@ -19,24 +39,35 @@ const report = { checks: [], layouts: [], limitations: ['Physical native title-b
   }, { action, value });
   try {
     await page.locator('[data-action="add-task"]').click();
+    assert.deepEqual(await form.locator('.entry16-attributes button').allTextContents(), ['今日', '分组', '截止', '优先级', '循环']);
+    await section.waitFor({ state: 'hidden' });
     await page.locator('#create-title').fill('创建草稿');
     await page.locator('#create-description').fill('保留第一行\n背景第二行');
+    await attribute('group').press('Enter');
+    await form.locator('[data-entry16-group="work"]').click();
+    await form.locator('[data-entry16="group"]:focus').waitFor();
+    await attribute('priority').click();
     await page.locator('[data-entry16-priority="high"]').click();
-    await page.locator('[data-entry16="date"]').click();
-    await page.locator('[data-entry16-date]').nth(1).click();
-    await page.locator('[data-entry16="cycle"]').click();
+    await attribute('today').click();
+    await attribute('date').click();
+    await form.getByRole('button', { name: '明天', exact: true }).click();
+    const deadline = await form.locator('#create-deadline').inputValue();
+    const deadlineTime = await form.locator('#create-time').inputValue();
+    await attribute('cycle').click();
+    assert.equal(await form.locator('#create-deadline').count(), 0);
     await page.locator('[data-entry16-frequency="weekly"]').click();
-    await page.locator('#create-group').selectOption('work');
-    await page.locator('[name="today"]').check();
     await page.keyboard.press('Escape');
     await page.locator('[data-action="add-task"]').click();
     assert.equal(await page.locator('#create-title').inputValue(), '创建草稿');
     assert.equal(await page.locator('#create-description').inputValue(), '保留第一行\n背景第二行');
-    assert.equal(await page.locator('#create-group').inputValue(), 'work');
-    assert.equal(await page.locator('[data-entry16-priority="high"]').getAttribute('aria-pressed'), 'true');
-    assert.equal(await page.locator('[name="today"]').isChecked(), true);
+    await section.waitFor({ state: 'hidden' });
+    assert.equal(await attribute('group').innerText(), '工作');
+    assert.equal(await attribute('priority').innerText(), '优先级 · 高');
+    assert.equal(await attribute('today').getAttribute('aria-pressed'), 'true');
+    await attribute('date').click();
+    assert.equal(await form.locator('#create-deadline').inputValue(), deadline);
+    await attribute('cycle').click();
     assert.equal(await page.locator('[data-entry16-frequency="weekly"]').getAttribute('aria-pressed'), 'true');
-    const deadline = await page.locator('#create-deadline').inputValue();
     await page.locator('#create-title').evaluate(el => {
       el.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
       el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }));
@@ -44,7 +75,7 @@ const report = { checks: [], layouts: [], limitations: ['Physical native title-b
     });
     assert.equal(await page.evaluate(() => state.tasks.length), 1);
     await page.locator('#create-form button[type="submit"]').focus(); await page.keyboard.press('Tab');
-    assert.equal(await page.evaluate(() => document.activeElement?.dataset.composerType), 'task');
+    assert.equal(await page.evaluate(() => document.activeElement?.dataset.action), 'close-dialog');
     await page.keyboard.press('Shift+Tab');
     assert.equal(await page.evaluate(() => document.activeElement?.type), 'submit');
     check('dismiss/reopen retains all task fields; IME Enter is ignored and Tab stays inside the dialog');
@@ -65,18 +96,12 @@ const report = { checks: [], layouts: [], limitations: ['Physical native title-b
       await page.locator('[data-entry16-weekday="0"]').click();
       const after = await page.locator('.entry16-body').evaluate(el => el.scrollTop);
       assert.ok(Math.abs(top - after) < 2, `disclosure must preserve scroll: ${top} -> ${after}`);
-      for (const selector of ['#create-title', '#create-description', '#create-group', '#create-deadline', '#create-time', '#create-reminder', '#create-cycle-time']) {
-        for (const state of ['default', 'hover', 'focus']) {
-          const el = page.locator(selector);
-          if (state === 'hover') await el.hover();
-          if (state === 'focus') await el.focus();
-          const paints = await el.evaluate(el => [el, el.parentElement, el.parentElement.parentElement].map(el => { const s = getComputedStyle(el); return [s.borderWidth === '0px' ? '' : s.borderColor, s.outlineStyle === 'none' ? '' : s.outlineColor, s.boxShadow]; }));
-          for (const value of paints.flat()) for (const match of value.matchAll(/rgba?\((\d+), (\d+), (\d+)(?:, ([\d.]+))?\)/g)) {
-            if (match[4] === '0') continue;
-            assert.ok(!(+match[2] > +match[1] + 12 && +match[2] > +match[3] + 8), `${selector} ${state}: ${value}`);
-          }
-        }
-      }
+      await checkNeutralFields(['#create-title', '#create-description', '#create-cycle-time', '[data-entry16=today]']);
+      await attribute('group').click();
+      await checkNeutralFields(['[data-entry16-group="work"]']);
+      await attribute('date').click();
+      await checkNeutralFields(['#create-deadline', '#create-time', '#create-reminder']);
+      await attribute('cycle').click();
       await page.locator('#create-title').focus();
       if (!process.env.LOOP_STAGE3_FUNCTIONAL_ONLY) await page.screenshot({ path: path.join(evidence, `create-${theme}-${width}-${scale}.png`) });
       report.layouts.push({ theme, scale, ...layout });
@@ -89,15 +114,17 @@ const report = { checks: [], layouts: [], limitations: ['Physical native title-b
     const created = disk.tasks.find(t => t.title === '创建草稿');
     assert.ok(created); assert.equal(created.description, '保留第一行\n背景第二行');
     assert.equal(created.groupId, 'work'); assert.equal(created.priority, 'high'); assert.equal(created.tags.today, true);
-    assert.ok(created.deadlineAt.startsWith(deadline)); assert.equal(created.recurrence.frequency, 'weekly');
+    assert.equal(created.deadlineAt, new Date(`${deadline}T${deadlineTime}:00`).toISOString()); assert.equal(created.recurrence.frequency, 'weekly');
     await page.locator('[data-action="add-task"]').click();
     await page.locator('[data-composer-type="quick"]').click();
     await page.locator('#create-title').fill('取消不创建');
     await page.locator('[data-entry16="cancel"]').click();
+    await form.waitFor({ state: 'detached' });
     await page.waitForFunction(() => document.activeElement?.dataset.action === 'add-task');
     await page.locator('[data-action="add-task"]').click();
     assert.equal(await page.locator('#create-title').inputValue(), '');
-    await page.locator('[data-entry16="cancel"]').click();
+    await page.keyboard.press('Escape');
+    await form.waitFor({ state: 'detached' });
     check('creation persists one task with its properties; cancel clears the draft and returns keyboard focus');
 
     const widget = app.windows().find(p => p.url().endsWith('/today-widget.html')) || await app.waitForEvent('window');

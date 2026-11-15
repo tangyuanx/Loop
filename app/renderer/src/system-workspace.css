@@ -1,57 +1,154 @@
 /* Stage 6: settings, recovery, help and system feedback. Shared input and
  * keyboard-focus rules remain in foundation, loaded immediately after this. */
-/* The live creation dialog shares the workspace's compact form vocabulary;
- * task-entry.css remains the frozen historical baseline. */
+/* Task composer layout. The shared field and focus tokens come from foundation. */
 body .entry16-dialog.dialog {
-  width: min(540px, calc(100vw - 32px));
-  max-height: calc(100dvh - 48px);
-  color: var(--workspace-text);
-  background: var(--workspace-canvas);
-  --canvas: var(--workspace-canvas); --list: var(--workspace-list);
-  --text: var(--workspace-text); --secondary: var(--workspace-secondary);
+  --canvas: var(--workspace-canvas);
+  --list: var(--workspace-list);
+  --text: var(--workspace-text);
+  --secondary: var(--workspace-secondary);
   --line: var(--workspace-line);
+  --entry-padding: clamp(16px, 4vw, 24px);
+  width: min(510px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  background: var(--canvas);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 14px;
   font-size: var(--type-13);
   line-height: 1.6;
 }
-body .entry16-dialog .dialog-head { padding: 18px 20px; gap: 12px; }
-body .entry16-dialog .dialog-head h2 { font-size: var(--type-14); font-weight: var(--ui-emphasis-weight); line-height: 1.5; white-space: nowrap; }
-/* The frozen control skin targets #overlay labels and field classes. Scope
- * this form's type roles explicitly so every control follows the same scale. */
+
+.entry16-title-row {
+  display: grid;
+  flex-shrink: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "title close";
+  align-items: start;
+  column-gap: 12px;
+  padding: 16px var(--entry-padding) 2px;
+}
+.entry16-title-field { grid-area: title; }
+.entry16-title-row .icon-button { grid-area: close; margin-inline-end: -6px; align-self: start; }
+
 #overlay #create-form :is(button, input, textarea, select) { font-size: var(--type-13); line-height: 1.6; }
 #overlay #create-form :is(label, small, .entry16-status, .schedule-hint, .error) {
   font-size: var(--type-12);
   line-height: 1.65;
 }
-body .entry16-dialog .dialog-head .icon-button { margin-left: 0; flex-shrink: 0; }
-body .entry16-dialog .entry16-types { margin: 0 0 0 auto; flex-shrink: 0; }
-body .entry16-dialog .entry16-types button { padding: 4px 12px; }
-body .entry16-dialog .entry16-body { padding: 0 20px 16px; overscroll-behavior: contain; }
-body .entry16-dialog .entry16-writing { gap: 14px; }
-body .entry16-dialog #create-title { height: 40px; font-weight: var(--ui-emphasis-weight); }
-body .entry16-dialog #create-description { min-height: 72px; max-height: 240px; }
-body .entry16-dialog .entry16-meta { margin-top: 16px; gap: 14px; }
-body .entry16-dialog .entry16-priorities { min-height: 34px; }
-body .entry16-dialog .entry16-priorities button.active,
-body .entry16-dialog .recurrence-weekdays button.active {
-  color: var(--text); border-color: var(--input-focus); background: var(--list);
+body .entry16-dialog .entry16-body { padding: 0 var(--entry-padding) 9px; overscroll-behavior: contain; }
+#overlay #create-form :is(#create-title, #create-description) {
+  display: block;
+  height: auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 3px 0 5px;
+  color: var(--text);
+  background: transparent;
+  box-shadow: none;
+  outline: none;
 }
-body .entry16-dialog .entry16-today { margin-top: 14px; min-height: 24px; }
-body .entry16-dialog .entry16-options { margin-top: 14px; }
-body .entry16-dialog .entry16-disclosure { padding-block: 10px; }
-body .entry16-dialog .entry16-disclosure:hover { color: var(--text); }
-body .entry16-dialog .entry16-disclosure > svg:last-child { transition: transform 150ms ease-out; }
-body .entry16-dialog .entry16-disclosure[aria-expanded="true"] > svg:last-child { transform: rotate(90deg); }
-body .entry16-dialog .entry16-setting { padding-bottom: 12px; }
-body .entry16-dialog footer { padding: 12px 20px; gap: 8px; flex-wrap: wrap; }
-body .entry16-dialog .entry16-status { flex: 1 1 190px; line-height: 1.6; }
-@media (max-width: 560px) {
+#overlay #create-form :is(#create-title, #create-description):focus {
+  box-shadow: inset 0 -1px 0 var(--input-focus);
+}
+#overlay #create-form #create-title {
+  font-size: calc(18px * var(--font-scale, 1));
+  line-height: 1.4;
+  font-weight: var(--ui-emphasis-weight);
+}
+#overlay #create-form #create-title::placeholder {
+  color: var(--secondary);
+  font-weight: var(--ui-body-weight);
+}
+#overlay #create-form #create-description {
+  font-size: var(--type-13);
+  field-sizing: content;
+  min-height: 28px;
+  max-height: 9lh;
+  resize: none;
+}
+#overlay #create-form #create-description::placeholder { color: var(--secondary); }
+#overlay #create-form #create-title[aria-invalid="true"]:focus { box-shadow: inset 0 -1px 0 var(--orange); }
+
+#create-form [hidden] { display: none; }
+.entry16-attributes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 7px 0 0 -6px;
+}
+#overlay #create-form .entry16-attribute {
+  min-height: 29px;
+  max-width: min(12em, 100%);
+  gap: 5px;
+  padding: 3px 7px;
+  color: var(--secondary);
+  font-size: var(--type-12);
+}
+.entry16-attribute > svg { width: 13px; height: 13px; }
+.entry16-attribute > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#overlay #create-form .entry16-attribute:is(.is-set, [aria-expanded="true"]) {
+  color: var(--text);
+  background-color: var(--list);
+}
+#overlay #create-form .entry16-attribute[aria-expanded="true"] {
+  box-shadow: inset 0 -1px 0 var(--input-focus);
+}
+.entry16-section { margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.entry16-group-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 138px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.entry16-group-choices button {
+  max-width: 100%;
+  min-height: 32px;
+  padding: 3px 9px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  color: var(--secondary);
+}
+body .entry16-dialog .entry16-priorities { min-height: 32px; justify-content: flex-start; }
+body .entry16-dialog .entry16-priorities button { flex: 0 0 44px; }
+body .entry16-dialog :is(.entry16-group-choices, .entry16-priorities, .recurrence-weekdays) button.active {
+  color: var(--text);
+  border-color: var(--input-focus);
+  background: var(--list);
+}
+body .entry16-dialog footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 10px var(--entry-padding) 12px;
+  gap: 6px 8px;
+  background: var(--canvas);
+}
+.entry16-tools { display: flex; flex-wrap: wrap; gap: 2px 7px; }
+.entry16-tools button { padding: 4px 7px; min-height: 32px; color: var(--secondary); }
+.entry16-tools button:not(:disabled):hover { color: var(--text); }
+.entry16-status { grid-column: 1 / -1; margin: 0; }
+.entry16-status:empty { display: none; }
+#overlay #create-form .entry16-status.error { margin: 0; }
+#overlay #create-form .entry16-submit {
+  gap: 9px;
+  padding: 3px 11px;
+  border: 0;
+  border-radius: 7px;
+  min-height: 34px;
+  background: var(--text);
+  color: var(--canvas);
+}
+#overlay #create-form .entry16-submit:not(:disabled):hover {
+  background: color-mix(in srgb, var(--text) 86%, var(--canvas));
+}
+.entry16-enter { font-size: 1em; opacity: .72; }
+@media (max-width: 590px) {
   body .entry16-dialog .entry16-date-grid { grid-template-columns: minmax(0, 1fr) minmax(90px, .7fr); }
   body .entry16-dialog .entry16-date-grid > :last-child { grid-column: 1 / -1; }
   body .entry16-dialog .entry16-cycle-fields { grid-template-columns: minmax(0, 1fr); }
-  body .entry16-dialog .entry16-meta { grid-template-columns: minmax(0, 1fr); }
-}
-@media (prefers-reduced-motion: reduce) {
-  body .entry16-dialog .entry16-disclosure > svg:last-child { transition: none; }
 }
 body .workspace:has(> .settings-layout),
 body .manual27-workspace,

@@ -68,7 +68,7 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     await title.press('Enter');
     assert.equal(await count(), 1);
     await title.dispatchEvent('compositionend');
-    await form.getByRole('button', { name: '截止与提醒' }).click();
+    await form.locator('[data-entry16="date"]').click();
     await form.locator('#create-deadline').press('Enter');
     assert.equal(await count(), 1, 'the date control does not submit the form');
     assert.equal(await form.getAttribute('aria-busy'), null);
@@ -118,7 +118,7 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     assert.equal((await disk()).filter(task => task.title === '修改后创建').length, 1);
 
     await open();
-    await form.getByRole('button', { name: '速记', exact: true }).click();
+    await form.getByRole('button', { name: '改为速记', exact: true }).click();
     await title.fill('主窗口速记');
     await title.press('ControlOrMeta+Enter');
     await form.waitFor({ state: 'detached' });

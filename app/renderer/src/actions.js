@@ -120,17 +120,7 @@ function shellOverlayDismissBlocked() {
  */
 
 // ============================================================
-// 新建任务 / 速记对话框  (Demo phase 16)
-//
-// Structure, copy and interaction are ported from the frozen Demo's
-// loop-task-phase16.js: a single dialog that leads with title/content,
-// keeps group/priority/Today secondary and discloses deadline/reminder and
-// recurrence on demand. The draft survives dismissal and is dropped only on
-// an explicit 取消, matching the Demo's contract.
-//
-// The project has no store of its own for this draft, so it lives on
-// state.createDraft; submission goes through the project's own createTask()
-// and then applies the chosen properties.
+// 新建任务 / 速记。先填写标题，任务属性按需展开。
 // ============================================================
 
 const SHELL_WEEKDAY_LABELS = { 0: "日", 1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六" };
@@ -160,8 +150,7 @@ function shellCreateDraftFresh() {
     deadlineTime: "18:00",
     reminder: "60",
     recurrence: { frequency: "none", time: "09:00", weekdays: [1, 2, 3, 4, 5], lastCompletedOccurrence: "" },
-    dateOpen: false,
-    cycleOpen: false,
+    sectionOpen: "",
   };
 }
 
@@ -188,7 +177,10 @@ function shellCreateDraftValues(draft) {
 function shellHasUnsubmittedCreateDraft() {
   shellCaptureCreateDraft();
   const draft = state.createDraft;
-  if (!draft) return false;
+  return draft ? shellHasCreateDraftValues(draft) : false;
+}
+
+function shellHasCreateDraftValues(draft) {
   const values = shellCreateDraftValues(draft);
   if (draft.kind === "quick") {
     return Boolean(values.title || values.description || values.groupId !== shellCreateInitialValues?.groupId);
@@ -206,72 +198,102 @@ function shellCreateChoice(value, label, attribute, active) {
   return `<button type="button" ${attribute}="${value}" class="${active ? "active" : ""}" aria-pressed="${active}">${label}</button>`;
 }
 
+function shellCreateAttribute(draft, { key, icon, label, value = "", detail = "" }) {
+  const toggle = key === "today";
+  const active = toggle ? draft.today : Boolean(value);
+  const name = detail ? `${label}：${detail}` : label;
+  return `<button type="button" class="entry16-attribute${active ? " is-set" : ""}" data-entry16="${key}" aria-label="${escAttr(name)}" title="${escAttr(name)}"
+    ${toggle ? `aria-pressed="${draft.today}"` : `aria-expanded="${draft.sectionOpen === key}" aria-controls="entry16-section"`}>${shellIcon(icon)}<span>${esc(value || label)}</span></button>`;
+}
+
+function shellCreateDeadlineLabel(draft) {
+  return draft.deadline ? `${draft.deadline} · ${draft.deadlineTime}` : "未设置";
+}
+
+function shellCreateSection(draft, groups, error) {
+  const { sectionOpen, recurrence } = draft;
+  if (sectionOpen === "group") {
+    return `<div class="entry16-group-choices" role="group" aria-label="选择分组">${groups.map((group) => shellCreateChoice(escAttr(group.id), esc(group.title), "data-entry16-group", draft.groupId === group.id)).join("")}</div>`;
+  }
+  if (sectionOpen === "priority") {
+    return `<div class="entry16-priorities" role="group" aria-label="选择优先级">${Object.entries(priorityLabels).map(([value, label]) => shellCreateChoice(value, label, "data-entry16-priority", draft.priority === value)).join("")}</div>`;
+  }
+  if (sectionOpen === "date") {
+    return `<div class="entry16-date-grid">
+              <div><label for="create-deadline">截止日期</label><input type="date" id="create-deadline" name="deadline" value="${escAttr(draft.deadline)}" /></div>
+              <div><label for="create-time">时间</label><input type="time" id="create-time" name="deadlineTime" value="${escAttr(draft.deadlineTime)}" ${draft.deadline ? "" : "disabled"} /></div>
+              <div><label for="create-reminder">系统提醒</label><select id="create-reminder" name="reminder" ${draft.deadline ? "" : "disabled"}>${Object.entries(deadlineReminderLabels).map(([value, label]) => `<option value="${value}" ${value === draft.reminder ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></div>
+            </div>
+            <p class="error" role="status">${error === "请补全有效的日期与时间" ? esc(error) : ""}</p>
+            <div class="entry16-shortcuts">${[["", "今天"], [shellCreateDate(1), "明天"], [shellCreateDate(7), "一周后"], ["", "清除"]].map(([value, label], index) => `<button type="button" data-entry16-date="${index === 3 ? "" : value || shellCreateDate(0)}">${label}</button>`).join("")}</div>`;
+  }
+  if (sectionOpen === "cycle") {
+    return `<div class="recurrence-modes" role="group" aria-label="循环周期">${[["none", "不循环"], ["daily", "每天"], ["weekly", "每周"]].map(([value, label]) => shellCreateChoice(value, label, "data-entry16-frequency", recurrence.frequency === value)).join("")}</div>
+            ${recurrence.frequency === "none" ? "" : `<div class="entry16-cycle-fields">
+              <div><label for="create-cycle-time">进入今日的时间</label><input type="time" id="create-cycle-time" name="cycleTime" value="${escAttr(recurrence.time)}" /></div>
+              ${recurrence.frequency === "weekly" ? `<div><label id="entry16-week-label">重复日期</label><div class="recurrence-weekdays" role="group" aria-labelledby="entry16-week-label">${recurrenceWeekdayOrder.map((day) => shellCreateChoice(day, SHELL_WEEKDAY_LABELS[day], "data-entry16-weekday", recurrence.weekdays.includes(day))).join("")}</div></div>` : ""}
+            </div>
+            <p class="error" role="status">${error === "请为每周循环选择至少一天" ? esc(error) : ""}</p>
+            <p class="schedule-hint">到期后进入今日；完成本次后，下个周期重新出现。</p>`}`;
+  }
+  return "";
+}
+
 function shellRenderCreateDialog(focusSelector) {
   const overlay = shellOverlay();
   if (!overlay) return;
   const scrollTop = overlay.querySelector(".entry16-body")?.scrollTop || 0;
   const draft = state.createDraft;
   const quick = draft.kind === "quick";
-  const recurrence = draft.recurrence;
   const error = state.createError || "";
+  const edited = shellHasCreateDraftValues(draft);
   const groups = [{ id: "", title: "未分组" }, ...sort(state.taskGroups).map((group) => ({ id: group.id, title: group.title }))];
-  const deadlineLabel = draft.deadline ? `${draft.deadline} · ${draft.deadlineTime}` : "未设置";
+  const group = groups.find(({ id }) => id === draft.groupId);
+  const priority = priorityLabels[draft.priority];
+  const frequency = { daily: "每天", weekly: "每周" }[draft.recurrence.frequency];
+  const attributes = [
+    { key: "today", icon: draft.today ? "check" : "sun", label: "今日", detail: draft.today ? "已加入" : "未加入" },
+    { key: "group", icon: "folder", label: "分组", value: group?.id ? group.title : "", detail: group?.title || "未分组" },
+    { key: "date", icon: "calendar", label: "截止", value: draft.deadline ? `${draft.deadline.slice(5).replace("-", "/")} 截止` : "", detail: shellCreateDeadlineLabel(draft) },
+    { key: "priority", icon: "flag", label: "优先级", value: draft.priority === shellCreateInitialValues?.priority ? "" : `优先级 · ${priority}`, detail: priority },
+    { key: "cycle", icon: "repeat", label: "循环", value: frequency || "", detail: shellCreateRecurrenceLabel(draft.recurrence) },
+  ].filter(({ key }) => !quick || key === "group");
   overlay.innerHTML = `<div class="dialog-backdrop" data-return-focus="[data-action='add-task']">
-    <form class="dialog entry16-dialog" id="create-form" role="dialog" aria-modal="true" aria-labelledby="entry16-title" novalidate>
-      <header class="dialog-head"><h2 id="entry16-title">新建${quick ? "速记" : "任务"}</h2>
-        <div class="entry16-types" role="group" aria-label="新建记录类型">${[["task", "任务"], ["quick", "速记"]].map(([value, label]) => shellCreateChoice(value, label, "data-composer-type", draft.kind === value)).join("")}</div>
-        <button type="button" class="icon-button" data-action="close-dialog" aria-label="关闭">${shellIcon("close")}</button></header>
+    <form class="dialog entry16-dialog" id="create-form" role="dialog" aria-modal="true" aria-label="新建${quick ? "速记" : "任务"}" novalidate>
+      <div class="entry16-title-row">
+        <button type="button" class="icon-button" data-action="close-dialog" aria-label="关闭" title="关闭并保留本次草稿（Esc）">${shellIcon("close")}</button>
+        <div class="entry16-title-field">
+          <input id="create-title" name="title" maxlength="160" autocomplete="off" value="${escAttr(draft.title)}" placeholder="${quick ? "写下想法" : "写下任务"}" aria-label="${quick ? "速记标题" : "任务标题"}" aria-required="true" aria-describedby="entry16-error" aria-invalid="${error === "请输入标题后再保存"}" />
+          <p class="error" role="status" id="entry16-error">${error === "请输入标题后再保存" ? esc(error) : ""}</p>
+        </div>
+      </div>
       <div class="entry16-body">
-        <div class="entry16-writing">
-          <div>
-            <label for="create-title">${quick ? "记录标题" : "任务标题"}</label>
-            <input id="create-title" name="title" maxlength="160" autocomplete="off" value="${escAttr(draft.title)}" placeholder="${quick ? "先记下来，稍后整理" : "需要解决什么问题？"}" aria-required="true" aria-describedby="entry16-error" aria-invalid="${error === "请输入标题后再保存"}" />
-            <p class="error" role="status" id="entry16-error">${error === "请输入标题后再保存" ? esc(error) : ""}</p>
-          </div>
-          <div>
-            <label for="create-description">${quick ? "内容" : "背景"}<small>可选</small></label>
-            <textarea id="create-description" name="description" placeholder="${quick ? "记录想法、线索或稍后要整理的内容" : "补充问题背景或需要达到的结果"}">${esc(draft.description)}</textarea>
-          </div>
+        <textarea id="create-description" name="description" rows="1" aria-label="${quick ? "速记内容（可选）" : "任务背景（可选）"}" placeholder="${quick ? "补充内容" : "补充背景"}">${esc(draft.description)}</textarea>
+        <div class="entry16-attributes" role="group" aria-label="${quick ? "速记属性" : "任务属性"}">
+          ${attributes.map((attribute) => shellCreateAttribute(draft, attribute)).join("")}
         </div>
-        <div class="entry16-meta" ${quick ? 'style="grid-template-columns:1fr"' : ""}>
-          <div><label for="create-group">分组</label><select id="create-group" name="group">${groups.map((group) => `<option value="${escAttr(group.id)}" ${group.id === draft.groupId ? "selected" : ""}>${esc(group.title)}</option>`).join("")}</select></div>
-          ${quick ? "" : `<div><label id="entry16-priority-label">优先级</label><div class="entry16-priorities" role="group" aria-labelledby="entry16-priority-label">${[["high", "高"], ["medium", "中"], ["low", "低"]].map(([value, label]) => shellCreateChoice(value, shellIcon("flag") + label, "data-entry16-priority", draft.priority === value)).join("")}</div></div>`}
+        <div class="entry16-section" id="entry16-section" ${draft.sectionOpen ? "" : "hidden"}>
+          ${shellCreateSection(draft, groups, error)}
         </div>
-        ${quick ? "" : `<label class="entry16-today"><input type="checkbox" name="today" ${draft.today ? "checked" : ""} />加入今日任务</label>
-        <section class="entry16-options" aria-label="任务时间设置">
-          <button type="button" class="entry16-disclosure" data-entry16="date" aria-expanded="${Boolean(draft.dateOpen)}" aria-controls="entry16-date">${shellIcon("calendar")}<span>截止与提醒</span><small>${esc(deadlineLabel)}</small>${shellIcon("chevron")}</button>
-          ${draft.dateOpen ? `<div class="entry16-setting" id="entry16-date">
-            <div class="entry16-date-grid">
-              <div><label for="create-deadline">截止日期</label><input type="date" id="create-deadline" name="deadline" value="${escAttr(draft.deadline)}" /></div>
-              <div><label for="create-time">时间</label><input type="time" id="create-time" name="deadlineTime" value="${escAttr(draft.deadlineTime)}" ${draft.deadline ? "" : "disabled"} /></div>
-              <div><label for="create-reminder">系统提醒</label><select id="create-reminder" name="reminder" ${draft.deadline ? "" : "disabled"}>${Object.entries(deadlineReminderLabels).map(([value, label]) => `<option value="${value}" ${value === draft.reminder ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></div>
-            </div>
-            <p class="error" role="status">${error === "请补全有效的日期与时间" ? esc(error) : ""}</p>
-            <div class="entry16-shortcuts">${[["", "今天"], [shellCreateDate(1), "明天"], [shellCreateDate(7), "一周后"], ["", "清除"]].map(([value, label], index) => `<button type="button" data-entry16-date="${index === 3 ? "" : value || shellCreateDate(0)}">${label}</button>`).join("")}</div>
-          </div>` : ""}
-          <button type="button" class="entry16-disclosure" data-entry16="cycle" aria-expanded="${Boolean(draft.cycleOpen)}" aria-controls="entry16-cycle">${shellIcon("repeat")}<span>循环任务</span><small>${esc(shellCreateRecurrenceLabel(recurrence))}</small>${shellIcon("chevron")}</button>
-          ${draft.cycleOpen ? `<div class="entry16-setting" id="entry16-cycle">
-            <div class="recurrence-modes" role="group" aria-label="循环周期">${[["none", "不循环"], ["daily", "每天"], ["weekly", "每周"]].map(([value, label]) => shellCreateChoice(value, label, "data-entry16-frequency", recurrence.frequency === value)).join("")}</div>
-            ${recurrence.frequency === "none" ? "" : `<div class="entry16-cycle-fields">
-              <div><label for="create-cycle-time">进入今日的时间</label><input type="time" id="create-cycle-time" name="cycleTime" value="${escAttr(recurrence.time)}" /></div>
-              ${recurrence.frequency === "weekly" ? `<div><label id="entry16-week-label">重复日期</label><div class="recurrence-weekdays" role="group" aria-labelledby="entry16-week-label">${recurrenceWeekdayOrder.map((day) => shellCreateChoice(day, SHELL_WEEKDAY_LABELS[day], "data-entry16-weekday", recurrence.weekdays.includes(day))).join("")}</div></div>` : ""}
-            </div>
-            <p class="error" role="status">${error === "请为每周循环选择至少一天" ? esc(error) : ""}</p>
-            <p class="schedule-hint">到期后进入今日；完成本次后，下个周期重新出现。</p>`}
-          </div>` : ""}
-        </section>`}
       </div>
       <footer>
-        <span class="entry16-status ${error === SHELL_CREATE_WRITE_ERROR ? "error" : ""}" role="status">${error === SHELL_CREATE_WRITE_ERROR ? esc(error) : state.createResumed ? "已恢复本页草稿" : "Esc 关闭 · ⌘ / Ctrl + Enter 保存"}</span>
-        <button type="button" class="button" data-entry16="cancel">取消</button>
-        <button type="submit" class="button primary">${error === SHELL_CREATE_WRITE_ERROR ? "重试保存" : quick ? "保存速记" : "创建任务"}</button>
+        <span class="entry16-status ${error === SHELL_CREATE_WRITE_ERROR ? "error" : ""}" role="status">${error === SHELL_CREATE_WRITE_ERROR ? esc(error) : state.createResumed && edited ? "已恢复草稿" : ""}</span>
+        <div class="entry16-tools">
+          <button type="button" class="entry16-switch" data-composer-type="${quick ? "task" : "quick"}">${quick ? "改为任务" : "改为速记"}</button>
+          <button type="button" class="entry16-discard" data-entry16="cancel" ${edited ? "" : "hidden"}>放弃草稿</button>
+        </div>
+        <button type="submit" class="button entry16-submit"><span>${error === SHELL_CREATE_WRITE_ERROR ? "重试保存" : quick ? "保存速记" : "创建任务"}</span><span class="entry16-enter" aria-hidden="true">↵</span></button>
       </footer>
     </form>
   </div>`;
   document.querySelector("#create-form")?.addEventListener("submit", shellSubmitCreateDialog);
   shellCreateComposing = false;
   overlay.querySelector(".entry16-body").scrollTop = scrollTop;
-  if (focusSelector) document.querySelector(focusSelector)?.focus({ preventScroll: true });
+  if (focusSelector) {
+    const target = overlay.querySelector(focusSelector);
+    target?.focus({ preventScroll: true });
+    if (target?.closest(".entry16-section")) target.scrollIntoView({ block: "nearest" });
+  }
 }
 
 function shellCreateRecurrenceLabel(recurrence) {
@@ -291,9 +313,7 @@ function shellCaptureCreateDraft() {
   const draft = state.createDraft;
   draft.title = String(data.get("title") || "");
   draft.description = String(data.get("description") || "");
-  draft.groupId = String(data.get("group") || "");
   if (draft.kind === "task") {
-    draft.today = data.get("today") === "on";
     if (data.has("deadline")) draft.deadline = String(data.get("deadline") || "");
     if (data.has("deadlineTime")) draft.deadlineTime = String(data.get("deadlineTime") || "18:00");
     if (data.has("reminder")) draft.reminder = String(data.get("reminder") || "none");
@@ -303,12 +323,13 @@ function shellCaptureCreateDraft() {
 
 function shellOpenCreateDialog() {
   if (shellCreateSaving) return;
-  state.createResumed = Boolean(state.createDraft);
-  if (!state.createDraft) {
+  state.createResumed = Boolean(state.createDraft && shellHasCreateDraftValues(state.createDraft));
+  if (!state.createResumed) {
     state.createDraft = shellCreateDraftFresh();
     shellCreateInitialValues = shellCreateDraftValues(state.createDraft);
     state.createError = "";
   }
+  state.createDraft.sectionOpen = "";
   shellRenderCreateDialog("#create-title");
 }
 
@@ -328,12 +349,13 @@ async function shellSubmitCreateDialog(event) {
   }
   if (!quick && draft.recurrence.frequency === "weekly" && !draft.recurrence.weekdays.length) {
     state.createError = "请为每周循环选择至少一天";
-    draft.cycleOpen = true;
+    draft.sectionOpen = "cycle";
     shellRenderCreateDialog('[data-entry16-weekday="1"]');
     return;
   }
   if (!form.checkValidity()) {
     state.createError = "请补全有效的日期与时间";
+    draft.sectionOpen = "date";
     shellRenderCreateDialog("#create-deadline");
     return;
   }
@@ -385,7 +407,7 @@ async function shellSubmitCreateDialog(event) {
     status.textContent = state.createError;
     for (const control of locked) control.disabled = false;
     for (const editor of editors) editor.readOnly = false;
-    submit.textContent = "重试保存";
+    submit.firstElementChild.textContent = "重试保存";
     if (form.isConnected && (document.activeElement === document.body || form.contains(document.activeElement))) {
       focus?.focus({ preventScroll: true });
     }
@@ -674,11 +696,29 @@ function shellBindCreateDialog() {
     if (!draft) return;
     shellCaptureCreateDraft();
     let focus;
-    if (button.dataset.composerType) { draft.kind = button.dataset.composerType; focus = `[data-composer-type="${draft.kind}"]`; }
-    else if (button.dataset.entry16Priority) { draft.priority = button.dataset.entry16Priority; focus = `[data-entry16-priority="${draft.priority}"]`; }
-    else if (button.dataset.entry16 === "date") { draft.dateOpen = !draft.dateOpen; focus = '[data-entry16="date"]'; }
-    else if (button.dataset.entry16 === "cycle") { draft.cycleOpen = !draft.cycleOpen; focus = '[data-entry16="cycle"]'; }
-    else if (button.dataset.entry16 === "cancel") {
+    const action = button.dataset.entry16;
+    if (button.dataset.composerType) {
+      draft.kind = button.dataset.composerType;
+      draft.sectionOpen = "";
+      focus = "#create-title";
+    } else if (button.dataset.entry16Priority) {
+      draft.priority = button.dataset.entry16Priority;
+      draft.sectionOpen = "";
+      focus = '[data-entry16="priority"]';
+    } else if (button.hasAttribute("data-entry16-group")) {
+      draft.groupId = button.dataset.entry16Group;
+      draft.sectionOpen = "";
+      focus = '[data-entry16="group"]';
+    } else if (action === "today") {
+      draft.today = !draft.today;
+      focus = '[data-entry16="today"]';
+    } else if (button.matches(".entry16-attribute[aria-expanded]")) {
+      const opener = `[data-entry16="${action}"]`;
+      draft.sectionOpen = draft.sectionOpen === action ? "" : action;
+      focus = draft.sectionOpen
+        ? action === "date" ? "#create-deadline" : '#entry16-section [aria-pressed="true"]'
+        : opener;
+    } else if (action === "cancel") {
       event.preventDefault();
       event.stopImmediatePropagation();
       state.createDraft = null;
@@ -687,8 +727,7 @@ function shellBindCreateDialog() {
       shellCloseOverlay();
       return;
     }
-    else if (button.hasAttribute("data-entry16-date")) { draft.deadline = button.dataset.entry16Date; focus = '[data-entry16="date"]'; }
-    else if (button.dataset.entry16Time) { draft.deadlineTime = button.dataset.entry16Time; focus = '[data-entry16-time="' + draft.deadlineTime + '"]'; }
+    else if (button.hasAttribute("data-entry16-date")) { draft.deadline = button.dataset.entry16Date; focus = `[data-entry16-date="${draft.deadline}"]`; }
     else if (button.dataset.entry16Frequency) { draft.recurrence.frequency = button.dataset.entry16Frequency; focus = `[data-entry16-frequency="${draft.recurrence.frequency}"]`; }
     else if (button.hasAttribute("data-entry16-weekday")) {
       const day = Number(button.dataset.entry16Weekday);
@@ -703,17 +742,38 @@ function shellBindCreateDialog() {
     shellRenderCreateDialog(focus);
   }, true);
   document.addEventListener("input", (event) => {
-    if (!isInside(event.target)) return;
+    const draft = state.createDraft;
+    if (!draft || !isInside(event.target)) return;
     shellCaptureCreateDraft();
+    const form = event.target.closest("#create-form");
+    form.querySelector(".entry16-discard").hidden = !shellHasCreateDraftValues(draft);
     if (!state.createError || state.createError === SHELL_CREATE_WRITE_ERROR) return;
     state.createError = "";
     document.querySelectorAll("#create-form .error").forEach((element) => { element.textContent = ""; });
     document.querySelector("#create-title")?.setAttribute("aria-invalid", "false");
   });
   document.addEventListener("change", (event) => {
-    if (!isInside(event.target)) return;
+    const draft = state.createDraft;
+    if (!draft || !isInside(event.target)) return;
     shellCaptureCreateDraft();
-    if (event.target.id === "create-deadline") shellRenderCreateDialog("#create-deadline");
+    if (event.target.id === "create-deadline") {
+      shellRenderCreateDialog("#create-deadline");
+      return;
+    }
+    const form = event.target.closest("#create-form");
+    let trigger;
+    let name;
+    if (event.target.id === "create-time") {
+      trigger = form.querySelector('[data-entry16="date"]');
+      name = `截止：${shellCreateDeadlineLabel(draft)}`;
+    } else if (event.target.id === "create-cycle-time") {
+      trigger = form.querySelector('[data-entry16="cycle"]');
+      name = `循环：${shellCreateRecurrenceLabel(draft.recurrence)}`;
+    }
+    if (trigger) {
+      trigger.title = name;
+      trigger.setAttribute("aria-label", name);
+    }
   });
   document.addEventListener("compositionstart", (event) => {
     if (isInside(event.target)) shellCreateComposing = true;
