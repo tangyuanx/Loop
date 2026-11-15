@@ -8,6 +8,7 @@ import mermaid from 'mermaid';
 import DOMPurify from 'dompurify';
 import hljs from 'highlight.js/lib/common';
 import 'katex/dist/katex.min.css';
+import {installTableContent} from './knowledge-table-content.js';
 
 const core = window.LoopKnowledgeCore;
 const escape = value => String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -39,11 +40,9 @@ export function safeURL(value, image=false) {
 export function createRenderer(options) {
   // Match the editor's visible source lines in reading, embeds and exports.
   // Render soft breaks without rewriting the authoritative Markdown document.
-  const md=new MarkdownIt({html:false,linkify:true,breaks:true,typographer:false,highlight(code,language) {
-    try { return language && hljs.getLanguage(language) ? hljs.highlight(code,{language,ignoreIllegals:true}).value : ''; }
-    catch { return ''; }
-  }}).use(footnote).use(mark).use(tasks,{enabled:true}).use(texmath,{engine:katex,delimiters:'dollars',katexOptions:{throwOnError:false,trust:false,strict:'warn',maxExpand:1000,maxSize:20}});
-  // Permit the single Markdown-table line-break convention without enabling
+  const md=new MarkdownIt({html:false,linkify:true,breaks:true,typographer:false,highlight:highlightCode})
+    .use(footnote).use(mark).use(tasks,{enabled:true}).use(texmath,{engine:katex,delimiters:'dollars',katexOptions:{throwOnError:false,trust:false,strict:'warn',maxExpand:1000,maxSize:20}});
+  // Permit the Markdown-table line-break convention without enabling
   // arbitrary HTML. Escaped markup and code tokens remain literal text.
   md.inline.ruler.before('html_inline','loop_table_break',(state,silent)=>{
     const match=/^<br\s*\/?>/i.exec(state.src.slice(state.pos));if(!match)return false;
@@ -59,6 +58,7 @@ export function createRenderer(options) {
       if(cell&&token.type==='inline')for(const child of token.children||[])if(child.type==='loop_table_break'){child.type='hardbreak';child.tag='br';}
     }
   });
+  installTableContent(md);
   md.block.ruler.before('hr','frontmatter',(state,start,end,silent)=>{
     if(start!==0 || state.src.slice(state.bMarks[0],state.eMarks[0]).replace(/^\uFEFF/,'')!=='---') return false;
     let line=start+1;
@@ -250,3 +250,7 @@ export function createRenderer(options) {
   return {render,enhance,exportStatic,parse:(source,env={})=>md.parse(source,env)};
 }
 export {escape};
+export function highlightCode(code,language) {
+  try{return language&&hljs.getLanguage(language)?hljs.highlight(code,{language,ignoreIllegals:true}).value:'';}
+  catch{return '';}
+}

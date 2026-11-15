@@ -1018,13 +1018,24 @@ function knowledgeEditorOptions(task) {
         const checked=layout.align===value;
         return `<button type="button" role="menuitemradio" aria-checked="${checked}" data-image-align="${value}"><span>${label}</span>${checked?shellIcon('check'):''}</button>`;
       }).join(''):'';
-      const menu=shellMountSurface('<div class="surface-popover wb-menu" role="menu" aria-label="图片操作"><div class="wb-menu-list"><button type="button" role="menuitem" data-copy-image>复制图片</button>'+align+'</div></div>',image,180);
+      const remove=layout?.remove?'<div class="menu-divider"></div><button type="button" role="menuitem" data-remove-table-image>从单元格移除图片</button>':'';
+      const menu=shellMountSurface('<div class="surface-popover wb-menu" role="menu" aria-label="图片操作"><div class="wb-menu-list"><button type="button" role="menuitem" data-copy-image>复制图片</button>'+align+remove+'</div></div>',image,180);
       menu.style.left=Math.max(8,Math.min(point.x,innerWidth-menu.offsetWidth-8))+'px';menu.style.top=Math.max(8,Math.min(point.y,innerHeight-menu.offsetHeight-8))+'px';
       menu.querySelector('button').onclick=()=>{shellCloseOverlay({restoreFocus:false});void copy();};menu.querySelector('button').focus();
       menu.querySelectorAll('[data-image-align]').forEach(button=>{button.onclick=()=>{shellCloseOverlay({restoreFocus:false});layout.set({align:button.dataset.imageAlign});};});
+      const removeButton=menu.querySelector('[data-remove-table-image]');
+      if(removeButton)removeButton.onclick=()=>{shellCloseOverlay({restoreFocus:false});layout.remove();};
     },
     onSave: () => void saveKnowledgeTask(task.id),
-    onFinishInput: async () => {captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});save();return flushSave();},
+    onFinishInput: async () => {
+      captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});save();
+      if(!(await flushSave()))return false;
+      if(!task.knowledgeNote.filePath)return true;
+      const pending=['DIRTY','EXTERNAL_CHANGED','FILE_MISSING'];
+      if(!pending.includes(task.knowledgeNote.documentState))return true;
+      const result=await saveKnowledgeTask(task.id,{automatic:task.knowledgeNote.documentState==='DIRTY'});
+      return result?.canceled?!pending.includes(task.knowledgeNote.documentState):result;
+    },
     onTableTools: () => knowledgeTableTools(),
     onTableMenu: context => knowledgeTableMenu(context),
     onToggleMode: () => knowledgeSetMode(shellKnowledgeMode(task.id) === 'preview' ? 'edit' : 'preview',task.id),
@@ -1122,7 +1133,7 @@ function knowledgeDidEdit(taskId) {
   knowledgeAutosaveTimers.set(taskId,setTimeout(()=>{
     knowledgeAutosaveTimers.delete(taskId);
     const entry=knowledgeCurrentEntry(taskId);
-    if(entry?.view?.composing){knowledgeDidEdit(taskId);return;}
+    if(entry?.view?.composing||entry?.activeTableCell?.composing){knowledgeDidEdit(taskId);return;}
     void knowledgeAutoSave(taskId);
   },1200));
   knowledgeUpdateChrome(task);
@@ -1594,7 +1605,7 @@ function knowledgeFocusTableCell(editor,widget,row,column,selection=null) {
   const cell=widget?.isConnected&&widget.querySelector('table')?.rows[row]?.cells[column];
   if(cell){
     editor.editTableCell(widget,cell,false,selection?.start??null);
-    if(selection)editor.activeTableCell?.input.setSelectionRange(selection.start,selection.end,selection.direction);
+    if(selection)editor.setTableSelection(selection.start,selection.end,selection.direction);
   }else if(widget?.isConnected)widget.focus({preventScroll:true});
   else editor.view.focus();
 }
@@ -1768,7 +1779,7 @@ document.addEventListener('click',event=>{
   if(action==='rename')knowledgeRename(task,button);
   if(action==='find')knowledgeCurrentEntry()?.openSearch();
   if(action==='table-tools')knowledgeTableTools();
-  if(action==='upload'){const input=document.createElement('input');input.type='file';input.accept='image/png,image/jpeg,image/gif,image/webp,image/avif,image/bmp';input.multiple=true;const editor=knowledgeCurrentEntry();input.onchange=()=>{for(const file of input.files)void editor?.upload(file);};input.click();}
+  if(action==='upload'){const input=document.createElement('input');input.type='file';input.accept='image/png,image/jpeg,image/gif,image/webp,image/avif,image/bmp';input.multiple=true;const editor=knowledgeCurrentEntry(),cell=editor?.activeTableCell;input.onchange=()=>void editor?.uploadFiles(input.files,cell);input.click();}
 },true);
 document.addEventListener('keydown',event=>{
   const tab=event.target.closest('.kn-document-tabs [role=tab]');

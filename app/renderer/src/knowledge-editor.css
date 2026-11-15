@@ -42,7 +42,8 @@
 .kn-rendered img[data-kn-selected] {outline:1px solid var(--focus-line-strong,var(--secondary));outline-offset:2px;}
 .kn-rendered pre {overflow:auto;padding:16px;background:color-mix(in srgb,currentColor 5%,transparent);border:1px solid color-mix(in srgb,currentColor 9%,transparent);border-radius:8px;line-height:1.6;font-size:.9em;margin:12px 0;white-space:pre;}
 .kn-rendered pre code {font-family:ui-monospace,SFMono-Regular,Consolas,monospace;}
-.kn-rendered :not(pre)>code {background:color-mix(in srgb,currentColor 6%,transparent);padding:2px 5px;border-radius:4px;font-size:.9em;}
+.kn-rendered :not(pre)>code,.kn-rendered .kn-table-cell-visual.ProseMirror :not(pre)>code {background:color-mix(in srgb,currentColor 6%,transparent);padding:2px 5px;border-radius:4px;font-size:.9em;}
+.kn-rendered .kn-table-cell-visual.ProseMirror :not(pre)>code {color:inherit;font-family:monospace;line-height:inherit;}
 .kn-code {position:relative;}.kn-code-copy {position:absolute;right:8px;top:8px;border:0;background:var(--panel,#eee);color:inherit;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer;}
 .kn-rendered table {border-collapse:collapse;margin:16px 0;max-width:100%;font-size:.95em;display:block;overflow-x:auto;width:max-content;}
 .kn-rendered th,.kn-rendered td {border:1px solid color-mix(in srgb,currentColor 18%,transparent);padding:7px 13px;min-width:80px;}
@@ -55,9 +56,13 @@
    turns a wider last child into the editor's min-width, which used to scroll the
    whole document horizontally around a wide table (KN-08). */
 .knowledge-rich-host.kn-editor-host .kn-table-widget {overflow-x:auto;padding:32px 24px 28px 22px;max-width:100%;}
+.knowledge-rich-host.kn-editor-host .kn-table-widget:focus {outline:none;}
+.knowledge-rich-host.kn-editor-host .kn-table-widget:focus-visible {outline:1px solid var(--focus-line-strong);outline-offset:-1px;}
 .kn-table-stage {position:relative;width:100%;max-width:100%;min-width:0;overflow:visible;}
 .knowledge-rich-host.kn-editor-host .kn-table-stage>table {margin:0;}
-.kn-table-controls-layer {position:absolute;inset:0;pointer-events:none;}
+/* Column handles overlap cell boundaries and must remain reachable while the
+   inline field covers the cell interior. */
+.kn-table-controls-layer {position:absolute;inset:0;pointer-events:none;z-index:2;}
 .kn-table-controls-layer button {position:absolute;pointer-events:auto;display:flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;color:var(--secondary);border-radius:3px;cursor:pointer;opacity:0;font:inherit;}
 .kn-table-controls-layer svg {width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;}
 .kn-table-widget:is(:hover,:focus-within,.kn-table-dragging) .kn-table-controls-layer button {opacity:1;}
@@ -85,7 +90,28 @@
 .knowledge-rich-host.kn-editor-host .kn-rendered :is(th,td):empty::before {content:'\200b';}
 .kn-table-widget .kn-cell-editing {position:relative;}
 .kn-table-cell-content {visibility:hidden;white-space:pre-wrap;overflow-wrap:anywhere;}
-.knowledge-pane .kn-table-widget .kn-table-cell-editor {position:absolute;inset:0;width:100%;height:100%;min-width:0;min-height:0;margin:0;box-sizing:border-box;padding:7px 13px;border:0;border-radius:0;outline:none;box-shadow:none;color:inherit;background:transparent;font:inherit;text-align:inherit;white-space:pre-wrap;overflow-wrap:anywhere;resize:none;overflow:hidden;z-index:1;}
+.knowledge-pane .kn-table-widget textarea.kn-table-cell-editor {position:absolute;inset:0;width:100%;height:100%;min-width:0;min-height:0;margin:0;box-sizing:border-box;padding:7px 13px;border:0;border-radius:0;outline:none;box-shadow:none;color:inherit;background:transparent;font:inherit;text-align:inherit;white-space:pre-wrap;overflow-wrap:anywhere;resize:none;overflow:hidden;z-index:1;}
+.knowledge-pane .kn-table-widget textarea.kn-table-cell-editor:focus {box-shadow:inset 0 -1px var(--focus-line-strong,var(--secondary));}
+.knowledge-rich-host.kn-editor-host .kn-table-cell-visual.ProseMirror {
+  display:flow-root;min-height:1lh;margin:0;padding:0;outline:none;box-shadow:none;background:transparent;
+  color:inherit;font:inherit;letter-spacing:inherit;text-align:inherit;white-space:normal;caret-color:var(--text);
+}
+.knowledge-rich-host .kn-table-cell-visual.ProseMirror p {margin:0;}
+/* A following block provides the line box after a terminal authored break. */
+.kn-table-cell-visual p:not(:last-child) > br:not(.ProseMirror-trailingBreak) + .ProseMirror-trailingBreak {display:none;}
+/* A break next to a block already separates it from the inline text in a cell. */
+.kn-table-cell-visual :is(ul,ol,.kn-table-code) + p > br:first-child:not(.ProseMirror-trailingBreak):not(:has(+ .ProseMirror-trailingBreak:last-child)) {display:none;}
+/* The caret helper after a block image must not add a visible line. */
+.kn-table-cell-visual p > .kn-image-layout:last-of-type ~ :is(.ProseMirror-separator,.ProseMirror-trailingBreak) {display:none;}
+.kn-rendered :is(th,td) {overflow-wrap:anywhere;}
+.kn-rendered :is(th,td) :is(ul,ol),.kn-rendered .kn-table-cell-visual.ProseMirror :is(ul,ol) {margin:0;padding-inline-start:1.4em;text-align:start;}
+.kn-rendered :is(th,td) .kn-table-code {margin:3px 0;padding:5px 7px;max-width:48ch;white-space:pre-wrap;text-align:start;}
+.kn-rendered :is(th,td) .kn-table-code code {white-space:inherit;overflow-wrap:anywhere;}
+.kn-rendered .kn-table-cell-visual.ProseMirror .kn-table-code code {
+  font:inherit;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
+  padding:0;border-radius:0;background:transparent;color:inherit;
+}
+.kn-rendered :is(th,td) :is(ul,ol,.kn-table-code)+br:last-child {display:none;}
 .kn-rendered blockquote {margin:12px 0;border-left:3px solid #6a947c7a;padding:4px 16px;color:inherit;}
 .kn-callout {background:#6a947c0c;border:1px solid #6a947c30;border-left:3px solid #6a947c!important;border-radius:7px;padding:10px 15px!important;}
 .kn-callout-title {display:block;font:inherit;font-weight:600;color:#487c5e;background:transparent;border:0;text-align:left;}

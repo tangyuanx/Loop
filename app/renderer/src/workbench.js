@@ -16,16 +16,18 @@ function workbenchClose(focus=true) {
   workbenchClearChildren();shellCloseOverlay({restoreFocus:false});
   const context=Workbench.context;Workbench.context=null;
   document.querySelector('[data-wb-action="more"]')?.setAttribute('aria-expanded','false');
-  if(focus&&context?.entry===knowledgeCurrentEntry()&&!context.entry.destroyed){if(context.entry.mode==='preview')context.entry.readHost.focus({preventScroll:true});else context.entry.view.focus();}
+  if(focus&&context?.entry===knowledgeCurrentEntry()&&!context.entry.destroyed){if(context.entry.mode==='preview')context.entry.readHost.focus({preventScroll:true});else context.entry.focusEditingSurface();}
 }
 function workbenchSnapshot() {
   const entry=knowledgeCurrentEntry(),task=shellActiveTask();if(!entry?.view||!task)return null;
   const reading=entry.mode==='preview'?window.getSelection():null;
-  return {taskId:task.id,entry,doc:entry.view.state.doc,selection:entry.getSelection(),reading:reading&&entry.readHost.contains(reading.anchorNode)&&entry.readHost.contains(reading.focusNode)?reading.toString():''};
+  return {taskId:task.id,entry,doc:entry.view.state.doc,selection:entry.getSelection(),cell:entry.activeTableCell,
+    text:entry.selectedText(),reading:reading&&entry.readHost.contains(reading.anchorNode)&&entry.readHost.contains(reading.focusNode)?reading.toString():''};
 }
 function workbenchRestore(context=Workbench.context) {
-  if(!context||context.taskId!==state.activeTaskId||context.entry!==knowledgeCurrentEntry()||context.entry.destroyed||context.doc!==context.entry.view.state.doc){workbenchClose(false);shellToast('笔记内容已变化，请重新打开菜单。');return null;}
-  if(context.entry.mode!=='preview')context.entry.restoreSelection(context.selection);
+  if(!context||context.taskId!==state.activeTaskId||context.entry!==knowledgeCurrentEntry()||context.entry.destroyed||context.doc!==context.entry.view.state.doc||context.cell!==context.entry.activeTableCell){workbenchClose(false);shellToast('笔记内容已变化，请重新打开菜单。');return null;}
+  if(context.cell)context.entry.focusEditingSurface();
+  else if(context.entry.mode!=='preview')context.entry.restoreSelection(context.selection);
   return context.entry;
 }
 function workbenchRow(label,attributes='',shortcut='') {
@@ -40,6 +42,10 @@ function workbenchFormatRow(label,format,value,shortcut='') {
 }
 function workbenchGroup(group) {
   const row=workbenchRow,fmt=workbenchFormatRow;
+  if(Workbench.context?.cell){
+    if(group==='paragraph')return fmt('无序列表','bullet')+fmt('有序列表','ordered')+fmt('取消列表格式','heading',0)+WB_DIVIDER+fmt('增加列表缩进','indent')+fmt('减少列表缩进','outdent');
+    if(group==='insert')return row('内部链接…','data-wb-action="wiki"')+row('外部链接…','data-wb-action="link"')+row('图片…','data-kn-action="upload"')+WB_DIVIDER+fmt('代码块','code');
+  }
   if(group==='text')return fmt('加粗','bold',undefined,'⌘ B')+fmt('倾斜','italic',undefined,'⌘ I')+fmt('删除线','strike')+fmt('高亮','highlight')+WB_DIVIDER+fmt('行内代码','inline')+row('清除格式','data-wb-action="clear-format"');
   if(group==='paragraph')return fmt('正文','heading',0)+workbenchBranch('标题','headings')+WB_DIVIDER+fmt('无序列表','bullet')+fmt('有序列表','ordered')+fmt('任务列表','task')+WB_DIVIDER+fmt('引用','quote');
   if(group==='headings')return [1,2,3,4,5,6].map(n=>fmt(`标题 ${n}`,'heading',n)).join('');
@@ -59,7 +65,7 @@ function workbenchSubmenu(trigger,focus=false) {
 }
 function workbenchFormatMenu(trigger,point) {
   const snapshot=workbenchSnapshot();if(!snapshot)return;
-  const selected=snapshot.reading||snapshot.doc.sliceString(Math.min(snapshot.selection.start,snapshot.selection.end),Math.max(snapshot.selection.start,snapshot.selection.end));
+  const selected=snapshot.reading||snapshot.text;
   const edit=snapshot.entry.mode!=='preview';
   const short=selected.length>14?selected.slice(0,14)+'…':selected;
   const row=workbenchRow;
@@ -74,6 +80,7 @@ function workbenchFormatMenu(trigger,point) {
     (edit?row('粘贴','data-wb-action="paste"','⌘ V')+row('以纯文本形式粘贴','data-wb-action="paste-text"','⇧ ⌘ V'):'')+row('全选','data-wb-action="select-all"','⌘ A');
   const menu=shellMountSurface(`<div class="surface-popover wb-menu wb-context-menu" role="menu" aria-label="正文右键菜单" data-wb-depth="0"><div class="wb-menu-list">${content}</div></div>`,trigger,224);
   Workbench.context=snapshot;
+  if(snapshot.cell){menu.setAttribute('aria-label','单元格格式菜单');menu.dataset.returnFocus='.kn-cell-editing .kn-table-cell-editor';}
   if(point){menu.style.left=`${Math.max(8,Math.min(point.x,innerWidth-menu.offsetWidth-8))}px`;menu.style.top=`${Math.max(8,Math.min(point.y,innerHeight-menu.offsetHeight-8))}px`;}
   menu.tabIndex=-1;menu.focus({preventScroll:true});
 }
@@ -119,7 +126,9 @@ function workbenchSetFocus(value=!Workbench.focus) {
 function workbenchLinkDialog(internal=false) {
   const context=Workbench.context||workbenchSnapshot();workbenchClose(false);Workbench.context=context;
   shellKnowledgeDialog(internal?'插入内部链接':'插入链接',`<label class="wb-link-label">${internal?'笔记名称或稳定链接目标':'链接地址'}<input id="wb-link" autocomplete="off" placeholder="${internal?'笔记名称':'https://'}"></label><p class="error" id="wb-link-error" role="alert"></p>`,'<button class="button" data-action="close-dialog">取消</button><button class="button primary" id="wb-link-insert">插入</button>',360);
-  const input=document.querySelector('#wb-link');input.focus();
+  const input=document.querySelector('#wb-link');
+  if(context?.cell)input.closest('.dialog-backdrop').dataset.returnFocus='.kn-cell-editing .kn-table-cell-editor';
+  input.focus();
   const insert=()=>{const value=input.value.trim();if(!value||(!internal&&!LoopKnowledgeEditor.safeURL(value))){document.querySelector('#wb-link-error').textContent='请输入有效的链接目标';return;}
     const entry=workbenchRestore(context);if(!entry)return;workbenchClose(false);if(internal)entry.insertText(`[[${value.replace(/[\[\]\r\n]/g,'')}]]`);else entry.format('link',value);
   };
@@ -129,6 +138,7 @@ function workbenchClearFormat(entry) {
   // Mixed spans inside one selection: strip every inline marker pair, not only a
   // wrapper around the whole range.
   if(typeof entry.clearInlineFormat==='function'&&entry.clearInlineFormat())return;
+  if(entry.activeTableCell)return;
   const range=entry.view.state.selection.main,doc=entry.view.state.doc;
   for(const [action,token] of [['bold','**'],['italic','*'],['strike','~~'],['highlight','=='],['inline','`']])if(range.from>=token.length&&doc.sliceString(range.from-token.length,range.from)===token&&doc.sliceString(range.to,range.to+token.length)===token){entry.format(action);return;}
 }
@@ -138,9 +148,14 @@ document.addEventListener('pointerover',event=>{
 });
 document.addEventListener('contextmenu',event=>{
   const host=event.target.closest('.knowledge-pane .kn-editor-host');
-  if(!host||event.target.closest('.kn-vditor,input,textarea,select,img,[data-note-target]')||event.isComposing)return;
+  const cellInput=event.target.closest('.kn-table-cell-editor');
+  if(!host||(!cellInput&&event.target.closest('.kn-vditor,input,textarea,select,img,[data-note-target]'))||event.isComposing)return;
   const pane=host.closest('[data-kn-side]');if(pane)knowledgeActivateSide(pane.dataset.knSide);
   const entry=knowledgeCurrentEntry();if(!entry||entry.root!==host||entry.view.composing)return;
+  if(cellInput){
+    if(entry.activeTableCell?.composing||event.target.closest('img,[data-note-target]'))return;
+    event.preventDefault();event.stopPropagation();workbenchFormatMenu(cellInput,{x:event.clientX,y:event.clientY});return;
+  }
   const link=event.target.closest('a,.kn-external-link');
   if(link){
     const selected=entry.view.state.selection.main.empty?null:entry.selectedLink();
@@ -195,11 +210,11 @@ document.addEventListener('click',event=>{
   if(action==='properties'){shellCloseOverlay({restoreFocus:false});knowledgeSetMode('source');requestAnimationFrame(()=>knowledgeCurrentEntry()?.locate(0));return;}
   if(action==='link'||action==='wiki'){workbenchLinkDialog(action==='wiki');return;}
   const context=Workbench.context,entry=workbenchRestore();if(!entry)return;
-  if(action==='find-selection'){const query=context.reading||context.doc.sliceString(Math.min(context.selection.start,context.selection.end),Math.max(context.selection.start,context.selection.end));workbenchClose(false);entry.openSearch(query);return;}
-  if(action==='select-all'){workbenchClose(false);if(entry.mode==='preview'){const range=document.createRange();range.selectNodeContents(entry.readHost);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);}else{entry.view.dispatch({selection:{anchor:0,head:entry.view.state.doc.length}});entry.view.focus();}return;}
-  if(action==='clear-format'){workbenchClose(false);workbenchClearFormat(entry);entry.view.focus();return;}
+  if(action==='find-selection'){workbenchClose(false);entry.openSearch(context.reading||context.text);return;}
+  if(action==='select-all'){workbenchClose(false);if(entry.mode==='preview'){const range=document.createRange();range.selectNodeContents(entry.readHost);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);}else entry.selectEditingSurface();return;}
+  if(action==='clear-format'){workbenchClose(false);workbenchClearFormat(entry);entry.focusEditingSurface();return;}
   if(action==='math'||action==='diagram'){workbenchClose(false);entry.insertText(action==='math'?'\n\n$$\nx^2 + y^2 = z^2\n$$\n\n':'\n\n```mermaid\nflowchart LR\n  A --> B\n```\n\n');return;}
-  const text=context.reading||entry.view.state.sliceDoc(entry.view.state.selection.main.from,entry.view.state.selection.main.to);
+  const text=context.reading||context.text;
   if(action==='copy'||action==='cut'){
     navigator.clipboard.writeText(text).then(()=>{if(action==='cut'){const current=workbenchRestore(context);if(current)current.insertText('');}workbenchClose();}).catch(()=>{workbenchClose();shellToast('请使用系统复制或剪切快捷键');});return;
   }
@@ -228,7 +243,7 @@ window.addEventListener('keydown',event=>{
       items[event.key==='Home'?0:event.key==='End'?items.length-1:i<0?(event.key==='ArrowDown'?0:items.length-1):(i+(event.key==='ArrowDown'?1:items.length-1))%items.length]?.focus();return;
     }
   }
-  if((event.shiftKey&&event.key==='F10'||event.key==='ContextMenu')&&event.target.closest('.knowledge-pane .kn-editor-host')&&!event.target.closest('.kn-vditor')){event.preventDefault();event.stopImmediatePropagation();const entry=knowledgeCurrentEntry(),coords=entry.view.coordsAtPos(entry.view.state.selection.main.head);workbenchFormatMenu(entry.root,coords?{x:coords.left,y:coords.bottom}:null);return;}
+  if((event.shiftKey&&event.key==='F10'||event.key==='ContextMenu')&&event.target.closest('.knowledge-pane .kn-editor-host')&&!event.target.closest('.kn-vditor')){event.preventDefault();event.stopImmediatePropagation();const entry=knowledgeCurrentEntry(),cell=entry.activeTableCell;if(cell?.composing)return;const field=cell&&entry.tableField(cell),coords=field?.getBoundingClientRect()||entry.view.coordsAtPos(entry.view.state.selection.main.head);workbenchFormatMenu(field||entry.root,coords?{x:coords.left,y:coords.bottom}:null);return;}
   if(event.key==='Escape'&&Workbench.focus&&!shellOverlayIsOpen()&&!knowledgeCurrentEntry()?.find?.active){event.preventDefault();workbenchSetFocus(false);}
 },true);
 window.addEventListener('resize',()=>{if(Workbench.context&&document.querySelector('.wb-context-menu'))workbenchClose(false);});
