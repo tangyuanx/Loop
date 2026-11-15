@@ -6,6 +6,47 @@ const test = require("node:test");
 const { createAutomaticBackupController, SNAPSHOT_DIRECTORY, workspaceDiskUsage } = require("../app/main/automatic-backups.cjs");
 const { writeTaskData } = require("../app/main/storage.cjs");
 const { exportWorkspaceBackup, stageWorkspaceBackup } = require("../app/main/workspace-backup.cjs");
+const { createDataMaintenanceLock } = require("../app/main/data-maintenance.cjs");
+
+test("a snapshot drains existing writes and resumes new writes after its read barrier", async () => {
+  const lock = createDataMaintenanceLock();
+  const events = [];
+  let finishFirst;
+  const first = lock.track(async () => {
+    events.push("first-start");
+    await new Promise(resolve => { finishFirst = resolve; });
+    events.push("first-end");
+  });
+  await Promise.resolve();
+  const release = lock.begin("workspace-backup");
+  const later = lock.track(() => events.push("later-write"));
+  finishFirst();
+  await lock.waitForWrites();
+  events.push("snapshot-read");
+  assert.deepEqual(events, ["first-start", "first-end", "snapshot-read"]);
+  release();
+  await Promise.all([first, later]);
+  assert.deepEqual(events, ["first-start", "first-end", "snapshot-read", "later-write"]);
+});
+
+test("a queued snapshot write is rejected if an import starts before the barrier ends", async () => {
+  const lock = createDataMaintenanceLock();
+  const releaseBackup = lock.begin("workspace-backup");
+  let wrote = false;
+  const pending = lock.track(() => { wrote = true; });
+  const rejected = assert.rejects(pending, { code: "DATA_MAINTENANCE" });
+  const releaseImport = lock.begin("manual-import");
+  releaseBackup();
+  await rejected;
+  assert.equal(wrote, false);
+  assert.equal(lock.reason(), "manual-import");
+  assert.throws(lock.assertWritable, { code: "DATA_MAINTENANCE" });
+  releaseBackup();
+  assert.equal(lock.isActive(), true, "releasing a holder twice cannot release the import");
+  releaseImport();
+  await lock.track(() => { wrote = true; });
+  assert.equal(wrote, true);
+});
 
 async function fixture(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "loop-auto-snapshot-"));

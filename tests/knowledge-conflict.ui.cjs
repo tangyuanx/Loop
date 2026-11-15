@@ -242,7 +242,22 @@ async function release() {await app.evaluate(()=>{global.__s2Release?.();global.
       assert.equal(await page.evaluate(id=>knowledgeFindDocument(id).notes,newId),'待保存的新笔记');
       const saved=path.join(files,'new-note.md');
       await app.evaluate((_e,p)=>{global.__s2SavePath=p},saved);
-      await saveButton.click();await dialog.waitFor({state:'detached'});
+      // Automatic snapshots may overlap the retry. The save must wait for
+      // their read barrier rather than surfacing a misleading import error.
+      await app.evaluate(({app})=>{
+        const path=process.mainModule.require('node:path');
+        const maintenance=process.mainModule.require(path.join(app.getAppPath(),'app/main/data-maintenance.cjs'));
+        global.__s2ReleaseBackup=maintenance.begin('workspace-backup');
+      });
+      try {
+        await saveButton.click();
+        await dialog.locator('[data-kn-close-choice="save"]:disabled').waitFor();
+        assert.equal(await dialog.locator('[data-kn-close-error]').isVisible(),false);
+        await assert.rejects(fs.access(saved),{code:'ENOENT'});
+      } finally {
+        await app.evaluate(()=>{global.__s2ReleaseBackup?.();global.__s2ReleaseBackup=null});
+      }
+      await dialog.waitFor({state:'detached'});
       assert.equal(await fs.readFile(saved,'utf8'),'待保存的新笔记');
     });
   } finally {await inject({}).catch(()=>{});await release().catch(()=>{});await app.close()}
