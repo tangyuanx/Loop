@@ -2170,7 +2170,7 @@ function saveFlowWidths() {
  * Flush pending save payload to Electron IPC storage.
  * Uses a save-in-flight flag to prevent concurrent writes.
  */
-async function flushSave() {
+async function flushSave({ newTask = null } = {}) {
   if (taskShareCommitBusy) return false;
   window.clearTimeout(saveTimer);
   saveTimer = 0;
@@ -2179,12 +2179,27 @@ async function flushSave() {
     updateLocalSaveReceipt();
     return false;
   }
-  if (!desktopStorage?.write) return true;
-  if (saveInFlight) return saveInFlightPromise ? saveInFlightPromise.then(() => flushSave()) : false;
+  if (!desktopStorage?.write) {
+    if (newTask) {
+      save();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([...tasksWithoutBlankNodeDraft(), newTask]));
+      state.tasks.push(newTask);
+    }
+    return true;
+  }
+  if (saveInFlight) return saveInFlightPromise ? saveInFlightPromise.then(() => flushSave({ newTask })) : false;
+  // A task being created belongs to this write only. A failed create must
+  // never reappear later as part of an unrelated autosave.
+  if (newTask) {
+    save();
+    window.clearTimeout(saveTimer);
+    saveTimer = 0;
+  }
   if (!pendingPayload) return true;
   const payload = pendingPayload;
   pendingPayload = null;
-  const payloadFingerprintValue = payloadFingerprint(payload);
+  const storedPayload = newTask ? { ...payload, tasks: [...payload.tasks, newTask] } : payload;
+  const payloadFingerprintValue = payloadFingerprint(storedPayload);
   const payloadRevision = persistedStateRevision();
   if (payloadFingerprintValue === lastWrittenPayloadFingerprint) {
     localSaveOutcome = "saved";
@@ -2195,7 +2210,7 @@ async function flushSave() {
   updateLocalSaveReceipt();
   saveInFlightPromise = (async () => {
     try {
-      await desktopStorage.write(payload, taskShareRevision);
+      await desktopStorage.write(storedPayload, taskShareRevision);
       lastWrittenPayloadFingerprint = payloadFingerprintValue;
       lastWrittenPersistedRevision = payloadRevision;
       pendingPersistedRevision = payloadRevision;
@@ -2211,17 +2226,23 @@ async function flushSave() {
         pendingPersistedRevision = payloadRevision;
         pendingPayloadFingerprint = "";
       }
-      if (typeof Recovery26Persisting === "undefined" || !Recovery26Persisting) {
+      if (!newTask && (typeof Recovery26Persisting === "undefined" || !Recovery26Persisting)) {
         showWorkspaceError("本地任务数据保存失败，请检查磁盘空间或权限后重试。Recovery 草稿将继续保留。");
       }
       return false;
     }
   })();
   const success = await saveInFlightPromise;
+  if (success && newTask) {
+    state.tasks.push(newTask);
+    // A save queued while the write was in flight may have copied tasks
+    // to filter out a blank node. Refresh it with the acknowledged task.
+    if (pendingPayload) save();
+  }
   saveInFlight = false;
   saveInFlightPromise = null;
   updateLocalSaveReceipt();
-  if (pendingPayload && success) return (await flushSave()) && success;
+  if (!newTask && pendingPayload && success) return (await flushSave()) && success;
   return success;
 }
 
@@ -5469,6 +5490,12 @@ function showUpdateInstallOverlay() {
 }
 
 async function prepareForUpdateInstall() {
+  if (typeof shellHasUnsubmittedCreateDraft === "function" && (shellCreateSaving || shellHasUnsubmittedCreateDraft())) {
+    shellReturnToCreateDraft();
+    const status = document.querySelector("#create-form .entry16-status");
+    if (status && !shellCreateSaving) status.textContent = "请先保存或取消草稿，再安装更新。";
+    return false;
+  }
   captureMountedMilkdownDrafts();
   flushNodeNoteDrafts({ persist: false });
   save();
@@ -8921,9 +8948,18 @@ function addBlankTask() {
  * @returns {object} The newly created task
  */
 function createTask(title, shouldRender = true) {
+  const task = makeTask(title);
+  state.tasks.push(task);
+  revealCreatedTask(task);
+  save();
+  if (shouldRender) render();
+  return task;
+}
+
+function makeTask(title) {
   const taskId = id("task");
   const createdAt = now();
-  const task = {
+  return {
     id: taskId,
     order: state.tasks.length + 1,
     todayTaskOrder: 0,
@@ -8959,8 +8995,10 @@ function createTask(title, shouldRender = true) {
     updatedAt: createdAt,
     nodes: [],
   };
-  state.tasks.push(task);
-  recurringTodaySignature = recurringScheduleSignature(new Date(createdAt));
+}
+
+function revealCreatedTask(task) {
+  recurringTodaySignature = recurringScheduleSignature(new Date(task.createdAt));
   state.activeTaskId = task.id;
   state.selectedNodeId = "";
   state.taskFilter = "all";
@@ -8971,9 +9009,6 @@ function createTask(title, shouldRender = true) {
   state.query = "";
   state.focusTaskTitleId = task.id;
   state.revealTaskId = task.id;
-  save();
-  if (shouldRender) render();
-  return task;
 }
 
 function createQuickCapture(title, description = "", addToToday = false, { renderView = true } = {}) {
@@ -10718,9 +10753,24 @@ if (desktopKnowledgeFile?.onChange) {
 }
 
 if (desktopKnowledgeRecovery?.onFlushAndQuit) {
-  desktopKnowledgeRecovery.onFlushAndQuit(async () => {
+  desktopKnowledgeRecovery.onQuitCanceled?.(() => {
+    if (typeof shellReturnToCreateDraft === "function") shellReturnToCreateDraft();
+  });
+  desktopKnowledgeRecovery.onFlushAndQuit(async (discardCreateDraft) => {
+    if (typeof shellHasUnsubmittedCreateDraft === "function" && discardCreateDraft !== true) {
+      if (shellCreateSaving) {
+        desktopKnowledgeRecovery.completeFlushAndQuit?.("create-saving");
+        return;
+      }
+      if (shellHasUnsubmittedCreateDraft()) {
+        desktopKnowledgeRecovery.completeFlushAndQuit?.("create-draft");
+        return;
+      }
+    }
     try {
-      await flushPendingKnowledgeRecoveries();
+      captureMountedMilkdownDrafts();
+      flushNodeNoteDrafts({ persist: true });
+      await Promise.all([flushSave(), flushPendingKnowledgeRecoveries()]);
     } catch (error) {
       console.error("Failed to flush knowledge note recovery before shutdown.", error);
     } finally {
@@ -10737,7 +10787,7 @@ if (desktopUpdates?.onPrepareInstall) {
 }
 
 window.addEventListener("keydown", (event) => {
-  if (event.isComposing) return;
+  if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
 
   if (isKnowledgeSaveShortcut(event) && state.taskPane === "notes") {
     if (shellOverlay()?.querySelector('[data-knowledge-conflict], [data-knowledge-close]')) {

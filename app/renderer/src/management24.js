@@ -1175,17 +1175,27 @@
   });
 
   window.addEventListener("keydown", (event) => {
+    const form = event.target.closest?.("#manage24-property-form, #manage24-move-form, #manage24-delete-group");
+    if (form && event.key === "Enter" && event.target.matches("input, textarea, select")) shellIgnoreImplicitSubmit(form);
     if (event.isComposing || event.keyCode === 229) return;
+
+    if (event.target.id === "manage24-move-search" && ["Enter", "ArrowDown"].includes(event.key) && !event.shiftKey) {
+      event.preventDefault();
+      form?.querySelector(".manage24-destination")?.focus({ preventScroll: true });
+      return;
+    }
 
     if (event.target.id === "manage24-row-title" && manage24RowTitleSession && ["Enter", "Escape"].includes(event.key)) {
       event.preventDefault();
       event.stopImmediatePropagation();
+      if (event.key === "Enter" && (event.shiftKey || event.altKey || event.repeat)) return;
       manage24EndRowTitle({ cancel: event.key === "Escape" });
       return;
     }
     if (event.target.id === "manage24-title" && manage24TitleSession && ["Enter", "Escape"].includes(event.key)) {
       event.preventDefault();
       event.stopImmediatePropagation();
+      if (event.key === "Enter" && (event.shiftKey || event.altKey || event.repeat)) return;
       manage24EndTitle({ cancel: event.key === "Escape" });
       if (!manage24TitleSession) manage24Focus(".title-edit");
       return;
@@ -1193,6 +1203,7 @@
     if (event.target.id === "group-title" && state.editingGroupId && ["Enter", "Escape"].includes(event.key)) {
       event.preventDefault();
       event.stopImmediatePropagation();
+      if (event.key === "Enter" && (event.shiftKey || event.altKey || event.repeat)) return;
       manage24FinishGroupEdit(state.editingGroupId, { cancel: event.key === "Escape" });
       return;
     }
@@ -1221,10 +1232,10 @@
         return;
       }
     }
-    if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && manage24Node("#manage24-property-form")) {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && form?.id === "manage24-property-form") {
       event.preventDefault();
       event.stopImmediatePropagation();
-      manage24Node("#manage24-property-form").requestSubmit();
+      if (!event.shiftKey && !event.altKey && !event.repeat) form.requestSubmit();
     }
   }, true);
 
@@ -1371,6 +1382,10 @@
 
   // Forms are rendered inside #overlay, so their submit is delegated here.
   document.addEventListener("submit", (event) => {
+    if (event.submitter && shellSuppressImplicitSubmit.has(event.target)) {
+      event.preventDefault();
+      return;
+    }
     if (event.target.id === "manage24-property-form") {
       event.preventDefault();
       void manage24SaveProperties();

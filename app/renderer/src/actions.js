@@ -107,6 +107,7 @@ function shellCloseOverlay({ restoreFocus = true } = {}) {
 
 function shellOverlayDismissBlocked() {
   return Boolean(document.querySelector("#overlay :is([data-knowledge-conflict], [data-knowledge-close])[aria-busy='true']")
+    || (shellCreateSaving && document.querySelector("#create-form"))
     || (state.feedbackSubmitting && document.querySelector("#help14-form"))
     || (typeof taskShareCommitBusy !== "undefined" && taskShareCommitBusy && document.querySelector("#task-share-import-confirm"))
     || (typeof recovery26Busy !== "undefined" && recovery26Busy && document.querySelector("#overlay .recovery26-manager, #overlay .recovery26-confirm")));
@@ -133,11 +134,23 @@ function shellOverlayDismissBlocked() {
 // ============================================================
 
 const SHELL_WEEKDAY_LABELS = { 0: "日", 1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六" };
+let shellCreateSaving = false;
+let shellCreateComposing = false;
+let shellCreateInitialValues = null;
+const shellSuppressImplicitSubmit = new WeakSet();
+const SHELL_CREATE_WRITE_ERROR = "未能保存，请检查磁盘空间或权限后重试。";
+
+function shellIgnoreImplicitSubmit(form) {
+  // Native form controls may synthesize a click on the default submit button.
+  // Keep their key behavior and reject only the submit from this key task.
+  shellSuppressImplicitSubmit.add(form);
+  window.setTimeout(() => shellSuppressImplicitSubmit.delete(form), 0);
+}
 
 function shellCreateDraftFresh() {
   const route = shellRoute();
   return {
-    kind: state.taskFilter === "today" || route === "today" ? "task" : "task",
+    kind: "task",
     title: "",
     description: "",
     groupId: state.activeGroupId === ALL_TASKS_GROUP_ID ? "" : state.activeGroupId === UNGROUPED_TASKS_GROUP_ID ? "" : state.activeGroupId,
@@ -157,6 +170,36 @@ function shellCreateDate(offsetDays) {
   const date = loopNow();
   date.setDate(date.getDate() + offsetDays);
   return localDateKey(date);
+}
+
+function shellCreateDraftValues(draft) {
+  return {
+    title: draft.title.trim(),
+    description: draft.description.trim(),
+    groupId: draft.groupId,
+    priority: draft.priority,
+    today: draft.today,
+    deadline: draft.deadline,
+    ...(draft.deadline ? { deadlineTime: draft.deadlineTime, reminder: draft.reminder } : {}),
+    recurrence: draft.recurrence.frequency === "none" ? null : draft.recurrence,
+  };
+}
+
+function shellHasUnsubmittedCreateDraft() {
+  shellCaptureCreateDraft();
+  const draft = state.createDraft;
+  if (!draft) return false;
+  const values = shellCreateDraftValues(draft);
+  if (draft.kind === "quick") {
+    return Boolean(values.title || values.description || values.groupId !== shellCreateInitialValues?.groupId);
+  }
+  return JSON.stringify(values) !== JSON.stringify(shellCreateInitialValues);
+}
+
+function shellReturnToCreateDraft() {
+  if (state.createDraft && !document.querySelector("#create-form") && !shellOverlayDismissBlocked()) {
+    shellOpenCreateDialog();
+  }
 }
 
 function shellCreateChoice(value, label, attribute, active) {
@@ -219,13 +262,14 @@ function shellRenderCreateDialog(focusSelector) {
         </section>`}
       </div>
       <footer>
-        <span class="entry16-status">${state.createResumed ? "已恢复本页草稿" : "Esc 关闭 · ⌘ / Ctrl + Enter 保存"}</span>
+        <span class="entry16-status ${error === SHELL_CREATE_WRITE_ERROR ? "error" : ""}" role="status">${error === SHELL_CREATE_WRITE_ERROR ? esc(error) : state.createResumed ? "已恢复本页草稿" : "Esc 关闭 · ⌘ / Ctrl + Enter 保存"}</span>
         <button type="button" class="button" data-entry16="cancel">取消</button>
-        <button type="submit" class="button primary">${quick ? "保存速记" : "创建任务"}</button>
+        <button type="submit" class="button primary">${error === SHELL_CREATE_WRITE_ERROR ? "重试保存" : quick ? "保存速记" : "创建任务"}</button>
       </footer>
     </form>
   </div>`;
   document.querySelector("#create-form")?.addEventListener("submit", shellSubmitCreateDialog);
+  shellCreateComposing = false;
   overlay.querySelector(".entry16-body").scrollTop = scrollTop;
   if (focusSelector) document.querySelector(focusSelector)?.focus({ preventScroll: true });
 }
@@ -258,15 +302,21 @@ function shellCaptureCreateDraft() {
 }
 
 function shellOpenCreateDialog() {
+  if (shellCreateSaving) return;
   state.createResumed = Boolean(state.createDraft);
-  state.createDraft = state.createDraft || shellCreateDraftFresh();
-  state.createDraft.recurrence = state.createDraft.recurrence || shellCreateDraftFresh().recurrence;
-  state.createError = "";
+  if (!state.createDraft) {
+    state.createDraft = shellCreateDraftFresh();
+    shellCreateInitialValues = shellCreateDraftValues(state.createDraft);
+    state.createError = "";
+  }
   shellRenderCreateDialog("#create-title");
 }
 
-function shellSubmitCreateDialog(event) {
+async function shellSubmitCreateDialog(event) {
   event.preventDefault();
+  const form = event.currentTarget;
+  if (shellCreateSaving || shellCreateComposing || !state.createDraft
+      || (event.submitter && shellSuppressImplicitSubmit.has(form))) return;
   shellCaptureCreateDraft();
   const draft = state.createDraft;
   const quick = draft.kind === "quick";
@@ -282,13 +332,12 @@ function shellSubmitCreateDialog(event) {
     shellRenderCreateDialog('[data-entry16-weekday="1"]');
     return;
   }
-  const form = document.querySelector("#create-form");
-  if (form && !form.checkValidity()) {
+  if (!form.checkValidity()) {
     state.createError = "请补全有效的日期与时间";
     shellRenderCreateDialog("#create-deadline");
     return;
   }
-  const task = createTask(title, false);
+  const task = makeTask(title);
   task.description = draft.description.trim();
   task.groupId = state.taskGroups.some((group) => group.id === draft.groupId) ? draft.groupId : "";
   task.priority = quick ? "low" : draft.priority;
@@ -306,14 +355,49 @@ function shellSubmitCreateDialog(event) {
     task.groupId = state.taskGroups.some((group) => group.id === draft.groupId) ? draft.groupId : "";
   }
   task.updatedAt = now();
+  const submit = form.querySelector('button[type="submit"]');
+  const status = form.querySelector(".entry16-status");
+  const focus = form.contains(document.activeElement) ? document.activeElement : form.querySelector("#create-title");
+  const locked = [...form.querySelectorAll("button:not(:disabled), select:not(:disabled), input[type=checkbox]:not(:disabled), input[type=date]:not(:disabled), input[type=time]:not(:disabled)")];
+  const editors = form.querySelectorAll("#create-title, #create-description");
+  shellCreateSaving = true;
+  form.setAttribute("aria-busy", "true");
+  status.classList.remove("error");
+  status.textContent = "正在保存…";
+  for (const control of locked) control.disabled = true;
+  for (const editor of editors) editor.readOnly = true;
+  let saved = false;
+  try {
+    saved = await flushSave({ newTask: task });
+  } catch (error) {
+    console.error("Failed to create task.", error);
+  } finally {
+    shellCreateSaving = false;
+  }
+  if (state.createDraft !== draft) {
+    if (saved) render();
+    return;
+  }
+  if (!saved) {
+    state.createError = SHELL_CREATE_WRITE_ERROR;
+    form.removeAttribute("aria-busy");
+    status.classList.add("error");
+    status.textContent = state.createError;
+    for (const control of locked) control.disabled = false;
+    for (const editor of editors) editor.readOnly = false;
+    submit.textContent = "重试保存";
+    if (form.isConnected && (document.activeElement === document.body || form.contains(document.activeElement))) {
+      focus?.focus({ preventScroll: true });
+    }
+    return;
+  }
   state.createDraft = null;
   state.createError = "";
   state.createResumed = false;
+  if (!form.isConnected) { render(); return; }
   shellCloseOverlay({ restoreFocus: false });
-  state.activeTaskId = task.id;
+  revealCreatedTask(task);
   state.taskPane = "flow";
-  state.selectedNodeId = "";
-  if (state.taskFilter === "done") state.taskFilter = "active";
   save();
   // Demo phase 17: creation shows the same inline receipt as completion.
   shellShowJourneyReceipt({ id: task.id, kind: "created", context: null, occurrence: "", date: loopTodayKey() });
@@ -615,13 +699,13 @@ function shellBindCreateDialog() {
     else return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    state.createError = "";
+    if (state.createError !== SHELL_CREATE_WRITE_ERROR) state.createError = "";
     shellRenderCreateDialog(focus);
   }, true);
   document.addEventListener("input", (event) => {
     if (!isInside(event.target)) return;
     shellCaptureCreateDraft();
-    if (!state.createError) return;
+    if (!state.createError || state.createError === SHELL_CREATE_WRITE_ERROR) return;
     state.createError = "";
     document.querySelectorAll("#create-form .error").forEach((element) => { element.textContent = ""; });
     document.querySelector("#create-title")?.setAttribute("aria-invalid", "false");
@@ -631,14 +715,28 @@ function shellBindCreateDialog() {
     shellCaptureCreateDraft();
     if (event.target.id === "create-deadline") shellRenderCreateDialog("#create-deadline");
   });
+  document.addEventListener("compositionstart", (event) => {
+    if (isInside(event.target)) shellCreateComposing = true;
+  });
+  document.addEventListener("compositionend", (event) => {
+    if (isInside(event.target)) shellCreateComposing = false;
+  });
   document.addEventListener("keydown", (event) => {
     const form = document.querySelector("#create-form");
-    if (!form) return;
-    if (event.isComposing || event.keyCode === 229) { event.stopImmediatePropagation(); return; }
-    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+    if (!form || !form.contains(event.target)) return;
+    const composing = shellCreateComposing || event.isComposing || event.keyCode === 229;
+    if (event.key === "Enter" && (composing || event.target.matches("input:not(#create-title)"))) {
+      shellIgnoreImplicitSubmit(form);
+    }
+    if (composing) {
+      event.stopImmediatePropagation();
+      return;
+    }
+    const modified = event.metaKey || event.ctrlKey;
+    if (event.key === "Enter" && (event.target.id === "create-title" || (modified && !event.shiftKey && !event.altKey))) {
       event.preventDefault();
       event.stopImmediatePropagation();
-      form.requestSubmit();
+      if (!event.shiftKey && !event.altKey && !event.repeat && !shellCreateSaving) form.requestSubmit();
       return;
     }
     if (event.key !== "Tab") return;
@@ -738,6 +836,7 @@ function shellTitleEditor(trigger, nodeId) {
   input?.addEventListener('compositionend', () => { composing = false; });
   input?.addEventListener('keydown', event => {
     if (composing || event.isComposing || event.keyCode === 229) event.stopImmediatePropagation();
+    else if (event.key === "Enter" && (event.shiftKey || event.altKey || event.repeat)) event.preventDefault();
   });
   input?.select();
   const titleForm = shellPanelFinish(document.querySelector("#title-form"));
@@ -994,10 +1093,21 @@ function shellFlowLocator(trigger) {
     360,
   );
   const input = surface?.querySelector("#flow-locator-query");
-  input?.addEventListener("input", () => {
+  let composing = false;
+  const refresh = () => {
     shellLocatorQuery = input.value;
     const host = document.querySelector(".flow-locator-results");
     if (host) host.innerHTML = shellLocatorResults();
+  };
+  input?.addEventListener("compositionstart", () => { composing = true; });
+  input?.addEventListener("compositionend", () => { composing = false; refresh(); });
+  input?.addEventListener("input", () => { if (!composing) refresh(); });
+  input?.addEventListener("keydown", (event) => {
+    if (composing || event.isComposing || event.keyCode === 229 || event.shiftKey) return;
+    if (event.key !== "ArrowDown" && event.key !== "Enter") return;
+    event.preventDefault();
+    event.stopPropagation();
+    surface.querySelector(".flow-result")?.focus({ preventScroll: true });
   });
 }
 

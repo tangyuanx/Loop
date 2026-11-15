@@ -68,6 +68,8 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
   });
   await test('S03-replace-and-undo',async()=>{
    await page.locator('.kn-find [name=toggleReplace]').click();assert.equal(await page.locator('.kn-replace-row').isVisible(),true);await page.locator('.kn-find [name=replace]').fill('验证');
+   await page.locator('.kn-find [name=replace]').press('Shift+Enter');
+   assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),original);
    await page.locator('.kn-find [name=replaceAll]').click();assert.equal(await count.innerText(),'无结果');assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),original.replaceAll('测试','验证'));
    await page.evaluate(()=>knowledgeCurrentEntry().format('undo'));assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),original);assert.match(await count.innerText(),/\/4$/);
    await page.locator('.kn-find [name=close]').click();assert.equal(await input.inputValue(),'');assert.equal(await input.isVisible(),false);assert.equal(await page.locator('.cm-searchMatch').count(),0);

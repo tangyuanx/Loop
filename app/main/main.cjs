@@ -252,12 +252,21 @@ function openExternalUrl(url) {
   if (/^(https?|mailto):/i.test(url)) shell.openExternal(url);
 }
 
-function finishRecoveryShutdown() {
+function resetRecoveryShutdown() {
   if (recoveryShutdownTimer) clearTimeout(recoveryShutdownTimer);
   recoveryShutdownTimer = null;
   recoveryShutdownWaitingFor = null;
+}
+
+function finishRecoveryShutdown() {
+  resetRecoveryShutdown();
   isQuitting = true;
   app.quit();
+}
+
+function flushBeforeQuit(window, discardCreateDraft = false) {
+  window.webContents.send("knowledge-recovery:flush-and-quit", discardCreateDraft);
+  recoveryShutdownTimer = setTimeout(finishRecoveryShutdown, RECOVERY_SHUTDOWN_TIMEOUT_MS);
 }
 
 function requestRecoveryShutdown(event) {
@@ -265,9 +274,33 @@ function requestRecoveryShutdown(event) {
   event.preventDefault();
   if (recoveryShutdownWaitingFor !== null) return true;
   recoveryShutdownWaitingFor = mainWindow.webContents.id;
-  mainWindow.webContents.send("knowledge-recovery:flush-and-quit");
-  recoveryShutdownTimer = setTimeout(finishRecoveryShutdown, RECOVERY_SHUTDOWN_TIMEOUT_MS);
+  flushBeforeQuit(mainWindow);
   return true;
+}
+
+async function confirmCreateDraftQuit(window) {
+  clearTimeout(recoveryShutdownTimer);
+  recoveryShutdownTimer = null;
+  try {
+    const { response } = await dialog.showMessageBox(window, {
+      type: "warning",
+      title: "有未提交的草稿",
+      message: "还有未提交的新建草稿。",
+      detail: "放弃并退出后，草稿内容将不会保留。",
+      buttons: ["返回编辑", "放弃并退出"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (response === 1 && !window.isDestroyed()) {
+      flushBeforeQuit(window, true);
+      return;
+    }
+  } catch (error) {
+    console.error("Unable to confirm whether to discard the creation draft.", error);
+  }
+  resetRecoveryShutdown();
+  if (!window.isDestroyed()) window.webContents.send("knowledge-recovery:quit-canceled");
 }
 
 async function stopRuntimeForUpdateInstall() {
@@ -539,9 +572,11 @@ function registerStorageHandlers() {
     dataMaintenance.assertWritable();
     return deleteKnowledgeRecovery(app.getPath("userData"), noteId);
   });
-  ipcMain.on("knowledge-recovery:flush-complete", (event) => {
-    if (event.sender.id !== recoveryShutdownWaitingFor) return;
-    finishRecoveryShutdown();
+  ipcMain.on("knowledge-recovery:flush-complete", (event, outcome) => {
+    if (event.sender.id !== recoveryShutdownWaitingFor || !recoveryShutdownTimer) return;
+    if (outcome === "create-draft") void confirmCreateDraftQuit(mainWindow);
+    else if (outcome === "create-saving") resetRecoveryShutdown();
+    else finishRecoveryShutdown();
   });
   ipcMain.on("app-update:prepare-install-complete", (event, success) => {
     if (event.sender.id !== updateInstallPreparation?.senderId) return;
@@ -962,10 +997,10 @@ app.whenReady().then(async () => {
 });
 
 app.on("before-quit", (event) => {
+  if (!isQuitting && !updateInstallPrepared && requestRecoveryShutdown(event)) return;
   // Stop filesystem watchers as soon as shutdown begins. The window `closed`
   // event is a secondary cleanup path, not the lifecycle guarantee.
   knowledgeWatcher.closeAll();
-  if (!isQuitting && !updateInstallPrepared && requestRecoveryShutdown(event)) return;
   isQuitting = true;
   pointerContinuity?.stop();
   updateController?.stop();

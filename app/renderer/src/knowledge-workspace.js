@@ -1598,7 +1598,12 @@ function knowledgeRename(task,trigger) {
       knowledgeOfferLinkUpdate(outcome.previousFilePath,outcome.filePath);
     }
   };
-  button.onclick=()=>void commit();field.onkeydown=event=>{if(event.key==='Enter'&&!event.isComposing&&event.keyCode!==229&&!composing){event.preventDefault();void commit();}};
+  button.onclick=()=>void commit();
+  field.onkeydown=event=>{
+    if(event.key!=='Enter'||event.isComposing||event.keyCode===229||composing)return;
+    event.preventDefault();
+    if(!event.shiftKey&&!event.altKey&&!event.repeat)void commit();
+  };
 }
 function knowledgeFocusTableCell(editor,widget,row,column,selection=null) {
   if(editor!==knowledgeCurrentEntry()||editor.destroyed)return;

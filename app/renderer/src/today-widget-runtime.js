@@ -880,6 +880,7 @@
   }, true);
 
   window.addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229 || composing) return;
     if (event.key === "Escape" && gesture) { event.preventDefault(); event.stopImmediatePropagation(); endGesture(true); return; }
     if (event.key === "Escape" && surfaceKind) { void bridge.closeSurface({ reason: "escape" }); return; }
     const handle = event.target.closest("[data-widget-drag]");
@@ -917,18 +918,16 @@
       return;
     }
     if (event.target.id === "widget-capture") {
-      if (event.isComposing || event.keyCode === 229) return;
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        void submit(event.metaKey || event.ctrlKey);
+        if (!event.repeat) void submit(event.metaKey || event.ctrlKey);
       }
     } else if (event.target.id === "widget-title-input") {
-      if (event.isComposing || event.keyCode === 229) return;
       if (event.key === "Enter" || event.key === "Escape") {
         event.preventDefault();
         event.stopImmediatePropagation();
-        finishRename(event.key === "Enter");
+        if (event.key === "Escape" || (!event.shiftKey && !event.altKey && !event.repeat)) finishRename(event.key === "Enter");
       }
     }
   }, true);

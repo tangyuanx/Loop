@@ -172,7 +172,9 @@ export class KnowledgeFind {
       }else if(event.key==='Escape'){event.preventDefault();event.stopPropagation();this.clear();}
       else if(event.key==='Enter'&&(event.target===this.input||event.target===this.replacement)){
         event.preventDefault();event.stopPropagation();
-        if(event.target===this.replacement)this.replace(false);else this.move(event.shiftKey?-1:1);
+        if(event.target===this.replacement){
+          if(!event.shiftKey&&!event.repeat)this.replace(false);
+        }else this.move(event.shiftKey?-1:1);
       }
     });
     this.update();

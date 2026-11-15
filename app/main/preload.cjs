@@ -34,7 +34,8 @@ contextBridge.exposeInMainWorld("personalTaskTrack", {
     write: (record) => ipcRenderer.invoke("knowledge-recovery:write", record),
     delete: (noteId) => ipcRenderer.invoke("knowledge-recovery:delete", noteId),
     onFlushAndQuit: (callback) => subscribe("knowledge-recovery:flush-and-quit", callback),
-    completeFlushAndQuit: () => ipcRenderer.send("knowledge-recovery:flush-complete"),
+    completeFlushAndQuit: (outcome) => ipcRenderer.send("knowledge-recovery:flush-complete", outcome),
+    onQuitCanceled: (callback) => subscribe("knowledge-recovery:quit-canceled", callback),
   },
   knowledgeFile: {
     save: (payload) => ipcRenderer.invoke("knowledge-document:save", payload),

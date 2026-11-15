@@ -29,6 +29,18 @@ const {launchRepository,task} = require('./electron-ui-helpers.cjs');
     assert.equal(await brief.inputValue(),'背景原文');
     await brief.fill('Enter 保存的背景');await brief.press('Enter');
     await p.waitForFunction(()=>!document.activeElement.matches('.brief21-input'));
+    const briefUpdates=()=>p.evaluate(()=>shellActiveTask().history.filter(item=>item[1]==='更新任务背景').length);
+    assert.equal(await briefUpdates(),1,'Enter records a single update');
+    await brief.fill('已经自动保存的本次修改');
+    await p.evaluate(()=>render());
+    assert.equal(await saved(),true);
+    const storedBrief=async()=>JSON.parse(await fs.readFile(path.join(profile,'task-data.json'),'utf8')).tasks[0].description;
+    assert.equal(await storedBrief(),'已经自动保存的本次修改');
+    await brief.press('Escape');
+    await p.waitForFunction(()=>!document.activeElement.matches('.brief21-input'));
+    assert.equal(await brief.inputValue(),'Enter 保存的背景');
+    assert.equal(await storedBrief(),'Enter 保存的背景');
+    assert.equal(await briefUpdates(),1,'Escape restores the edit without adding history');
 
     await p.locator('.node-title[data-node-id="n"]').dblclick();
     const rename=p.locator('[data-shell-node-rename]');
