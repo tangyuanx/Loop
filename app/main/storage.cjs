@@ -5,7 +5,7 @@
  *   - Read/write task data as JSON to disk
  *   - Normalize data structure (with safe defaults)
  *   - Atomic writes via temp file + rename
- *   - Automatic backup of corrupt data
+ *   - Preserve unverified data and report recovery states
  *
  * The data file is stored in Electron's userData directory.
  * Data format versioning is handled via the version field.
@@ -14,12 +14,15 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { IMAGE_ASSETS_DIR, packImageText, syncDirectory, unpackImageText } = require("./image-store.cjs");
+const { normalizeTaskActivity } = require("./task-history.cjs");
 const knowledgeDocument = require("../renderer/src/knowledge-document.js");
 const workNavigationModel = require("../renderer/src/work-navigation-model.js");
 const nodeStates = require("../renderer/src/node-states.js");
 
 const DATA_FILE = "task-data.json";
-const DATA_VERSION = 3;
+const WORKSPACE_FILE = "task-data.workspace";
+const DATA_VERSION = 4;
 const KNOWLEDGE_MIGRATION_VERSION = 2;
 // Phase26 -- Recently Deleted.
 //
@@ -29,7 +32,6 @@ const KNOWLEDGE_MIGRATION_VERSION = 2;
 // legacy recovery and the corrupt-file rescue) already carries it. The schema
 // version travels with the collection, mirroring `knowledgeSchemaVersion`.
 const RECENTLY_DELETED_SCHEMA_VERSION = 1;
-const RECENTLY_DELETED_LIMIT = 500;
 const RECENTLY_DELETED_KINDS = new Set(["task", "quick", "group", "node", "note"]);
 const RECENTLY_DELETED_GROUP_POLICIES = new Set(["keep", "delete"]);
 const DEFAULT_GROUP = { id: "group_inbox", title: "默认", order: 1 };
@@ -49,95 +51,133 @@ const FONT_SCALES = new Set(["current", "larger", "large", "largest"]);
 
 function dataFilePath(userDataPath) {
   return path.join(userDataPath, DATA_FILE);
-/**
- * Read and parse the task data JSON file.
- * @param {string} userDataPath - Electron userData directory
- * @returns {Promise<object|null>} Parsed data object, or null if missing/corrupt
- */
 }
 
-async function readTaskData(userDataPath) {
+function dataError(code, message, cause) {
+  return Object.assign(new Error(message, { cause }), { code });
+}
+
+async function readRawTaskData(userDataPath, fileSystem) {
+  let raw;
   try {
-    const raw = await fs.readFile(dataFilePath(userDataPath), "utf8");
-    const parsed = JSON.parse(raw);
-    assertSupportedDataVersion(parsed);
-    return normalizeTaskData(parsed);
+    raw = await fileSystem.readFile(dataFilePath(userDataPath), "utf8");
   } catch (error) {
-    if (error.code === "ENOENT") return null;
-    if (error instanceof SyntaxError) {
-      const backupPath = await backupCorruptData(userDataPath);
-      throw Object.assign(new Error("任务数据文件已损坏，原文件已备份"), {
-        code: "CORRUPT_TASK_DATA",
-        backupPath,
-      });
+    if (error.code === "ENOENT") {
+      if (await workspaceMarkerExists(userDataPath, fileSystem)) throw missingDatabase();
+      return null;
     }
-/**
- * Write task data to disk using atomic write pattern.
- * Writes to a .tmp file first, then renames to the target path.
- * @param {string} userDataPath - Electron userData directory
- * @param {object} data - Task data to persist
- * @returns {Promise<object>} The normalized data that was written
- */
+    throw error;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    throw dataError("CORRUPT_TASK_DATA", "任务数据文件已损坏，已保留原文件。", error);
+  }
+  validateTaskDataStructure(parsed);
+  return parsed;
+}
+
+/** Read the task database without moving, rewriting, or creating any files. */
+async function readTaskData(userDataPath, { fileSystem = fs, validateOnly = false } = {}) {
+  const parsed = await readRawTaskData(userDataPath, fileSystem);
+  if (!parsed) return null;
+  const usable = Number(parsed.version) === DATA_VERSION
+    ? await unpackImageText(userDataPath, parsed, { fileSystem, validateOnly })
+    : parsed;
+  return validateOnly ? parsed : normalizeTaskData(usable);
+}
+
+async function readOnDiskDataVersion(userDataPath) {
+  return Number((await readRawTaskData(userDataPath, fs))?.version || 0);
+}
+
+function missingDatabase() {
+  return dataError("MISSING_TASK_DATA", "任务数据文件缺失，已保留工作区以供恢复。");
+}
+
+async function workspaceMarkerExists(userDataPath, fileSystem) {
+  try {
+    await fileSystem.lstat(path.join(userDataPath, WORKSPACE_FILE));
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
     throw error;
   }
 }
 
-async function writeTaskData(userDataPath, data) {
-  assertSupportedDataVersion(data);
-  // The renderer sends data it already normalized to the current schema, so the
-  // assertion above cannot notice that the file on disk belongs to a newer Loop.
-  // Never let a downgrade overwrite a database written by a newer app version.
-  if (isNewerThanSupported(await readOnDiskDataVersion(userDataPath))) {
-    throw Object.assign(
-      new Error("磁盘上的任务数据由更高版本的 Loop 写入，已停止写入以保护数据"),
-      { code: "UNSUPPORTED_DATA_VERSION" },
-    );
+async function markWorkspace(userDataPath) {
+  let marker;
+  try {
+    marker = await fs.open(path.join(userDataPath, WORKSPACE_FILE), "wx", 0o600);
+  } catch (error) {
+    if (error.code === "EEXIST") return false;
+    throw error;
   }
+  try {
+    await marker.writeFile("Loop workspace\n", "utf8");
+    await marker.sync();
+  } finally {
+    await marker.close();
+  }
+  await syncDirectory(userDataPath);
+  return true;
+}
+
+/** Check an existing profile before accepting edits or migrating older layouts. */
+async function verifyTaskWorkspace(userDataPath) {
+  const parsed = await readTaskData(userDataPath, { validateOnly: true });
+  if (parsed) {
+    await markWorkspace(userDataPath);
+    return parsed;
+  }
+  const entries = await fs.readdir(userDataPath).catch((error) => {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  });
+  if (entries.some((entry) => [IMAGE_ASSETS_DIR, "task-share-assets", "knowledge-note-recovery", "knowledge-note-recovery.json"].includes(entry)
+    || /^task-data\.(?:corrupt|pre-migration)-.+\.json$/.test(entry))) {
+    throw missingDatabase();
+  }
+  return null;
+}
+
+/** Write the next task database after publishing all referenced image bytes. */
+async function writeTaskData(userDataPath, data) {
+  validateTaskDataStructure(data);
+  const previous = await readRawTaskData(userDataPath, fs);
+  if (Number(previous?.version) === DATA_VERSION) await unpackImageText(userDataPath, previous, { validateOnly: true });
   const normalized = normalizeTaskData(data);
+  normalized.version = DATA_VERSION;
   await fs.mkdir(userDataPath, { recursive: true });
+  const { packed } = await packImageText(userDataPath, normalized);
   const filePath = dataFilePath(userDataPath);
   const tempPath = `${filePath}.tmp-${process.pid}-${crypto.randomUUID()}`;
-  const content = `${JSON.stringify(normalized, null, 2)}\n`;
+  const content = `${JSON.stringify(packed, null, 2)}\n`;
   let handle = null;
+  let initializedHere = false;
   try {
     handle = await fs.open(tempPath, "wx", 0o600);
     await handle.writeFile(content, "utf8");
     await handle.sync();
     await handle.close();
     handle = null;
+    initializedHere = await markWorkspace(userDataPath);
     await fs.rename(tempPath, filePath);
+    await syncDirectory(userDataPath);
   } catch (error) {
     if (handle) await handle.close().catch(() => {});
     await fs.rm(tempPath, { force: true }).catch(() => {});
+    if (!previous && initializedHere) {
+      // A failed first save remains retryable when replacement did not occur.
+      await fs.lstat(filePath).catch(async (statusError) => {
+        if (statusError.code === "ENOENT") await fs.rm(path.join(userDataPath, WORKSPACE_FILE), { force: true }).catch(() => {});
+      });
+    }
     throw error;
   }
-/**
- * Normalize task data structure with safe defaults for all fields.
- * Ensures backward compatibility when new fields are added.
- * @param {object|null} data - Raw parsed data
- * @returns {object} Normalized data with all required fields
- */
   return normalized;
-}
-
-/**
- * Read only the version markers that are currently stored on disk.
- * Returns null when the file is missing or cannot be parsed; the existing
- * read path already handles those cases with its own backup routine.
- */
-async function readOnDiskDataVersion(userDataPath) {
-  try {
-    const raw = await fs.readFile(dataFilePath(userDataPath), "utf8");
-    const parsed = JSON.parse(raw);
-    if (!isRecord(parsed)) return null;
-    return {
-      version: Number(parsed.version),
-      knowledgeSchemaVersion: Number(parsed.knowledgeSchemaVersion),
-      recentlyDeletedSchemaVersion: Number(parsed.recentlyDeletedSchemaVersion),
-    };
-  } catch {
-    return null;
-  }
 }
 
 function isNewerThanSupported(record) {
@@ -147,13 +187,41 @@ function isNewerThanSupported(record) {
     || (Number(record.recentlyDeletedSchemaVersion) > RECENTLY_DELETED_SCHEMA_VERSION);
 }
 
-function assertSupportedDataVersion(data) {
-  if (!isRecord(data)) return;
-  if (Number(data.version) > DATA_VERSION
-    || Number(data.knowledgeSchemaVersion) > KNOWLEDGE_MIGRATION_VERSION
-    || Number(data.recentlyDeletedSchemaVersion) > RECENTLY_DELETED_SCHEMA_VERSION) {
-    throw Object.assign(new Error("任务数据版本高于当前应用支持范围"), { code: "UNSUPPORTED_DATA_VERSION" });
+function validateTaskDataStructure(data) {
+  if (isNewerThanSupported(data)) {
+    throw dataError("UNSUPPORTED_DATA_VERSION", "任务数据版本高于当前应用支持范围，已保留原文件。");
   }
+  const invalid = () => dataError("CORRUPT_TASK_DATA", "任务数据文件已损坏，数据结构校验失败，已保留原文件。");
+  if (!isRecord(data) || !Array.isArray(data.tasks)) throw invalid();
+
+  const recordArrays = [data.tasks];
+  for (const key of ["knowledgeDocuments", "taskGroups", "recentlyDeleted", "taskActivity"]) {
+    if (!Object.hasOwn(data, key)) continue;
+    if (!Array.isArray(data[key])) throw invalid();
+    recordArrays.push(data[key]);
+  }
+  while (recordArrays.length) {
+    for (const record of recordArrays.pop()) {
+      if (!isRecord(record)) throw invalid();
+      for (const key of ["nodes", "children"]) {
+        if (!Object.hasOwn(record, key)) continue;
+        if (!Array.isArray(record[key])) throw invalid();
+        recordArrays.push(record[key]);
+      }
+    }
+  }
+  const occupied = new Set(data.tasks.map((task) => normalizeIdentifier(task.id)).filter(Boolean));
+  for (const note of data.knowledgeDocuments || []) {
+    if (typeof note.id !== "string" || !note.id.trim() || occupied.has(note.id)) throw invalid();
+    occupied.add(note.id);
+  }
+  const archiveIds = new Set();
+  for (const entry of data.recentlyDeleted || []) {
+    if (typeof entry.id !== "string" || !entry.id.trim() || archiveIds.has(entry.id) || !RECENTLY_DELETED_KINDS.has(entry.kind)) throw invalid();
+    if (["task", "quick", "node"].includes(entry.kind) && !isRecord(entry.record)) throw invalid();
+    archiveIds.add(entry.id);
+  }
+  if (data.taskActivity && normalizeTaskActivity(data.taskActivity).length !== data.taskActivity.length) throw invalid();
 }
 
 function normalizeTaskData(data) {
@@ -161,11 +229,17 @@ function normalizeTaskData(data) {
   const tasks = normalizeTasks(safeData.tasks, safeData.knowledgeDocuments);
   const taskGroups = normalizeTaskGroups(safeData.taskGroups, tasks);
   const legacyFonts = migrateLegacyFont(safeData.font);
+  const taskActivity = Array.isArray(safeData.taskActivity) ? normalizeTaskActivity(safeData.taskActivity) : null;
+  const recentlyDeleted = normalizeRecentlyDeleted(safeData.recentlyDeleted);
+  const hasSharedAssets = tasks.some(task => task.sharedAssets?.length) || safeData.knowledgeDocuments?.some?.(note => note.sharedAssets?.length)
+    || safeData.recentlyDeleted?.some?.(entry => entry.record?.sharedAssets?.length);
+  const needsCurrentVersion = Number(safeData.version) === DATA_VERSION || taskActivity?.length || recentlyDeleted.length > 500;
   return {
-    version: tasks.some(task => task.sharedAssets?.length) || safeData.knowledgeDocuments?.some?.(note => note.sharedAssets?.length) || safeData.recentlyDeleted?.some?.(entry => entry.record?.sharedAssets?.length) ? DATA_VERSION : 2,
+    version: needsCurrentVersion ? DATA_VERSION : hasSharedAssets ? 3 : 2,
     knowledgeSchemaVersion: KNOWLEDGE_MIGRATION_VERSION,
     recentlyDeletedSchemaVersion: RECENTLY_DELETED_SCHEMA_VERSION,
-    recentlyDeleted: normalizeRecentlyDeleted(safeData.recentlyDeleted),
+    recentlyDeleted,
+    ...(taskActivity ? { taskActivity } : {}),
     tasks,
     nodeStates: nodeStates.normalizeDefinitions(safeData.nodeStates),
     knowledgeDocuments: knowledgeDocument.normalizeDocuments(safeData.knowledgeDocuments, tasks),
@@ -320,8 +394,7 @@ function normalizeRecentlyDeleted(value) {
   return (Array.isArray(value) ? value : [])
     .map((entry) => normalizeRecentlyDeletedEntry(entry, seenIds))
     .filter(Boolean)
-    .sort((a, b) => Date.parse(b.deletedAt) - Date.parse(a.deletedAt))
-    .slice(0, RECENTLY_DELETED_LIMIT);
+    .sort((a, b) => Date.parse(b.deletedAt) - Date.parse(a.deletedAt));
 }
 
 function normalizeTaskHistory(history) {
@@ -579,36 +652,20 @@ function normalizeInstallationId(value) {
     : crypto.randomUUID();
 }
 
-async function backupCorruptData(userDataPath) {
-  const filePath = dataFilePath(userDataPath);
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const backupPath = path.join(userDataPath, `task-data.corrupt-${timestamp}.json`);
-/**
- * Back up corrupt data file before it gets overwritten.
- * Appends a timestamp to the filename for traceability.
- * @param {string} userDataPath - Electron userData directory
- */
-  try {
-    await fs.rename(filePath, backupPath);
-    return backupPath;
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-    return null;
-  }
-}
-
 module.exports = {
   DATA_FILE,
   DATA_VERSION,
+  WORKSPACE_FILE,
   isNewerThanSupported,
   readOnDiskDataVersion,
   KNOWLEDGE_MIGRATION_VERSION,
-  RECENTLY_DELETED_LIMIT,
   RECENTLY_DELETED_SCHEMA_VERSION,
   dataFilePath,
   migrateKnowledgeTaskData,
   normalizeRecentlyDeleted,
   normalizeTaskData,
   readTaskData,
+  validateTaskDataStructure,
+  verifyTaskWorkspace,
   writeTaskData,
 };

@@ -130,6 +130,142 @@ test('append serializes behind an in-flight save and rejects a queued stale snap
   assert.deepEqual(data.tasks, ['edited again', 'imported']);
 });
 
+test('task activity keeps versions, status, moves and deleted node content without logging view changes', () => {
+  const { recordTaskActivity, readTaskActivity } = require('../app/main/task-history.cjs');
+  const time = seconds => new Date(Date.UTC(2026, 10, 15, 0, 0, seconds));
+  const old = { tasks: [{ id: 'task_a', title: '核对材料', status: 'done', conclusion: '旧结论', nodes: [
+    { id: 'node_a', title: '核对时间', note: '旧记录' },
+    { id: 'node_b', title: '提交' },
+    { id: 'node_c', title: '临时线索', note: '仍可追溯的记录' },
+  ] }] };
+  const viewOnly = structuredClone(old);
+  viewOnly.tasks[0].updatedAt = time(1).toISOString();
+  viewOnly.tasks[0].nodes[1].collapsed = true;
+  viewOnly.theme = 'dark';
+  viewOnly.knowledgeDocuments = [{ id: 'empty-draft', title: '未命名', notes: '' }];
+  viewOnly.tasks[0].knowledgeNoteIds = ['empty-draft'];
+  assert.equal(recordTaskActivity(old, viewOnly, { now: time(1) }).taskActivity, undefined);
+
+  const next = structuredClone(viewOnly);
+  const [nodeA, nodeB] = next.tasks[0].nodes;
+  next.tasks[0].status = 'active';
+  next.tasks[0].conclusion = '新结论';
+  nodeA.note = '新记录';
+  nodeB.children = [nodeA];
+  next.tasks[0].nodes = [nodeB];
+  const stored = recordTaskActivity(viewOnly, next, { now: time(10) });
+  const events = readTaskActivity(stored, 'task_a').events;
+  assert.equal(events.length, 3);
+  const taskChange = events.find(event => event.targetKind === 'task');
+  assert.deepEqual(taskChange.changes, [
+    { field: 'status', before: 'done', after: 'active' },
+    { field: 'conclusion', before: '旧结论', after: '新结论' },
+  ]);
+  assert.equal(taskChange.at, time(10).toISOString());
+  const move = events.find(event => event.targetId === 'node_a');
+  assert.deepEqual(move.changes, [
+    { field: 'placement', before: { parentId: '', parentTitle: '', order: 1 }, after: { parentId: 'node_b', parentTitle: '提交', order: 1 } },
+    { field: 'note', before: '旧记录', after: '新记录' },
+  ]);
+  const removed = events.find(event => event.targetId === 'node_c');
+  assert.equal(removed.kind, 'deleted');
+  assert.equal(removed.changes[0].before, '仍可追溯的记录');
+});
+
+test('task activity coalesces nearby text edits and pages older entries without pruning', () => {
+  const { recordTaskActivity, readTaskActivity, normalizeTaskActivity } = require('../app/main/task-history.cjs');
+  const timestamp = seconds => new Date(Date.UTC(2026, 10, 15, 0, 0, seconds));
+  const state = title => ({ tasks: [{ id: 'task_a', title }] });
+  let data = recordTaskActivity(state('初稿'), state('初稿甲'), { now: timestamp(5) });
+  const first = data.taskActivity[0];
+  data = recordTaskActivity(data, state('初稿甲乙'), { now: timestamp(7) });
+  assert.equal(data.taskActivity.length, 1);
+  assert.equal(data.taskActivity[0].id, first.id);
+  assert.equal(data.taskActivity[0].startedAt, timestamp(5).toISOString());
+  assert.deepEqual(data.taskActivity[0].changes, [{ field: 'title', before: '初稿', after: '初稿甲乙' }]);
+  for (let index = 1; index <= 45; index += 1) {
+    data = recordTaskActivity(data, state('编辑批次 ' + index), { now: timestamp(index * 60) });
+  }
+  const pages = readTaskActivity(data, 'task_a');
+  assert.equal(pages.events.length, 40);
+  assert.equal(readTaskActivity(data, 'task_a', pages.beforeId).events.length, 6);
+  assert.deepEqual(normalizeTaskActivity(data.taskActivity), data.taskActivity);
+  assert.deepEqual(readTaskActivity(data, 'task_other').events, []);
+});
+
+test('task activity and restored versions share the committed workspace transaction', async t => {
+  const { readTaskData, writeTaskData } = require('../app/main/storage.cjs');
+  const root = await fixture(t);
+  const task = { id: 'task_versions', title: '任务', conclusion: '旧版结论', nodes: [{ id: 'node_record', title: '节点', note: '旧版记录' }] };
+  await writeTaskData(root, { tasks: [task] });
+  const input = await readTaskData(root);
+  const edited = structuredClone(input);
+  edited.tasks[0].conclusion = '新版结论';
+  edited.tasks[0].nodes[0].note = '新版记录';
+  let rejectWrite = true;
+  const options = { read: () => readTaskData(root), assertWritable: () => {},
+    write: async data => {
+      if (rejectWrite) throw Object.assign(new Error('disk full'), { code: 'ENOSPC' });
+      return writeTaskData(root, data);
+    } };
+  const store = taskShareStore(options);
+  await assert.rejects(store.save(edited, 0), { code: 'ENOSPC' });
+  assert.deepEqual((await store.historyFor(task.id)).events, []);
+  rejectWrite = false;
+  await store.save(edited, 0);
+  const reopened = taskShareStore(options);
+  const events = (await reopened.historyFor(task.id)).events;
+  assert.equal(events.length, 2);
+  const previousNode = events.find(event => event.targetId === 'node_record');
+  rejectWrite = true;
+  const request = { taskId: task.id, eventId: previousNode.id, field: 'note', side: 'before', revision: 0 };
+  await assert.rejects(reopened.restoreHistory(request), { code: 'ENOSPC' });
+  assert.equal((await reopened.historyFor(task.id)).events.length, 2);
+  rejectWrite = false;
+  const receipt = await reopened.restoreHistory(request);
+  assert.equal(receipt.revision, 1);
+  await assert.rejects(reopened.save(edited, 0), { code: 'DATA_STALE_REVISION' });
+  const postRestore = await readTaskData(root);
+  assert.equal(postRestore.tasks[0].nodes[0].note, '旧版记录');
+  assert.equal(postRestore.tasks[0].conclusion, '新版结论');
+  assert.equal(postRestore.taskActivity.at(-1).kind, 'restored-version');
+  assert.deepEqual(postRestore.taskActivity.at(-1).changes, [{ field: 'note', before: '新版记录', after: '旧版记录' }]);
+  assert.equal((await reopened.readForRenderer()).taskActivity, undefined);
+});
+
+test('Recently Deleted survives beyond 500 items on disk', async t => {
+  const { readTaskData, writeTaskData } = require('../app/main/storage.cjs');
+  const root = await fixture(t);
+  const recentlyDeleted = Array.from({ length: 501 }, (_, index) => ({
+    id: 'deleted_' + index, kind: 'task', deletedAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+    record: { id: 'task_' + index, title: '归档' },
+  }));
+  await writeTaskData(root, { tasks: [], recentlyDeleted });
+  const stored = await readTaskData(root);
+  assert.equal(stored.recentlyDeleted.length, 501);
+  assert.equal(stored.version, 4, 'an older app must not be allowed to truncate this archive');
+  assert.equal(stored.recentlyDeleted.at(-1).id, 'deleted_0');
+});
+
+test('inline images in task activity and live node records share one stored asset', async t => {
+  const { readTaskData, writeTaskData, DATA_FILE } = require('../app/main/storage.cjs');
+  const { IMAGE_ASSETS_DIR } = require('../app/main/image-store.cjs');
+  const root = await fixture(t);
+  const src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
+  const image = `![照片](${src})`;
+  const tasks = [{ id: 'task_image', title: '图片测试', nodes: [{ id: 'node_image', title: '现场', note: `原说明\n${image}` }] }];
+  await writeTaskData(root, { tasks });
+  const store = taskShareStore({ read: () => readTaskData(root), write: data => writeTaskData(root, data), assertWritable: () => {} });
+  const modified = await readTaskData(root);
+  modified.tasks[0].nodes[0].note = `新说明\n${image}`;
+  await store.save(modified, 0);
+  const saved = await readTaskData(root);
+  assert.equal(saved.taskActivity[0].changes[0].before, `原说明\n${image}`);
+  assert.equal(saved.taskActivity[0].changes[0].after, `新说明\n${image}`);
+  assert.equal((await fs.readdir(path.join(root, IMAGE_ASSETS_DIR))).length, 1);
+  assert.ok(!(await fs.readFile(path.join(root, DATA_FILE), 'utf8')).includes(src));
+});
+
 test('asset recovery removes only the unfinished import, retaining the committed one', async t => {
   const root = await fixture(t);
   const file = path.join(root, 'file.txt');

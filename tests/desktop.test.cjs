@@ -975,19 +975,15 @@ test("knowledge recovery stores independent content with its file baseline", asy
   }
 });
 
-test("corrupt knowledge recovery data is backed up before empty fallback", async () => {
+test("corrupt knowledge recovery data stays in place and cannot be overwritten", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "personal-task-track-corrupt-recovery-"));
   const filePath = recoveryFilePath(directory);
   const corruptContent = '{"records":';
   try {
     await fs.writeFile(filePath, corruptContent, "utf8");
-    const recovered = await readKnowledgeRecovery(directory);
-    assert.deepEqual(recovered, { version: 1, records: {} });
-    const files = await fs.readdir(directory);
-    const backups = files.filter((file) => file.startsWith("knowledge-note-recovery.json.corrupt-"));
-    assert.equal(backups.length, 1);
-    assert.equal(await fs.readFile(path.join(directory, backups[0]), "utf8"), corruptContent);
-    await assert.rejects(fs.access(filePath));
+    await assert.rejects(readKnowledgeRecovery(directory), { code: "CORRUPT_KNOWLEDGE_RECOVERY" });
+    await assert.rejects(writeKnowledgeRecovery(directory, { noteId: "other", content: "新草稿" }), { code: "CORRUPT_KNOWLEDGE_RECOVERY" });
+    assert.equal(await fs.readFile(filePath, "utf8"), corruptContent);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }
@@ -1055,6 +1051,21 @@ test("renderer flushes pending knowledge recovery before shutdown", async () => 
 
   assert.equal(recoveryWrites.length, 1);
   assert.equal(recoveryWrites[0].content, "退出前最新正文");
+});
+
+test("the local save receipt stays pending while a node record is only an editor draft", async () => {
+  const written = [];
+  const h = await rendererHarness({ storage: { write: async data => { written.push(data); } } });
+  h.evaluate(`
+    state.tasks = normalizeTasks([{ id: "draft-receipt", title: "任务", nodes: [{id:"draft-node", title:"节点", note:"原记录"}] }]);
+    localSaveOutcome = "saved";
+    updateNodeNoteDraft("draft-receipt", "draft-node", "尚未写入的新记录");
+  `);
+  assert.equal(h.evaluate("localSaveReceipt().state"), "pending");
+  assert.equal(written.length, 0);
+  await h.evaluate("flushAllDataForTransfer()");
+  assert.equal(written.at(-1).tasks[0].nodes[0].note, "尚未写入的新记录");
+  assert.equal(h.evaluate("localSaveReceipt().state"), "saved");
 });
 
 test("update installation preparation requires both task data and pending Recovery to persist", async () => {
@@ -3856,7 +3867,7 @@ test("an isolated profile never triggers legacy user-data recovery", async () =>
   assert.match(mainSource, /const desktopIdentity = configureDesktopIdentity\(app\)/);
   assert.match(
     mainSource,
-    /if \(!desktopIdentity\.usesExplicitProfile\) \{\r?\n\s+await recoverLegacyUserData\(\{/,
+    /if \(!workspaceProtection && !desktopIdentity\.usesExplicitProfile\) \{\r?\n\s+await recoverLegacyUserData\(\{/,
     "a caller-provided profile must not pull the real database in",
   );
 });
@@ -5277,19 +5288,14 @@ test("disk persistence writes and reads a normalized atomic payload", async (t) 
   await assert.rejects(fs.access(path.join(directory, "task-data.json.tmp")));
 });
 
-test("disk reads preserve corrupt JSON as a timestamped backup", async (t) => {
+test("disk reads preserve corrupt JSON in place and prevent ordinary writes", async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "personal-task-track-corrupt-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   await fs.writeFile(path.join(directory, "task-data.json"), "{invalid", "utf8");
 
-  await assert.rejects(readTaskData(directory), (error) => {
-    assert.equal(error.code, "CORRUPT_TASK_DATA");
-    assert.match(error.backupPath, /task-data\.corrupt-.+\.json$/);
-    return true;
-  });
-  const files = await fs.readdir(directory);
-  assert.equal(files.some((file) => /^task-data\.corrupt-.+\.json$/.test(file)), true);
-  assert.equal(files.includes("task-data.json"), false);
+  await assert.rejects(readTaskData(directory), { code: "CORRUPT_TASK_DATA" });
+  await assert.rejects(writeTaskData(directory, { tasks: [] }), { code: "CORRUPT_TASK_DATA" });
+  assert.equal(await fs.readFile(path.join(directory, "task-data.json"), "utf8"), "{invalid");
 });
 
 test("renderer makes corrupt task-data backup recovery observable", async () => {
@@ -7350,7 +7356,7 @@ test("a newer archive schema is never overwritten by an older app", async () => 
   }
 });
 
-test("archive ids are de-duplicated and the collection is bounded and newest-first", () => {
+test("archive ids are de-duplicated and the collection is newest-first", () => {
   const entries = Array.from({ length: 4 }, (_, index) => ({
     id: "rd_same",
     kind: "task",
@@ -7692,8 +7698,8 @@ test('backup ownership survives settings rerenders, prevents duplicate operation
   h.evaluate(`
     flushAllDataForTransfer = async () => {};
     globalThis.makeBackupButton = () => ({dataset:{backupAction:'export'},listeners:[],addEventListener(_,fn){this.listeners.push(fn);}});
-    globalThis.controls = [makeBackupButton()]; globalThis.backupStatus = {};
-    document.querySelectorAll = selector => selector === '[data-backup-action]' ? controls : [];
+    globalThis.controls = [makeBackupButton()]; globalThis.backupStatus = {dataset:{}};
+    document.querySelectorAll = selector => selector === '[data-backup-action]' ? controls : selector === '[data-backup-status]' ? [backupStatus] : [];
     document.querySelector = selector => selector === '[data-backup-status]' ? backupStatus : null;
     bindDataBackupControls(); bindDataBackupControls();
     globalThis.invokeBackup = () => controls[0].listeners[0]({stopPropagation(){},currentTarget:controls[0]});
@@ -7702,15 +7708,43 @@ test('backup ownership survives settings rerenders, prevents duplicate operation
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(calls, 1);
   assert.equal(h.evaluate('controls[0].listeners.length'), 1);
-  h.evaluate(`controls = [makeBackupButton()]; backupStatus = {}; bindDataBackupControls(); invokeBackup();`);
+  h.evaluate(`controls = [makeBackupButton()]; backupStatus = {dataset:{}}; bindDataBackupControls(); invokeBackup();`);
   assert.equal(h.evaluate('controls[0].disabled'), true);
   assert.match(h.evaluate('backupStatus.textContent'), /正在保存/);
   assert.equal(calls, 1);
   finish({canceled:true}); await h.evaluate('transferPromise');
   assert.equal(h.evaluate('controls[0].disabled'), false);
   assert.match(h.evaluate('backupStatus.textContent'), /已取消/);
-  h.evaluate(`backupStatus = {}; bindDataBackupControls()`);
+  h.evaluate(`backupStatus = {dataset:{}}; bindDataBackupControls()`);
   assert.match(h.evaluate('backupStatus.textContent'), /已取消/);
+});
+
+test('backup and restore use their own password and feedback region', async () => {
+  const calls = [];
+  const h = await rendererHarness({ dataBackup: {
+    export: async password => { calls.push(["export", password]); return { canceled: true }; },
+    importFile: async password => { calls.push(["import", password]); return { canceled: true }; },
+  } });
+  h.evaluate(`
+    flushAllDataForTransfer = async () => {};
+    globalThis.controls = ["export", "import-file"].map(backupAction => ({
+      dataset: {backupAction}, addEventListener(_, handler) { this.run = handler; },
+    }));
+    globalThis.exportFeedback = {dataset: {backupStatus: "export"}};
+    globalThis.restoreFeedback = {dataset: {backupStatus: "restore"}};
+    document.querySelectorAll = selector => selector === "[data-backup-action]" ? controls
+      : selector === "[data-backup-status]" ? [exportFeedback, restoreFeedback] : [];
+    document.querySelector = selector => selector === '[data-backup-password="export"]' ? {value:"export-secret"}
+      : selector === '[data-backup-password="import"]' ? {value:"restore-secret"} : null;
+    bindDataBackupControls();
+  `);
+  await h.evaluate('controls[0].run({stopPropagation(){}, currentTarget: controls[0]})');
+  assert.match(h.evaluate('exportFeedback.textContent'), /已取消/);
+  assert.equal(h.evaluate('restoreFeedback.textContent'), "");
+  await h.evaluate('controls[1].run({stopPropagation(){}, currentTarget: controls[1]})');
+  assert.deepEqual(calls, [["export", "export-secret"], ["import", "restore-secret"]]);
+  assert.equal(h.evaluate('exportFeedback.textContent'), "");
+  assert.match(h.evaluate('restoreFeedback.textContent'), /已取消/);
 });
 
 test('a failed import rollback cannot resume autosave into a partially restored workspace', async () => {
@@ -7719,8 +7753,8 @@ test('a failed import rollback cannot resume autosave into a partially restored 
   h.evaluate(`
     flushAllDataForTransfer = async () => {};
     globalThis.control = {dataset:{backupAction:'import-file'},addEventListener(_,fn){this.run=fn;}};
-    globalThis.transferStatus = {};
-    document.querySelectorAll = selector => selector === '[data-backup-action]' ? [control] : [];
+    globalThis.transferStatus = {dataset:{}};
+    document.querySelectorAll = selector => selector === '[data-backup-action]' ? [control] : selector === '[data-backup-status]' ? [transferStatus] : [];
     document.querySelector = selector => selector === '[data-backup-status]' ? transferStatus : null;
     bindDataBackupControls();
   `);
@@ -7766,6 +7800,7 @@ test('native import releases the write lock on cancellation or successful rollba
       ipcMain: {handle:(_,fn)=>{handler=fn;}}, BrowserWindow:{fromWebContents:()=>({})}, path, process,
       dialog:{showOpenDialog:async()=>({canceled:scenario==='canceled',filePaths:['/synthetic/incoming.loopbackup']}),showMessageBox:async()=>({response:1})},
       app:{getPath:()=>'/synthetic/profile',relaunch(){},exit(){}}, dataMaintenance:lock,
+      workspaceBackupAppDataPath:()=>'/synthetic/profile',
       taskStore:{serialize:fn=>fn()},
       importBackup:async()=>{ assert.equal(lock.isActive(),true); if(scenario!=='success') throw Object.assign(new Error(scenario),{code:scenario}); return {imported:true}; },
       setTimeout:()=>({unref(){}}),

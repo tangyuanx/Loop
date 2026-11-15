@@ -1,0 +1,143 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
+const { _electron } = require("playwright-core");
+const { writeTaskData, readTaskData } = require("../app/main/storage.cjs");
+const { exportWorkspaceBackup } = require("../app/main/workspace-backup.cjs");
+const { SNAPSHOT_DIRECTORY } = require("../app/main/automatic-backups.cjs");
+
+const repository = path.resolve(__dirname, "..");
+const stamp = new Date().toISOString();
+const data = { tasks: [{ id: "data-test", title: "数据保护候选", conclusion: "原结论", status: "active", priority: "medium", nodes: [], createdAt: stamp, updatedAt: stamp }] };
+
+async function start(profile) {
+  const env = { ...process.env, LOOP_USER_DATA_DIR: profile };
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ executablePath: require("electron"), args: [repository], cwd: repository, env });
+  const page = await app.firstWindow();
+  page.setDefaultTimeout(15000);
+  const errors = [];
+  page.on("pageerror", error => errors.push(error.message));
+  assert.equal(await app.evaluate(({ app }) => app.getPath("userData")), profile);
+  assert.equal(await app.evaluate(({ app }) => app.getAppPath()), repository);
+  return { app, page, errors };
+}
+
+(async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "loop-data-product-"));
+  let app;
+  try {
+    const profile = path.join(root, "daily");
+    await writeTaskData(profile, data);
+    let run = await start(profile);
+    ({ app } = run);
+    const page = run.page;
+    await page.locator(".app").waitFor();
+    await page.waitForFunction(() => typeof recovery26Open === "function");
+    const disk = () => fs.readFile(path.join(profile, "task-data.json"), "utf8");
+    await page.evaluate(() => {
+      state.settingsOpen = true;
+      activeSettingsPage = "data";
+      render();
+    });
+    await page.locator("[data-backup-usage]").filter({ hasText: "任务数据" }).waitFor();
+    assert.deepEqual(await page.locator(".data-settings h3").allTextContents(),
+      ["数据概况", "备份与迁移", "最近删除", "恢复整个工作区"]);
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate(theme => { state.theme = theme; render(); }, theme);
+      for (const input of await page.locator("[data-backup-password]").all()) {
+        await input.focus();
+        const colors = await input.evaluate(element => {
+          const result = [];
+          for (let node = element; node && node !== document.body; node = node.parentElement) {
+            const style = getComputedStyle(node);
+            result.push({ border: style.borderColor, outline: style.outlineColor, outlineWidth: style.outlineWidth, shadow: style.boxShadow });
+          }
+          return result;
+        });
+        const green = color => {
+          const matches = [...color.matchAll(/rgba?\((\d+)[, ]+(\d+)[, ]+(\d+)/g)];
+          return matches.some(([, r, g, b]) => +g > +r + 25 && +g > +b + 10);
+        };
+        assert.equal(colors.some(item => green(item.border) || item.outlineWidth !== "0px" && green(item.outline) || green(item.shadow)), false);
+      }
+    }
+
+    const archive = path.join(root, "encrypted.loopbackup");
+    await app.evaluate(({ dialog }, destination) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: destination });
+      dialog.showMessageBox = async () => ({ response: 1 });
+    }, archive);
+    await page.locator('[data-backup-password="export"]').fill("my independent backup password");
+    await page.locator('[data-backup-password="import"]').fill("different restore password");
+    await page.locator("[data-backup-action='export']").click();
+    await page.locator("[data-backup-status]").filter({ hasText: "加密备份已保存" }).waitFor();
+    assert.equal(await page.locator('[data-backup-status="restore"]').textContent(), "");
+    assert.equal(await page.locator('[data-backup-password="import"]').inputValue(), "different restore password");
+    assert.equal((await fs.readFile(archive)).subarray(0, 8).toString(), "LOOPBK2E");
+
+    await page.evaluate(async () => {
+      state.settingsOpen = false;
+      state.tasks[0].title = "退出前尚未保存的新标题";
+      save();
+      await flushSave();
+    });
+    const previous = await disk();
+    await app.evaluate(({ app }) => {
+      const fs = process.mainModule.require("node:fs/promises");
+      const original = fs.rename;
+      globalThis.restoreDataRename = () => { fs.rename = original; };
+      fs.rename = async (from, to) => {
+        if (String(to).endsWith("task-data.json")) throw Object.assign(new Error("Synthetic disk failure"), { code: "ENOSPC" });
+        return original(from, to);
+      };
+    });
+    await page.evaluate(async () => {
+      state.tasks[0].title = "磁盘失败后仍要保留的标题";
+      save();
+      await flushSave();
+    });
+    await app.evaluate(({ app }) => { app.quit(); });
+    await page.getByRole("alert").filter({ hasText: "退出已暂停" }).waitFor();
+    assert.equal(await disk(), previous);
+    assert.equal(await page.evaluate(() => state.tasks[0].title), "磁盘失败后仍要保留的标题");
+    await app.evaluate(() => { restoreDataRename(); });
+    assert.equal(await page.evaluate(() => flushAllDataForTransfer().then(() => true)), true);
+    assert.equal((await readTaskData(profile)).tasks[0].title, "磁盘失败后仍要保留的标题");
+    assert.deepEqual(run.errors, []);
+    await app.close();
+    app = null;
+
+    const protectedProfile = path.join(root, "protected");
+    await writeTaskData(protectedProfile, data);
+    const snapshots = path.join(protectedProfile, SNAPSHOT_DIRECTORY);
+    await fs.mkdir(snapshots);
+    const automatic = path.join(snapshots, "loop-auto-2026-11-15-20261115T123456000Z-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.loopbackup");
+    await exportWorkspaceBackup({ userDataPath: protectedProfile, destinationPath: automatic, includeBoundNotes: false });
+    await fs.writeFile(path.join(protectedProfile, "task-data.json"), '{"tasks":null}');
+    run = await start(protectedProfile);
+    ({ app } = run);
+    await run.page.getByRole("heading", { name: "工作区已进入只读保护" }).waitFor();
+    assert.equal(await run.page.locator(".app").count(), 0);
+    assert.equal(await fs.readFile(path.join(protectedProfile, "task-data.json"), "utf8"), '{"tasks":null}');
+    await run.page.locator("[data-backup-action='import-recent']:not([hidden])").waitFor();
+    await app.evaluate(({ app, dialog }) => {
+      dialog.showMessageBox = async () => ({ response: 1 });
+      app.relaunch = () => {};
+      app.exit = () => {};
+    });
+    await run.page.locator("[data-backup-action='import-recent']").click();
+    await run.page.locator("[data-backup-status]").filter({ hasText: "数据已恢复并校验成功" }).waitFor();
+    assert.equal((await readTaskData(protectedProfile)).tasks[0].title, "数据保护候选");
+    const localSafetyBackups = path.join(protectedProfile, ".isolated-backups", "Personal Task Track Upgrade Backups");
+    assert.equal((await fs.readdir(localSafetyBackups)).filter(name => !name.startsWith("._")).length, 1);
+    assert.deepEqual(run.errors, []);
+    await app.close();
+    app = null;
+    console.log("Data product UI passed: encrypted export, neutral focus in both themes, failed-save exit protection, retry, corrupt-workspace protection and native backup restoration.");
+  } finally {
+    await app?.close().catch(() => {});
+    await fs.rm(root, { recursive: true, force: true });
+  }
+})().catch(error => { console.error(error); process.exitCode = 1; });

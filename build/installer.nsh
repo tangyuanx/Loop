@@ -38,13 +38,29 @@ Var loopRegisteredInstallLocation
   ${EndIf}
 !macroend
 
+!macro copyLoopUpgradeResourceDirectory SOURCE_DIR DEST_DIR DIRECTORY_NAME
+  ${If} ${FileExists} "${SOURCE_DIR}\${DIRECTORY_NAME}\*.*"
+    CreateDirectory "${DEST_DIR}\${DIRECTORY_NAME}"
+    ClearErrors
+    CopyFiles /SILENT "${SOURCE_DIR}\${DIRECTORY_NAME}\*.*" "${DEST_DIR}\${DIRECTORY_NAME}"
+    ${If} ${Errors}
+      MessageBox MB_OK|MB_ICONSTOP "Loop 无法备份工作区资源。安装已停止，原软件和数据不会被删除。"
+      Abort
+    ${EndIf}
+    StrCpy $loopUpgradeBackupCreated "1"
+  ${EndIf}
+!macroend
+
 !macro backupLoopUpgradeDirectory SOURCE_DIR LABEL
   CreateDirectory "$loopUpgradeBackupRoot\${LABEL}"
   !insertmacro copyLoopUpgradeFile "${SOURCE_DIR}" "$loopUpgradeBackupRoot\${LABEL}" "task-data.json"
+  !insertmacro copyLoopUpgradeFile "${SOURCE_DIR}" "$loopUpgradeBackupRoot\${LABEL}" "task-data.workspace"
   !insertmacro copyLoopUpgradeFile "${SOURCE_DIR}" "$loopUpgradeBackupRoot\${LABEL}" "knowledge-note-recovery.json"
   !insertmacro copyLoopUpgradeFile "${SOURCE_DIR}" "$loopUpgradeBackupRoot\${LABEL}" "deadline-reminders.json"
   !insertmacro copyLoopUpgradeFile "${SOURCE_DIR}" "$loopUpgradeBackupRoot\${LABEL}" "today-widget-preferences.json"
   !insertmacro copyLoopUpgradeFile "${SOURCE_DIR}" "$loopUpgradeBackupRoot\${LABEL}" "update-preferences.json"
+  !insertmacro copyLoopUpgradeResourceDirectory "${SOURCE_DIR}" "$loopUpgradeBackupRoot\${LABEL}" "image-assets"
+  !insertmacro copyLoopUpgradeResourceDirectory "${SOURCE_DIR}" "$loopUpgradeBackupRoot\${LABEL}" "workspace-notes"
 
   ${If} ${FileExists} "${SOURCE_DIR}\knowledge-note-recovery\*.*"
     CreateDirectory "$loopUpgradeBackupRoot\${LABEL}\knowledge-note-recovery"

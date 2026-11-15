@@ -4,6 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { limits, assertShare, stagedCopy } = require('./task-share-archive.cjs');
+const { DATA_VERSION, validateTaskDataStructure } = require('./storage.cjs');
 
 const ASSET_DIRECTORY = 'task-share-assets';
 const localId = /^[a-z]+_[a-f\d-]{36}$/;
@@ -73,9 +74,10 @@ async function recoverAssetImports(userData) {
   try {
     entries = await fs.readdir(root, { withFileTypes: true });
     data = JSON.parse(await fs.readFile(path.join(userData, 'task-data.json'), 'utf8'));
-    if (!Array.isArray(data?.tasks) || !Number.isInteger(data.version) || data.version > 3) return;
+    if (!Number.isInteger(data.version) || data.version > DATA_VERSION) return;
+    validateTaskDataStructure(data);
   } catch (error) {
-    if (error.code === 'ENOENT' || error instanceof SyntaxError) return;
+    if (error.code === 'ENOENT' || error.code === 'CORRUPT_TASK_DATA' || error.code === 'UNSUPPORTED_DATA_VERSION' || error instanceof SyntaxError) return;
     throw error;
   }
   for (const entry of entries) {

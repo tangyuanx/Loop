@@ -10,6 +10,7 @@
 function createDataMaintenanceLock() {
   let depth = 0;
   let activeReason = "";
+  const writes = new Set();
 
   function release() {
     depth = Math.max(0, depth - 1);
@@ -39,7 +40,18 @@ function createDataMaintenanceLock() {
     }
   }
 
-  return { begin, end: release, isActive, reason: currentReason, assertWritable };
+  async function track(operation) {
+    assertWritable();
+    const pending = Promise.resolve().then(operation);
+    writes.add(pending);
+    try { return await pending; } finally { writes.delete(pending); }
+  }
+
+  function waitForWrites() {
+    return Promise.allSettled(writes);
+  }
+
+  return { begin, end: release, isActive, reason: currentReason, assertWritable, track, waitForWrites };
 }
 
 const defaultLock = createDataMaintenanceLock();
@@ -52,4 +64,6 @@ module.exports = {
   end: defaultLock.end,
   isActive: defaultLock.isActive,
   reason: defaultLock.reason,
+  track: defaultLock.track,
+  waitForWrites: defaultLock.waitForWrites,
 };

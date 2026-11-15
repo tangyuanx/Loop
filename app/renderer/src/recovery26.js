@@ -204,7 +204,7 @@ function restoreRecovery26State(before) {
   state.nodeDetailPosition = before.nodeDetailPosition;
 }
 
-/** Append one archive entry, newest first, bounded like storage.cjs does. */
+/** Append one archive entry, newest first. */
 function recovery26Archive(entry) {
   const record = {
     id: `rd_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
@@ -212,9 +212,6 @@ function recovery26Archive(entry) {
     ...entry,
   };
   r26Archive().unshift(record);
-  if (state.recentlyDeleted.length > RECENTLY_DELETED_LIMIT) {
-    state.recentlyDeleted.length = RECENTLY_DELETED_LIMIT;
-  }
   return record;
 }
 
@@ -1160,7 +1157,7 @@ function recovery26PurgeReview(ids) {
   recovery26OpenConfirm(
     "永久移除？",
     `<p>${scope}将从最近删除中移除。</p>
-     <p class="recovery26-hint">此后无法通过最近删除恢复。磁盘文件、附件和已有备份会保留。</p>
+     <p class="recovery26-hint">此后无法通过最近删除恢复。任务历史、磁盘文件、附件和已有备份仍可能包含相关内容。</p>
      <label class="recovery26-option"><input id="recovery26-purge-agree" type="checkbox"><span>我确认永久移除这些软件内内容</span></label>
      <p class="recovery26-demo-note">仅清理 Loop 内的归档快照；磁盘文件、附件与已有备份会保留。</p>`,
     r26Button("cancel", "取消") + r26Button("purge-confirm", "永久移除", "button danger-action", "disabled"),

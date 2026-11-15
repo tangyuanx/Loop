@@ -719,10 +719,169 @@ function shellBindFlowKeyboard() {
 
 function renderShellHistory(task) {
   const entries = Array.isArray(task.history) ? task.history : [];
-  return `<section class="article-pane"><h2>历史处理</h2>${entries.length
-    ? entries.map(([time, text]) => `<div class="history-line"><time>${esc(time)}</time><span>${esc(text)}</span></div>`).join("")
-    : "<p>开始处理后，节点状态的变化会记录在这里。</p>"}</section>`;
+  const legacy = entries.map(([time, text]) => `<div class="history-line"><time>${esc(time)}</time><span>${esc(text)}</span></div>`).join("");
+  const available = window.personalTaskTrack?.taskHistory?.read;
+  return `<section class="article-pane task-activity-pane" data-task-activity="${escAttr(task.id)}" aria-label="历史处理">
+    ${available ? '<div data-task-activity-events></div><p data-task-activity-status role="status">正在读取历史…</p><button class="button" type="button" data-task-activity-more hidden>加载更早记录</button>' : ""}
+    ${legacy ? `<details class="task-activity-legacy" open><summary>简报编辑摘要</summary>${legacy}</details>` : ""}
+    ${available || legacy ? "" : "<p>暂无历史记录</p>"}
+  </section>`;
 }
+
+const taskActivityFields = {
+  title: "标题", status: "状态", group: "分组", priority: "优先级", deadlineAt: "截止时间",
+  placement: "位置", description: "背景", hypothesis: "进展", conclusion: "结论", notes: "笔记",
+  note: "记录", body: "正文", tags: "标签", knowledgeNoteIds: "所属笔记", downstreamNodeIds: "关联节点",
+};
+const taskActivityDate = new Intl.DateTimeFormat("zh-CN", {
+  year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+});
+
+function taskActivityValue(field, value, targetKind) {
+  if (field === "placement") return `${value?.parentId ? value.parentTitle || "未命名父节点" : "顶层"} · 第 ${value?.order || 1} 项`;
+  if (field === "group") return value?.id ? value.title || "分组" : "未分组";
+  if (field === "status") {
+    const id = value?.id || value;
+    if (targetKind === "node") return value?.title || nodeStatusText(id);
+    return id === "done" ? "已完成" : "进行中";
+  }
+  if (field === "priority") return { high: "高", medium: "中", low: "低" }[value] || "未设置";
+  if (field === "deadlineAt" && Number.isFinite(Date.parse(value))) return taskActivityDate.format(new Date(value));
+  if (field === "knowledgeNoteIds" || field === "downstreamNodeIds") return `${value?.length || 0} 项`;
+  if (field === "tags" && Array.isArray(value)) return value.map(tag => ({today: "今日", later: "稍后", blocked: "阻塞"})[tag] || tag).join("、") || "空";
+  return Array.isArray(value) ? value.join("、") || "空" : typeof value === "string" && value ? value : "空";
+}
+
+function renderTaskActivityEvent(event, task) {
+  const { targetKind, targetId, changes = [] } = event;
+  const targetLabel = { task: "任务", node: "节点", note: "笔记" }[targetKind] || "内容";
+  const time = taskActivityDate.format(new Date(event.at));
+  let action = { created: "创建", imported: "导入", deleted: "删除", restored: "恢复", "restored-version": "恢复版本" }[event.kind];
+  if (!action) {
+    const fields = changes.map(item => item.field);
+    if (fields.includes("status")) {
+      const status = changes.find(item => item.field === "status");
+      const before = status.before?.id || status.before;
+      const after = status.after?.id || status.after;
+      action = after === "done" ? "完成" : before === "done" ? "重新打开" : "变更状态";
+    } else if (fields.includes("placement") || fields.includes("group")) action = "移动";
+    else action = fields.length === 1 ? `更新${taskActivityFields[fields[0]] || "内容"}` : "更新";
+  }
+  const heading = `${action} · ${targetLabel}「${event.title || "未命名"}」`;
+  const canRestore = Boolean(window.personalTaskTrack?.taskHistory?.restore
+    && (targetKind === "task" || targetKind === "node" && findNode(task.nodes, targetId)));
+  const date = `<time datetime="${escAttr(event.at)}">${esc(time)}</time>`;
+  if (!changes.length) return `<div class="history-line task-activity-row">${date}<span>${esc(heading)}</span></div>`;
+  return `<div class="history-line task-activity-row">${date}<details>
+    <summary>${esc(heading)}</summary>
+    ${changes.map(change => {
+      const restorable = canRestore && (targetKind === "task" && change.field === "conclusion"
+        || targetKind === "node" && ["note", "conclusion"].includes(change.field));
+      return `<div class="task-activity-change">
+        <span class="task-activity-field">${esc(taskActivityFields[change.field] || "内容")}</span>
+        ${(event.kind === "deleted" ? ["before"] : ["before", "after"]).map(side => {
+          const label = event.kind === "deleted" ? "删除前" : side === "before" ? "变更前" : "变更后";
+          return `<div class="task-activity-version"><span>${label}</span><pre>${esc(taskActivityValue(change.field, change[side], targetKind))}</pre>
+            ${restorable ? `<button class="button" type="button" data-task-activity-restore="${escAttr(event.id)}" data-field="${escAttr(change.field)}" data-side="${side}">恢复${label}版本</button>` : ""}</div>`;
+        }).join("")}
+      </div>`;
+    }).join("")}
+  </details></div>`;
+}
+
+function bindTaskActivityPane() {
+  const pane = document.querySelector("[data-task-activity]");
+  const bridge = window.personalTaskTrack?.taskHistory;
+  if (!pane || pane.dataset.historyBound || !bridge?.read) return;
+  const taskId = pane.dataset.taskActivity;
+  const events = pane.querySelector("[data-task-activity-events]");
+  const status = pane.querySelector("[data-task-activity-status]");
+  const more = pane.querySelector("[data-task-activity-more]");
+  if (!events || !status || !more) return;
+  pane.dataset.historyBound = "true";
+  let cursor = null;
+  let loading = false;
+  let restoring = false;
+
+  async function load(reset = false) {
+    if (loading || restoring) return;
+    loading = true;
+    more.disabled = true;
+    status.textContent = "正在读取历史…";
+    try {
+      const saved = !reset || await flushSave();
+      const result = await bridge.read(taskId, reset ? null : cursor);
+      if (!pane.isConnected) return;
+      const task = state.tasks.find(item => item.id === taskId);
+      if (!task) return;
+      const list = Array.isArray(result?.events) ? result.events : [];
+      const html = list.map(event => renderTaskActivityEvent(event, task)).join("");
+      if (reset) events.innerHTML = html;
+      else events.insertAdjacentHTML("beforeend", html);
+      cursor = result?.beforeId || null;
+      status.textContent = !saved && !dataProtectionMessage ? "显示已保存的记录，当前修改尚未写入" : events.childElementCount ? "" : "暂无历史记录";
+      more.hidden = !cursor;
+      more.textContent = "加载更早记录";
+    } catch (error) {
+      console.error("读取任务历史失败", error);
+      status.textContent = "未能读取历史记录";
+      more.textContent = "重试";
+      more.hidden = false;
+    } finally {
+      loading = false;
+      more.disabled = false;
+    }
+  }
+
+  more.addEventListener("click", () => void load(!cursor));
+  pane.addEventListener("click", async (event) => {
+    const button = event.target.closest?.("[data-task-activity-restore]");
+    if (!button || loading || restoring || taskShareCommitBusy || dataTransferInProgress || dataProtectionMessage) return;
+    restoring = true;
+    button.disabled = true;
+    try {
+      const confirmed = await confirmDestructiveAction("用这个历史版本恢复当前内容？当前内容也会作为一个版本保留。", "restore-task-history");
+      if (!confirmed || !pane.isConnected) return;
+      captureMountedMilkdownDrafts();
+      flushNodeNoteDrafts({ persist: false });
+      save();
+      if (!(await flushSave()) || taskShareCommitBusy || dataTransferInProgress || dataProtectionMessage) {
+        status.textContent = "请先成功保存当前修改，再恢复历史版本";
+        return;
+      }
+      let receipt;
+      taskShareCommitBusy = true;
+      try {
+        receipt = await bridge.restore({ taskId, eventId: button.dataset.taskActivityRestore, field: button.dataset.field,
+          side: button.dataset.side, revision: taskShareRevision });
+        taskShareRevision = receipt.revision;
+        const task = state.tasks.find(item => item.id === taskId);
+        const target = receipt.targetKind === "node" ? findNode(task?.nodes || [], receipt.targetId) : task;
+        if (target) {
+          target[receipt.field] = receipt.value;
+          target.updatedAt = receipt.updatedAt;
+          task.updatedAt = receipt.updatedAt;
+        }
+      } finally {
+        taskShareCommitBusy = false;
+      }
+      if (receipt) {
+        render();
+        restoring = false;
+        if (pane.isConnected) await load(true);
+      }
+    } catch (error) {
+      console.error("恢复任务历史版本失败", error);
+      status.textContent = "未能恢复历史版本，请检查存储后重试";
+    } finally {
+      restoring = false;
+      button.disabled = false;
+    }
+  });
+  void load(true);
+}
+
+document.addEventListener?.("loop-work-navigation:rendered", bindTaskActivityPane);
 
 function renderShellTaskActions(task) {
   return `<div class="task-heading-actions" role="group" aria-label="任务操作区" data-task-id="${escAttr(task.id)}">

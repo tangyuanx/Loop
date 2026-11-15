@@ -12,6 +12,7 @@
 
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { IMAGE_ASSETS_DIR, isImageFileName } = require("./image-store.cjs");
 
 const RECOVERY_ASSETS_DIR = "knowledge-note-recovery";
 
@@ -63,6 +64,7 @@ function createKnowledgePathGate({
 } = {}) {
   const approvedPaths = new Set();
   const recoveryRoot = canonicalPath(path.join(String(userDataPath || ""), RECOVERY_ASSETS_DIR), platform);
+  const imageRoot = canonicalPath(path.join(String(userDataPath || ""), IMAGE_ASSETS_DIR), platform);
   let cache = { signature: null, paths: new Set() };
 
   async function persistedPaths() {
@@ -103,6 +105,7 @@ function createKnowledgePathGate({
   function isRecoveryAssetPath(filePath) {
     const value = canonicalPath(filePath, platform);
     if (!value || !recoveryRoot) return false;
+    if (value.startsWith(`${imageRoot}/`)) return isImageFileName(value.slice(imageRoot.length + 1));
     return value === recoveryRoot || value.startsWith(`${recoveryRoot}/`);
   }
 

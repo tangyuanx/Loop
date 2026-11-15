@@ -32,9 +32,8 @@ const RECENTLY_DELETED_KEY = "task-track-recently-deleted-v1";
 const RECENTLY_DELETED_SCHEMA_VERSION = 1;
 const KNOWLEDGE_RECOVERY_DEBOUNCE_MS = 800;
 const KNOWLEDGE_RECOVERY_MAX_INTERVAL_MS = 5000;
-const DATA_VERSION = 3;
+const DATA_VERSION = 4;
 const KNOWLEDGE_MIGRATION_VERSION = 2;
-const RECENTLY_DELETED_LIMIT = 500;
 /**
  * Calendar list column: remaining workspace height, internally scrolling tasks.
  *
@@ -369,8 +368,13 @@ let state = {
 };
 
 let dataProtectionMessage = "";
+let protectedWorkspaceAtStartup = null;
 let dataTransferInProgress = false;
-let dataBackupOperation = { busy: false, message: "" };
+let dataBackupOperation = { busy: false, message: "", scope: "" };
+let dataBackupOverview = null;
+let dataBackupOverviewTime = 0;
+let dataBackupOverviewPending = null;
+let dataBackupOverviewTimer = 0;
 let updatePreferenceInFlight = false;
 let saveTimer = 0;
 let nodeDetailSaveFeedbackTimer = 0;
@@ -418,6 +422,8 @@ const pendingMilkdownMounts = new Map();
 const nodeNoteDrafts = new Map();
 const nodeNoteSaveTimers = new Map();
 const knowledgeRecoveryTimers = new Map();
+const knowledgeRecoveryInFlight = new Map();
+const knowledgeRecoveryGeneration = new Map();
 const knowledgeExternalSnapshots = new Map();
 let knowledgeRecoveryWriteQueue = Promise.resolve();
 const knowledgeRecoveryWriteErrors = new Map();
@@ -666,8 +672,7 @@ function normalizeRecentlyDeleted(value) {
       return normalized;
     })
     .filter(Boolean)
-    .sort((a, b) => Date.parse(b.deletedAt) - Date.parse(a.deletedAt))
-    .slice(0, RECENTLY_DELETED_LIMIT);
+    .sort((a, b) => Date.parse(b.deletedAt) - Date.parse(a.deletedAt));
 }
 
 function normalizeRecentlyDeletedOrder(value) {
@@ -1257,6 +1262,11 @@ function persistKnowledgeRecoveryRecord(record, { strict = false } = {}) {
 }
 
 function flushKnowledgeRecovery(noteId, { strict = false } = {}) {
+  const active = knowledgeRecoveryInFlight.get(noteId);
+  if (active) {
+    const next = active.then(() => flushKnowledgeRecovery(noteId, { strict }));
+    return strict ? next : next.catch(() => {});
+  }
   const pending = knowledgeRecoveryTimers.get(noteId);
   if (!pending) return Promise.resolve();
   window.clearTimeout(pending.debounceTimer);
@@ -1264,28 +1274,33 @@ function flushKnowledgeRecovery(noteId, { strict = false } = {}) {
   knowledgeRecoveryTimers.delete(noteId);
   const task = knowledgeAllDocuments().find((item) => item.knowledgeNote?.noteId === noteId || item.id === noteId);
   if (!task) return Promise.resolve();
-  return stageKnowledgeAssetsForTask(task, pending.content)
-    .then((stagedAssets) => {
+  const generation = knowledgeRecoveryGeneration.get(noteId);
+  const wasDiscarded = () => knowledgeRecoveryGeneration.get(noteId) !== generation;
+  const operation = (async () => {
+    let stagedAssets;
+    try {
+      stagedAssets = await stageKnowledgeAssetsForTask(task, pending.content);
       if (stagedAssets?.success === false) {
-        console.error("Failed to stage knowledge note assets for recovery.", stagedAssets.message || stagedAssets.code);
-        if (strict) throw Object.assign(new Error("Knowledge recovery asset staging failed."), { code: stagedAssets.code || "RECOVERY_ASSET_STAGE_FAILED" });
-        return null;
+        throw Object.assign(new Error("Knowledge recovery asset staging failed."), { code: stagedAssets.code || "RECOVERY_ASSET_STAGE_FAILED" });
       }
-      return persistKnowledgeRecoveryRecord(
-        recoveryRecordForTask(task, pending.content, stagedAssets?.assets),
-        { strict },
-      );
-    })
-    .catch((error) => {
-      console.error("Failed to stage knowledge note assets for recovery.", error);
-      if (strict) throw error;
-      return null;
-    });
+    } catch (error) {
+      if (!wasDiscarded() && !knowledgeRecoveryTimers.has(noteId)) knowledgeRecoveryTimers.set(noteId, pending);
+      throw error;
+    }
+    if (!wasDiscarded()) {
+      await persistKnowledgeRecoveryRecord(recoveryRecordForTask(task, pending.content, stagedAssets?.assets), { strict: true });
+    }
+  })().finally(() => knowledgeRecoveryInFlight.delete(noteId));
+  knowledgeRecoveryInFlight.set(noteId, operation);
+  return strict ? operation : operation.catch((error) => {
+    console.error("Failed to persist the recovery draft.", error);
+    showWorkspaceError("笔记恢复草稿尚未保存。请检查磁盘空间和权限，重试保存。");
+  });
 }
 
 async function flushPendingKnowledgeRecoveries({ strict = false } = {}) {
-  const noteIds = Array.from(knowledgeRecoveryTimers.keys());
-  await Promise.all(noteIds.map((noteId) => flushKnowledgeRecovery(noteId, { strict })));
+  const noteIds = new Set([...knowledgeRecoveryTimers.keys(), ...knowledgeRecoveryInFlight.keys()]);
+  await Promise.all([...noteIds].map((noteId) => flushKnowledgeRecovery(noteId, { strict })));
   await knowledgeRecoveryWriteQueue;
   if (strict && knowledgeRecoveryWriteErrors.size) {
     const failedNoteIds = Array.from(knowledgeRecoveryWriteErrors.keys());
@@ -1376,6 +1391,9 @@ async function restoreKnowledgeRecoveryDrafts() {
 }
 
 function discardPendingKnowledgeRecovery(noteId) {
+  if (knowledgeRecoveryInFlight.has(noteId)) {
+    knowledgeRecoveryGeneration.set(noteId, (knowledgeRecoveryGeneration.get(noteId) || 0) + 1);
+  }
   const pending = knowledgeRecoveryTimers.get(noteId);
   if (!pending) return;
   window.clearTimeout(pending.debounceTimer);
@@ -1859,6 +1877,7 @@ async function loadAppData() {
   if (desktopStorage?.read) {
     try {
       const stored = await desktopStorage.read();
+      if (stored?.workspaceProtection) return protectWorkspaceAtStartup(stored.workspaceProtection);
       taskShareRevision = stored?.shareRevision ?? 0;
       const tasks = stored && Array.isArray(stored.tasks) ? normalizeTasks(stored.tasks, stored.knowledgeDocuments) : [];
       const nodeStates = LoopNodeStates.normalizeDefinitions(stored?.nodeStates);
@@ -1896,12 +1915,16 @@ async function loadAppData() {
       // ipcMain.handle, so the main-process error code has to be recovered
       // from the message text as well.
       const failureText = `${error?.code || ""} ${error?.message || ""}`;
-      if (error?.code === "UNSUPPORTED_DATA_VERSION" || failureText.includes("版本高于当前应用支持范围")) {
-        dataProtectionMessage = "本地任务数据由更高版本的 Loop 写入。已进入保护模式并停止写入，请升级 Loop 后再打开，数据未被修改。";
-        showWorkspaceError(dataProtectionMessage);
-      } else if (error?.code === "CORRUPT_TASK_DATA" || failureText.includes("任务数据文件已损坏")) {
-        showWorkspaceError("本地任务数据已损坏，应用已保留损坏文件备份。请先复制备份文件后再继续操作。");
-      }
+      const fromNewerVersion = error?.code === "UNSUPPORTED_DATA_VERSION" || failureText.includes("版本高于当前应用支持范围");
+      const corrupt = error?.code === "CORRUPT_TASK_DATA" || failureText.includes("任务数据文件已损坏");
+      return protectWorkspaceAtStartup({
+        message: fromNewerVersion
+          ? "本地任务数据由更高版本的 Loop 写入。请升级 Loop 后再打开。"
+          : corrupt
+            ? "本地任务数据已损坏。请从校验过的备份恢复。"
+            : "Loop 无法读取本地工作区。请检查磁盘和权限，或选择备份恢复。",
+        restoreAllowed: !fromNewerVersion,
+      });
     }
   }
 
@@ -1930,12 +1953,40 @@ async function loadAppData() {
   };
 }
 
+function protectWorkspaceAtStartup(protection) {
+  dataProtectionMessage = String(protection.message || "Loop 无法安全读取本地工作区。");
+  protectedWorkspaceAtStartup = { restoreAllowed: protection.restoreAllowed === true };
+  showWorkspaceError(dataProtectionMessage);
+  return { tasks: [] };
+}
+
+function renderProtectedWorkspace() {
+  const root = document.querySelector("#root");
+  if (!root) return;
+  const controls = protectedWorkspaceAtStartup.restoreAllowed && !dataTransferInProgress
+    ? `${renderBackupPassword()}<div class="data-protection-actions">
+        <button class="settings-inline-action primary" type="button" data-backup-action="import-file">选择备份文件</button>
+        <button class="settings-inline-action" type="button" data-backup-action="import-directory">选择备份目录</button>
+        <button class="settings-inline-action" type="button" data-backup-action="import-recent" hidden>恢复最近自动备份</button>
+      </div><p class="settings-page-note" data-backup-overview></p>`
+    : "";
+  root.innerHTML = `<main class="data-protection-panel">
+    <section aria-labelledby="data-protection-heading">
+      <h1 id="data-protection-heading">工作区已进入只读保护</h1>
+      <p role="alert">${esc(dataProtectionMessage)}</p>
+      ${controls}
+      <p class="settings-page-note" role="status" data-backup-status></p>
+    </section>
+  </main>`;
+  bindDataBackupControls();
+}
+
 function localSaveReceipt() {
   if (dataProtectionMessage) return { state: "protected", label: "只读保护 · 未写入" };
   if (dataTransferInProgress) return { state: "transferring", label: "数据处理中…" };
   if (saveInFlight) return { state: "saving", label: "正在保存到本机…" };
   if (localSaveOutcome === "failed") return { state: "failed", label: "本地保存失败 · 待重试" };
-  if (pendingPayload) return { state: "pending", label: "等待保存到本机…" };
+  if (pendingPayload || nodeNoteDrafts.size) return { state: "pending", label: "等待保存到本机…" };
   return localSaveOutcome === "saved"
     ? { state: "saved", label: "已保存到本机" }
     : { state: "ready", label: "本地工作区" };
@@ -2482,6 +2533,7 @@ function canRetainRegion(name, markup) {
  * This is called after every state change.
  */
 function render() {
+  if (protectedWorkspaceAtStartup) return renderProtectedWorkspace();
   const viewportRevision = ++renderViewportEpoch;
   clearFilteredTasksCache();
   if (typeof shellBulkPrune === "function") shellBulkPrune();
@@ -4866,11 +4918,16 @@ function renderSettingsPanel() {
     data: `
       <h3 class="settings-section-label" id="data-backup-title">备份与恢复</h3>
       <section class="settings-list" aria-labelledby="data-backup-title">
-        ${row("完整备份", `<button class="settings-inline-action primary" type="button" data-backup-action="export" ${!desktopDataBackup ? "disabled" : ""}>导出备份</button>`)}
+        ${row("工作区备份", `<button class="settings-inline-action primary" type="button" data-backup-action="export" ${!desktopDataBackup ? "disabled" : ""}>导出备份</button>`)}
+        ${row("导出密码", renderBackupPassword("export"))}
         ${row("恢复备份文件", `<button class="settings-inline-action" type="button" data-backup-action="import-file" ${!desktopDataBackup ? "disabled" : ""}>选择文件</button>`)}
+        ${row("解锁密码", renderBackupPassword("import"))}
         ${row("从备份目录恢复", `<button class="settings-inline-action" type="button" data-backup-action="import-directory" ${!desktopDataBackup ? "disabled" : ""}>选择目录</button>`)}
+        ${row("本机自动备份", `<button class="settings-inline-action" type="button" data-backup-action="import-recent" ${!desktopDataBackup ? "disabled" : ""}>恢复最近备份</button>`)}
       </section>
-      <p class="settings-page-note" data-backup-status>导入前会自动备份当前数据；校验失败将回滚。</p>
+      <p class="settings-page-note">留空生成普通备份。加密备份恢复时需输入原密码，请独立保管。导出会收集绑定笔记和可迁移的相对资源。</p>
+      <p class="settings-page-note" data-backup-overview></p>
+      <p class="settings-page-note" data-backup-status role="status"></p>
     `,
     updates: `
       <h3 id="software-update-title">软件更新</h3>
@@ -5338,12 +5395,45 @@ async function flushAllDataForTransfer() {
   captureMountedMilkdownDrafts();
   flushNodeNoteDrafts({ persist: false });
   save();
-  if (!(await flushSave())) throw Object.assign(new Error("Task data could not be saved."), { code: "TRANSFER_SAVE_FAILED" });
-  await flushPendingKnowledgeRecoveries({ strict: true });
+  const [taskWrite, recoveryWrite] = await Promise.allSettled([flushSave(), flushPendingKnowledgeRecoveries({ strict: true })]);
+  if (taskWrite.status !== "fulfilled" || !taskWrite.value) {
+    throw Object.assign(new Error("Task data could not be saved."), { code: "TRANSFER_SAVE_FAILED" });
+  }
+  if (recoveryWrite.status === "rejected") throw recoveryWrite.reason;
+}
+
+function renderBackupPassword(scope = "import") {
+  const label = scope === "export" ? "导出密码" : "解锁密码";
+  const placeholder = scope === "export" ? "留空生成普通备份" : "仅加密备份需要";
+  return `<input class="data-backup-password" type="password" autocomplete="new-password" aria-label="${label}" placeholder="${placeholder}" data-backup-password="${scope}">`;
+}
+
+function formatBackupBytes(value) {
+  if (!Number.isFinite(value) || value < 0) return "未知";
+  if (value >= 1024 ** 3) return (value / 1024 ** 3).toFixed(1) + " GiB";
+  if (value >= 1024 ** 2) return (value / 1024 ** 2).toFixed(1) + " MiB";
+  return Math.ceil(value / 1024) + " KiB";
+}
+
+function refreshDataBackupOverview(force = false) {
+  if (!desktopDataBackup?.overview || !document.querySelector("[data-backup-overview]")) return;
+  if (dataBackupOverviewPending || (!force && Date.now() - dataBackupOverviewTime < 10000)) return;
+  dataBackupOverviewPending = desktopDataBackup.overview().then(result => {
+    dataBackupOverview = result;
+    dataBackupOverviewTime = Date.now();
+  }).catch(() => {
+    dataBackupOverviewTime = Date.now();
+  }).finally(() => {
+    dataBackupOverviewPending = null;
+    syncDataBackupControls();
+    window.clearTimeout(dataBackupOverviewTimer);
+    dataBackupOverviewTimer = window.setTimeout(() => refreshDataBackupOverview(), 15000);
+  });
 }
 
 function bindDataBackupControls() {
   syncDataBackupControls();
+  refreshDataBackupOverview();
   document.querySelectorAll("[data-backup-action]").forEach((button) => {
     if (button.dataset.backupBound === "1") return;
     button.dataset.backupBound = "1";
@@ -5351,10 +5441,16 @@ function bindDataBackupControls() {
       event.stopPropagation();
       if (!desktopDataBackup || dataBackupOperation.busy || dataTransferInProgress) return;
       const action = event.currentTarget.dataset.backupAction;
-      dataBackupOperation = { busy: true, message: action === "export" ? "正在保存并生成完整备份…" : "正在保存当前数据并校验所选备份…" };
+      const scope = action === "export" ? "export" : "restore";
+      const passwordScope = action === "export" ? "export" : "import";
+      const passwordInput = document.querySelector(`[data-backup-password="${passwordScope}"]`);
+      const password = passwordInput?.value || "";
+      const canRestoreProtected = action !== "export" && protectedWorkspaceAtStartup?.restoreAllowed;
+      if (dataProtectionMessage && !canRestoreProtected) return;
+      dataBackupOperation = { busy: true, scope, message: action === "export" ? "正在保存并生成工作区备份…" : "正在保存当前数据并校验所选备份…" };
       syncDataBackupControls();
       try {
-        await flushAllDataForTransfer();
+        if (!canRestoreProtected) await flushAllDataForTransfer();
         // An import replaces the whole data set in place, so stop accepting
         // further renderer writes until the app restarts.
         const isImport = action !== "export";
@@ -5362,10 +5458,12 @@ function bindDataBackupControls() {
         let result;
         try {
           result = action === "export"
-            ? await desktopDataBackup.export()
+            ? await desktopDataBackup.export(password)
             : action === "import-directory"
               ? await desktopDataBackup.importDirectory()
-              : await desktopDataBackup.importFile();
+              : action === "import-recent"
+                ? await desktopDataBackup.importRecent()
+                : await desktopDataBackup.importFile(password);
         } catch (error) {
           if (isImport && !/IMPORT_ROLLBACK_FAILED|自动回滚未能完成/.test(`${error?.code} ${error?.message}`)) dataTransferInProgress = false;
           throw error;
@@ -5375,7 +5473,10 @@ function bindDataBackupControls() {
           dataBackupOperation.message = "操作已取消，当前数据未发生变化。";
           if (isImport) save();
         } else if (action === "export") {
-          dataBackupOperation.message = `完整备份已保存：${result.destinationPath || "所选位置"}`;
+          const summary = result.inventory;
+          const scope = summary ? `便携笔记 ${summary.includedNotes} 篇，未带入 ${summary.missingNotes + summary.excludedNotes} 篇，不可迁移资源 ${summary.missingResources} 项。` : "";
+          dataBackupOperation.message = `${result.encrypted ? "加密备份" : "工作区备份"}已保存。${scope}${result.destinationPath || "所选位置"}`;
+          if (passwordInput) passwordInput.value = "";
         } else {
           dataBackupOperation.message = "数据已恢复并校验成功，Loop 正在重新启动…";
         }
@@ -5394,6 +5495,7 @@ function bindDataBackupControls() {
       } finally {
         dataBackupOperation.busy = false;
         syncDataBackupControls();
+        refreshDataBackupOverview(true);
         updateLocalSaveReceipt();
       }
     });
@@ -5402,10 +5504,33 @@ function bindDataBackupControls() {
 
 function syncDataBackupControls() {
   document.querySelectorAll("[data-backup-action]").forEach(control => {
-    control.disabled = !desktopDataBackup || dataBackupOperation.busy || dataTransferInProgress || Boolean(dataProtectionMessage);
+    const canRestoreProtected = control.dataset.backupAction !== "export" && protectedWorkspaceAtStartup?.restoreAllowed;
+    control.disabled = !desktopDataBackup || dataBackupOperation.busy || dataTransferInProgress || (Boolean(dataProtectionMessage) && !canRestoreProtected);
+    if (control.dataset.backupAction === "import-recent") {
+      control.hidden = protectedWorkspaceAtStartup && !dataBackupOverview?.automatic?.latestAt;
+      control.disabled ||= !dataBackupOverview?.automatic?.latestAt;
+    }
   });
-  const status = document.querySelector("[data-backup-status]");
-  if (status) status.textContent = dataBackupOperation.message;
+  document.querySelectorAll("[data-backup-status]").forEach(status => {
+    status.textContent = !status.dataset.backupStatus || status.dataset.backupStatus === dataBackupOperation.scope
+      ? dataBackupOperation.message : "";
+  });
+  const overview = document.querySelector("[data-backup-overview]");
+  if (overview && dataBackupOverview) {
+    const { automatic, usage } = dataBackupOverview;
+    const last = automatic?.latestAt
+      ? `上次 ${new Date(automatic.latestAt).toLocaleString("zh-CN", {
+        year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+      })}`
+      : "尚无备份";
+    const backup = `${last} · 每日备份 · 最多 3 份 · 约 512 MiB 轮转`;
+    const space = usage
+      ? `任务数据 ${formatBackupBytes(usage.taskDataBytes)} · 笔记与附件 ${formatBackupBytes(usage.recoveryBytes + usage.imageBytes + usage.sharedAssetBytes + usage.restoredNoteBytes)} · 备份 ${formatBackupBytes(usage.backupBytes)}`
+      : "";
+    const usageDisplay = document.querySelector("[data-backup-usage]");
+    if (usageDisplay) usageDisplay.textContent = space || "暂时无法统计本机用量。";
+    overview.textContent = [usageDisplay ? "" : space, backup, automatic?.error].filter(Boolean).join(" ");
+  }
 }
 
 async function runUpdateAction(action) {
@@ -7827,6 +7952,7 @@ function noteDraftKey(taskId, nodeId) {
 
 function updateNodeNoteDraft(taskId, nodeId, markdown, host = null) {
   nodeNoteDrafts.set(noteDraftKey(taskId, nodeId), { taskId, nodeId, markdown });
+  updateLocalSaveReceipt();
   if (host) updateMarkdownStatsForMarkdown(host, markdown);
   if (!nodeId) {
     scheduleKnowledgeRecovery(taskId, markdown);
@@ -10674,6 +10800,10 @@ async function bootstrap() {
     initializeTodayWidgetBridge(),
     initializeDeadlineReminderBridge(),
   ]);
+  if (protectedWorkspaceAtStartup) {
+    renderProtectedWorkspace();
+    return;
+  }
   state.tasks = data.tasks;
   state.nodeStates = LoopNodeStates.normalizeDefinitions(data.nodeStates);
   state.knowledgeDocuments = data.knowledgeDocuments || [];
@@ -10753,28 +10883,31 @@ if (desktopKnowledgeFile?.onChange) {
 }
 
 if (desktopKnowledgeRecovery?.onFlushAndQuit) {
-  desktopKnowledgeRecovery.onQuitCanceled?.(() => {
-    if (typeof shellReturnToCreateDraft === "function") shellReturnToCreateDraft();
+  desktopKnowledgeRecovery.onQuitCanceled?.((message) => {
+    if (message) showWorkspaceError(message);
+    else if (typeof shellReturnToCreateDraft === "function") shellReturnToCreateDraft();
   });
-  desktopKnowledgeRecovery.onFlushAndQuit(async (discardCreateDraft) => {
+  desktopKnowledgeRecovery.onFlushAndQuit(async (discardCreateDraft, request) => {
+    if (protectedWorkspaceAtStartup) {
+      desktopKnowledgeRecovery.completeFlushAndQuit?.("saved", request);
+      return;
+    }
     if (typeof shellHasUnsubmittedCreateDraft === "function" && discardCreateDraft !== true) {
       if (shellCreateSaving) {
-        desktopKnowledgeRecovery.completeFlushAndQuit?.("create-saving");
+        desktopKnowledgeRecovery.completeFlushAndQuit?.("create-saving", request);
         return;
       }
       if (shellHasUnsubmittedCreateDraft()) {
-        desktopKnowledgeRecovery.completeFlushAndQuit?.("create-draft");
+        desktopKnowledgeRecovery.completeFlushAndQuit?.("create-draft", request);
         return;
       }
     }
     try {
-      captureMountedMilkdownDrafts();
-      flushNodeNoteDrafts({ persist: true });
-      await Promise.all([flushSave(), flushPendingKnowledgeRecoveries()]);
+      await flushAllDataForTransfer();
+      desktopKnowledgeRecovery.completeFlushAndQuit?.("saved", request);
     } catch (error) {
-      console.error("Failed to flush knowledge note recovery before shutdown.", error);
-    } finally {
-      desktopKnowledgeRecovery.completeFlushAndQuit?.();
+      console.error("Failed to persist the workspace before shutdown.", error);
+      desktopKnowledgeRecovery.completeFlushAndQuit?.("save-failed", request);
     }
   });
 }

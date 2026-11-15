@@ -321,6 +321,20 @@ body .workspace-foot .dot { width: 4px; height: 4px; opacity: .7; }
 body .article-pane { padding: 24px 32px; overflow-wrap: anywhere; }
 body .history-line { gap: 14px; }
 body .history-line time { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+body .task-activity-row { grid-template-columns: minmax(116px, max-content) minmax(0, 1fr); }
+body .task-activity-pane summary { cursor: pointer; }
+body .task-activity-pane summary:focus-visible { outline: 1px solid var(--focus-line-strong); outline-offset: 2px; }
+body .task-activity-pane [data-task-activity-status]:empty { display: none; }
+body .task-activity-pane [data-task-activity-more]:not([hidden]), body .task-activity-legacy { margin-top: 14px; }
+body .task-activity-change { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px 12px; margin: 10px 0 4px; }
+body .task-activity-field { grid-column: 1 / -1; }
+body .task-activity-version { min-width: 0; padding: 8px; background: var(--list); border-radius: 5px; }
+body .task-activity-version > span { color: var(--secondary); }
+body .task-activity-version pre { max-height: 16em; margin: 6px 0; overflow: auto; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  body .task-activity-row { grid-template-columns: 1fr; gap: 5px; }
+  body .task-activity-change { grid-template-columns: minmax(0,1fr); }
+}
 
 /* A movable record window keeps the processing tree at its original size. */
 body .node-record-window { position: fixed; z-index: 80; display: flex; flex-direction: column; width: min(440px,calc(100vw - 32px)); height: min(420px,calc(100dvh - 32px)); box-sizing: border-box; padding: 16px 16px 10px; background: var(--canvas); color: var(--text); border: 1px solid color-mix(in srgb,var(--line) 50%,transparent); border-radius: 20px; box-shadow: var(--surface-shadow); overflow: hidden; }
@@ -533,4 +547,7 @@ body .task-share-send-dialog > footer {
   margin: 0;
   padding: 12px 24px 16px;
   border-top: 1px solid var(--line);
+}
+.task-activity-pane [hidden] {
+  display: none;
 }

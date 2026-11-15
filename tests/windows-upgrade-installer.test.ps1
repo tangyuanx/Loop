@@ -99,11 +99,20 @@ try {
         $taskDataPath = Join-Path $userDataDir "task-data.json"
         Set-Content -LiteralPath $taskDataPath -Value "{`"marker`":`"$marker`",`"tasks`":[]}" -Encoding UTF8
         $beforeHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $taskDataPath).Hash
-        $shareAssetRelative = 'task-share-assets\task_178a2e09-1c92-4170-a8b2-3b20c30d27ef\attachment.txt'
-        $shareAsset = Join-Path $userDataDir $shareAssetRelative
-        New-Item -ItemType Directory -Path (Split-Path -Parent $shareAsset) -Force | Out-Null
-        Set-Content -LiteralPath $shareAsset -Value 'Loop #103 fixture' -Encoding UTF8
-        $assetHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $shareAsset).Hash
+        $assets = @{
+            'task-share-assets\task_178a2e09-1c92-4170-a8b2-3b20c30d27ef\attachment.txt' = [Text.Encoding]::UTF8.GetBytes("Loop attachment $marker")
+            'task-data.workspace' = [Text.Encoding]::UTF8.GetBytes("Loop workspace`n")
+            'image-assets\fb11969ac3320e69612bb70436840c9d189fe7429cea9eea9238db500c30c130.png' = [Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/nFkAAAAASUVORK5CYII=')
+            'workspace-notes\a65153a625984069abd82673f69d6def\测试笔记.md' = [Text.Encoding]::UTF8.GetBytes("# 知识笔记 $marker")
+            'workspace-notes\a65153a625984069abd82673f69d6def\附件\记录.txt' = [Text.Encoding]::UTF8.GetBytes("笔记附件 $marker")
+        }
+        $assetHashes = @{}
+        foreach ($asset in $assets.GetEnumerator()) {
+            $assetPath = Join-Path $userDataDir $asset.Key
+            New-Item -ItemType Directory -Path (Split-Path -Parent $assetPath) -Force | Out-Null
+            [IO.File]::WriteAllBytes($assetPath, $asset.Value)
+            $assetHashes[$asset.Key] = (Get-FileHash -Algorithm SHA256 -LiteralPath $assetPath).Hash
+        }
         New-LegacyBackupTree -InstalledVersion $installedVersion
 
         Invoke-Installer -Path $candidate -ExtraArguments @("--updated")
@@ -137,9 +146,16 @@ try {
             throw "The candidate copied historical installation backups into the fresh backup tree."
         }
         $markerFile = Join-Path $env:APPDATA "Personal Task Track Upgrade Backups\installer-pre-$expectedVersion\legacy-install-backups-location.txt"
-        $assetBackup = Join-Path (Split-Path -Parent $markerFile) (Join-Path (Split-Path -Leaf $userDataDir) $shareAssetRelative)
-        if (-not (Test-Path -LiteralPath $assetBackup -PathType Leaf) -or (Get-FileHash -Algorithm SHA256 -LiteralPath $assetBackup).Hash -ne $assetHash) {
-            throw "The installer did not preserve the task-share attachment backup while upgrading v$installedVersion."
+        $profileLabel = Split-Path -Leaf $userDataDir
+        $stableBackup = Join-Path (Split-Path -Parent $markerFile) $profileLabel
+        $installedBackup = Join-Path $legacySource "installer-pre-$expectedVersion\$profileLabel"
+        foreach ($asset in $assetHashes.GetEnumerator()) {
+            foreach ($root in @($userDataDir, $stableBackup, $installedBackup)) {
+                $saved = Join-Path $root $asset.Key
+                if (-not (Test-Path -LiteralPath $saved -PathType Leaf) -or (Get-FileHash -Algorithm SHA256 -LiteralPath $saved).Hash -ne $asset.Value) {
+                    throw "Managed file '$($asset.Key)' was not preserved at '$root' while upgrading v$installedVersion."
+                }
+            }
         }
         if (-not (Test-Path -LiteralPath $markerFile -PathType Leaf)) {
             throw "The quarantine marker is missing after upgrading v$installedVersion."

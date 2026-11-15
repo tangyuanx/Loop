@@ -24,17 +24,23 @@ contextBridge.exposeInMainWorld("personalTaskTrack", {
     asset: payload => ipcRenderer.invoke('task-share:asset', payload),
     cancel: token => ipcRenderer.invoke('task-share:cancel', { token }),
   },
+  taskHistory: {
+    read: (taskId, beforeId) => ipcRenderer.invoke("task-history:read", taskId, beforeId),
+    restore: (payload) => ipcRenderer.invoke("task-history:restore", payload),
+  },
   dataBackup: {
-    export: () => ipcRenderer.invoke("data-backup:export"),
-    importFile: () => ipcRenderer.invoke("data-backup:import", { selectionType: "file" }),
+    export: (password) => ipcRenderer.invoke("data-backup:export", { password }),
+    importFile: (password) => ipcRenderer.invoke("data-backup:import", { selectionType: "file", password }),
     importDirectory: () => ipcRenderer.invoke("data-backup:import", { selectionType: "directory" }),
+    importRecent: () => ipcRenderer.invoke("data-backup:import", { selectionType: "recent" }),
+    overview: () => ipcRenderer.invoke("data-backup:overview"),
   },
   knowledgeRecovery: {
     read: () => ipcRenderer.invoke("knowledge-recovery:read"),
     write: (record) => ipcRenderer.invoke("knowledge-recovery:write", record),
     delete: (noteId) => ipcRenderer.invoke("knowledge-recovery:delete", noteId),
     onFlushAndQuit: (callback) => subscribe("knowledge-recovery:flush-and-quit", callback),
-    completeFlushAndQuit: (outcome) => ipcRenderer.send("knowledge-recovery:flush-complete", outcome),
+    completeFlushAndQuit: (outcome, request) => ipcRenderer.send("knowledge-recovery:flush-complete", outcome, request),
     onQuitCanceled: (callback) => subscribe("knowledge-recovery:quit-canceled", callback),
   },
   knowledgeFile: {
@@ -172,7 +178,7 @@ contextBridge.exposeInMainWorld("personalTaskTrack", {
 
 function subscribe(channel, callback) {
   if (typeof callback !== "function") return () => {};
-  const listener = (_event, value) => callback(value);
+  const listener = (_event, ...values) => callback(...values);
   ipcRenderer.on(channel, listener);
   return () => ipcRenderer.removeListener(channel, listener);
 }

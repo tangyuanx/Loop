@@ -4,6 +4,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { spawn } = require("node:child_process");
 
 const TASK_DATA_FILE = "task-data.json";
 
@@ -11,13 +12,66 @@ const {
   BACKUP_ROOT_DIRECTORY,
   INSTALL_BACKUP_DIRECTORY,
   createPreInstallBackup,
+  createVerifiedBackup,
   exportPortableBackup,
   importBackup,
   readPortableBackup,
+  recoverInterruptedRestore,
   recoverLegacyUserData,
 } = require("../app/main/data-continuity.cjs");
 
 const fixedNow = () => new Date("2026-08-29T08:09:10.000Z");
+
+test("verified backups ignore macOS metadata sidecars produced by external-volume copies", async (t) => {
+  const root = await tempRoot(t, "loop-external-metadata");
+  const sourcePath = path.join(root, "source");
+  await writeCompleteUserData(sourcePath);
+  const { createVerifiedBackup } = require("../app/main/data-continuity.cjs");
+  const fileSystem = {
+    ...fs,
+    async cp(from, to, options) {
+      await fs.cp(from, to, options);
+      const stat = await fs.stat(to);
+      if (stat.isFile()) await fs.writeFile(path.join(path.dirname(to), "._" + path.basename(to)), "AppleDouble metadata");
+      else await fs.writeFile(path.join(to, ".DS_Store"), "Finder metadata");
+    },
+  };
+  const backup = await createVerifiedBackup({
+    sourcePath, backupRoot: path.join(root, "backups"), backupName: "external", fileSystem,
+  });
+  assert.ok(backup.manifest.files.some(file => file.relativePath === "task-data.json"));
+  assert.equal(backup.manifest.files.some(file => /(^|\/)(?:\._|\.DS_Store)/.test(file.relativePath)), false);
+});
+
+test("older backup manifests may include macOS sidecars without blocking data recovery", async (t) => {
+  const root = await tempRoot(t, "loop-legacy-sidecar");
+  const sourcePath = path.join(root, "source");
+  await writeCompleteUserData(sourcePath);
+  const { createVerifiedBackup } = require("../app/main/data-continuity.cjs");
+  const backup = await createVerifiedBackup({
+    sourcePath, backupRoot: path.join(root, "backups"), backupName: "old-format",
+  });
+  const metadata = Buffer.from("AppleDouble metadata");
+  const metadataEntry = {
+    relativePath: "._task-data.json", bytes: metadata.length,
+    sha256: crypto.createHash("sha256").update(metadata).digest("hex"),
+  };
+  await fs.writeFile(path.join(backup.dataPath, metadataEntry.relativePath), metadata);
+  const manifest = { ...backup.manifest, files: [...backup.manifest.files, metadataEntry] };
+  await fs.writeFile(path.join(backup.backupPath, "backup-manifest.json"), JSON.stringify(manifest));
+  const directoryTarget = path.join(root, "restored-directory");
+  await importBackup({ selectedPath: backup.backupPath, selectionType: "directory", userDataPath: directoryTarget, appDataPath: root });
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(directoryTarget, TASK_DATA_FILE), "utf8")), completeTaskData());
+
+  const portablePath = path.join(root, "legacy.loopbackup");
+  await exportPortableBackup({ userDataPath: sourcePath, destinationPath: portablePath });
+  const portable = JSON.parse(await fs.readFile(portablePath, "utf8"));
+  portable.files.push({ ...metadataEntry, contentBase64: metadata.toString("base64") });
+  await fs.writeFile(portablePath, JSON.stringify(portable));
+  const portableTarget = path.join(root, "restored-portable");
+  await importBackup({ selectedPath: portablePath, userDataPath: portableTarget, appDataPath: root });
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(portableTarget, TASK_DATA_FILE), "utf8")), completeTaskData());
+});
 
 test("invalid or newer backup databases are rejected before replacing the workspace", async (t) => {
   const root = await tempRoot(t, "loop-import-schema");
@@ -40,8 +94,8 @@ test("a corrupted restored attachment triggers verified rollback of all managed 
   const selectedPath = path.join(root, "incoming.loopbackup");
   await exportPortableBackup({ userDataPath: source, destinationPath: selectedPath });
   let corrupted = false;
-  const fileSystem = { ...fs, async cp(from, to, options) {
-    await fs.cp(from, to, options);
+  const fileSystem = { ...fs, async rename(from, to) {
+    await fs.rename(from, to);
     if (!corrupted && to === path.join(target, "knowledge-note-recovery")) {
       corrupted = true;
       await fs.writeFile(path.join(to, "note-a", "assets", "image.png"), "corruption");
@@ -170,12 +224,54 @@ test("an unwritable installation backup stops the upgrade while retaining the ve
   );
 });
 
-test("startup recovers a complete historical directory only when the canonical database is empty", async (t) => {
+test("backup creation compares copied bytes with the source before publishing the backup", async (t) => {
+  const root = await tempRoot(t, "loop-inconsistent-backup-copy");
+  const sourcePath = path.join(root, "source");
+  const backupRoot = path.join(root, "backups");
+  await writeCompleteUserData(sourcePath);
+  const fileSystem = {
+    ...fs,
+    async cp(from, to, options) {
+      await fs.cp(from, to, options);
+      if (path.basename(to) === TASK_DATA_FILE) {
+        await fs.writeFile(to, JSON.stringify(completeTaskData("corrupted-copy")));
+      }
+    },
+  };
+  await assert.rejects(createVerifiedBackup({ sourcePath, backupRoot, backupName: "copy", fileSystem }), { code: "UPGRADE_BACKUP_VERIFY_FAILED" });
+  assert.deepEqual(await fs.readdir(backupRoot), []);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(sourcePath, TASK_DATA_FILE), "utf8")), completeTaskData());
+});
+
+test("an installation mirror collision preserves the backup already at the destination", async (t) => {
+  const root = await tempRoot(t, "loop-install-mirror-collision");
+  const userDataPath = path.join(root, "source");
+  const installDirectory = path.join(root, "installed");
+  await writeCompleteUserData(userDataPath);
+  let existingBackup;
+  const fileSystem = {
+    ...fs,
+    async mkdir(directory, options) {
+      if (path.dirname(directory) === path.join(installDirectory, INSTALL_BACKUP_DIRECTORY)
+        && path.basename(directory).startsWith("pre-update-")) {
+        existingBackup = directory;
+        await fs.mkdir(existingBackup);
+        await fs.writeFile(path.join(existingBackup, "verified-existing-backup"), "keep");
+      }
+      return fs.mkdir(directory, options);
+    },
+  };
+  await assert.rejects(createPreInstallBackup({
+    appDataPath: root, userDataPath, installDirectory, fileSystem, currentVersion: "1.0.0", targetVersion: "1.0.1", now: fixedNow,
+  }), { code: "INSTALL_DIRECTORY_BACKUP_FAILED" });
+  assert.equal(await fs.readFile(path.join(existingBackup, "verified-existing-backup"), "utf8"), "keep");
+});
+
+test("startup recovers a complete historical directory before the first canonical workspace exists", async (t) => {
   const root = await tempRoot(t, "loop-legacy-recovery");
   const canonical = path.join(root, "Personal Task Track");
   const historical = path.join(root, "personal-task-track");
   await fs.mkdir(canonical, { recursive: true });
-  await fs.writeFile(path.join(canonical, "task-data.json"), JSON.stringify({ version: 1, tasks: [] }), "utf8");
   await writeCompleteUserData(historical, "historical");
 
   const result = await recoverLegacyUserData({ appDataPath: root, canonicalUserDataPath: canonical, now: fixedNow });
@@ -198,7 +294,7 @@ test("startup never replaces a non-empty canonical database with another histori
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(canonical, "task-data.json"), "utf8")), completeTaskData("current"));
 });
 
-test("the first post-update launch recovers a richer historical database after backing up a partial canonical copy", async (t) => {
+test("a record-rich historical directory cannot replace a valid canonical workspace during an update", async (t) => {
   const root = await tempRoot(t, "loop-richer-post-update");
   const canonical = path.join(root, "Personal Task Track");
   const historical = path.join(root, "personal-task-track");
@@ -214,10 +310,34 @@ test("the first post-update launch recovers a richer historical database after b
     recoverRicherLegacy: true,
     now: fixedNow,
   });
-  assert.equal(result.migrated, true);
-  assert.deepEqual(JSON.parse(await fs.readFile(path.join(canonical, "task-data.json"), "utf8")), completeTaskData("richer"));
-  const backups = await fs.readdir(path.join(root, BACKUP_ROOT_DIRECTORY));
-  assert.equal(backups.some((name) => name.startsWith("pre-migration-")), true);
+  assert.equal(result.migrated, false);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(canonical, "task-data.json"), "utf8")), partial);
+  await assert.rejects(fs.access(path.join(root, BACKUP_ROOT_DIRECTORY)), { code: "ENOENT" });
+});
+
+test("legacy discovery preserves empty, damaged, and previously initialized canonical workspaces", async (t) => {
+  const root = await tempRoot(t, "loop-legacy-canonical-protection");
+  const canonical = path.join(root, "Personal Task Track");
+  const taskData = path.join(canonical, TASK_DATA_FILE);
+  await fs.mkdir(canonical);
+  await writeCompleteUserData(path.join(root, "Loop"), "historical");
+  for (const contents of [JSON.stringify({ version: 1, tasks: [] }), "{broken"]) {
+    await fs.writeFile(taskData, contents);
+    assert.equal((await recoverLegacyUserData({ appDataPath: root, canonicalUserDataPath: canonical })).migrated, false);
+    assert.equal(await fs.readFile(taskData, "utf8"), contents);
+  }
+  await fs.rename(taskData, path.join(canonical, "task-data.corrupt-old.json"));
+  assert.equal((await recoverLegacyUserData({ appDataPath: root, canonicalUserDataPath: canonical })).migrated, false);
+  await assert.rejects(fs.access(taskData), { code: "ENOENT" });
+});
+
+test("an ambiguous collection of legacy workspaces requires choosing a specific source", async (t) => {
+  const root = await tempRoot(t, "loop-legacy-sources");
+  const canonical = path.join(root, "Personal Task Track");
+  await writeCompleteUserData(path.join(root, "Loop"), "first");
+  await writeCompleteUserData(path.join(root, "PersonalTaskTrack"), "second");
+  await assert.rejects(recoverLegacyUserData({ appDataPath: root, canonicalUserDataPath: canonical }), { code: "LEGACY_WORKSPACE_AMBIGUOUS" });
+  await assert.rejects(fs.access(path.join(canonical, TASK_DATA_FILE)), { code: "ENOENT" });
 });
 
 test("portable export and import restore tasks, nested node details, recovery assets, and preferences", async (t) => {
@@ -263,7 +383,25 @@ test("tampered portable backups are rejected before current data is changed", as
   await assert.rejects(readPortableBackup(portablePath), (error) => error?.code === "PORTABLE_BACKUP_HASH_MISMATCH");
 });
 
-test("directory import accepts installer backup layouts and restores the richest legacy data", async (t) => {
+test("directory restore checks the original manifest even when the selected folder is its data subdirectory", async (t) => {
+  const root = await tempRoot(t, "loop-directory-origin-integrity");
+  const source = path.join(root, "source");
+  const target = path.join(root, "target");
+  await writeCompleteUserData(source, "source");
+  await writeCompleteUserData(target, "current");
+  const backup = await createVerifiedBackup({ sourcePath: source, backupRoot: path.join(root, "backups"), backupName: "verified" });
+  const changed = path.join(backup.dataPath, "knowledge-note-recovery", "note-a", "assets", "image.png");
+  await fs.writeFile(changed, "other"); // Same size as "asset".
+  for (const selectedPath of [backup.backupPath, backup.dataPath]) {
+    await assert.rejects(importBackup({
+      selectedPath, selectionType: "directory", appDataPath: root, userDataPath: target,
+    }), { code: "UPGRADE_BACKUP_VERIFY_FAILED" });
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(target, TASK_DATA_FILE), "utf8")), completeTaskData("current"));
+    await assert.rejects(fs.access(path.join(target, ".loop-restore")), { code: "ENOENT" });
+  }
+});
+
+test("directory import accepts a specific legacy installer backup and identifies its missing original manifest", async (t) => {
   const root = await tempRoot(t, "loop-directory-import");
   const selected = path.join(root, "installer-pre-0.1.142");
   const legacy = path.join(selected, "Personal Task Track");
@@ -281,6 +419,7 @@ test("directory import accepts installer backup layouts and restores the richest
     now: fixedNow,
   });
   assert.equal(imported.imported, true);
+  assert.equal(imported.legacyUnverified, true);
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(target, "task-data.json"), "utf8")), completeTaskData("installer"));
 });
 
@@ -298,7 +437,7 @@ test("failed import rolls back to the verified pre-import database", async (t) =
   const fileSystem = {
     ...fs,
     async rename(sourcePath, destinationPath) {
-      if (!failedRestore && destinationPath === path.join(target, "task-data.json") && sourcePath.includes(".migration-")) {
+      if (!failedRestore && destinationPath === path.join(target, "task-data.json") && sourcePath.includes(path.join(".loop-restore", "incoming"))) {
         failedRestore = true;
         throw Object.assign(new Error("simulated disk failure"), { code: "EIO" });
       }
@@ -334,7 +473,7 @@ test("an import whose rollback also fails reports the safety backup instead of h
   const fileSystem = {
     ...fs,
     async rename(sourcePath, destinationPath) {
-      if (failures < 2 && destinationPath === path.join(target, "task-data.json") && sourcePath.includes(".migration-")) {
+      if (failures < 2 && destinationPath === path.join(target, "task-data.json") && sourcePath.includes(".loop-restore")) {
         failures += 1;
         throw Object.assign(new Error("simulated disk failure"), { code: "EIO" });
       }
@@ -363,6 +502,83 @@ test("an import whose rollback also fails reports the safety backup instead of h
   assert.equal(failures, 2, "the import restore and the rollback restore must both have been attempted");
   const safetyTaskData = JSON.parse(await fs.readFile(path.join(reportedBackupPath, "data", "task-data.json"), "utf8"));
   assert.equal(safetyTaskData.tasks[0].id, "task-current", "the safety backup must hold the pre-import database");
+  const recovered = await recoverInterruptedRestore({ userDataPath: target });
+  assert.equal(recovered.status, "rolled-back");
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(target, TASK_DATA_FILE), "utf8")), completeTaskData("current"));
+});
+
+async function killedDuringRestore(stage, { portablePath, appDataPath, userDataPath }) {
+  const program = `
+    const fs = require("node:fs/promises");
+    const fsSync = require("node:fs");
+    const path = require("node:path");
+    const { importBackup } = require(process.argv[1]);
+    const [stage, selectedPath, appDataPath, userDataPath] = process.argv.slice(2);
+    const transaction = path.join(userDataPath, ".loop-restore");
+    const taskData = path.join(userDataPath, "task-data.json");
+    const isIncoming = (item) => path.dirname(item) === path.join(transaction, "incoming");
+    const isPrevious = (item) => path.dirname(item) === path.join(transaction, "previous");
+    function terminate() {
+      fsSync.writeSync(1, "interrupted:" + stage);
+      process.kill(process.pid, "SIGKILL");
+    }
+    const fileSystem = {
+      ...fs,
+      async writeFile(file, content, options) {
+        await fs.writeFile(file, content, options);
+        if (stage === "staging" && isIncoming(file)) terminate();
+      },
+      async rename(from, to) {
+        if (stage === "rolling-back" && isIncoming(from) && to === taskData) {
+          throw Object.assign(new Error("simulated disk failure"), { code: "EIO" });
+        }
+        await fs.rename(from, to);
+        if ((stage === "saving-previous" && from === taskData && isPrevious(to))
+          || (stage === "installing" && isIncoming(from) && to === taskData)
+          || (stage === "rolling-back" && isPrevious(from) && to === taskData)) terminate();
+        if (stage === "committed" && to === path.join(transaction, "journal.json")
+          && JSON.parse(await fs.readFile(to, "utf8")).phase === "committed") terminate();
+      },
+    };
+    importBackup({ selectedPath, appDataPath, userDataPath, fileSystem })
+      .catch((error) => { console.error(error); process.exitCode = 2; });
+  `;
+  const modulePath = path.resolve(__dirname, "..", "app", "main", "data-continuity.cjs");
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["-e", program, modulePath, stage, portablePath, appDataPath, userDataPath]);
+    let output = "";
+    let errors = "";
+    child.stdout.on("data", (chunk) => { output += chunk; });
+    child.stderr.on("data", (chunk) => { errors += chunk; });
+    child.once("error", reject);
+    child.once("close", (code, signal) => {
+      if ((code || signal) && output === `interrupted:${stage}`) resolve();
+      else reject(new Error(`Restore was not terminated during ${stage}: ${errors || output || code}`));
+    });
+  });
+}
+
+test("force termination at restore boundaries leaves a complete old or committed new workspace on next startup", async (t) => {
+  const root = await tempRoot(t, "loop-killed-restore");
+  const source = path.join(root, "source");
+  const portablePath = path.join(root, "incoming.loopbackup");
+  await writeCompleteUserData(source, "incoming");
+  await fs.writeFile(path.join(source, "knowledge-note-recovery", "note-a", "assets", "image.png"), "new attachment");
+  await exportPortableBackup({ userDataPath: source, destinationPath: portablePath });
+  for (const phase of ["staging", "saving-previous", "installing", "rolling-back", "committed"]) {
+    const appDataPath = path.join(root, phase);
+    const userDataPath = path.join(appDataPath, "profile");
+    await writeCompleteUserData(userDataPath, "original");
+    await killedDuringRestore(phase, { portablePath, appDataPath, userDataPath });
+    const result = await recoverInterruptedRestore({ userDataPath });
+    const expected = phase === "committed" ? "incoming" : "original";
+    assert.equal(result.status, phase === "staging" ? "discarded-staging" : phase === "committed" ? "committed" : "rolled-back", phase);
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(userDataPath, TASK_DATA_FILE), "utf8")), completeTaskData(expected), phase);
+    const attachment = await fs.readFile(path.join(userDataPath, "knowledge-note-recovery", "note-a", "assets", "image.png"), "utf8");
+    assert.equal(attachment, expected === "incoming" ? "new attachment" : "asset", phase);
+    assert.equal(await fs.readFile(path.join(userDataPath, "Cache", "chromium.bin"), "utf8"), "not-user-content", phase);
+    assert.deepEqual(await recoverInterruptedRestore({ userDataPath }), { recovered: false }, phase);
+  }
 });
 
 test("Windows installer backs up before uninstall and preserves the legacy install folder identity", async () => {

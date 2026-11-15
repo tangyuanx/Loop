@@ -113,6 +113,7 @@ function createKnowledgeFileWatcher({
 
     const sameContent = !entry.lastSavedHash || result.lastSavedHash === entry.lastSavedHash;
     if (sameContent) {
+      entry.reportedExternalHash = null;
       entry.lastSavedHash = result.lastSavedHash;
       entry.lastSavedMtime = result.lastSavedMtime;
       if (result.readOnly) {
@@ -133,6 +134,8 @@ function createKnowledgeFileWatcher({
       return;
     }
 
+    if (entry.reportedExternalHash === result.lastSavedHash) return;
+    entry.reportedExternalHash = result.lastSavedHash;
     entry.suppressBaseline = false;
     emit({
       type: "external-changed",
@@ -221,6 +224,7 @@ function createKnowledgeFileWatcher({
       return watch({ noteId, ...baseline, filePath: nextPath }, options);
     }
     entry.lastSavedHash = baseline.lastSavedHash || entry.lastSavedHash;
+    entry.reportedExternalHash = null;
     entry.lastSavedMtime = baseline.lastSavedMtime ?? entry.lastSavedMtime;
     entry.suppressBaseline = options.emitBaseline === false;
     return true;

@@ -2,26 +2,15 @@ const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { imageReferences } = require("../renderer/src/knowledge-core.js");
+const { IMAGE_ASSETS_DIR, imageDataUrl, mimeForExtension, readStoredImage, storeImage } = require("./image-store.cjs");
 
 const RECOVERY_ASSETS_DIR = "knowledge-note-recovery";
 const ATTACHMENTS_DIR = "attachments";
-const MIME_EXTENSIONS = Object.freeze({
-  "image/avif": "avif",
-  "image/bmp": "bmp",
-  "image/gif": "gif",
-  "image/jpeg": "jpg",
-  "image/png": "png",
-  "image/svg+xml": "svg",
-  "image/tiff": "tiff",
-  "image/webp": "webp",
-});
-const EXTENSION_MIME = Object.freeze(Object.fromEntries(
-  Object.entries(MIME_EXTENSIONS).map(([mime, extension]) => [extension, mime]),
-));
 
 function createFsOperations(overrides = {}) {
   return {
     access: overrides.access || ((...args) => fs.access(...args)),
+    lstat: overrides.lstat || ((...args) => fs.lstat(...args)),
     realpath: overrides.realpath || ((...args) => fs.realpath(...args)),
     mkdir: overrides.mkdir || ((...args) => fs.mkdir(...args)),
     open: overrides.open || ((...args) => fs.open(...args)),
@@ -33,23 +22,6 @@ function createFsOperations(overrides = {}) {
 
 function normalizeText(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
-}
-
-function imageDataUrl(value) {
-  const source = normalizeText(value).trim();
-  const match = source.match(/^data:(image\/[a-z0-9.+-]+)(;[^,]*)?,([\s\S]*)$/i);
-  if (!match) return null;
-  const mime = match[1].toLowerCase();
-  if (!MIME_EXTENSIONS[mime]) return null;
-  try {
-    const body = match[2]?.toLowerCase().includes(";base64")
-      ? Buffer.from(match[3], "base64")
-      : Buffer.from(decodeURIComponent(match[3]), "utf8");
-    if (!body.length) return null;
-    return { dataUrl: source, mime, extension: MIME_EXTENSIONS[mime], buffer: body };
-  } catch {
-    return null;
-  }
 }
 
 function noteIdDirectory(noteId) {
@@ -124,24 +96,21 @@ function normalizeAsset(value) {
 
 async function stageKnowledgeAssets(userDataPath, { noteId, assets = [], fsOps: injectedFsOps } = {}) {
   const normalizedNoteId = normalizeText(noteId).trim();
-  const normalizedAssets = Array.isArray(assets) ? assets.map(normalizeAsset).filter(Boolean) : [];
+  if (!Array.isArray(assets)) return { success: false, code: "ASSET_STAGE_FAILED", errorCode: "INVALID_IMAGE", message: "图片数据无效" };
+  const normalizedAssets = assets.map(normalizeAsset);
   if (!normalizedAssets.length) return { success: true, assets: [] };
   if (!normalizedNoteId) {
     return { success: false, code: "ASSET_STAGE_FAILED", errorCode: "INVALID_NOTE_ID", message: "知识笔记缺少资源归属标识" };
   }
 
   const fsOps = createFsOperations(injectedFsOps);
-  const directory = recoveryAssetsDirectory(userDataPath, normalizedNoteId);
+  const directory = path.join(userDataPath, IMAGE_ASSETS_DIR);
   try {
-    await fsOps.mkdir(directory, { recursive: true });
     const result = [];
     for (const asset of normalizedAssets) {
-      const parsed = imageDataUrl(asset.dataUrl);
-      if (!parsed) continue;
-      const digest = crypto.createHash("sha256").update(parsed.buffer).digest("hex").slice(0, 24);
-      const fileName = `asset-${digest}.${parsed.extension}`;
-      const filePath = path.join(directory, fileName);
-      await writeAssetFile(filePath, parsed.buffer, fsOps);
+      const parsed = imageDataUrl(asset?.dataUrl);
+      if (!parsed) throw Object.assign(new Error("图片数据无效"), { code: "INVALID_IMAGE" });
+      const { fileName, filePath } = await storeImage(userDataPath, parsed, fsOps);
       result.push({
         source: asset.source,
         dataUrl: parsed.dataUrl,
@@ -168,17 +137,14 @@ async function readAssetBuffer(asset, fsOps) {
     if (parsed) return parsed;
     throw Object.assign(new Error("资源文件不可用"), { code: "ENOENT" });
   }
-  const buffer = await fsOps.readFile(asset.sourcePath);
+  const isStoredImage = path.basename(path.dirname(asset.sourcePath)).toLowerCase() === IMAGE_ASSETS_DIR;
+  const buffer = isStoredImage ? await readStoredImage(asset.sourcePath, fsOps) : await fsOps.readFile(asset.sourcePath);
   const extension = path.extname(asset.sourcePath).replace(/^\./, "").toLowerCase() || "bin";
   return {
     dataUrl: asset.dataUrl || "",
     extension: /^[a-z0-9]{1,8}$/.test(extension) ? extension : "bin",
     buffer: Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer),
   };
-}
-
-function mimeForExtension(extension) {
-  return EXTENSION_MIME[normalizeText(extension).toLowerCase()] || "application/octet-stream";
 }
 
 async function readKnowledgeAssetFiles(markdownPath, content, { fsOps: injectedFsOps } = {}) {
@@ -189,7 +155,7 @@ async function readKnowledgeAssetFiles(markdownPath, content, { fsOps: injectedF
     let decoded;
     try { decoded = decodeURIComponent(reference.split('#')[0]); } catch { return; }
     const extension = path.extname(decoded).slice(1).toLowerCase();
-    if (!EXTENSION_MIME[extension] && extension !== "jpeg") return;
+    if (mimeForExtension(extension) === "application/octet-stream" && extension !== "jpeg") return;
     if (decoded.split(/[\\/]/).includes("..")) return;
     references.add(reference);
   });

@@ -22,7 +22,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { autoUpdater } = require("electron-updater");
 const { BugReportClientError, createBugReportClient } = require("./bug-report-client.cjs");
-const { dataFilePath, readTaskData, writeTaskData } = require("./storage.cjs");
+const { dataFilePath, readTaskData, verifyTaskWorkspace, writeTaskData } = require("./storage.cjs");
 const { assetSourcePaths, createKnowledgePathGate, deniedPathResult } = require("./knowledge-access.cjs");
 const dataMaintenance = require("./data-maintenance.cjs");
 const { registerTaskShare } = require("./task-share-service.cjs");
@@ -45,6 +45,8 @@ const {
   readKnowledgeRecovery,
   writeKnowledgeRecovery,
 } = require("./recovery.cjs");
+const { clearBackupStaging, exportWorkspaceBackup, stageWorkspaceBackup } = require("./workspace-backup.cjs");
+const { createAutomaticBackupController, workspaceDiskUsage } = require("./automatic-backups.cjs");
 const { createTodayWidgetController } = require("./today-widget.cjs");
 const { createDeadlineReminderController } = require("./deadline-reminders.cjs");
 const { createUpdateController } = require("./updater.cjs");
@@ -52,8 +54,8 @@ const { APP_DISPLAY_NAME, DESKTOP_APP_ID, configureDesktopIdentity } = require("
 const { createPointerContinuity } = require("./pointer-continuity.cjs");
 const {
   createPreInstallBackup,
-  exportPortableBackup,
   importBackup,
+  recoverInterruptedRestore,
   recoverLegacyUserData,
 } = require("./data-continuity.cjs");
 
@@ -117,7 +119,10 @@ let isQuitting = false;
 let updateInstallPrepared = false;
 let recoveryShutdownWaitingFor = null;
 let recoveryShutdownTimer = null;
-const RECOVERY_SHUTDOWN_TIMEOUT_MS = 2000;
+let recoveryShutdownRequest = 0;
+let workspaceProtection = null;
+let automaticBackupController = null;
+const RECOVERY_SHUTDOWN_TIMEOUT_MS = 10000;
 let updateInstallPreparation = null;
 const UPDATE_INSTALL_PREPARATION_TIMEOUT_MS = 10_000;
 const knowledgeWatcher = createKnowledgeFileWatcher({
@@ -252,6 +257,12 @@ function openExternalUrl(url) {
   if (/^(https?|mailto):/i.test(url)) shell.openExternal(url);
 }
 
+function workspaceBackupAppDataPath() {
+  return desktopIdentity.usesExplicitProfile
+    ? path.join(app.getPath("userData"), ".isolated-backups")
+    : app.getPath("appData");
+}
+
 function resetRecoveryShutdown() {
   if (recoveryShutdownTimer) clearTimeout(recoveryShutdownTimer);
   recoveryShutdownTimer = null;
@@ -264,9 +275,17 @@ function finishRecoveryShutdown() {
   app.quit();
 }
 
+function cancelRecoveryShutdown(window, message = "") {
+  resetRecoveryShutdown();
+  if (window && !window.isDestroyed()) window.webContents.send("knowledge-recovery:quit-canceled", message);
+}
+
 function flushBeforeQuit(window, discardCreateDraft = false) {
-  window.webContents.send("knowledge-recovery:flush-and-quit", discardCreateDraft);
-  recoveryShutdownTimer = setTimeout(finishRecoveryShutdown, RECOVERY_SHUTDOWN_TIMEOUT_MS);
+  const request = ++recoveryShutdownRequest;
+  recoveryShutdownTimer = setTimeout(() => {
+    cancelRecoveryShutdown(window, "退出已暂停。Loop 还没有收到保存完成的确认，请等待保存结束后重试。");
+  }, RECOVERY_SHUTDOWN_TIMEOUT_MS);
+  window.webContents.send("knowledge-recovery:flush-and-quit", discardCreateDraft, request);
 }
 
 function requestRecoveryShutdown(event) {
@@ -299,15 +318,46 @@ async function confirmCreateDraftQuit(window) {
   } catch (error) {
     console.error("Unable to confirm whether to discard the creation draft.", error);
   }
-  resetRecoveryShutdown();
-  if (!window.isDestroyed()) window.webContents.send("knowledge-recovery:quit-canceled");
+  cancelRecoveryShutdown(window);
+}
+
+function describeWorkspaceProtection(error, { restoreAllowed = true } = {}) {
+  const messages = {
+    CORRUPT_TASK_DATA: "现有任务数据损坏。原文件已保留，请选择校验过的备份恢复工作区。",
+    MISSING_TASK_DATA: "已有工作区的任务文件缺失。请选择备份恢复工作区。",
+    UNSUPPORTED_DATA_VERSION: "此工作区由更高版本的 Loop 保存。请使用支持该数据版本的 Loop 打开。",
+    TASK_IMAGE_MISSING: "工作区中的图片文件缺失。请从包含图片的备份恢复。",
+    TASK_IMAGE_INVALID: "工作区中的图片校验失败。请从包含图片的备份恢复。",
+    CORRUPT_KNOWLEDGE_RECOVERY: "笔记的恢复草稿损坏。原文件已保留，请从备份恢复。",
+    UNSUPPORTED_KNOWLEDGE_RECOVERY_VERSION: "笔记草稿由更高版本的 Loop 写入。请使用支持该草稿版本的 Loop 打开。",
+    RESTORE_RECOVERY_FAILED: "上次恢复在完成前中断，自动恢复暂时无法完成。请保留工作区和安全备份，检查磁盘及权限后重启 Loop。",
+  };
+  const message = messages[error?.code] || "Loop 无法安全读取现有工作区。请检查磁盘与权限，或选择备份恢复。";
+  return {
+    message: error?.safetyBackupPath ? `${message} 安全备份位于 ${error.safetyBackupPath}` : message,
+    restoreAllowed: restoreAllowed && !["UNSUPPORTED_DATA_VERSION", "UNSUPPORTED_KNOWLEDGE_RECOVERY_VERSION"].includes(error?.code),
+  };
 }
 
 async function stopRuntimeForUpdateInstall() {
+  automaticBackupController?.stop();
   knowledgeWatcher.closeAll();
   updateController?.stop();
   todayWidgetController?.stop();
   await deadlineReminderController?.stop();
+}
+
+function serializeProfileBackup(operation) {
+  return taskStore.serialize(async () => {
+    dataMaintenance.assertWritable();
+    const release = dataMaintenance.begin("workspace-backup");
+    try {
+      await dataMaintenance.waitForWrites();
+      return await operation();
+    } finally {
+      release();
+    }
+  });
 }
 
 async function finishUpdateInstallPreparation(success) {
@@ -323,13 +373,13 @@ async function finishUpdateInstallPreparation(success) {
   }
   try {
     const backup = () => createPreInstallBackup({
-      appDataPath: app.getPath("appData"),
+      appDataPath: workspaceBackupAppDataPath(),
       userDataPath: app.getPath("userData"),
       installDirectory: path.dirname(process.execPath),
       currentVersion: app.getVersion(),
       targetVersion: updateController?.getState()?.version,
     });
-    if (taskStore) await taskStore.serialize(backup);
+    if (taskStore) await serializeProfileBackup(backup);
     else await backup();
     // Stop auxiliary windows, shortcuts, watchers, and timers before the
     // updater launches NSIS. This shortens the interval in which a Loop child
@@ -379,7 +429,17 @@ function registerStorageHandlers() {
       architecture: process.arch,
     };
   });
-  ipcMain.handle("task-data:read", () => taskStore.readForRenderer());
+  ipcMain.handle("task-data:read", () => workspaceProtection
+    ? { workspaceProtection }
+    : taskStore.readForRenderer());
+  ipcMain.handle("task-history:read", (_event, taskId, beforeId) => taskStore.historyFor(taskId, beforeId));
+  ipcMain.handle("task-history:restore", (_event, payload) => taskStore.restoreHistory(payload));
+  ipcMain.handle("data-backup:overview", async () => {
+    await automaticBackupController?.refresh();
+    const usage = await workspaceDiskUsage(app.getPath("userData"),
+      path.join(workspaceBackupAppDataPath(), "Personal Task Track Upgrade Backups"));
+    return { automatic: automaticBackupController?.status() || null, usage };
+  });
 /**
  * Export a task document as Markdown or PDF.
  * Shows a save dialog, renders PDF with a hidden BrowserWindow if needed.
@@ -387,33 +447,57 @@ function registerStorageHandlers() {
  * @returns {Promise<{ canceled: boolean, filePath?: string }>}
  */
   ipcMain.handle("task-data:write", (_event, data, revision) => taskStore.save(data, revision));
-  ipcMain.handle("data-backup:export", async (event) => {
+  ipcMain.handle("data-backup:export", async (event, value) => {
+    dataMaintenance.assertWritable();
     const parent = BrowserWindow.fromWebContents(event.sender);
     const stamp = new Date().toISOString().slice(0, 19).replaceAll(":", "-");
     const selection = await dialog.showSaveDialog(parent, {
-      title: "导出 Loop 完整数据备份",
+      title: "导出 Loop 工作区备份",
       defaultPath: path.join(app.getPath("documents"), `Loop-backup-${stamp}.loopbackup`),
-      filters: [{ name: "Loop 完整备份", extensions: ["loopbackup"] }],
+      filters: [{ name: "Loop 工作区备份", extensions: ["loopbackup"] }],
       properties: ["createDirectory", "showOverwriteConfirmation"],
     });
     if (selection.canceled || !selection.filePath) return { canceled: true };
-    const result = await taskStore.serialize(() => exportPortableBackup({
+    const confirmation = await dialog.showMessageBox(parent, {
+      type: "info",
+      title: "工作区备份范围",
+      message: "备份包含任务、恢复草稿、历史，以及绑定笔记和其中可迁移的相对文件。",
+      detail: "笔记正文中引用的本地文件将复制到你选择的备份位置。缺失或不可迁移的项目会在导出结果中列出数量。使用独立设备上的副本可帮助你在设备损坏后恢复。",
+      buttons: ["取消", "导出备份"],
+      defaultId: 1,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (confirmation.response !== 1) return { canceled: true };
+    const result = await exportWorkspaceBackup({
       userDataPath: app.getPath("userData"),
       destinationPath: selection.filePath,
       appVersion: app.getVersion(),
-    }));
+      password: typeof value?.password === "string" ? value.password : "",
+      captureSnapshot: serializeProfileBackup,
+    });
     return { canceled: false, ...result };
   });
   ipcMain.handle("data-backup:import", async (event, value) => {
+    if (typeof workspaceProtection !== "undefined" && workspaceProtection?.restoreAllowed === false) {
+      throw new Error(workspaceProtection.message);
+    }
     const parent = BrowserWindow.fromWebContents(event.sender);
+    const localRestore = value?.selectionType === "recent";
     const selectionType = value?.selectionType === "directory" ? "directory" : "file";
-    const selection = await dialog.showOpenDialog(parent, selectionType === "directory" ? {
+    let recentPath = "";
+    if (localRestore) {
+      await automaticBackupController?.refresh();
+      recentPath = automaticBackupController?.status().latestPath || "";
+      if (!recentPath) throw new Error("当前没有可用的本机自动备份。");
+    }
+    const selection = localRestore ? { canceled: false, filePaths: [recentPath] } : await dialog.showOpenDialog(parent, selectionType === "directory" ? {
       title: "选择 Loop 备份目录",
       properties: ["openDirectory"],
     } : {
-      title: "选择 Loop 完整备份文件",
+      title: "选择 Loop 工作区备份文件",
       properties: ["openFile"],
-      filters: [{ name: "Loop 完整备份", extensions: ["loopbackup"] }],
+      filters: [{ name: "Loop 工作区备份", extensions: ["loopbackup"] }],
     });
     const selectedPath = selection.filePaths?.[0];
     if (selection.canceled || !selectedPath) return { canceled: true };
@@ -434,12 +518,18 @@ function registerStorageHandlers() {
     dataMaintenance.begin("manual-import");
     let result;
     try {
+      await dataMaintenance.waitForWrites();
       result = await taskStore.serialize(() => importBackup({
         selectedPath,
         selectionType,
-        appDataPath: app.getPath("appData"),
+        appDataPath: workspaceBackupAppDataPath(),
         userDataPath: app.getPath("userData"),
         installDirectory: process.platform === "win32" ? path.dirname(process.execPath) : "",
+        stageBackupFile: (file, options) => stageWorkspaceBackup(file, {
+          ...options,
+          password: typeof value?.password === "string" ? value.password : "",
+          localRestore,
+        }),
       }));
     } catch (error) {
       // A failed rollback leaves a partial workspace. Keep every writer locked
@@ -473,15 +563,15 @@ function registerStorageHandlers() {
       try { managedAssets = await prepareManagedKnowledgeSave(app.getPath('userData'), (await taskStore.read()) || {}, payload.noteId, payload.content); }
       catch (error) { return { success: false, code: error.code, message: error.message }; }
     }
-    const result = await saveKnowledgeDocument(payload, { dialog, parent, platform: process.platform, managedAssets });
+    const result = await dataMaintenance.track(() => saveKnowledgeDocument(payload, { dialog, parent, platform: process.platform, managedAssets }));
     if (result?.success && result.filePath) knowledgeGate.approve(result.filePath);
     if (result?.success && payload?.noteId) knowledgeWatcher.updateBaseline(payload.noteId, result);
     return result;
   });
-  ipcMain.handle("knowledge-document:stage-assets", (_event, payload) => stageKnowledgeAssets(
+  ipcMain.handle("knowledge-document:stage-assets", (_event, payload) => dataMaintenance.track(() => stageKnowledgeAssets(
     app.getPath("userData"),
     payload,
-  ));
+  )));
   ipcMain.handle('task-share:asset', async (event, { href, ownerId, open = false } = {}) => {
     if (event.sender !== mainWindow?.webContents || event.senderFrame !== mainWindow?.webContents.mainFrame) return { success: false };
     const id = /^loop-asset:(asset_[a-f\d-]{36})(?:#.*)?$/.exec(String(href || ''))?.[1];
@@ -540,7 +630,7 @@ function registerStorageHandlers() {
     if (!(await knowledgeGate.isAllowed(payload?.filePath))) {
       return deniedPathResult(payload?.filePath, "rename");
     }
-    const result = await renameKnowledgeDocument(payload, { platform: process.platform });
+    const result = await dataMaintenance.track(() => renameKnowledgeDocument(payload, { platform: process.platform }));
     if (result?.success) {
       // Keep both names allowed: the renderer may have to undo this rename when
       // its own task-data write fails.
@@ -564,19 +654,16 @@ function registerStorageHandlers() {
     return result;
   });
   ipcMain.handle("knowledge-recovery:read", () => readKnowledgeRecovery(app.getPath("userData")));
-  ipcMain.handle("knowledge-recovery:write", (_event, record) => {
-    dataMaintenance.assertWritable();
-    return writeKnowledgeRecovery(app.getPath("userData"), record);
-  });
-  ipcMain.handle("knowledge-recovery:delete", (_event, noteId) => {
-    dataMaintenance.assertWritable();
-    return deleteKnowledgeRecovery(app.getPath("userData"), noteId);
-  });
-  ipcMain.on("knowledge-recovery:flush-complete", (event, outcome) => {
-    if (event.sender.id !== recoveryShutdownWaitingFor || !recoveryShutdownTimer) return;
+  ipcMain.handle("knowledge-recovery:write", (_event, record) => dataMaintenance.track(() =>
+    writeKnowledgeRecovery(app.getPath("userData"), record)));
+  ipcMain.handle("knowledge-recovery:delete", (_event, noteId) => dataMaintenance.track(() =>
+    deleteKnowledgeRecovery(app.getPath("userData"), noteId)));
+  ipcMain.on("knowledge-recovery:flush-complete", (event, outcome, request) => {
+    if (event.sender.id !== recoveryShutdownWaitingFor || !recoveryShutdownTimer || request !== recoveryShutdownRequest) return;
     if (outcome === "create-draft") void confirmCreateDraftQuit(mainWindow);
     else if (outcome === "create-saving") resetRecoveryShutdown();
-    else finishRecoveryShutdown();
+    else if (outcome === "saved") finishRecoveryShutdown();
+    else cancelRecoveryShutdown(mainWindow, "退出已暂停。还有数据未保存，请检查磁盘空间和权限，重试后再退出。");
   });
   ipcMain.on("app-update:prepare-install-complete", (event, success) => {
     if (event.sender.id !== updateInstallPreparation?.senderId) return;
@@ -592,17 +679,18 @@ function registerStorageHandlers() {
 
   ipcMain.handle("app:confirm-destructive", async (event, value) => {
     const reloadKnowledge = value?.operation === "reload-knowledge";
+    const restoreHistory = value?.operation === "restore-task-history";
     const message = reloadKnowledge
       ? "将放弃当前未保存的修改，并读取磁盘上的最新内容。此操作不会删除笔记或文件。"
       : String(value?.message || "确定删除所选内容？").slice(0, 500);
     const parent = BrowserWindow.fromWebContents(event.sender);
     const options = {
       type: "warning",
-      buttons: ["取消", reloadKnowledge ? "放弃修改并重新加载" : "删除"],
+      buttons: ["取消", reloadKnowledge ? "放弃修改并重新加载" : restoreHistory ? "恢复版本" : "删除"],
       defaultId: 0,
       cancelId: 0,
       noLink: true,
-      title: reloadKnowledge ? "重新加载笔记" : "确认删除",
+      title: reloadKnowledge ? "重新加载笔记" : restoreHistory ? "恢复历史版本" : "确认删除",
       message,
     };
     const result = parent && !parent.isDestroyed()
@@ -915,31 +1003,45 @@ app.whenReady().then(async () => {
     setTimeout(() => dataMaintenance.end(), 30000).unref?.();
     console.log("[loop] task-data writes are locked for this session (verification hook)");
   }
+  const userDataPath = app.getPath("userData");
+  await clearBackupStaging(userDataPath).catch(error =>
+    console.error("Unable to remove interrupted backup staging.", error?.code || error));
+  try {
+    await recoverInterruptedRestore({ userDataPath });
+  } catch (error) {
+    console.error("Unable to finish the interrupted workspace restore.", error?.code || error);
+    workspaceProtection = describeWorkspaceProtection(error, { restoreAllowed: false });
+  }
   try {
     // A caller-provided profile is isolated on purpose: never pull the machine's
     // real task database into it (and never write backups next to it).
-    if (!desktopIdentity.usesExplicitProfile) {
+    if (!workspaceProtection && !desktopIdentity.usesExplicitProfile) {
       await recoverLegacyUserData({
         appDataPath: app.getPath("appData"),
-        canonicalUserDataPath: app.getPath("userData"),
-        recoverRicherLegacy: process.argv.includes("--updated"),
+        canonicalUserDataPath: userDataPath,
       });
     }
-    await recoverAssetImports(app.getPath("userData"));
+    if (!workspaceProtection) {
+      await verifyTaskWorkspace(userDataPath);
+      await readKnowledgeRecovery(userDataPath, { validateOnly: true });
+      await recoverAssetImports(userDataPath);
+    }
   } catch (error) {
-    console.error("Unable to complete legacy task-data recovery.", error?.code || error);
-    dialog.showErrorBox(
-      "Loop 数据保护已启动",
-      "检测到旧版任务数据，但安全恢复校验未通过。为避免覆盖原数据，Loop 已停止启动；原始数据和备份均未删除。",
-    );
-    app.quit();
-    return;
+    console.error("Unable to verify the workspace.", error?.code || error);
+    workspaceProtection = describeWorkspaceProtection(error);
   }
+  if (workspaceProtection) dataMaintenance.begin("workspace-protection");
   if (isMac) {
     app.setActivationPolicy("regular");
     await app.dock.show();
   }
   registerStorageHandlers();
+  automaticBackupController = createAutomaticBackupController({
+    userDataPath,
+    appVersion: app.getVersion(),
+    runExclusive: serializeProfileBackup,
+  });
+  if (!workspaceProtection) automaticBackupController.start();
   registerWindowChromeHandlers();
   pointerContinuity = createPointerContinuity({ app, ipcMain, screen, getMainWindow: () => mainWindow });
   pointerContinuity.register();
@@ -1002,6 +1104,7 @@ app.on("before-quit", (event) => {
   // event is a secondary cleanup path, not the lifecycle guarantee.
   knowledgeWatcher.closeAll();
   isQuitting = true;
+  automaticBackupController?.stop();
   pointerContinuity?.stop();
   updateController?.stop();
   todayWidgetController?.stop();

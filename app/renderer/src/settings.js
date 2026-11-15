@@ -134,21 +134,40 @@ function shellSettingsKnowledge() {
 }
 
 function shellSettingsData() {
-  // Phase26: the Demo puts 最近删除 at the top of 数据; it operates on the
-  // software's own objects, so it stays separate from the whole-workspace
-  // backup/replace/restart flow below it.
   const deleted = typeof state !== "undefined" && Array.isArray(state.recentlyDeleted) ? state.recentlyDeleted.length : 0;
   const recoveryEntry = typeof recovery26Open === "function"
-    ? `<div class="recovery26-data-entry"><div>最近删除<small>恢复任务、分组、节点与笔记${deleted ? ` · ${deleted} 项` : ""}</small></div><button class="button" type="button" data-recovery26="open">管理</button></div>`
+    ? `<section class="data-settings-section data-settings-deleted" aria-labelledby="data-deleted-heading">
+        <h3 id="data-deleted-heading">最近删除</h3>
+        ${shellSettingsAction("恢复单项内容", deleted ? `${deleted} 项可恢复` : "", "查看", 'data-recovery26="open" aria-label="查看最近删除"')}
+      </section>`
     : "";
-  return `<h2>数据</h2>
+  return `<h2>数据</h2><div class="data-settings">
+    <section class="data-settings-summary" aria-labelledby="data-summary-heading">
+      <h3 id="data-summary-heading">数据概况</h3>
+      <p data-backup-usage>正在统计本机用量…</p>
+      <p class="prefs-native-caption">外部笔记、应用和下载包另计。</p>
+    </section>
+    <section class="data-settings-section" aria-labelledby="data-export-heading">
+      <h3 id="data-export-heading">备份与迁移</h3>
+      ${shellSettingsRow("导出密码", "请妥善保管密码。", renderBackupPassword("export"))}
+      ${shellSettingsAction("工作区备份", "包含任务、笔记和附件。", "导出备份", `data-backup-action="export" ${desktopDataBackup ? "" : "disabled"}`)}
+      <div class="data-settings-automatic">
+        <span class="setting-label">本机自动备份</span>
+        <p data-backup-overview>正在读取备份状态…</p>
+      </div>
+      <p class="prefs-transfer-status" data-backup-status="export" role="status"></p>
+    </section>
     ${recoveryEntry}
-    ${shellSettingsAction("完整备份", "包含任务、笔记恢复内容与应用偏好。", "导出备份", `data-backup-action="export" ${desktopDataBackup ? "" : "disabled"}`)}
-    <h3 class="prefs-subheading">恢复工作空间</h3>
-    ${shellSettingsAction("从备份文件恢复", "选择 Loop 完整备份（.loopbackup）。", "选择文件", `data-backup-action="import-file" ${desktopDataBackup ? "" : "disabled"}`)}
-    ${shellSettingsAction("从备份目录恢复", "支持 Loop 当前及历史版本的备份目录。", "选择目录", `data-backup-action="import-directory" ${desktopDataBackup ? "" : "disabled"}`)}
-    <div class="prefs-inline-note">${shellIcon("history")}<span>恢复将替换当前数据并重启，操作前自动备份，失败时回滚。<br />外部 Markdown 文件需另行备份。</span></div>
-    <p class="prefs-transfer-status" data-backup-status role="status"></p>`;
+    <section class="data-settings-section data-settings-restore" aria-labelledby="data-restore-heading">
+      <h3 id="data-restore-heading">恢复整个工作区</h3>
+      <p class="data-settings-impact">替换当前工作区并重启，恢复前自动备份。</p>
+      ${shellSettingsRow("解锁密码", "", renderBackupPassword("import"))}
+      ${shellSettingsAction("备份文件", ".loopbackup 文件", "选择文件", `data-backup-action="import-file" ${desktopDataBackup ? "" : "disabled"}`)}
+      ${shellSettingsAction("备份目录", "历史版本或升级备份。", "选择目录", `data-backup-action="import-directory" ${desktopDataBackup ? "" : "disabled"}`)}
+      ${shellSettingsAction("最近本机备份", "", "恢复…", `data-backup-action="import-recent" ${desktopDataBackup ? "" : "disabled"}`)}
+      <p class="prefs-transfer-status" data-backup-status="restore" role="status"></p>
+    </section>
+  </div>`;
 }
 
 function shellSettingsInfo(label, description, value) {
@@ -254,7 +273,7 @@ function shellSettingsAdvanced() {
 const SHELL_HELP_TOPICS = [
   ["今日、仓库和分组有什么关系？", "任务仓库保存全部任务。分组负责归类；今日是需要今天处理的任务集合，加入今日不会改变原来的分组。今日浮窗只显示今日任务，速记单独展示。"],
   ["如何保留问题的解决过程？", "在处理流中逐层拆分节点，记录验证过程，并更新节点状态。任务进展与结论保留整体上下文；知识笔记适合整理可复用的内容。"],
-  ["如何备份数据和笔记？", "在「数据」设置中导出完整备份。外部绑定的 Markdown 文件需要单独备份。恢复前，桌面应用会先备份并校验当前数据。"],
+  ["如何备份数据和笔记？", "在「数据」设置中导出工作区备份，核对绑定笔记和资源的覆盖数量。可设置密码加密。恢复前，桌面应用会先保护当前数据。设备损坏时需要保存在独立位置的副本。"],
 ];
 
 function shellSettingsHelp() {

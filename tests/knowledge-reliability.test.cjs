@@ -4,7 +4,10 @@ const fs=require('node:fs/promises');
 const os=require('node:os');
 const path=require('node:path');
 const {saveKnowledgeDocument,readKnowledgeDocument}=require('../app/main/knowledge-file.cjs');
-const {writeTaskData,readTaskData}=require('../app/main/storage.cjs');
+const {DATA_VERSION, dataFilePath, readTaskData, verifyTaskWorkspace, writeTaskData}=require('../app/main/storage.cjs');
+const {stageKnowledgeAssets}=require('../app/main/knowledge-assets.cjs');
+const {IMAGE_ASSETS_DIR}=require('../app/main/image-store.cjs');
+const {readKnowledgeRecovery,recoveryFilePath,writeKnowledgeRecovery}=require('../app/main/recovery.cjs');
 const {createKnowledgePathGate}=require('../app/main/knowledge-access.cjs');
 const {SerialQueue}=require('../app/renderer/src/knowledge-core.js');
 async function fixture(t){const dir=await fs.mkdtemp(path.join(os.tmpdir(),'loop-knowledge-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));return dir;}
@@ -229,6 +232,7 @@ test('Save As IPC rejects an unapproved source before the native picker or file 
   knowledgeGate:{isAllowed:async filePath=>filePath==='/approved.md'},
   deniedPathResult:require('../app/main/knowledge-access.cjs').deniedPathResult,
   assetSourcePaths:()=>[],
+  dataMaintenance:require('../app/main/data-maintenance.cjs').createDataMaintenanceLock(),
   saveKnowledgeDocument:async()=>{saves++;return {canceled:true};},
   dialog:{},process,
  });
@@ -238,4 +242,95 @@ test('Save As IPC rejects an unapproved source before the native picker or file 
  assert.equal(saves,0);
  assert.equal((await handler({sender:{}},{saveAs:true,sourceFilePath:'/approved.md'})).canceled,true);
  assert.equal(saves,1);
+});
+
+test('legacy inline images migrate to one blob across tasks, drafts, and archived records', async t => {
+  const profile = await fixture(t);
+  const file = dataFilePath(profile);
+  const payload = Buffer.alloc(1024 * 1024, 41);
+  const dataUrl = `data:image/png;base64,${payload.toString('base64')}`;
+  const body = `原始正文\n\n![图片](${dataUrl})\n`;
+  const raw = JSON.stringify({
+    version: 2,
+    tasks: [{ id: 'task_fixture', notes: body }],
+    attachments: { images: { first: dataUrl, second: dataUrl } },
+    recentlyDeleted: [{ id: 'archive_fixture', kind: 'note', body }],
+  });
+  await fs.writeFile(file, raw);
+  const legacy = await readTaskData(profile);
+  assert.equal(legacy.tasks[0].notes, body);
+  assert.equal(await fs.readFile(file, 'utf8'), raw, 'read leaves the legacy bytes intact');
+
+  const assets = [{ source: 'task-image:first', dataUrl }];
+  const staged = await stageKnowledgeAssets(profile, { noteId: 'fixture', assets });
+  assert.equal(staged.success, true);
+  const storage = createKnowledgePathGate({ userDataPath: profile, dataFilePath: file });
+  assert.equal(storage.isRecoveryAssetPath(staged.assets[0].filePath), true);
+  assert.equal(storage.isRecoveryAssetPath(path.join(profile, IMAGE_ASSETS_DIR, 'unknown.png')), false);
+  await writeTaskData(profile, legacy);
+  await writeKnowledgeRecovery(profile, { noteId: 'fixture', content: body, assets });
+
+  const blobs = await fs.readdir(path.join(profile, IMAGE_ASSETS_DIR));
+  assert.equal(blobs.length, 1);
+  assert.deepEqual(await fs.readFile(path.join(profile, IMAGE_ASSETS_DIR, blobs[0])), payload);
+  assert.ok((await fs.stat(file)).size < 10_000);
+  assert.ok((await fs.stat(recoveryFilePath(profile))).size < 1_000);
+  const reopened = await readTaskData(profile);
+  assert.equal(reopened.version, DATA_VERSION);
+  assert.equal(reopened.tasks[0].notes, body);
+  assert.equal(reopened.recentlyDeleted[0].body, body);
+  assert.deepEqual(reopened.attachments.images, { first: dataUrl, second: dataUrl });
+  const recovery = await readKnowledgeRecovery(profile);
+  assert.equal(recovery.records.fixture.content, body);
+  assert.deepEqual(recovery.records.fixture.assets, assets);
+});
+
+test('missing and altered image blobs leave both the working database and draft untouched', async t => {
+  const profile = await fixture(t);
+  const dataUrl = 'data:image/png;base64,d29ya3NwYWNlIGltYWdl';
+  const snapshot = { tasks: [], attachments: { images: { fixture: dataUrl } } };
+  await writeTaskData(profile, snapshot);
+  await writeKnowledgeRecovery(profile, { noteId: 'fixture', assets: [{ source: 'task-image:fixture', dataUrl }] });
+  const [fileName] = await fs.readdir(path.join(profile, IMAGE_ASSETS_DIR));
+  const blob = path.join(profile, IMAGE_ASSETS_DIR, fileName);
+  const raw = await fs.readFile(dataFilePath(profile));
+  const draft = await fs.readFile(recoveryFilePath(profile));
+  await fs.writeFile(blob, 'a different image');
+  await assert.rejects(verifyTaskWorkspace(profile), { code: 'TASK_IMAGE_INVALID' });
+  await assert.rejects(writeTaskData(profile, { tasks: [] }), { code: 'TASK_IMAGE_INVALID' });
+  await fs.rm(blob);
+  await assert.rejects(readTaskData(profile), { code: 'TASK_IMAGE_MISSING' });
+  await assert.rejects(readKnowledgeRecovery(profile), { code: 'TASK_IMAGE_MISSING' });
+  assert.deepEqual(await fs.readFile(dataFilePath(profile)), raw);
+  assert.deepEqual(await fs.readFile(recoveryFilePath(profile)), draft);
+});
+
+test('structurally invalid data and a missing initialized database enter recovery', async t => {
+  const profile = await fixture(t);
+  const file = dataFilePath(profile);
+  assert.equal(await verifyTaskWorkspace(profile), null);
+  const invalid = '{"version":2,"tasks":null}';
+  await fs.writeFile(file, invalid);
+  await assert.rejects(verifyTaskWorkspace(profile), { code: 'CORRUPT_TASK_DATA' });
+  await assert.rejects(writeTaskData(profile, { tasks: [] }), { code: 'CORRUPT_TASK_DATA' });
+  assert.equal(await fs.readFile(file, 'utf8'), invalid);
+
+  await fs.writeFile(file, JSON.stringify({ tasks: [{ id: 'task_fixture' }] }));
+  assert.equal((await verifyTaskWorkspace(profile)).tasks.length, 1);
+  await fs.rm(file);
+  await assert.rejects(verifyTaskWorkspace(profile), { code: 'MISSING_TASK_DATA' });
+  await assert.rejects(writeTaskData(profile, { tasks: [] }), { code: 'MISSING_TASK_DATA' });
+  await assert.rejects(fs.access(file), { code: 'ENOENT' });
+});
+
+test('the trash keeps more than 500 records after a round trip', async t => {
+  const profile = await fixture(t);
+  const recentlyDeleted = Array.from({ length: 501 }, (_, index) => ({
+    id: `archive_${index}`, kind: 'task', record: { id: `task_${index}` },
+  }));
+  await writeTaskData(profile, { tasks: [], recentlyDeleted });
+  const reopened = await readTaskData(profile);
+  assert.equal(reopened.recentlyDeleted.length, 501);
+  assert.equal(reopened.version, DATA_VERSION);
+  assert.ok(reopened.recentlyDeleted.some(item => item.id === 'archive_0'));
 });
