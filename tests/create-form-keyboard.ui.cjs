@@ -19,12 +19,12 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
   });
   try {
     await page.evaluate(() => flushSave());
-    await app.evaluate(({ dialog }, profile) => {
+    await app.evaluate(({ dialog }, temporaryTaskDataPrefix) => {
       const fs = process.mainModule.require('node:fs/promises');
       const open = fs.open;
       globalThis.createWriteMode = 'normal';
       fs.open = async (filename, ...options) => {
-        if (String(filename).startsWith(profile + '/task-data.json.tmp-')) {
+        if (String(filename).startsWith(temporaryTaskDataPrefix)) {
           if (globalThis.createWriteMode === 'fail') throw Object.assign(Error('simulated disk failure'), { code: 'ENOSPC' });
           if (globalThis.createWriteMode === 'wait') await new Promise(resolve => { globalThis.releaseCreateWrite = resolve; });
         }
@@ -36,7 +36,7 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
         const response = await new Promise(resolve => { globalThis.answerCreateQuit = resolve; });
         return { response };
       };
-    }, profile);
+    }, path.join(profile, 'task-data.json.tmp-'));
 
     const locate = page.locator('[data-action="open-flow-locator"]');
     await locate.click();
