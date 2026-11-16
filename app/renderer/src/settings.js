@@ -18,6 +18,107 @@ const SHELL_SETTINGS_CATEGORIES = [
   ["help", "帮助与反馈", "note"],
 ];
 
+const desktopRecentlyDeletedRetention = window.personalTaskTrack?.recentlyDeletedRetention;
+const SHELL_RETENTION_CHOICES = { 0: "永久保留", 7: "7 天", 30: "30 天", 90: "90 天" };
+let recentlyDeletedRetentionDays = null;
+let recentlyDeletedRetentionBusy = false;
+let recentlyDeletedRetentionMessage = "";
+
+function syncRecentlyDeletedRetentionControls() {
+  const choice = document.querySelector('.prefs-choice[data-key="recently-deleted-retention"]');
+  if (!choice) return;
+  const label = SHELL_RETENTION_CHOICES[recentlyDeletedRetentionDays ?? 0];
+  choice.querySelector("span").textContent = label;
+  choice.setAttribute("aria-label", `保留期：${label}`);
+  choice.disabled = recentlyDeletedRetentionDays === null || recentlyDeletedRetentionBusy;
+  document.querySelector("[data-retention-clean]").disabled = choice.disabled || recentlyDeletedRetentionDays === 0;
+  const status = document.querySelector("[data-retention-status]");
+  status.textContent = recentlyDeletedRetentionMessage;
+  status.hidden = !recentlyDeletedRetentionMessage;
+  const count = document.querySelector("[data-retention-count]");
+  if (count) count.textContent = `${state.recentlyDeleted.length} 项可恢复`;
+}
+
+function applyRecentlyDeletedCleanup(removedIds) {
+  if (!removedIds.length) return;
+  const ids = new Set(removedIds);
+  const keep = entry => !ids.has(entry.id);
+  state.recentlyDeleted = state.recentlyDeleted.filter(keep);
+  if (pendingPayload) pendingPayload.recentlyDeleted = pendingPayload.recentlyDeleted.filter(keep);
+  for (const id of ids) recovery26Picked.delete(id);
+  recovery26DrawList();
+}
+
+async function runRecentlyDeletedRetention(action, days) {
+  if (!desktopRecentlyDeletedRetention || recentlyDeletedRetentionBusy || dataProtectionMessage ||
+      dataTransferInProgress || taskShareCommitBusy || Recovery26Persisting || recovery26Busy) return false;
+  if (action === "set" && days === recentlyDeletedRetentionDays) return true;
+  if (action === "automatic" && shellOverlayIsOpen()) return false;
+  recentlyDeletedRetentionBusy = true;
+  if (action !== "automatic") recentlyDeletedRetentionMessage = action === "set" ? "正在检查保留期…" : "正在检查过期归档…";
+  syncRecentlyDeletedRetentionControls();
+  try {
+    if (action !== "set") await flushPendingKnowledgeRecoveries({ strict: true });
+    if (!await flushSave()) throw new Error("Task data save failed");
+    const result = action === "set" ? await desktopRecentlyDeletedRetention.setDays(days)
+      : await desktopRecentlyDeletedRetention[action]();
+    if (result.canceled) {
+      recentlyDeletedRetentionMessage = "";
+      return true;
+    }
+    recentlyDeletedRetentionDays = result.days;
+    if (action === "set") {
+      recentlyDeletedRetentionMessage = result.days ? `已设置保留 ${result.days} 天。` : "已关闭自动清理。";
+      recovery26UpdateFooter();
+      return true;
+    }
+    applyRecentlyDeletedCleanup(result.removedIds);
+    if (result.changed) recentlyDeletedRetentionMessage = "过期范围已变化，请重新预览。";
+    else if (result.removedIds.length || result.assetBytes) {
+      recentlyDeletedRetentionMessage = `已清理 ${result.removedIds.length} 项过期归档，减少本机用量 ${formatBackupBytes(result.recordBytes + result.assetBytes)}。`;
+    } else if (action === "clean" || !recentlyDeletedRetentionMessage) {
+      recentlyDeletedRetentionMessage = "当前没有需要清理的过期归档。";
+    }
+    if (result.assetError) {
+      const archiveResult = result.removedIds.length ? recentlyDeletedRetentionMessage + " " : "";
+      recentlyDeletedRetentionMessage = `${archiveResult}部分托管附件暂未清理，可稍后重试。`;
+    }
+    if (result.removedIds.length || result.assetBytes) refreshDataBackupOverview(true);
+    return true;
+  } catch (error) {
+    console.error("Recently deleted retention failed.", error);
+    recentlyDeletedRetentionMessage = action === "set" ? "保留期未能保存，请重试。"
+      : "清理未完成，请检查本地保存状态、磁盘空间或权限后重试。";
+    return true;
+  } finally {
+    recentlyDeletedRetentionBusy = false;
+    syncRecentlyDeletedRetentionControls();
+  }
+}
+
+async function startRecentlyDeletedRetention() {
+  if (!desktopRecentlyDeletedRetention) return;
+  try {
+    const result = await desktopRecentlyDeletedRetention.status();
+    recentlyDeletedRetentionDays = result.days;
+  } catch (error) {
+    console.error("Unable to read recently deleted retention.", error);
+    recentlyDeletedRetentionMessage = "无法读取保留期设置，自动清理已暂停。";
+    syncRecentlyDeletedRetentionControls();
+    return;
+  }
+  syncRecentlyDeletedRetentionControls();
+  const check = async () => {
+    const ran = !recentlyDeletedRetentionDays || await runRecentlyDeletedRetention("automatic");
+    window.setTimeout(check, ran ? 60 * 60 * 1000 : 30 * 1000);
+  };
+  window.setTimeout(check, 45 * 1000);
+}
+
+document.addEventListener("click", event => {
+  if (event.target.closest?.("[data-retention-clean]")) void runRecentlyDeletedRetention("clean");
+});
+
 // Single source of truth: app.js owns the stored keys and their display text.
 // Read lazily — settings.js loads before app.js, so the binding does not exist yet.
 function shellFontScaleChoices() {
@@ -47,6 +148,7 @@ const SHELL_SETTINGS_CHOICE_LABELS = {
   "knowledge-width": "笔记页宽",
   "knowledge-mode": "笔记视图",
   "resource-open-mode": "链接打开方式",
+  "recently-deleted-retention": "保留期",
 };
 
 const SHELL_SETTINGS_CHOICE_DESCRIPTIONS = {
@@ -68,6 +170,7 @@ function shellSettingsChoiceOptions(key) {
   if (key === "knowledge-width") return SHELL_NOTE_WIDTH_NAMES;
   if (key === "knowledge-mode") return SHELL_NOTE_MODE_NAMES;
   if (key === "resource-open-mode") return {internal:'Loop 内部页签',external:'系统默认应用／浏览器'};
+  if (key === "recently-deleted-retention") return SHELL_RETENTION_CHOICES;
   return {};
 }
 
@@ -81,6 +184,7 @@ function shellSettingsChoiceValue(key) {
   if (key === "knowledge-width") return shellNoteWidth();
   if (key === "knowledge-mode") return shellKnowledgeMode();
   if (key === "resource-open-mode") return state.knowledgeWorkspace.resourceOpenMode;
+  if (key === "recently-deleted-retention") return recentlyDeletedRetentionDays ?? 0;
   return "";
 }
 
@@ -134,11 +238,17 @@ function shellSettingsKnowledge() {
 }
 
 function shellSettingsData() {
-  const deleted = typeof state !== "undefined" && Array.isArray(state.recentlyDeleted) ? state.recentlyDeleted.length : 0;
+  const deleted = state.recentlyDeleted.length;
+  const retention = desktopRecentlyDeletedRetention ? `
+    ${shellSettingsChoice("recently-deleted-retention", "从删除时起计算，仅在本机生效。", SHELL_RETENTION_CHOICES, recentlyDeletedRetentionDays ?? 0)}
+    ${shellSettingsAction("清理过期归档", "", "预览并清理…", 'data-retention-clean')}
+    <p class="prefs-transfer-status" data-retention-status role="status" hidden></p>` : "";
   const recoveryEntry = typeof recovery26Open === "function"
     ? `<section class="data-settings-section data-settings-deleted" aria-labelledby="data-deleted-heading">
         <h3 id="data-deleted-heading">最近删除</h3>
-        ${shellSettingsAction("恢复单项内容", deleted ? `${deleted} 项可恢复` : "", "查看", 'data-recovery26="open" aria-label="查看最近删除"')}
+        <div class="setting-row"><div><span class="setting-label">恢复单项内容</span><p data-retention-count>${deleted} 项可恢复</p></div>
+          <button class="button" type="button" data-recovery26="open" aria-label="查看最近删除">查看</button></div>
+        ${retention}
       </section>`
     : "";
   return `<h2>数据</h2><div class="data-settings">

@@ -614,7 +614,7 @@ function normalizeRecentlyDeleted(value) {
         ...entry,
         id,
         kind,
-        deletedAt: normalizeDateValue(entry.deletedAt, now()),
+        deletedAt: typeof entry.deletedAt === "string" ? entry.deletedAt : "",
         transactionId: normalizeIdentifier(entry.transactionId),
         objectId: normalizeIdentifier(entry.objectId),
       };
@@ -672,7 +672,7 @@ function normalizeRecentlyDeleted(value) {
       return normalized;
     })
     .filter(Boolean)
-    .sort((a, b) => Date.parse(b.deletedAt) - Date.parse(a.deletedAt));
+    .sort((a, b) => (Date.parse(b.deletedAt) || 0) - (Date.parse(a.deletedAt) || 0));
 }
 
 function normalizeRecentlyDeletedOrder(value) {
@@ -5433,6 +5433,7 @@ function refreshDataBackupOverview(force = false) {
 
 function bindDataBackupControls() {
   syncDataBackupControls();
+  syncRecentlyDeletedRetentionControls();
   refreshDataBackupOverview();
   document.querySelectorAll("[data-backup-action]").forEach((button) => {
     if (button.dataset.backupBound === "1") return;
@@ -10840,6 +10841,7 @@ async function bootstrap() {
   render();
   await startKnowledgeFileWatchers();
   startRecurringSchedule();
+  startRecentlyDeletedRetention();
 }
 
 window.addEventListener("blur", () => {

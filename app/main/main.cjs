@@ -47,6 +47,7 @@ const {
 } = require("./recovery.cjs");
 const { clearBackupStaging, exportWorkspaceBackup, stageWorkspaceBackup } = require("./workspace-backup.cjs");
 const { createAutomaticBackupController, workspaceDiskUsage } = require("./automatic-backups.cjs");
+const { createRecentlyDeletedRetention } = require("./recently-deleted-retention.cjs");
 const { createTodayWidgetController } = require("./today-widget.cjs");
 const { createDeadlineReminderController } = require("./deadline-reminders.cjs");
 const { createUpdateController } = require("./updater.cjs");
@@ -347,17 +348,19 @@ async function stopRuntimeForUpdateInstall() {
   await deadlineReminderController?.stop();
 }
 
+async function withProfileWriteBarrier(reason, operation) {
+  dataMaintenance.assertWritable();
+  const release = dataMaintenance.begin(reason);
+  try {
+    await dataMaintenance.waitForWrites();
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
 function serializeProfileBackup(operation) {
-  return taskStore.serialize(async () => {
-    dataMaintenance.assertWritable();
-    const release = dataMaintenance.begin("workspace-backup");
-    try {
-      await dataMaintenance.waitForWrites();
-      return await operation();
-    } finally {
-      release();
-    }
-  });
+  return taskStore.serialize(() => withProfileWriteBarrier("workspace-backup", operation));
 }
 
 async function finishUpdateInstallPreparation(success) {
@@ -411,9 +414,60 @@ function requestUpdateInstallPreparation() {
   return promise;
 }
 
+function registerRecentlyDeletedRetention(retention) {
+  const clean = signature => taskStore.cleanRecentlyDeleted(() =>
+    withProfileWriteBarrier("recently-deleted-cleanup", () => retention.clean(signature)));
+  const confirm = async (event, message, detail, label) => {
+    const { response } = await dialog.showMessageBox(BrowserWindow.fromWebContents(event.sender), {
+      type: "warning", title: "最近删除", message, detail,
+      buttons: ["取消", label], defaultId: 0, cancelId: 0, noLink: true,
+    });
+    return response === 1;
+  };
+  const summary = ({ count, recordBytes }) => count
+    ? `当前有 ${count} 项已过期，归档约 ${Math.ceil(recordBytes / 1024)} KiB。`
+    : "当前没有过期归档。";
+  const previewFor = days => taskStore.serialize(() => {
+    dataMaintenance.assertWritable();
+    return retention.preview(days);
+  });
+
+  ipcMain.handle("recently-deleted:retention", async (event, { action, days } = {}) => {
+    if (event.sender !== mainWindow?.webContents || event.senderFrame !== mainWindow?.webContents.mainFrame) {
+      throw new Error("Recently deleted retention requires the workspace window");
+    }
+    if (action === "status") return taskStore.serialize(retention.status);
+    if (action === "automatic") return clean();
+    if (action === "set") {
+      if (days !== 0) {
+        const preview = await previewFor(days);
+        if (!await confirm(event, `自动清理超过 ${preview.days} 天的删除记录？`,
+          `${summary(preview)} 启用后，符合条件的归档会定期从最近删除移除。`, "启用自动清理")) {
+          return { canceled: true };
+        }
+      }
+      return taskStore.serialize(() => {
+        dataMaintenance.assertWritable();
+        return retention.setDays(days);
+      });
+    }
+    if (action === "clean") {
+      const preview = await previewFor();
+      if (preview.count && !await confirm(event, `清理 ${preview.count} 项过期归档？`,
+        `${summary(preview)} 此后无法从最近删除恢复。业务历史、恢复草稿、原文件和已有备份会保留。`, "清理过期归档")) {
+        return { canceled: true };
+      }
+      return clean(preview.signature);
+    }
+    throw new Error("Invalid recently deleted retention action");
+  });
+}
+
 function registerStorageHandlers() {
   taskStore = taskShareStore({ read: () => readTaskData(app.getPath("userData")),
     write: data => writeTaskData(app.getPath("userData"), data), assertWritable: dataMaintenance.assertWritable });
+  const retention = createRecentlyDeletedRetention(app.getPath("userData"));
+  registerRecentlyDeletedRetention(retention);
   registerTaskShare({ ipcMain, dialog, shell, app, getWindow: () => mainWindow, store: taskStore, exportDocument: exportTaskDocument });
   const knowledgeGate = createKnowledgePathGate({
     userDataPath: app.getPath("userData"),
@@ -570,7 +624,7 @@ function registerStorageHandlers() {
   });
   ipcMain.handle("knowledge-document:stage-assets", (_event, payload) => dataMaintenance.track(() => stageKnowledgeAssets(
     app.getPath("userData"),
-    payload,
+    { ...payload, onStored: retention.rememberStagedImage },
   )));
   ipcMain.handle('task-share:asset', async (event, { href, ownerId, open = false } = {}) => {
     if (event.sender !== mainWindow?.webContents || event.senderFrame !== mainWindow?.webContents.mainFrame) return { success: false };

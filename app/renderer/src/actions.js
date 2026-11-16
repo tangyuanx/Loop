@@ -2236,6 +2236,11 @@ async function shellAction(data, event) {
       shellSettingsChoiceMenu(trigger, data.key);
       return true;
     case "set-settings-choice":
+      if (data.key === "recently-deleted-retention") {
+        shellCloseOverlay();
+        await runRecentlyDeletedRetention("set", Number(data.value));
+        return true;
+      }
       // Changing a default inside Settings keeps the same page visible.
       const settingsWasOpen = state.settingsOpen;
       applySetting(data.key, data.value);

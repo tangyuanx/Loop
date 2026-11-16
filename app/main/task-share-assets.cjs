@@ -109,4 +109,4 @@ async function verifyPendingAssets(userData, task) {
 
 function newAssetId() { return `asset_${randomUUID()}`; }
 
-module.exports = { ASSET_DIRECTORY, managedAsset, stageImportedAssets, recoverAssetImports, newAssetId };
+module.exports = { ASSET_DIRECTORY, localPath, managedAsset, stageImportedAssets, recoverAssetImports, newAssetId };

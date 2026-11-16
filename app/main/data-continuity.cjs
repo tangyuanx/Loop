@@ -78,17 +78,19 @@ async function syncDirectory(directory, fileSystem = fs) {
 }
 
 async function writeDurableJson(filePath, value, fileSystem = fs) {
+  const content = `${JSON.stringify(value, null, 2)}\n`;
   const temp = `${filePath}.tmp-${crypto.randomUUID()}`;
   const handle = await fileSystem.open(temp, "wx", 0o600);
   try {
     try {
-      await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8");
+      await handle.writeFile(content, "utf8");
       await handle.sync();
     } finally {
       await handle.close();
     }
     await fileSystem.rename(temp, filePath);
     await syncDirectory(path.dirname(filePath), fileSystem);
+    return Buffer.byteLength(content);
   } finally {
     await fileSystem.rm(temp, { force: true }).catch(() => {});
   }
@@ -830,6 +832,7 @@ module.exports = {
   createVerifiedBackup,
   createManagedManifest,
   exportPortableBackup,
+  fileDigest,
   importBackup,
   isManagedEntry,
   readPortableBackup,
@@ -838,4 +841,5 @@ module.exports = {
   validateManifestFiles,
   taskDataSummary,
   verifyManifest,
+  writeDurableJson,
 };

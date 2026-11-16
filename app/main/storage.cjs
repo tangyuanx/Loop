@@ -331,7 +331,7 @@ function normalizeRecentlyDeletedEntry(entry, seenIds) {
     ...entry,
     id,
     kind,
-    deletedAt: normalizeDateValue(entry.deletedAt, new Date().toISOString()),
+    deletedAt: typeof entry.deletedAt === "string" ? entry.deletedAt : "",
     transactionId: normalizeIdentifier(entry.transactionId),
     objectId: normalizeIdentifier(entry.objectId),
   };
@@ -394,7 +394,7 @@ function normalizeRecentlyDeleted(value) {
   return (Array.isArray(value) ? value : [])
     .map((entry) => normalizeRecentlyDeletedEntry(entry, seenIds))
     .filter(Boolean)
-    .sort((a, b) => Date.parse(b.deletedAt) - Date.parse(a.deletedAt));
+    .sort((a, b) => (Date.parse(b.deletedAt) || 0) - (Date.parse(a.deletedAt) || 0));
 }
 
 function normalizeTaskHistory(history) {

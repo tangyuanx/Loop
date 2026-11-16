@@ -49,10 +49,10 @@ function createDataMaintenanceLock() {
   }
 
   async function track(operation) {
-    // A backup only reads a stable snapshot. Preserve writes arriving during
-    // that short barrier, without counting them as in-flight writes the backup
-    // must drain. Imports and protected workspaces still reject stale writes.
-    while (holders.length && holders.every(holder => holder.reason === "workspace-backup")) {
+    // Snapshot and cleanup operations need a stable view of recovery assets.
+    // Wait outside their drain set so arriving writes can resume afterward.
+    while (holders.length && holders.every(holder =>
+      holder.reason === "workspace-backup" || holder.reason === "recently-deleted-cleanup")) {
       await new Promise(resolve => waiters.add(resolve));
     }
     assertWritable();

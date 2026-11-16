@@ -67,7 +67,7 @@ function r26Revision(record) {
 /** The Demo's "刚刚 / 今天 09:20 / 昨天 18:10" stamp, from a real timestamp. */
 function r26Stamp(iso) {
   const date = safeDate(iso);
-  if (!date) return "";
+  if (!date) return "日期未知";
   const minutes = Math.round((loopNow().getTime() - date.getTime()) / 60000);
   if (minutes < 1) return "刚刚";
   const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
@@ -141,6 +141,7 @@ let Recovery26Persisting = false;
  * is reported as successful before the data is on disk.
  */
 async function recovery26Transaction(mutate) {
+  if (recentlyDeletedRetentionBusy) return { ok: false, message: "正在检查或清理最近删除，请稍后重试。" };
   const before = snapshotRecovery26State();
   let outcome;
   try {
@@ -1097,7 +1098,8 @@ function recovery26DrawDetail() {
 function recovery26UpdateFooter() {
   const count = recovery26Picked.size;
   const countHost = r26(".recovery26-footer-count");
-  if (countHost) countHost.textContent = count ? `已选 ${count} 项` : "内容保留至手动移除";
+  if (countHost) countHost.textContent = count ? `已选 ${count} 项`
+    : recentlyDeletedRetentionDays ? `归档保留 ${recentlyDeletedRetentionDays} 天` : "内容保留至手动移除";
   const restore = r26('[data-recovery26="restore-selected"]');
   const remove = r26('[data-recovery26="purge-selected"]');
   if (restore) {

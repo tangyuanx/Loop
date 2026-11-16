@@ -94,7 +94,7 @@ function normalizeAsset(value) {
   return { source, dataUrl, sourcePath };
 }
 
-async function stageKnowledgeAssets(userDataPath, { noteId, assets = [], fsOps: injectedFsOps } = {}) {
+async function stageKnowledgeAssets(userDataPath, { noteId, assets = [], fsOps: injectedFsOps, onStored } = {}) {
   const normalizedNoteId = normalizeText(noteId).trim();
   if (!Array.isArray(assets)) return { success: false, code: "ASSET_STAGE_FAILED", errorCode: "INVALID_IMAGE", message: "图片数据无效" };
   const normalizedAssets = assets.map(normalizeAsset);
@@ -111,6 +111,7 @@ async function stageKnowledgeAssets(userDataPath, { noteId, assets = [], fsOps: 
       const parsed = imageDataUrl(asset?.dataUrl);
       if (!parsed) throw Object.assign(new Error("图片数据无效"), { code: "INVALID_IMAGE" });
       const { fileName, filePath } = await storeImage(userDataPath, parsed, fsOps);
+      onStored?.(fileName);
       result.push({
         source: asset.source,
         dataUrl: parsed.dataUrl,

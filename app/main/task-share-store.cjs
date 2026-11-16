@@ -5,6 +5,8 @@ function taskShareStore({ read, write, assertWritable, now = () => new Date() })
   let queue = Promise.resolve();
   let revision = 0;
   let current;
+  const cleanedArchiveIds = new Set();
+  const keepArchiveEntry = entry => !cleanedArchiveIds.has(String(entry.id || "").trim());
   function serialize(operation) {
     const pending = queue.then(operation);
     queue = pending.catch(() => {});
@@ -35,7 +37,21 @@ function taskShareStore({ read, write, assertWritable, now = () => new Date() })
     save: (data, expected) => serialize(async () => {
       assertWritable();
       verify(expected ?? 0);
+      if (cleanedArchiveIds.size && Array.isArray(data?.recentlyDeleted)) {
+        data = { ...data, recentlyDeleted: data.recentlyDeleted.filter(keepArchiveEntry) };
+      }
       return commit(await snapshot(), data, { source: "save" });
+    }),
+    cleanRecentlyDeleted: operation => serialize(async () => {
+      assertWritable();
+      const result = await operation();
+      if (result.removedIds.length) {
+        for (const id of result.removedIds) cleanedArchiveIds.add(id);
+        // Other fields in renderer autosaves are still current. Fence off
+        // only these archive IDs, including payloads queued before cleanup.
+        if (current) current = { ...current, recentlyDeleted: (current.recentlyDeleted || []).filter(keepArchiveEntry) };
+      }
+      return result;
     }),
     append: (expected, operation) => serialize(async () => {
       assertWritable();

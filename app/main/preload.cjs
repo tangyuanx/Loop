@@ -35,6 +35,12 @@ contextBridge.exposeInMainWorld("personalTaskTrack", {
     importRecent: () => ipcRenderer.invoke("data-backup:import", { selectionType: "recent" }),
     overview: () => ipcRenderer.invoke("data-backup:overview"),
   },
+  recentlyDeletedRetention: {
+    status: () => ipcRenderer.invoke("recently-deleted:retention", { action: "status" }),
+    setDays: days => ipcRenderer.invoke("recently-deleted:retention", { action: "set", days }),
+    clean: () => ipcRenderer.invoke("recently-deleted:retention", { action: "clean" }),
+    automatic: () => ipcRenderer.invoke("recently-deleted:retention", { action: "automatic" }),
+  },
   knowledgeRecovery: {
     read: () => ipcRenderer.invoke("knowledge-recovery:read"),
     write: (record) => ipcRenderer.invoke("knowledge-recovery:write", record),

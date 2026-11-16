@@ -190,7 +190,7 @@ function imageFragments(value) {
   return fragments;
 }
 
-async function unpackImageText(userDataPath, value, { fileSystem = fs, validateOnly = false } = {}) {
+function storedImageNames(value) {
   const files = new Set();
   mapImageText(value, (item) => {
     const fragments = imageFragments(item);
@@ -198,6 +198,11 @@ async function unpackImageText(userDataPath, value, { fileSystem = fs, validateO
     fragments.forEach((part, index) => { if (index % 2 === 1) files.add(part); });
     return null;
   });
+  return files;
+}
+
+async function unpackImageText(userDataPath, value, { fileSystem = fs, validateOnly = false } = {}) {
+  const files = storedImageNames(value);
   if (!files.size) return value;
 
   const dataUrls = new Map();
@@ -218,4 +223,4 @@ async function unpackImageText(userDataPath, value, { fileSystem = fs, validateO
   });
 }
 
-module.exports = { IMAGE_ASSETS_DIR, imageDataUrl, isImageFileName, mimeForExtension, packImageText, readStoredImage, storeImage, syncDirectory, unpackImageText };
+module.exports = { IMAGE_ASSETS_DIR, imageDataUrl, isImageFileName, mimeForExtension, packImageText, readStoredImage, storeImage, storedImageNames, syncDirectory, unpackImageText };
