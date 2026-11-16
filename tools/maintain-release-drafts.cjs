@@ -11,6 +11,13 @@ function managedDraft(release) {
     /^[a-f0-9]{40}$/.test(release.target_commitish) && Array.isArray(release.assets);
 }
 
+function publishedRetry(release) {
+  return release.draft === false && release.author?.login === 'github-actions[bot]' &&
+    /^v\d+\.\d+\.\d+$/.test(release.tag_name) && /^[a-f0-9]{40}$/.test(release.target_commitish) &&
+    release.name === release.tag_name + '（发布失败，未公开）' &&
+    String(release.body || '').includes(statusMarker);
+}
+
 async function releaseRun(api, release) {
   const result = await api('actions/runs?head_sha=' + release.target_commitish + '&per_page=100');
   const runs = result.workflow_runs.filter(run => run.name === 'Release Desktop Apps' &&
@@ -38,6 +45,18 @@ async function maintainReleaseDrafts(api) {
     await api('releases/' + newest.id, 'PATCH', { tag_name: newest.tag_name, make_latest: 'true' });
     latest = newest;
     changes.push({ tag: newest.tag_name, action: 'restored latest version', run: newest.html_url });
+  }
+  for (const release of releases.filter(publishedRetry)) {
+    const run = await releaseRun(api, release);
+    if (!run || run.conclusion !== 'success') continue;
+    const current = await api('releases/' + release.id);
+    if (!publishedRetry(current) || current.tag_name !== release.tag_name || current.target_commitish !== release.target_commitish) continue;
+    await assertReleaseTag(api,current.tag_name,current.target_commitish);
+    await api('releases/' + current.id, 'PATCH', {
+      tag_name: current.tag_name, draft: false, name: current.tag_name,
+      body: String(current.body).split(statusMarker)[0].trimEnd(),
+    });
+    changes.push({tag:current.tag_name,action:'cleared successful retry status',run:run.html_url});
   }
   for (const release of releases.filter(managedDraft)) {
     const run = await releaseRun(api, release);

@@ -206,7 +206,7 @@ test('retrying an older release cannot take Latest from a newer published versio
   assert.throws(()=>shouldMakeLatest('0.2.12','unknown'),/Invalid/);
 });
 
-function draftMaintenance({tag='v0.2.8',assets=[],draft=true,author='github-actions[bot]',runStatus='completed',freshDraft=draft}={}) {
+function draftMaintenance({tag='v0.2.8',assets=[],draft=true,author='github-actions[bot]',runStatus='completed',runConclusion='failure',freshDraft=draft}={}) {
   const release={id:1,tag_name:tag,name:tag,draft,assets,author:{login:author},target_commitish:sha,body:'Original release notes'};
   const calls=[];
   const api=async(route,method='GET',body)=>{
@@ -219,7 +219,7 @@ function draftMaintenance({tag='v0.2.8',assets=[],draft=true,author='github-acti
     if(route.startsWith('git/ref/tags/'))return {object:{type:'commit',sha}};
     if(route.startsWith('actions/runs?'))return {workflow_runs:[{
       name:'Release Desktop Apps',head_sha:sha,head_branch:tag,status:runStatus,
-      conclusion:'failure',updated_at:'2026-11-07T15:07:00Z',html_url:'https://github.com/owner/repo/actions/runs/1',
+      conclusion:runConclusion,updated_at:'2026-11-07T15:07:00Z',html_url:'https://github.com/owner/repo/actions/runs/1',
     }]};
     throw Error('Unexpected request '+route);
   };
@@ -240,6 +240,29 @@ test('published, manually authored and active release drafts are preserved',asyn
     const fixture=draftMaintenance(options);
     assert.deepEqual(await maintainReleaseDrafts(fixture.api),[]);
     assert.equal(fixture.calls.some(call=>call.method!=='GET'),false);
+  }
+});
+
+test('a successfully published retry clears only the managed failure status after checking its tag',async()=>{
+  const f=draftMaintenance({draft:false,runConclusion:'success'});
+  f.release.name=f.release.tag_name+'（发布失败，未公开）';
+  f.release.body+='\n\n'+statusMarker+'\n\nPrevious failure';
+  const changes=await maintainReleaseDrafts(f.api);
+  assert.equal(changes[0].action,'cleared successful retry status');
+  assert.equal(f.release.name,f.release.tag_name);assert.equal(f.release.body,'Original release notes');
+  const write=f.calls.find(x=>x.method==='PATCH');
+  assert.equal(write.body.draft,false);assert.equal(write.body.tag_name,f.release.tag_name);
+  assert.equal('target_commitish' in write.body,false);assert.equal('make_latest' in write.body,false);
+  assert.ok(f.calls.some(x=>x.route.startsWith('git/ref/tags/')));
+  assert.deepEqual(await maintainReleaseDrafts(f.api),[]);
+});
+
+test('published retry status is preserved without a completed successful automation run',async()=>{
+  for(const options of [{runConclusion:'failure'},{runStatus:'in_progress',runConclusion:'success'},{author:'maintainer',runConclusion:'success'}]){
+    const f=draftMaintenance({draft:false,...options});
+    f.release.name=f.release.tag_name+'（发布失败，未公开）';f.release.body+='\n\n'+statusMarker;
+    assert.deepEqual(await maintainReleaseDrafts(f.api),[]);
+    assert.equal(f.calls.some(x=>x.method!=='GET'),false);
   }
 });
 
