@@ -309,3 +309,10 @@ body[data-controls22-enabled] .note-heading-select.control22-field:focus-visible
 .kn-image-object .kn-image-resize { display: none; position: absolute; right: -4px; bottom: -4px; width: 11px; height: 11px; padding: 0; border: 1px solid var(--secondary); border-radius: 2px; background: var(--canvas); cursor: nwse-resize; touch-action: none; }
 .kn-image-small .kn-image-resize { right: -13px; bottom: -13px; }
 .kn-image-object:has([data-kn-selected]) .kn-image-resize,.kn-image-object:focus-within .kn-image-resize { display: block; }
+
+/* A rendered block keeps its geometry on click. The caret is drawn at the
+   click point until the block expands, so a click does not move the note. */
+.kn-editor-host.kn-block-caret-active .cm-content {caret-color:transparent!important;}
+.kn-editor-host.kn-block-caret-active .cm-cursor {display:none!important;}
+.kn-block-caret {position:absolute;width:1px;background:var(--text,#252a29);pointer-events:none;z-index:3;animation:kn-block-caret-blink 1.06s steps(1) infinite;}
+@keyframes kn-block-caret-blink {50% {opacity:0;}}

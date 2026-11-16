@@ -19,7 +19,7 @@ import {obsidianComments} from './knowledge-syntax.js';
 import {createRenderer,safeURL,escape,imageLayout} from './knowledge-renderer.js';
 import {documentFormat,spacingAt,typedSpacing} from './knowledge-format.js';
 const core=window.LoopKnowledgeCore;
-const viewportEffect=StateEffect.define(),refreshEffect=StateEffect.define(),tableWidthsEffect=StateEffect.define();
+const viewportEffect=StateEffect.define(),refreshEffect=StateEffect.define(),tableWidthsEffect=StateEffect.define(),expandBlockEffect=StateEffect.define(),clearExpandedEffect=StateEffect.define();
 const instances=new WeakMap();
 const cellMarkdown=markdown({base:markdownLanguage,addKeymap:false,completeHTMLTags:false});
 function trimTableWidths(widths){
@@ -72,9 +72,26 @@ class RenderWidget extends WidgetType {
       if(this.kind==='block'&&this.nodeName==='FencedCode'){
         const mapped=this.owner.codePositionAt(this.from,event);
         if(mapped!==null) pos=mapped;
+      }else if(this.kind==='block'&&this.nodeName==='Blockquote'){
+        const mapped=this.owner.calloutPositionAt(this.from,event);
+        if(mapped!==null) pos=mapped;
       }
       view.dispatch({selection:{anchor:pos},scrollIntoView:false}); view.focus();
+      this.owner.showBlockCaret(el,event);
     });
+    if(this.kind==='block'&&this.nodeName!=='Table'){
+      el.title='双击编辑源码';
+      el.tabIndex=0;
+      const expand=event=>{
+        if(event.type==='keydown'&&event.key!=='Enter'&&event.key!=='F2')return;
+        event.preventDefault();event.stopPropagation();
+        let pos=this.from;
+        if(this.nodeName==='FencedCode'){const mapped=this.owner.codePositionAt(this.from,event);if(mapped!==null)pos=mapped;}
+        this.owner.expandBlock(this.from,pos);
+      };
+      el.addEventListener('dblclick',expand);
+      el.addEventListener('keydown',expand);
+    }
     el.addEventListener('click',event=>this.owner.handleRenderedClick(event,this.from));
     this.owner.renderer.enhance(el,()=>view.requestMeasure());
     return el;
@@ -350,6 +367,27 @@ class KnowledgeEditor {
       return format;
     }});
     this.tableWidths=StateField.define({create:()=>options.tableColumnWidths||[],update:(value,tr)=>{for(const effect of tr.effects)if(effect.is(tableWidthsEffect))value=effect.value;return value;}});
+    // A plain click on a rendered block must not replace it with raw Markdown:
+    // that changes the block height and moves the note under the pointer. Blocks
+    // expand only when the user explicitly edits them (double-click, Enter, the
+    // first key/input) or when a caller asks for it.
+    this.expandedBlocks=StateField.define({
+      create:()=>new Set(),
+      update:(set,tr)=>{
+        let next=null;
+        for(const pos of set){
+          const mapped=tr.changes.mapPos(pos,-1);
+          if(mapped===null)continue;
+          if(mapped!==pos){if(!next)next=new Set(set);next.delete(pos);next.add(mapped);}
+        }
+        for(const effect of tr.effects){
+          if(effect.is(clearExpandedEffect))return new Set();
+          if(effect.is(expandBlockEffect)){if(!next)next=new Set(set);next.add(effect.value);}
+        }
+        return next||set;
+      }
+    });
+    this.blockCaret=null;
     this.options=options; this.root=options.root; this.mode=options.mode||'edit';this.destroyed=false;this.uploads=new Map();this.nextUpload=0;
     this.range={from:0,to:8000};this.renderCache=new Map();this.renderRevision=0;
     this.tableLocations=new WeakMap();this.tableWidgets=new WeakMap();this.lineConfig=new Compartment();
@@ -366,6 +404,7 @@ class KnowledgeEditor {
     },provide:field=>EditorView.decorations.from(field)});
     this.view=new EditorView({parent:this.editHost,state:EditorState.create({doc:source.text,extensions:[
       this.tableWidths,invertedEffects.of(tr=>tr.effects.some(e=>e.is(tableWidthsEffect))?[tableWidthsEffect.of(tr.startState.field(this.tableWidths))]:[]),
+      this.expandedBlocks,
       this.lineEndings,invertedEffects.of(tr=>tr.docChanged||tr.effects.some(e=>e.is(restoreLineEndings))?[restoreLineEndings.of(tr.startState.field(this.lineEndings))]:[]),
       history(),drawSelection(),rectangularSelection(),crosshairCursor(),EditorView.lineWrapping,
       EditorState.transactionFilter.of(tr=>{
@@ -459,6 +498,23 @@ class KnowledgeEditor {
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='c'&&this.selectedImage?.isConnected){event.preventDefault();event.stopImmediatePropagation();void this.copyImage(this.selectedImage);return;}
       if(!['Control','Meta','Shift','Alt'].includes(event.key)){this.selectedImage?.removeAttribute('data-kn-selected');this.selectedImage=null;}
       if((event.ctrlKey||event.metaKey)&&event.key==='Enter'&&!event.target.closest('.kn-table-cell-editor')){event.preventDefault();event.stopImmediatePropagation();this.openLinkAt();}
+    },{capture:true,signal});
+    // The first key or IME input after clicking a rendered block is an explicit
+    // request to edit it. Expand before the input is applied so the caret and
+    // the typed text land on the real source line.
+    this.root.addEventListener('keydown',event=>{
+      if(!this.blockCaret||event.isComposing||event.keyCode===229)return;
+      if(['Shift','Control','Meta','Alt','CapsLock'].includes(event.key))return;
+      this.expandBlockAt(this.view.state.selection.main.head);
+    },{capture:true,signal});
+    this.root.addEventListener('beforeinput',()=>{
+      if(this.blockCaret)this.expandBlockAt(this.view.state.selection.main.head);
+    },{capture:true,signal});
+    this.root.addEventListener('compositionstart',()=>{
+      if(this.blockCaret)this.expandBlockAt(this.view.state.selection.main.head);
+    },{capture:true,signal});
+    document.addEventListener('pointerdown',event=>{
+      if(this.blockCaret&&!this.blockCaret.widget.contains(event.target))this.clearBlockCaret();
     },{capture:true,signal});
     this.root.addEventListener('contextmenu',event=>{
       const image=event.target.closest('img');
@@ -659,6 +715,48 @@ class KnowledgeEditor {
     }
     return this.renderCache.get(key);
   }
+  blockExpanded(state,from) {
+    return Boolean(state.field(this.expandedBlocks,false)?.has(from));
+  }
+  clearBlockCaret() {
+    if(!this.blockCaret)return;
+    this.blockCaret.element?.remove();
+    this.blockCaret=null;
+    this.root.classList.remove('kn-block-caret-active');
+  }
+  showBlockCaret(el,event) {
+    this.clearBlockCaret();
+    if(getComputedStyle(el).position==='static')el.style.position='relative';
+    const rect=el.getBoundingClientRect(),height=parseFloat(getComputedStyle(el).lineHeight)||20;
+    const caret=document.createElement('span');
+    caret.className='kn-block-caret';
+    caret.setAttribute('aria-hidden','true');
+    caret.style.left=(event.clientX-rect.left)+'px';
+    caret.style.top=Math.max(0,event.clientY-rect.top-height/2)+'px';
+    caret.style.height=height+'px';
+    el.append(caret);
+    this.blockCaret={from:this.from,element:caret,widget:el};
+    this.root.classList.add('kn-block-caret-active');
+  }
+  expandBlock(from,pos=from) {
+    if(this.destroyed)return;
+    this.clearBlockCaret();
+    this.view.dispatch({selection:{anchor:Math.max(0,Math.min(this.view.state.doc.length,pos))},effects:expandBlockEffect.of(from),scrollIntoView:false});
+    this.view.focus();
+  }
+  expandBlockAt(pos) {
+    const state=this.view.state;
+    let node=syntaxTree(state).resolveInner(pos,-1);
+    while(node){
+      const block=node.name==='FencedCode'||node.name==='HorizontalRule'||node.name==='Frontmatter'||
+        (node.name==='Blockquote'&&/^>\s*\[!/.test(state.doc.sliceString(node.from,Math.min(node.to,node.from+80))));
+      if(block){
+        if(!this.blockExpanded(state,node.from))this.expandBlock(node.from,pos);
+        return;
+      }
+      node=node.parent;
+    }
+  }
   buildDecorations(state) {
     if(this.mode!=='edit')return Decoration.none;
     const ranges=[],blocks=[];let blockEnd=0;
@@ -697,8 +795,8 @@ class KnowledgeEditor {
         add(node.from,node.to,Decoration.replace({block:node.name!=='ObsidianComment',inclusive:false}));return false;
       }
 
-      if(['FencedCode','HorizontalRule','Frontmatter'].includes(node.name) && !active){widget(node);return false;}
-      if(node.name==='Blockquote' && /^>\s*\[!/.test(state.doc.sliceString(node.from,Math.min(node.to,node.from+80))) && !active){
+      if(['FencedCode','HorizontalRule','Frontmatter'].includes(node.name) && !this.blockExpanded(state,node.from)){widget(node);return false;}
+      if(node.name==='Blockquote' && /^>\s*\[!/.test(state.doc.sliceString(node.from,Math.min(node.to,node.from+80))) && !this.blockExpanded(state,node.from)){
         if(!locations.some(table=>node.from<table.from&&table.from<node.to)){widget(node);return false;}
         // Keep the callout label rendered while its table uses its own widget.
         const first=state.doc.lineAt(node.from);
@@ -776,6 +874,7 @@ class KnowledgeEditor {
     return Decoration.set(ranges.filter(r=>!replacements.includes(r)||outer.includes(r)).filter(r=>outer.includes(r)||!outer.some(o=>r.from>=o.from&&r.from<o.to&&r.to<=o.to)),true);
   }
   onUpdate(update) {
+    if((update.docChanged||update.viewportChanged)&&this.blockCaret)this.clearBlockCaret();
     if(update.transactions.some(tr=>tr.effects.some(effect=>effect.is(tableWidthsEffect)))){
       this.options.tableColumnWidths=update.state.field(this.tableWidths);this.options.onTableColumnWidthsChange?.(this.options.tableColumnWidths);
       for(const widget of this.root.querySelectorAll('.kn-table-widget'))this.applyTableWidths(widget,Number(widget.dataset.sourcePos));
@@ -824,6 +923,37 @@ class KnowledgeEditor {
     }
     if(update.selectionSet)this.options.onSelectionChange?.();
     if(update.docChanged||update.selectionSet||update.viewportChanged||update.transactions.some(tr=>tr.effects.length))this.find?.update();
+  }
+  // Map a click inside a rendered callout title/body to the source line and
+  // column. The rendered title drops the leading "> [!note] " and body lines
+  // drop "> ", so mapping only the block start would put the first keystroke
+  // before the blockquote marker.
+  calloutPositionAt(from,event) {
+    const range=document.caretRangeFromPoint?.(event.clientX,event.clientY);
+    if(!range)return null;
+    const node=range.startContainer,element=node.nodeType===3?node.parentElement:node;
+    const callout=element?.closest?.('.kn-callout');
+    if(!callout)return null;
+    const title=callout.querySelector('.kn-callout-title');
+    const unit=element.closest?.('.kn-callout-title,p,li')||element;
+    const doc=this.view.state.doc,start=doc.lineAt(from);
+    let lineOffset=0;
+    if(!(unit===title||unit.closest?.('.kn-callout-title'))){
+      const paragraphs=[...callout.querySelectorAll(':scope > p')];
+      const index=paragraphs.findIndex(item=>item===unit||item.contains(unit));
+      if(index>=0)lineOffset=index+1;
+      else return null;
+    }
+    const line=doc.line(Math.min(doc.lines,start.number+lineOffset));
+    const prefix=lineOffset===0
+      ?(line.text.match(/^>\s*\[![^\]]*\][+-]?\s*/)||[''])[0].length
+      :(line.text.match(/^>\s?/)||[''])[0].length;
+    let column=0;
+    if(node.nodeType===3){
+      const walker=document.createTreeWalker(unit,NodeFilter.SHOW_TEXT);let current;
+      while((current=walker.nextNode())){if(current===node){column+=range.startOffset;break;}column+=current.textContent.length;}
+    }
+    return Math.min(line.to,line.from+prefix+Math.max(0,column));
   }
   // Map a click inside a rendered fenced code block to its source line/column.
   codePositionAt(from,event) {
@@ -1242,6 +1372,7 @@ class KnowledgeEditor {
     if(!['edit','source','preview'].includes(mode))mode='edit';
     if(this.mode===mode && this.modeInitialized)return;
     this.modeInitialized=true;
+    this.clearBlockCaret();
     const prior=this.mode;this.mode=mode;this.root.dataset.mode=mode;
     this.editHost.hidden=mode==='preview';this.readHost.hidden=mode!=='preview';
     if(mode==='preview'){
@@ -1256,7 +1387,7 @@ class KnowledgeEditor {
       });
     }
     if(this.view){
-      this.view.dispatch({effects:[refreshEffect.of(null),this.lineConfig.reconfigure(mode==='source'?[lineNumbers(),highlightActiveLine()]:[])]});
+      this.view.dispatch({effects:[clearExpandedEffect.of(null),refreshEffect.of(null),this.lineConfig.reconfigure(mode==='source'?[lineNumbers(),highlightActiveLine()]:[])]});
       if(prior==='preview'&&mode!=='preview'){
         this.view.requestMeasure();
         if(!this.find?.dom.contains(document.activeElement))this.view.focus();
