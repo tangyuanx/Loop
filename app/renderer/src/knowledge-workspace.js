@@ -969,6 +969,19 @@ function knowledgeRejoinTaskNote(task) {
 function knowledgeNewDialog() {
   return knowledgeCreate();
 }
+function knowledgeAddNoteMenu(trigger) {
+  if(shellOverlay()?.querySelector('.kn-add-note-menu')){shellCloseOverlay();return;}
+  const menu=shellMountSurface('<div class="surface-popover wb-menu kn-add-note-menu" role="menu" data-light-dismiss aria-label="添加知识笔记"><div class="wb-menu-list"><button type="button" role="menuitem" data-kn-action="new-note">新建笔记</button><button type="button" role="menuitem" data-kn-action="open-file">打开笔记…</button></div></div>',trigger,190);
+  if(!menu)return;
+  const side=trigger.closest('[data-kn-tab-side]')?.dataset.knTabSide||'';
+  menu.dataset.returnFocus=`.kn-document-bar[data-kn-tab-side="${side}"] [data-kn-action="add-note-menu"]`;
+  menu.addEventListener('keydown',event=>{
+    if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;
+    event.preventDefault();event.stopPropagation();
+    const items=[...menu.querySelectorAll('[role="menuitem"]')],index=items.indexOf(document.activeElement);
+    items[event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:items.length-1))%items.length]?.focus();
+  });
+}
 async function knowledgeOpenFile() {
   const owner=state.tasks.find(t=>t.id===state.activeTaskId);if(!owner||!desktopKnowledgeFile?.choose)return;
   const result=await desktopKnowledgeFile.choose({boundPaths:[]});if(result?.canceled)return;
@@ -1795,8 +1808,9 @@ document.addEventListener('click',event=>{
     void knowledgeSetMembership(button.dataset.ownerTaskId,button.dataset.noteId,button.dataset.joined==='true',button);
     return;
   }
-  if(action==='new-note'){void knowledgeNewDialog();return;}
-  if(action==='open-file'){shellCloseOverlay({restoreFocus:false});void knowledgeOpenFile();return;}
+  if(action==='add-note-menu'){knowledgeAddNoteMenu(button);return;}
+  if(action==='new-note'){shellCloseOverlay({restoreFocus:false});void knowledgeNewDialog();return;}
+  if(action==='open-file'){shellCloseOverlay({restoreFocus:Boolean(button.closest('.kn-add-note-menu'))});void knowledgeOpenFile();return;}
   if(action==='recent'){knowledgeShowRecent();return;}
   if(action==='switcher'){knowledgeShowSwitcher();return;}
   const task=knowledgeActiveDocument();if(!task)return;

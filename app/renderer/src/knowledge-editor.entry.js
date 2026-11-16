@@ -809,7 +809,13 @@ class KnowledgeEditor {
       if(node.name==='StrongEmphasis')add(node.from,node.to,Decoration.mark({class:'kn-strong'}));
       if(node.name==='Emphasis')add(node.from,node.to,Decoration.mark({class:'kn-emphasis'}));
       if(node.name==='Strikethrough')add(node.from,node.to,Decoration.mark({class:'kn-strike'}));
-      if(node.name==='InlineCode')add(node.from,node.to,Decoration.mark({class:'kn-inline-code'}));
+      if(node.name==='InlineCode'){
+        // Keep the editable delimiter outside the styled content span. A
+        // composition at its right edge must not own the whole code DOM.
+        const opening=node.node.firstChild,closing=node.node.lastChild;
+        if(opening?.name==='CodeMark'&&closing?.name==='CodeMark')
+          add(opening.to,closing.from,Decoration.mark({class:'kn-inline-code'}));
+      }
       if(node.name==='Blockquote'){for(let n=state.doc.lineAt(node.from).number;n<=state.doc.lineAt(node.to).number;n++){const l=state.doc.line(n);add(l.from,l.from,Decoration.line({class:'kn-quote'}));}}
       if(/^(?:HeaderMark|EmphasisMark|CodeMark|StrikethroughMark|QuoteMark)$/.test(node.name)) {
         const parent=node.node.parent;

@@ -230,6 +230,7 @@ async function release() {await app.evaluate(()=>{global.__s2Release?.();global.
     });
     await test('S2-13-close-new-note-and-cancel-save-picker',async()=>{
       await page.locator('.kn-document-new').click();
+      await page.getByRole('menuitem',{name:'新建笔记',exact:true}).click();
       const newId=await page.evaluate(()=>knowledgeActiveDocument().id);
       await page.waitForFunction(id=>knowledgeCurrentEntry(id)?.view,newId);
       await edit(newId,'待保存的新笔记');

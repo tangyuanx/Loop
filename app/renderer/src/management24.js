@@ -260,7 +260,7 @@
         </button>
       </div>`;
     return `
-      <div class="nav-groups">
+      <div class="nav-groups" data-context="task-list">
         <div class="nav-section-heading">
           <span>任务分组</span>
           <span class="manage24-heading-actions"><button class="icon-button" type="button" data-manage24="organize" aria-label="整理分组" title="整理分组">${manage24Icon("organize")}</button><button class="icon-button" type="button" data-action="add-group" aria-label="新建分组" title="新建分组">${shellIcon("plus")}</button></span>

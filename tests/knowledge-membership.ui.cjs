@@ -180,6 +180,7 @@ async function main() {
     assert.equal(await page.evaluate(id => state.tasks.find(task => task.id === 'a').knowledgeNoteIds.includes(id), referenceId), false);
     assert.equal(await page.evaluate(() => knowledgeSaveDirectory(knowledgeActiveDocument())), referenceDirectory, 'a reference keeps the original owning task directory');
     await page.locator('.kn-document-new').click();
+    await page.getByRole('menuitem',{name:'新建笔记',exact:true}).click();
     await page.waitForFunction(() => knowledgeCurrentEntry()?.view && knowledgeActiveDocument().creatorTaskId === 'a');
     const created = await page.evaluate(() => knowledgeActiveDocument().id);
     assert.equal(await page.evaluate(id => state.tasks.find(task => task.id === 'a').knowledgeNoteIds.includes(id), created), true);

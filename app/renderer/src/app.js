@@ -3986,7 +3986,7 @@ function renderContextMenu() {
   }
   if (menu.kind === "task-list") {
     return `
-      <div class="context-menu" role="menu" aria-label="任务列表操作" style="left:${menu.x}px; top:${menu.y}px">
+      <div class="context-menu task-list-context-menu" role="menu" aria-label="任务列表操作" style="left:${menu.x}px; top:${menu.y}px">
         <button type="button" role="menuitem" data-action="add-task">${shellIcon("plus")}<span>新增任务</span></button>
       </div>
     `;

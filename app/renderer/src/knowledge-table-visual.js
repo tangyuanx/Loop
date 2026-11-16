@@ -5,6 +5,7 @@ import {keymap} from '@milkdown/kit/prose/keymap';
 import {baseKeymap} from '@milkdown/kit/prose/commands';
 import DiffMatchPatch from 'diff-match-patch';
 import {highlightCode} from './knowledge-renderer.js';
+import {minimizeLiteralEscapes} from './knowledge-markdown-literals.js';
 
 const allowedTags=new Set('P BR OL UL LI PRE CODE SPAN STRONG B EM I S DEL A IMG MARK'.split(' '));
 const isImage=el=>el.matches('img,.kn-image-missing');
@@ -75,7 +76,7 @@ function linkDestination({href,title,relative}){
 // Positions use the same Markdown text as the existing table commands. A
 // marked span's brackets/delimiters have no caret position in the visual DOM.
 function serializeCell(doc){
-  const offsets=[];
+  const offsets=[],escapes=[];
   let text='';
   const remember=pos=>{offsets[pos]=text.length;};
   const literal=(value,pos,encode)=>{
@@ -106,7 +107,12 @@ function serializeCell(doc){
         if(child.marks.some(mark=>mark.type.name==='code')){
           const fence=codeFence(child.text,1),pad=/^`|`$|^\s[\s\S]*\s$/.test(child.text)?' ':'';
           text+=fence+pad;literal(child.text,at,char=>char);text+=pad+fence;
-        }else literal(child.text,at,char=>/[\\`*_~[\]<>]/.test(char)?'\\'+char:char);
+        }else literal(child.text,at,char=>{
+          // Brackets, angle brackets and backticks also participate in Loop's
+          // links/HTML/code syntax. Keep their existing protection.
+          if(/[\\*_~.]/.test(char)){escapes.push(text.length);return '\\'+char;}
+          return /[`[\]<>]/.test(char)?'\\'+char:char;
+        });
       }else{
         remember(at);text+=child.type.name==='hard_break'?'\n'+indent:child.attrs.source;
         remember(at+child.nodeSize);
@@ -146,7 +152,7 @@ function serializeCell(doc){
     if(previous&&!beginsWithBreak&&!endsWithBreak)text+='\n';
     block(node,offset,'');previous=node;
   });
-  return {text,offsets};
+  return minimizeLiteralEscapes({text,offsets},escapes);
 }
 
 function codeDecorations(doc){

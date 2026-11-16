@@ -36,7 +36,7 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     });
     // Rebinding retained regions must not duplicate menu activation.
     await page.evaluate(() => { bind(); bind(); });
-    for (const [selector, name] of [['.flow-scroll', '处理流操作'], ['.tasks-scroll', '任务列表操作']]) {
+    for (const [selector, name] of [['.flow-scroll', '处理流操作'], ['.tasks-scroll', '任务列表操作'], ['.nav-groups', '任务列表操作']]) {
       await blankMenu(selector, name);
       assert.deepEqual(await page.evaluate(() => ({ task: state.activeTaskId, node: state.selectedNodeId,
         draft: state.recordDraft, top: document.querySelector('.flow-scroll').scrollTop })), before);
@@ -60,7 +60,12 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     await page.locator('.task-context-menu').waitFor();
     assert.equal(await page.getByRole('menuitem', { name: '新增任务', exact: true }).count(), 0);
 
-    await blankMenu('.tasks-scroll', '任务列表操作');
+    await blankMenu('.nav-groups', '任务列表操作');
+    await page.getByRole('menuitem', { name: '新增任务', exact: true }).click();
+    await page.locator('#create-title').fill('取消的任务');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => state.tasks.length), 1, 'canceling navigation creation does not add a task');
+    await blankMenu('.nav-groups', '任务列表操作');
     await page.getByRole('menuitem', { name: '新增任务', exact: true }).click();
     await page.locator('#create-title').fill('右键创建任务');
     await page.locator('#create-form button[type="submit"]').click();
@@ -73,6 +78,8 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     await blankMenu('.flow-scroll', '处理流操作');
     await addNode('空处理流首个节点');
     await page.evaluate(() => { state.tasks = []; state.activeTaskId = ''; state.selectedNodeId = ''; render(); });
+    await blankMenu('.nav-groups', '任务列表操作');
+    await page.keyboard.press('Escape');
     await blankMenu('.tasks-scroll', '任务列表操作');
     await page.getByRole('menuitem', { name: '新增任务', exact: true }).click();
     await page.locator('#create-title').fill('空列表首个任务');

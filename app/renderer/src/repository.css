@@ -167,6 +167,9 @@ body .active-list-filters { margin: 0 16px 7px; color: var(--secondary); backgro
 body .list-foot { min-height: 38px; padding-inline: 20px; border: 0; background: transparent; font-size: var(--type-11); }
 body .task-list-pane .empty { overflow-wrap: anywhere; }
 
+/* The blank-area menu has one short action; fit it to that action. */
+body .task-list-context-menu { width: max-content; min-width: 124px; }
+
 /* Keep the icon rail and all group names reachable when many groups exist. */
 body .nav-collapsed .navigation { padding-inline: 8px; }
 body .nav-collapsed .nav-groups .nav-button { padding-inline: 0; }

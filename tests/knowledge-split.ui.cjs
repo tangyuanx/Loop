@@ -73,6 +73,7 @@ const report={checks:[],errors:[],limitations:['native Windows','physical cross-
  }
  await pane('right').locator('[data-wb-action="more"]').click();await page.locator('[data-wb-mode="preview"]').click();await page.waitForFunction(()=>knowledgeCurrentEntry('right').mode==='preview');assert.equal(await entry('owner',e=>e.mode),'source');
  await pane('right').locator('.kn-document-new').click();
+ await page.getByRole('menuitem',{name:'新建笔记',exact:true}).click();
  await page.waitForFunction(()=>!['owner','right','third'].includes(knowledgeActiveDocument()?.id)&&knowledgeCurrentEntry()?.view&&knowledgeCurrentEntry().mode==='edit');
  await page.evaluate(()=>knowledgeCurrentEntry().insertText('右栏新草稿'));
  assert.equal(await entry('owner',e=>e.mode),'source');assert.ok((await entry('owner',e=>e.getEditorText())).startsWith('LEFT-EDIT '));

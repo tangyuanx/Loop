@@ -139,7 +139,7 @@ async function until(check) {
       await size(1280);
     });
     await test('new has a tab-bar shortcut; open and recent remain in the more menu',async()=>{
-      assert.equal(await page.locator('.kn-document-bar [data-kn-action="new-note"]').count(),1);
+      assert.equal(await page.locator('.kn-document-bar [data-kn-action="add-note-menu"]').count(),1);
       for(const action of ['open-file','recent']){
         assert.equal(await page.locator('.knowledge-pane [data-kn-action="'+action+'"]').count(),0);
       }
