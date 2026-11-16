@@ -54,6 +54,8 @@ jobs:
       - run: npm run build:knowledge
       - name: Verify knowledge emphasis glyphs
         run: npm run test:ui:knowledge-emphasis
+      - name: Verify knowledge editing scroll stability
+        run: npm run test:ui:knowledge-scroll
       - name: Verify inline conclusions and existing node interactions
         run: |
           node tests/flow-outline.ui.cjs

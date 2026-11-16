@@ -1,10 +1,10 @@
 import {EditorState,EditorSelection,StateField,StateEffect,Compartment,Prec,Transaction,MapMode} from '@codemirror/state';
-import {EditorView,keymap,Decoration,WidgetType,ViewPlugin,drawSelection,highlightActiveLine,rectangularSelection,crosshairCursor,lineNumbers,placeholder} from '@codemirror/view';
+import {EditorView,keymap,Decoration,WidgetType,drawSelection,highlightActiveLine,rectangularSelection,crosshairCursor,lineNumbers,placeholder} from '@codemirror/view';
 import {defaultKeymap,history,historyKeymap,indentWithTab,indentMore,indentLess,undo,redo,invertedEffects,isolateHistory} from '@codemirror/commands';
 import {markdown,markdownLanguage,insertNewlineContinueMarkupCommand,deleteMarkupBackward} from '@codemirror/lang-markdown';
 import {yamlFrontmatter} from '@codemirror/lang-yaml';
 import {languages} from '@codemirror/language-data';
-import {syntaxTree,syntaxHighlighting,HighlightStyle,indentUnit,bracketMatching,forceParsing} from '@codemirror/language';
+import {syntaxTree,ensureSyntaxTree,syntaxHighlighting,HighlightStyle,indentUnit,bracketMatching,forceParsing} from '@codemirror/language';
 import {closeBrackets,closeBracketsKeymap,autocompletion,completionKeymap} from '@codemirror/autocomplete';
 import {searchKeymap,highlightSelectionMatches} from '@codemirror/search';
 import {KnowledgeFind,knowledgeFindMarks} from './knowledge-search.js';
@@ -20,7 +20,7 @@ import {obsidianComments} from './knowledge-syntax.js';
 import {createRenderer,safeURL,escape,imageLayout} from './knowledge-renderer.js';
 import {documentFormat,spacingAt,typedSpacing} from './knowledge-format.js';
 const core=window.LoopKnowledgeCore;
-const viewportEffect=StateEffect.define(),refreshEffect=StateEffect.define(),tableWidthsEffect=StateEffect.define(),tableHeightsEffect=StateEffect.define(),expandBlockEffect=StateEffect.define(),clearExpandedEffect=StateEffect.define();
+const refreshEffect=StateEffect.define(),tableWidthsEffect=StateEffect.define(),tableHeightsEffect=StateEffect.define(),expandBlockEffect=StateEffect.define(),clearExpandedEffect=StateEffect.define();
 const instances=new WeakMap();
 const cellMarkdown=markdown({base:markdownLanguage,addKeymap:false,completeHTMLTags:false});
 function trimTableWidths(widths){
@@ -391,7 +391,7 @@ class KnowledgeEditor {
     });
     this.blockCaret=null;
     this.options=options; this.root=options.root; this.mode=options.mode||'edit';this.destroyed=false;this.uploads=new Map();this.nextUpload=0;
-    this.range={from:0,to:8000};this.renderCache=new Map();this.renderRevision=0;
+    this.renderCache=new Map();this.renderRevision=0;
     this.tableLocations=new WeakMap();this.tableWidgets=new WeakMap();this.lineConfig=new Compartment();
     this.renderer=createRenderer(options); this.root.replaceChildren();this.root.classList.add('kn-editor-host');
     this.editHost=document.createElement('div');this.editHost.className='kn-edit-surface';this.root.append(this.editHost);
@@ -400,8 +400,7 @@ class KnowledgeEditor {
     this.readHost.addEventListener('click',event=>this.handleRenderedClick(event,0));
     this.readHost.addEventListener('toggle',()=>this.find?.update(true),true);
     this.decorations=StateField.define({create:state=>this.buildDecorations(state),update:(decos,tr)=>{
-      for(const effect of tr.effects) if(effect.is(viewportEffect)) this.range=effect.value;
-      if(tr.docChanged||tr.selection||tr.effects.some(e=>e.is(viewportEffect)||e.is(refreshEffect))) return this.buildDecorations(tr.state);
+      if(tr.docChanged||tr.selection||syntaxTree(tr.startState)!==syntaxTree(tr.state)||tr.effects.some(e=>e.is(refreshEffect)||e.is(expandBlockEffect)||e.is(clearExpandedEffect))) return this.buildDecorations(tr.state);
       return decos.map(tr.changes);
     },provide:field=>EditorView.decorations.from(field)});
     this.view=new EditorView({parent:this.editHost,state:EditorState.create({doc:source.text,extensions:[
@@ -455,15 +454,6 @@ class KnowledgeEditor {
         }
         return false;
       }}),
-      ViewPlugin.fromClass(class {
-        constructor(view){this.frame=0;this.queue(view);}
-        queue(view){cancelAnimationFrame(this.frame);this.frame=requestAnimationFrame(()=>{
-          if(!view.dom.isConnected)return;const from=Math.max(0,view.viewport.from-2000),to=Math.min(view.state.doc.length,view.viewport.to+2000);
-          view.dispatch({effects:viewportEffect.of({from,to})});
-        });}
-        update(update){if(update.viewportChanged||update.geometryChanged)this.queue(update.view);}
-        destroy(){cancelAnimationFrame(this.frame);}
-      }),
     ]})});
     this.find=new KnowledgeFind(this);this.setMode(this.mode);instances.set(options.root,this);
     this.events=new AbortController();const signal=this.events.signal;
@@ -713,7 +703,7 @@ class KnowledgeEditor {
   renderWidgetHTML(name,text,reference){
     const key=name+':'+text+(reference.references?JSON.stringify(reference.references):'');
     if(!this.renderCache.has(key)){
-      if(this.renderCache.size>160)this.renderCache.clear();
+      if(this.renderCache.size>(this.renderCacheLimit||160))this.renderCache.clear();
       this.renderCache.set(key,this.renderer.render(text,{noteId:this.options.noteId,stack:[this.options.noteId],...reference}));
     }
     return this.renderCache.get(key);
@@ -765,8 +755,11 @@ class KnowledgeEditor {
     const ranges=[],blocks=[];let blockEnd=0;
     const add=(from,to,deco)=>{if(to>=from)ranges.push(deco.range(from,to));};
     const addBlock=(from,to,deco)=>{if(to>blockEnd)blockEnd=to;add(from,to,deco);};
-    const {from,to}=this.range;
-    const locations=this.tablesIn(state.doc),tables=locations.filter(table=>table.to>=from&&table.from<=to);
+    const locations=this.tablesIn(state.doc);
+    const tree=ensureSyntaxTree(state,state.doc.length,50)||syntaxTree(state);
+    // The document-wide decorations must fit in the render cache; a fixed
+    // 160-entry cap would rerender every block on each edit in a long note.
+    this.renderCacheLimit=Math.max(160,state.doc.lines);
     let referenceEnv;
     const referenceFor=text=>/!\[[^\]\n]*\](?!\()/.test(text)?(referenceEnv??=this.imageReferenceEnv(state)):{};
     const widget=(node,inline=false)=>{
@@ -790,9 +783,13 @@ class KnowledgeEditor {
       }
       blocks.push({from:table.from,to:table.to,lineFrom:table.lineFrom,body});
     }
-    const containingTable=node=>tables.some(table=>node.from>=table.lineFrom&&node.to<=table.to);
-    syntaxTree(state).iterate({from,to,enter:node=>{
-      if(node.to<from||node.from>to||containingTable(node))return false;
+    // Height-affecting decorations belong to the document, not the viewport.
+    // Replacing offscreen code/callouts/images with Markdown invalidates the
+    // height map above the clicked cell, even when scrollIntoView is false.
+    // CodeMirror still virtualizes their DOM and retains measured heights.
+    const containingTable=node=>locations.some(table=>node.from>=table.lineFrom&&node.to<=table.to);
+    tree.iterate({enter:node=>{
+      if(containingTable(node))return false;
       const active=selected(state,node.from,node.to);
       if(!active && (node.name==='ObsidianComment'||node.name==='ObsidianCommentBlock'||(node.name==='HTMLBlock'&&state.doc.sliceString(node.from,node.from+4)==='<!--'))) {
         add(node.from,node.to,Decoration.replace({block:node.name!=='ObsidianComment',inclusive:false}));return false;
@@ -837,9 +834,9 @@ class KnowledgeEditor {
         add(node.from,node.to,Decoration.replace(task?{inclusive:false}:{widget:new BulletWidget(),inclusive:false}));
       }
     }});
-    // Only scan the viewport's leaf text nodes. Code, escapes and comments are
-    // excluded by the parser and the shared lexer before wiki/math decoration.
-    syntaxTree(state).iterate({from,to,enter:node=>{
+    // Wiki embeds and math can change line heights too. Keep their decorations
+    // stable offscreen, while excluding code, escapes, comments and tables.
+    tree.iterate({enter:node=>{
       if(/Code|HTML|Comment/.test(node.name)||containingTable(node))return false;
       if(!['Paragraph','ATXHeading1','ATXHeading2','ATXHeading3','ATXHeading4','ATXHeading5','ATXHeading6'].includes(node.name))return;
       if(node.node.parent?.name==='TableCell')return false;
@@ -1281,7 +1278,7 @@ class KnowledgeEditor {
       if((event.ctrlKey||event.metaKey)&&['z','y'].includes(event.key.toLowerCase())){
         event.preventDefault();event.stopPropagation();
         active.reconciling=true;
-        try{(event.key.toLowerCase()==='y'||event.shiftKey?redo:undo)(this.view);}
+        try{this.runHistory(event.key.toLowerCase()==='y'||event.shiftKey?redo:undo);}
         finally{active.reconciling=false;if(this.activeTableCell===active)this.focusTableInput(active);}
         return;
       }
@@ -1513,13 +1510,21 @@ class KnowledgeEditor {
     const {from,to}=state.selection.main,doc=state.doc;
     return doc.lineAt(from).number===doc.lineAt(to).number;
   }
+  runHistory(command){
+    if(!this.activeTableCell)return command(this.view);
+    // A cell's source is inside one large block replacement. Scrolling that
+    // selection targets the table's edge and also shifts the virtual viewport.
+    // History bypasses transaction filters, so keep its effects/annotations and
+    // remove only the scroll request at the command's dispatch boundary.
+    return command({state:this.view.state,dispatch:tr=>this.view.dispatch({...tr,scrollIntoView:false,filter:false})});
+  }
   format(action,value) {
     if(this.mode==='preview')return false;
     if(action==='undo'||action==='redo'){
       const active=this.activeTableCell;
       if(active?.composing)return false;
       if(active)active.reconciling=true;
-      try{return (action==='undo'?undo:redo)(this.view);}
+      try{return this.runHistory(action==='undo'?undo:redo);}
       finally{if(active)active.reconciling=false;this.focusEditingSurface();}
     }
     if(this.activeTableCell){
