@@ -49,7 +49,7 @@ async function main() {
     async function menu(command, trigger='[data-table-action=tools]', value) {
       const button = table().locator(trigger);
       await table().hover();
-      await button.click({button:trigger.includes('[data-table-handle=row]')?'right':'left'});
+      await button.click({button:trigger.includes('[data-table-handle=')?'right':'left'});
       await page.locator(`[data-table-command="${command}"]${value===undefined?'':`[data-value="${value}"]`}`).click();
     }
     async function select(a,b) {

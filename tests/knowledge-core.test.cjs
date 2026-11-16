@@ -6,6 +6,19 @@ const {normalizeTaskData}=require('../app/main/storage.cjs');
 const fs=require('node:fs');
 const note=(id,title)=>({id:'task-'+id,title,knowledgeNote:{noteId:id,title,aliases:[]}});
 
+test('row size metadata survives browser and desktop normalization without changing Markdown',()=>{
+ const source='| A | B |\n| --- | --- |\n| original | value |';
+ const session=metadata.updateTableRowHeights(metadata.createDocumentSession({taskId:'s'}),[[42,180,0],[],[95]]);
+ assert.deepEqual(session.tableRowHeights,[[42,180,0],[],[95]]);
+ const data=normalizeTaskData({tasks:[{id:'s',notes:source,knowledgeNote:session}],knowledgeDocuments:[{id:'d',notes:source,knowledgeNote:session}]});
+ for(const record of [data.tasks[0],data.knowledgeDocuments[0]]){
+  assert.equal(record.notes,source);assert.deepEqual(record.knowledgeNote.tableRowHeights,session.tableRowHeights);
+ }
+ assert.deepEqual(normalizeTaskData(data),data);
+ assert.deepEqual(metadata.normalizeKnowledgeNote({tableRowHeights:[[41,42,4096,4097,null,'bad',Infinity]]}).tableRowHeights,[[0,42,4096,0,0,0,0]]);
+ assert.deepEqual(metadata.normalizeKnowledgeNote({tableRowHeights:[[0],null]}).tableRowHeights,[]);
+});
+
 test('split layouts persist identities and modes through shared normalization while invalid panes are discarded',()=>{
  const tasks=[{id:'a'},{id:'b'},{id:'c'}],documents=[{id:'one'},{id:'two'},{id:'deleted',knowledgeNote:{isDeleted:true}}];
  const source={taskId:'a',openIds:['one','two'],recentIds:['one','two'],tabsByTask:{a:['one','two'],b:['one'],c:['one','two']},splitsByTask:{

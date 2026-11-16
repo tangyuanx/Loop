@@ -34,7 +34,7 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     await app.evaluate(({BrowserWindow},width)=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(width,820),width);
     await page.evaluate(theme=>{state.theme=theme;render();},theme);await page.locator('.kn-table-widget').first().waitFor();
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-    await page.locator('[data-table-handle=column]').first().click();assert.equal(await page.locator('.kn-table-menu').evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight;}),true);await page.keyboard.press('Escape');
+    await page.locator('[data-table-handle=column]').first().click({button:'right'});assert.equal(await page.locator('.kn-table-menu').evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight;}),true);await page.keyboard.press('Escape');
     if(process.env.LOOP_TEST_SCREENSHOT_DIR){await fs.mkdir(process.env.LOOP_TEST_SCREENSHOT_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.LOOP_TEST_SCREENSHOT_DIR,`table-design-${theme}-${width}.png`)});}
   }
   assert.deepEqual(errors,[]);console.log(JSON.stringify({status:'PASS',profile,checks:'complete table/association audit, native file choose/save, disk path authority after Electron restart',errors}));

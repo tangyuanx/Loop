@@ -9,6 +9,7 @@ import {closeBrackets,closeBracketsKeymap,autocompletion,completionKeymap} from 
 import {searchKeymap,highlightSelectionMatches} from '@codemirror/search';
 import {KnowledgeFind,knowledgeFindMarks} from './knowledge-search.js';
 import {installTableControls} from './knowledge-table-controls.js';
+import {applyTableRowHeights,preferredColumnWidth} from './knowledge-table-sizing.js';
 import {tableGeometry,measureTableColumns,applyTableColumnWidths,cellBounds,mergeBounds,splitSpan,editSpan} from './knowledge-span-grid.js';
 import {spanCellToPipe} from './knowledge-span-content.js';
 import {decodeTableCell,encodeTableCell} from './knowledge-table-content.js';
@@ -19,7 +20,7 @@ import {obsidianComments} from './knowledge-syntax.js';
 import {createRenderer,safeURL,escape,imageLayout} from './knowledge-renderer.js';
 import {documentFormat,spacingAt,typedSpacing} from './knowledge-format.js';
 const core=window.LoopKnowledgeCore;
-const viewportEffect=StateEffect.define(),refreshEffect=StateEffect.define(),tableWidthsEffect=StateEffect.define(),expandBlockEffect=StateEffect.define(),clearExpandedEffect=StateEffect.define();
+const viewportEffect=StateEffect.define(),refreshEffect=StateEffect.define(),tableWidthsEffect=StateEffect.define(),tableHeightsEffect=StateEffect.define(),expandBlockEffect=StateEffect.define(),clearExpandedEffect=StateEffect.define();
 const instances=new WeakMap();
 const cellMarkdown=markdown({base:markdownLanguage,addKeymap:false,completeHTMLTags:false});
 function trimTableWidths(widths){
@@ -367,6 +368,7 @@ class KnowledgeEditor {
       return format;
     }});
     this.tableWidths=StateField.define({create:()=>options.tableColumnWidths||[],update:(value,tr)=>{for(const effect of tr.effects)if(effect.is(tableWidthsEffect))value=effect.value;return value;}});
+    this.tableHeights=StateField.define({create:()=>options.tableRowHeights||[],update:(value,tr)=>{for(const effect of tr.effects)if(effect.is(tableHeightsEffect))value=effect.value;return value;}});
     // A plain click on a rendered block must not replace it with raw Markdown:
     // that changes the block height and moves the note under the pointer. Blocks
     // expand only when the user explicitly edits them (double-click, Enter, the
@@ -404,6 +406,7 @@ class KnowledgeEditor {
     },provide:field=>EditorView.decorations.from(field)});
     this.view=new EditorView({parent:this.editHost,state:EditorState.create({doc:source.text,extensions:[
       this.tableWidths,invertedEffects.of(tr=>tr.effects.some(e=>e.is(tableWidthsEffect))?[tableWidthsEffect.of(tr.startState.field(this.tableWidths))]:[]),
+      this.tableHeights,invertedEffects.of(tr=>tr.effects.some(e=>e.is(tableHeightsEffect))?[tableHeightsEffect.of(tr.startState.field(this.tableHeights))]:[]),
       this.expandedBlocks,
       this.lineEndings,invertedEffects.of(tr=>tr.docChanged||tr.effects.some(e=>e.is(restoreLineEndings))?[restoreLineEndings.of(tr.startState.field(this.lineEndings))]:[]),
       history(),drawSelection(),rectangularSelection(),crosshairCursor(),EditorView.lineWrapping,
@@ -877,6 +880,11 @@ class KnowledgeEditor {
     if((update.docChanged||update.viewportChanged)&&this.blockCaret)this.clearBlockCaret();
     if(update.transactions.some(tr=>tr.effects.some(effect=>effect.is(tableWidthsEffect)))){
       this.options.tableColumnWidths=update.state.field(this.tableWidths);this.options.onTableColumnWidthsChange?.(this.options.tableColumnWidths);
+      for(const widget of this.root.querySelectorAll('.kn-table-widget'))this.applyTableWidths(widget,Number(widget.dataset.sourcePos));
+      if(this.mode==='preview')this.renderReading();
+    }
+    if(update.transactions.some(tr=>tr.effects.some(effect=>effect.is(tableHeightsEffect)))){
+      this.options.tableRowHeights=update.state.field(this.tableHeights);this.options.onTableRowHeightsChange?.(this.options.tableRowHeights);
       for(const widget of this.root.querySelectorAll('.kn-table-widget'))this.applyTableWidths(widget,Number(widget.dataset.sourcePos));
       if(this.mode==='preview')this.renderReading();
     }
@@ -1692,7 +1700,29 @@ class KnowledgeEditor {
   }
   applyTableWidths(widget,pos,index,state=this.view?.state) {
     const table=widget.matches('table')?widget:widget.querySelector('table');if(!table||!state)return;
-    applyTableColumnWidths(table,state.field(this.tableWidths)[index??this.tableIndex(pos,state)]);
+    const tableIndex=index??this.tableIndex(pos,state);
+    applyTableColumnWidths(table,state.field(this.tableWidths)[tableIndex]);
+    applyTableRowHeights(table,state.field(this.tableHeights)[tableIndex]);
+    widget.tableControls?.refresh();
+  }
+  resizeTableRow(row,height,widget) {
+    const block=this.tableAt(Number(widget?.dataset.sourcePos));
+    const count=block?.span?block.height:block?.rows.length-1;
+    height=Math.round(Number(height));
+    if(!block||!Number.isInteger(row)||row<0||row>=count||!Number.isFinite(height)||height!==0&&(height<42||height>4096))return false;
+    const index=this.tableIndex(block.from),tables=this.view.state.field(this.tableHeights).map(rows=>rows.slice());
+    while(tables.length<=index)tables.push([]);
+    tables[index]=Array.from({length:count},(_,r)=>tables[index][r]||0);tables[index][row]=height;
+    while(tables.length&&!tables.at(-1).some(Boolean))tables.pop();
+    if(JSON.stringify(tables)===JSON.stringify(this.view.state.field(this.tableHeights)))return true;
+    this.view.dispatch({annotations:isolateHistory.of('full'),effects:tableHeightsEffect.of(tables),userEvent:'input.table-height'});
+    return true;
+  }
+  fitTableColumn(column,widget) {
+    const table=widget?.querySelector('table');
+    if(!table)return false;
+    const limit=Math.max(80,Math.min(480,Math.floor(this.tableViewportWidth(widget)*.75)));
+    return this.resizeTableColumn(column,preferredColumnWidth(table,column,limit),widget);
   }
   resizeTableColumn(column,width,widget=null) {
     // Resize the table the gesture actually belongs to, not the table of the
@@ -1707,6 +1737,7 @@ class KnowledgeEditor {
     const table=target?.matches('table')?target:target?.querySelector('table');
     const measured=table?measureTableColumns(table):[];
     tables[index]=Array.from({length:block.rows[0].length},(_,c)=>tables[index][c]||measured[c]||120);tables[index][column]=width;
+    if(JSON.stringify(tables)===JSON.stringify(this.view.state.field(this.tableWidths)))return true;
     this.view.dispatch({annotations:isolateHistory.of('full'),effects:tableWidthsEffect.of(tables),userEvent:'input.table-width'});
     return true;
   }
@@ -1838,6 +1869,18 @@ class KnowledgeEditor {
     if(operation==='column-move')targetColumn=Number(value);
     if(operation==='column-duplicate')targetColumn=index+1;
     const effects=changedWidths?[tableWidthsEffect.of(tables)]:[];
+    const heights=this.view.state.field(this.tableHeights).map(rows=>rows.slice()),rowHeights=heights[tableIndex];
+    if(operation==='delete'){
+      heights.splice(tableIndex,1);effects.push(tableHeightsEffect.of(trimTableWidths(heights)));
+    }else if(rowHeights?.length&&operation.startsWith('row-')){
+      const count=block.span?block.height:block.rows.length-1;
+      while(rowHeights.length<count)rowHeights.push(0);
+      if(operation==='row-add'||operation==='row-before')rowHeights.splice(Math.max(1,row+(operation==='row-add'?1:0)),0,0);
+      if(operation==='row-duplicate')rowHeights.splice(row+1,0,rowHeights[row]);
+      if(operation==='row-delete')rowHeights.splice(row,1);
+      if(operation==='row-move')rowHeights.splice(Number(value)-1,0,rowHeights.splice(row,1)[0]);
+      effects.push(tableHeightsEffect.of(heights));
+    }
     if(block.span&&operation!=='delete'){
       const stored=operation==='cell'?this.storeSpanCell(encodeTableCell(String(value),core.escaped,true)):value;
       if(operation==='cell'&&stored===null)return false;
@@ -1938,6 +1981,11 @@ class KnowledgeEditor {
       const removed=tables.filter(table=>table.from>=from&&table.to<=to).length;
       widths.splice(index,removed,[]);
       effects.push(tableWidthsEffect.of(trimTableWidths(widths)));
+    }
+    const heights=state.field(this.tableHeights).map(rows=>rows.slice());
+    if(index<heights.length){
+      const removed=tables.filter(table=>table.from>=from&&table.to<=to).length;
+      heights.splice(index,removed,[]);effects.push(tableHeightsEffect.of(trimTableWidths(heights)));
     }
     event.preventDefault();
     this.view.dispatch({changes:{from,to,insert},selection:{anchor:from+insert.length},effects,annotations:isolateHistory.of('full'),userEvent:'input.paste',scrollIntoView:true});

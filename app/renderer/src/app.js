@@ -8069,6 +8069,7 @@ function mountMilkdownEditors() {
       placeholder: node ? "记录处理过程" : "记录分析过程、知识点和可复用结论……",
       enableTableResizing: !nodeId,
       tableColumnWidths: nodeId ? [] : task.knowledgeNote?.tableColumnWidths,
+      tableRowHeights: nodeId ? [] : task.knowledgeNote?.tableRowHeights,
       onChange: (markdown) => {
         updateNodeNoteDraft(taskId, nodeId, markdown, host);
       },
@@ -8083,6 +8084,12 @@ function mountMilkdownEditors() {
             );
             save();
           },
+      onTableRowHeightsChange: nodeId ? undefined : (tableRowHeights) => {
+        const latestTask = knowledgeAllDocuments().find((item) => item.id === taskId);
+        if (!latestTask) return;
+        latestTask.knowledgeNote = knowledgeDocument.updateTableRowHeights(latestTask.knowledgeNote, tableRowHeights);
+        save();
+      },
     })
       .then((instance) => {
         if (mount.invalidated || (!document.body.contains(host) && cachedKnowledgePanes.get(taskId)?.host !== host)) {

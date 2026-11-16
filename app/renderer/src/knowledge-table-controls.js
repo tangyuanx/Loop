@@ -67,7 +67,13 @@ export function installTableControls(owner,widget) {
       item.el.style.top=(item.kind==='row'?rect.top-base.top:bounds.top-base.top-20)+'px';
       item.el.style.width=(item.kind==='row'?18:rect.width)+'px';item.el.style.height=(item.kind==='row'?rect.height:18)+'px';
     }
-    for(const item of resizers){const rect=columnRects[item.column];item.el.style.left=rect.right-base.left-4+'px';item.el.style.top=bounds.top-base.top+'px';item.el.style.height=bounds.height+'px';}
+    for(const item of resizers){
+      const rect=item.kind==='row-resize'?rowRects[item.index]:columnRects[item.index];
+      item.el.style.left=(item.kind==='row-resize'?bounds.left-base.left:rect.right-base.left-4)+'px';
+      item.el.style.top=(item.kind==='row-resize'?rect.bottom-base.top-4:bounds.top-base.top)+'px';
+      if(item.kind==='row-resize')item.el.style.width=bounds.width+'px';
+      else item.el.style.height=bounds.height+'px';
+    }
     addRow.style.top=bounds.bottom-base.top+2+'px';addRow.style.width=bounds.width+'px';
     addColumn.style.left=bounds.right-base.left+2+'px';addColumn.style.height=bounds.height+'px';
     main.title=main.getAttribute('aria-label')+` · ${table.rows.length-1} 行 ${columns} 列`;
@@ -75,10 +81,11 @@ export function installTableControls(owner,widget) {
   function finish(cancel=false) {
     const current=gesture;if(!current)return;gesture=null;current.abort.abort();widget.classList.remove('kn-table-dragging');
     controls.querySelectorAll('[data-drop-target]').forEach(el=>el.removeAttribute('data-drop-target'));
-    if(current.kind==='resize') {
-      if(cancel){owner.applyTableWidths(widget,Number(widget.dataset.sourcePos));return;}
+    if(current.kind==='resize'||current.kind==='row-resize') {
+      if(cancel||!current.moved){owner.applyTableWidths(widget,Number(widget.dataset.sourcePos));queue();return;}
       // The gesture knows which table it belongs to (KN-06).
-      owner.resizeTableColumn(current.index,current.width,widget);
+      if(current.kind==='row-resize')owner.resizeTableRow(current.index,current.height,widget);
+      else owner.resizeTableColumn(current.index,current.width,widget);
     }else if(current.moved&&current.target!==current.index&&!cancel){
       if(tablePosition(owner,widget,current.kind==='row'?current.index:0,current.kind==='column'?current.index:0))
         owner.table(current.kind+'-move',current.kind==='column'?current.index:0,current.kind==='row'?current.target+1:current.target);
@@ -88,13 +95,19 @@ export function installTableControls(owner,widget) {
   function start(event,kind,index) {
     if(event.button!==0||owner.activeTableCell?.composing)return;
     event.preventDefault();event.stopPropagation();
+    finish(true);
     const widths=measureTableColumns(table);
-    gesture={kind,index,target:index,origin:[event.clientX,event.clientY],widths,width:widths[index],moved:false,abort:new AbortController()};
+    const height=table.rows[index]?.getBoundingClientRect().height;
+    gesture={kind,index,target:index,origin:[event.clientX,event.clientY],widths,width:widths[index],height,initialHeight:height,moved:false,abort:new AbortController()};
     const current=gesture,signal=current.abort.signal;
     window.addEventListener('pointermove',move=>{
       if(!widget.isConnected){finish(true);return;}
       if(Math.hypot(move.clientX-current.origin[0],move.clientY-current.origin[1])<5&&!current.moved)return;
       current.moved=true;clearHighlight();widget.classList.add('kn-table-dragging');
+      if(kind==='row-resize') {
+        current.height=Math.max(42,Math.min(4096,Math.round(current.initialHeight+move.clientY-current.origin[1])));
+        table.rows[index].style.height=current.height+'px';queue();return;
+      }
       if(kind==='resize') {
         current.width=Math.max(80,Math.min(1600,Math.round(widths[index]+move.clientX-current.origin[0])));
         const next=widths.slice();next[index]=current.width;applyTableColumnWidths(table,next);
@@ -109,31 +122,34 @@ export function installTableControls(owner,widget) {
     window.addEventListener('pointerup',()=>finish(),{once:true,signal});
     window.addEventListener('pointercancel',()=>finish(true),{once:true,signal});
     window.addEventListener('blur',()=>finish(true),{once:true,signal});
+    document.addEventListener('pointerleave',()=>finish(true),{once:true,signal});
+    document.addEventListener('visibilitychange',()=>{if(document.hidden)finish(true);},{signal});
     window.addEventListener('keydown',key=>{if(key.key==='Escape'){key.preventDefault();key.stopImmediatePropagation();finish(true);}},{capture:true,signal});
   }
-  function openRowMenu(row,trigger,point) {
-    if(!tablePosition(owner,widget,row))return;
-    highlight('row',row,trigger);
-    owner.options.onTableMenu?.({widget,row,column:0,scope:'row',trigger,point});
+  function openRangeMenu(kind,index,trigger,point) {
+    const row=kind==='row'?index:0,column=kind==='column'?index:0;
+    if(!tablePosition(owner,widget,row,column))return;
+    highlight(kind,index,trigger);
+    owner.options.onTableMenu?.({widget,row,column,scope:kind,trigger,point});
   }
-  function rowContextMenu(target,point) {
-    const handle=target.closest('[data-table-handle="row"]');
+  function rangeContextMenu(target,point) {
+    const handle=target.closest('[data-table-handle]');
     if(handle&&controls.contains(handle)){
-      openRowMenu(Number(handle.dataset.index),handle,point);
+      openRangeMenu(handle.dataset.tableHandle,Number(handle.dataset.index),handle,point);
       return true;
     }
-    const trigger=controls.querySelector('[data-table-handle="row"][data-table-active]');
+    const trigger=controls.querySelector('[data-table-handle][data-table-active]');
     if(!point||!trigger||owner.activeTableCell?.composing||target.closest('table')!==table||
       target.closest('a,img,button,input,textarea,.kn-table-cell-visual')||owner.activeTableCell?.cell.contains(target))return false;
-    const row=Number(trigger.dataset.index),cell=target.closest('td,th');
+    const kind=trigger.dataset.tableHandle,index=Number(trigger.dataset.index),cell=target.closest('td,th');
     const selection=window.getSelection();
     if(selection&&!selection.isCollapsed&&cell?.contains(selection.anchorNode))return false;
     if(cell){
-      if(!slots[row].includes(cell))return false;
-      const bounds=table.rows[row].getBoundingClientRect();
-      if(point.y<bounds.top||point.y>=bounds.bottom)return false;
-    }else if(target.closest('tr')!==table.rows[row])return false;
-    openRowMenu(row,trigger,point);
+      if(kind==='row'?!slots[index].includes(cell):!slots.some(row=>row[index]===cell))return false;
+      const bounds=(kind==='row'?table.rows[index]:columnBoxes[index]).getBoundingClientRect();
+      if(kind==='row'?point.y<bounds.top||point.y>=bounds.bottom:point.x<bounds.left||point.x>=bounds.right)return false;
+    }else if(kind!=='row'||target.closest('tr')!==table.rows[index])return false;
+    openRangeMenu(kind,index,trigger,point);
     return true;
   }
   function handle(kind,index) {
@@ -142,31 +158,32 @@ export function installTableControls(owner,widget) {
     el.addEventListener('pointerdown',event=>{if(kind==='row'&&index===0)return;start(event,kind,index);});
     el.onclick=event=>{if(event.detail&&el.dataset.dragged==='true'){delete el.dataset.dragged;return;}
       if(owner.activeTableCell?.composing)return;
-      if(kind==='row'){
-        if(event.detail===0){openRowMenu(index,el);return;}
-        owner.options.onTableRowSelect?.();
-        highlight(kind,index,el);
-        el.focus({preventScroll:true});
-        return;
-      }
-      if(tablePosition(owner,widget,0,index)){
-        highlight(kind,index,el);
-        owner.options.onTableMenu?.({widget,row:0,column:index,scope:kind,trigger:el});
-      }
+      if(event.detail===0){openRangeMenu(kind,index,el);return;}
+      owner.options.onTableRangeSelect?.();
+      highlight(kind,index,el);
+      el.focus({preventScroll:true});
     };
-    if(kind==='row'){
-      el.title=`${label} · 单击选中，右键打开菜单`;
-      el.setAttribute('aria-keyshortcuts','Shift+F10');
-    }
+    el.title=`${label} · 单击选中，右键打开菜单`;
+    el.setAttribute('aria-keyshortcuts','Shift+F10');
     // Native click follows pointerup. Mark it before the global listener runs.
     el.addEventListener('pointerup',()=>{if(gesture?.moved)el.dataset.dragged='true';});
     controls.append(el);handles.push({kind,index,el});
   }
-  for(let row=0;row<table.rows.length;row++)handle('row',row);
+  for(let row=0;row<table.rows.length;row++){
+    handle('row',row);
+    const el=document.createElement('div');el.className='kn-table-row-resizer';el.dataset.row=row;
+    el.title='拖动调整行高，双击设为最合适的行高';el.setAttribute('aria-hidden','true');
+    el.addEventListener('pointerdown',event=>start(event,'row-resize',row));
+    el.addEventListener('dblclick',event=>{event.preventDefault();event.stopPropagation();owner.resizeTableRow(row,0,widget);});
+    controls.append(el);resizers.push({el,kind:'row-resize',index:row});
+  }
   for(let column=0;column<columns;column++){
     handle('column',column);const el=document.createElement('div');el.className='kn-table-resizer';el.dataset.column=column;el.title='拖动调整列宽';el.setAttribute('aria-hidden','true');
-    el.addEventListener('pointerdown',event=>start(event,'resize',column));controls.append(el);resizers.push({el,column});
+    el.title='拖动调整列宽，双击设为最合适的列宽';
+    el.addEventListener('pointerdown',event=>start(event,'resize',column));
+    el.addEventListener('dblclick',event=>{event.preventDefault();event.stopPropagation();owner.fitTableColumn(column,widget);});
+    controls.append(el);resizers.push({el,kind:'resize',index:column});
   }
   const observer=new ResizeObserver(queue);observer.observe(table);queue();
-  widget.tableControls={rowContextMenu,refresh:queue,destroy(){clearHighlight();finish(true);observer.disconnect();cancelAnimationFrame(frame);}};
+  widget.tableControls={rangeContextMenu,refresh:queue,destroy(){clearHighlight();finish(true);observer.disconnect();cancelAnimationFrame(frame);}};
 }

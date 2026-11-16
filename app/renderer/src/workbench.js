@@ -153,7 +153,7 @@ document.addEventListener('contextmenu',event=>{
   const pane=host.closest('[data-kn-side]');if(pane)knowledgeActivateSide(pane.dataset.knSide);
   const entry=knowledgeCurrentEntry();if(!entry||entry.root!==host||entry.view.composing)return;
   const widget=event.target.closest('.kn-table-widget');
-  if(entry.mode==='edit'&&widget?.tableControls?.rowContextMenu(event.target,{x:event.clientX,y:event.clientY})){
+  if(entry.mode==='edit'&&widget?.tableControls?.rangeContextMenu(event.target,{x:event.clientX,y:event.clientY})){
     event.preventDefault();event.stopPropagation();return;
   }
   if(cellInput){
@@ -255,7 +255,7 @@ window.addEventListener('keydown',event=>{
     event.preventDefault();event.stopImmediatePropagation();
     const entry=knowledgeCurrentEntry(),cell=entry?.activeTableCell;
     if(!entry||cell?.composing)return;
-    if(entry.mode==='edit'&&event.target.closest('.kn-table-widget')?.tableControls?.rowContextMenu(event.target))return;
+    if(entry.mode==='edit'&&event.target.closest('.kn-table-widget')?.tableControls?.rangeContextMenu(event.target))return;
     const field=cell&&entry.tableField(cell),coords=field?.getBoundingClientRect()||entry.view.coordsAtPos(entry.view.state.selection.main.head);
     workbenchFormatMenu(field||entry.root,coords?{x:coords.left,y:coords.bottom}:null);return;
   }

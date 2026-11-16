@@ -61,6 +61,19 @@
     return tables;
   }
 
+  function normalizeTableRowHeights(value) {
+    if (!Array.isArray(value)) return [];
+    const tables = value.slice(0, 64).map((table) => {
+      if (!Array.isArray(table) || table.length > 50000) return [];
+      return table.map((height) => {
+        const number = Math.round(Number(height));
+        return Number.isFinite(number) && number >= 42 && number <= 4096 ? number : 0;
+      });
+    });
+    while (tables.length && !tables[tables.length - 1].some(Boolean)) tables.pop();
+    return tables;
+  }
+
   function normalizeDocumentState(value, fallback = "DRAFT") {
     return DOCUMENT_STATE_SET.has(value) ? value : fallback;
   }
@@ -101,6 +114,7 @@
       cursorPosition: null,
       scrollPosition: null,
       tableColumnWidths: [],
+      tableRowHeights: [],
       createdAt: normalizeTimestamp(createdAt),
       updatedAt: normalizeTimestamp(updatedAt, normalizeTimestamp(createdAt)),
       lastOpenedAt: null,
@@ -140,6 +154,7 @@
       cursorPosition: normalizePosition(raw.cursorPosition, ["start", "end"]),
       scrollPosition: normalizePosition(raw.scrollPosition, ["top", "left"]),
       tableColumnWidths: normalizeTableColumnWidths(raw.tableColumnWidths),
+      tableRowHeights: normalizeTableRowHeights(raw.tableRowHeights),
       createdAt: normalizeTimestamp(raw.createdAt, fallback.createdAt),
       updatedAt: normalizeTimestamp(raw.updatedAt, fallback.updatedAt),
       lastOpenedAt: normalizeTimestamp(raw.lastOpenedAt, "") || null,
@@ -164,6 +179,12 @@
   function updateTableColumnWidths(session, tableColumnWidths) {
     const next = normalizeKnowledgeNote(session);
     next.tableColumnWidths = normalizeTableColumnWidths(tableColumnWidths);
+    return next;
+  }
+
+  function updateTableRowHeights(session, tableRowHeights) {
+    const next = normalizeKnowledgeNote(session);
+    next.tableRowHeights = normalizeTableRowHeights(tableRowHeights);
     return next;
   }
 
@@ -312,5 +333,6 @@
     normalizeKnowledgeNote,
     updateDocumentTitle,
     updateTableColumnWidths,
+    updateTableRowHeights,
   });
 });

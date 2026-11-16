@@ -1038,7 +1038,7 @@ function knowledgeEditorOptions(task) {
     },
     onTableTools: () => knowledgeTableTools(),
     onTableMenu: context => knowledgeTableMenu(context),
-    onTableRowSelect: () => {
+    onTableRangeSelect: () => {
       if(shellOverlay()?.querySelector('.kn-table-menu'))shellCloseOverlay({restoreFocus:false});
     },
     onToggleMode: () => knowledgeSetMode(shellKnowledgeMode(task.id) === 'preview' ? 'edit' : 'preview',task.id),
@@ -1627,9 +1627,9 @@ function knowledgeTableMenu({widget,row=0,column=0,cellSelection=null,scope='tab
   const item=(operation,label,{disabled=false,value,checked,shortcut=''}={})=>`<button type="button" role="${checked===undefined?'menuitem':'menuitemradio'}" ${checked===undefined?'':`aria-checked="${checked}"`} data-table-command="${operation}" ${value===undefined?'':`data-value="${escAttr(String(value))}"`} ${disabled?'disabled':''}><span>${label}</span>${shortcut?`<kbd>${shortcut}</kbd>`:''}</button>`;
   const divider='<div class="menu-divider" role="separator"></div>';
   const align=table.rows[1][column]||'---',alignment=/^:.*:$/.test(align)?'center':/:$/.test(align)?'right':'left';
-  const rowItems=()=>item('row-before','上方插入行')+item('row-add','下方插入行')+item('row-duplicate','复制一行',{disabled:row===0})+divider+
+  const rowItems=()=>item('row-fit','最合适的行高')+divider+item('row-before','上方插入行')+item('row-add','下方插入行')+item('row-duplicate','复制一行',{disabled:row===0})+divider+
     item('row-move','上移一行',{value:row,disabled:row<=1})+item('row-move','下移一行',{value:row+2,disabled:row===0||row>=rowCount})+divider+item('row-clear','清空这一行')+item('row-delete','删除这一行',{disabled:row===0});
-  const columnItems=()=>item('column-before','左侧插入列')+item('column-add','右侧插入列')+item('column-duplicate','复制一列')+divider+
+  const columnItems=()=>item('column-fit','最合适的列宽')+divider+item('column-before','左侧插入列')+item('column-add','右侧插入列')+item('column-duplicate','复制一列')+divider+
     item('column-move','向左移动',{value:column-1,disabled:column===0})+item('column-move','向右移动',{value:column+1,disabled:column>=columnCount-1})+divider+
     [['left','左对齐'],['center','居中'],['right','右对齐']].map(([value,label])=>item('align',label,{value,checked:alignment===value})).join('')+divider+item('column-clear','清空这一列')+item('column-delete','删除这一列',{disabled:columnCount<=1});
   const content=scope==='row'?rowItems():scope==='column'?columnItems():
@@ -1656,6 +1656,11 @@ function knowledgeTableMenu({widget,row=0,column=0,cellSelection=null,scope='tab
     if(command==='row-menu'){knowledgeTableMenu({...next,scope:'row'});return;}
     if(command==='column-menu'){knowledgeTableMenu({...next,scope:'column'});return;}
     if(command==='details'){knowledgeTableTools(next);return;}
+    if(command==='row-fit'||command==='column-fit'){
+      if(command==='row-fit')editor.resizeTableRow(row,0,widget);
+      else editor.fitTableColumn(column,widget);
+      knowledgeFocusTableCell(editor,widget,row,column,cellSelection);return;
+    }
     if(command==='copy'){
       const markdown=table.sourceLines?.map(line=>line.text).join('\n')??source.sliceString(table.from,table.to);
       try{await navigator.clipboard.writeText(markdown);shellToast('已复制表格 Markdown');}catch{shellToast('无法复制，请在源码模式选择表格后复制。');}

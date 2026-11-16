@@ -175,7 +175,7 @@ async function run() {
     await picture.click({ button: 'right' });
     await page.getByText('复制图片', { exact: true }).waitFor();
     await page.keyboard.press('Escape');
-    await page.locator('.knowledge-pane [data-table-handle="column"]').first().click();
+    await page.locator('.knowledge-pane [data-table-handle="column"]').first().click({button:'right'});
     await page.locator('.kn-table-menu').waitFor();
     await page.keyboard.press('Escape');
     await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }); }, file);

@@ -36,7 +36,7 @@ async function main(){
     assert.deepEqual(await ranges(),expected('row',index,table,table?19:4));
   };
   const choose=async(kind,index,table=0)=>{
-    await handle(kind,index,table).click({button:kind==='row'?'right':'left'});
+    await handle(kind,index,table).click({button:'right'});
     await menu.waitFor();
     assert.deepEqual(await ranges(),expected(kind,index,table,table?19:4));
   };
@@ -93,6 +93,17 @@ async function main(){
     await page.keyboard.press('Escape');
     await selectRow(1);
     await handle('column',2).hover();assert.deepEqual(await ranges(),expected('row',1),'hover never switches the clicked range');
+    for(const column of [0,2,2]){
+      await handle('column',column).click();
+      assert.equal(await menu.count(),0,'left click only selects the column');
+      assert.deepEqual(await ranges(),expected('column',column));
+    }
+    await choose('column',0);await handle('column',2).click();
+    assert.equal(await menu.count(),0,'left click closes the old menu');assert.deepEqual(await ranges(),expected('column',2));
+    await rowCell(2,2).click({button:'right',position:{x:30,y:12}});await menu.waitFor();
+    assert.equal(await menu.getAttribute('aria-label'),'第 3 列操作');assert.deepEqual(await ranges(),expected('column',2));await dismiss();
+    await handle('column',0).focus();await page.keyboard.press('Shift+F10');await menu.waitFor();
+    assert.equal(await menu.getAttribute('aria-label'),'第 1 列操作');await dismiss();
     await choose('column',1);await dismiss();
     await widget(0).locator('tbody td').first().click();assert.deepEqual(await ranges(),expected('column',1),'inside-table clicks preserve the range');
     const input=page.locator('.kn-table-cell-editor');
@@ -160,7 +171,9 @@ async function main(){
     await command('row',1,'row-move');assert.match(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),/\| 设计.*\n\| 方案/);await undo();
     await choose('row',1);await dismiss();
     const start=await handle('row',1).boundingBox(),end=await handle('row',3).boundingBox();
+    await page.evaluate(()=>{window.__rowDragEvents=[];window.__rowDragAbort=new AbortController();for(const type of ['pointerdown','pointermove','pointerup','pointerleave'])document.addEventListener(type,event=>window.__rowDragEvents.push({type,target:event.target.className,x:event.clientX,y:event.clientY}),{capture:true,signal:window.__rowDragAbort.signal});});
     await page.mouse.move(start.x+8,start.y+start.height/2);await page.mouse.down();await page.mouse.move(end.x+8,end.y+end.height/2,{steps:12});await page.mouse.up();
+    report.drag={start,end,events:await page.evaluate(()=>{window.__rowDragAbort.abort();return window.__rowDragEvents;})};
     assert.deepEqual(await ranges(),[]);assert.match(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),/\| 验证.*\n\| 方案/);await undo();
     await choose('column',0);await dismiss();
     await page.reload();await page.waitForFunction(()=>knowledgeCurrentEntry()?.view);
