@@ -504,7 +504,6 @@ class KnowledgeEditor {
     // the typed text land on the real source line.
     this.root.addEventListener('keydown',event=>{
       if(!this.blockCaret||event.isComposing||event.keyCode===229)return;
-      if(event.key==='Escape'){this.clearBlockCaret();return;}
       if(['Shift','Control','Meta','Alt','CapsLock'].includes(event.key))return;
       this.expandBlockAt(this.view.state.selection.main.head);
     },{capture:true,signal});
