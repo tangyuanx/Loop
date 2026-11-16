@@ -1038,6 +1038,9 @@ function knowledgeEditorOptions(task) {
     },
     onTableTools: () => knowledgeTableTools(),
     onTableMenu: context => knowledgeTableMenu(context),
+    onTableRowSelect: () => {
+      if(shellOverlay()?.querySelector('.kn-table-menu'))shellCloseOverlay({restoreFocus:false});
+    },
     onToggleMode: () => knowledgeSetMode(shellKnowledgeMode(task.id) === 'preview' ? 'edit' : 'preview',task.id),
     onEditForSearch: () => knowledgeSetMode('source',task.id),
     onOpenLink: link => knowledgeOpenLink(link, task),
@@ -1607,7 +1610,7 @@ function knowledgeRename(task,trigger) {
 }
 function knowledgeFocusTableCell(editor,widget,row,column,selection=null) {
   if(editor!==knowledgeCurrentEntry()||editor.destroyed)return;
-  const cell=widget?.isConnected&&widget.querySelector('table')?.rows[row]?.cells[column];
+  const cell=widget?.isConnected&&editor.tableCellAt(widget,row,column);
   if(cell){
     editor.editTableCell(widget,cell,false,selection?.start??null);
     if(selection)editor.setTableSelection(selection.start,selection.end,selection.direction);
@@ -1618,25 +1621,32 @@ function knowledgeTableMenu({widget,row=0,column=0,cellSelection=null,scope='tab
   const editor=knowledgeCurrentEntry();if(!editor||editor.mode==='preview')return;
   const from=Number(widget.dataset.sourcePos),source=editor.view.state.doc;
   const table=LoopKnowledgeCore.tableAt(editor.getEditorText(),from);if(!table)return;
-  const rows=widget.querySelector('table').rows,caption=scope==='row'?(row===0?'表头行':`第 ${row} 行`):scope==='column'?`第 ${column+1} 列`:`${rows.length-1} 行 · ${rows[0].cells.length} 列`;
+  const rowCount=table.rows.length-2,columnCount=table.rows[0].length;
+  const caption=scope==='row'?(row===0?'表头行':`第 ${row} 行`):scope==='column'?`第 ${column+1} 列`:`${rowCount} 行 · ${columnCount} 列`;
+  const cell=editor.tableCellAt(widget,row,column);
   const item=(operation,label,{disabled=false,value,checked,shortcut=''}={})=>`<button type="button" role="${checked===undefined?'menuitem':'menuitemradio'}" ${checked===undefined?'':`aria-checked="${checked}"`} data-table-command="${operation}" ${value===undefined?'':`data-value="${escAttr(String(value))}"`} ${disabled?'disabled':''}><span>${label}</span>${shortcut?`<kbd>${shortcut}</kbd>`:''}</button>`;
   const divider='<div class="menu-divider" role="separator"></div>';
   const align=table.rows[1][column]||'---',alignment=/^:.*:$/.test(align)?'center':/:$/.test(align)?'right':'left';
   const rowItems=()=>item('row-before','上方插入行')+item('row-add','下方插入行')+item('row-duplicate','复制一行',{disabled:row===0})+divider+
-    item('row-move','上移一行',{value:row,disabled:row<=1})+item('row-move','下移一行',{value:row+2,disabled:row===0||row>=rows.length-1})+divider+item('row-clear','清空这一行')+item('row-delete','删除这一行',{disabled:row===0});
+    item('row-move','上移一行',{value:row,disabled:row<=1})+item('row-move','下移一行',{value:row+2,disabled:row===0||row>=rowCount})+divider+item('row-clear','清空这一行')+item('row-delete','删除这一行',{disabled:row===0});
   const columnItems=()=>item('column-before','左侧插入列')+item('column-add','右侧插入列')+item('column-duplicate','复制一列')+divider+
-    item('column-move','向左移动',{value:column-1,disabled:column===0})+item('column-move','向右移动',{value:column+1,disabled:column>=rows[0].cells.length-1})+divider+
-    [['left','左对齐'],['center','居中'],['right','右对齐']].map(([value,label])=>item('align',label,{value,checked:alignment===value})).join('')+divider+item('column-clear','清空这一列')+item('column-delete','删除这一列',{disabled:rows[0].cells.length<=1});
+    item('column-move','向左移动',{value:column-1,disabled:column===0})+item('column-move','向右移动',{value:column+1,disabled:column>=columnCount-1})+divider+
+    [['left','左对齐'],['center','居中'],['right','右对齐']].map(([value,label])=>item('align',label,{value,checked:alignment===value})).join('')+divider+item('column-clear','清空这一列')+item('column-delete','删除这一列',{disabled:columnCount<=1});
   const content=scope==='row'?rowItems():scope==='column'?columnItems():
+    item('merge-cells','合并单元格',{disabled:!widget.cellRange})+
+    item('split-cell','取消合并',{disabled:!cell||cell.rowSpan===1&&cell.colSpan===1})+divider+
     item('fit','适应页宽')+item('auto-width','自动列宽')+divider+item('row-menu','当前行操作…')+item('column-menu','当前列操作…')+item('cell-clear','清空当前单元格')+divider+item('copy','复制 Markdown')+item('details','精确设置…')+divider+item('delete','删除表格');
-  const menu=shellMountSurface(`<div class="surface-popover wb-menu kn-table-menu" role="menu" aria-label="${escAttr(caption)}操作"><div class="kn-table-menu-caption">${caption}</div><div class="wb-menu-list">${content}</div></div>`,trigger||widget,218);
-  if(trigger?.dataset.tableAction)menu.dataset.returnFocus=`.kn-table-widget[data-source-pos="${from}"] [data-table-action="${trigger.dataset.tableAction}"]`;
-  else if(trigger?.dataset.tableHandle)menu.dataset.returnFocus=`.kn-table-widget[data-source-pos="${from}"] [data-table-handle="${trigger.dataset.tableHandle}"][data-index="${trigger.dataset.index}"]`;
+  const menu=shellMountSurface(`<div class="surface-popover wb-menu kn-table-menu" role="menu" data-light-dismiss aria-label="${escAttr(caption)}操作"><div class="kn-table-menu-caption">${caption}</div><div class="wb-menu-list">${content}</div></div>`,trigger||widget,218);
+  const taskId=widget.closest('.knowledge-pane[data-task-id]')?.dataset.taskId;
+  const selector=`${taskId?`.knowledge-pane[data-task-id="${CSS.escape(taskId)}"] `:''}.kn-table-widget[data-source-pos="${from}"]`;
+  if(trigger?.dataset.tableAction)menu.dataset.returnFocus=`${selector} [data-table-action="${trigger.dataset.tableAction}"]`;
+  else if(trigger?.dataset.tableHandle)menu.dataset.returnFocus=`${selector} [data-table-handle="${trigger.dataset.tableHandle}"][data-index="${trigger.dataset.index}"]`;
   if(point){menu.style.left=Math.max(8,Math.min(point.x,innerWidth-menu.offsetWidth-8))+'px';menu.style.top=Math.max(8,Math.min(point.y,innerHeight-menu.offsetHeight-8))+'px';}
   const restore=()=>{
     if(editor!==knowledgeCurrentEntry()||editor.destroyed||editor.view.state.doc!==source||!widget.isConnected){shellCloseOverlay({restoreFocus:false});shellToast('表格已变化，请重新打开菜单。');return false;}
     const range=editor.tableCellRange(widget,row,column);if(!range)return false;
-    editor.finishTableCell();editor.tableColumn=column;editor.view.dispatch({selection:{anchor:range.from},scrollIntoView:false});return true;
+    editor.finishTableCell();editor.tableColumn=column;editor.tableLocation={widget,row,column};
+    editor.view.dispatch({selection:{anchor:range.from},scrollIntoView:false});return true;
   };
   menu.addEventListener('click',async event=>{
     const button=event.target.closest('[data-table-command]');if(!button||button.disabled)return;
@@ -1676,7 +1686,14 @@ function knowledgeTableTools(context=null) {
   table.rows.forEach((_,index)=>{if(index===1)return;const option=document.createElement('option');option.value=index;option.textContent=index===0?'表头':`第${index-1}行`;option.selected=index===table.row;row.append(option);});rowLabel.append(row);controls.prepend(rowLabel);
   for(const [operation,label] of [['row-before','在上方插入行'],['column-before','在左侧插入列'],['delete','删除整张表格']]){const button=document.createElement('button');button.type='button';button.className='button';button.dataset.knTable=operation;button.textContent=label;controls.append(button);}
   const align=document.querySelector('#kn-table-align');
-  const refresh=()=>{const index=Number(column.value);value.value=table.rows[Number(row.value)]?.[index]||'';align.value=/^:.*:$/.test(table.rows[1][index])?'center':/:$/.test(table.rows[1][index])?'right':'left';document.querySelector('[data-kn-table="row-delete"]').disabled=Number(row.value)===0;document.querySelector('[data-kn-table="column-delete"]').disabled=table.rows[0].length===1;};
+  const pickedRow=()=>Number(row.value)===0?0:Number(row.value)-1;
+  const refresh=()=>{
+    const index=Number(column.value),raw=table.span?table.grid[pickedRow()][index].value:table.rows[Number(row.value)]?.[index]||'';
+    value.value=table.span?editor.decodeCell(raw,true).text:raw;
+    align.value=/^:.*:$/.test(table.rows[1][index])?'center':/:$/.test(table.rows[1][index])?'right':'left';
+    document.querySelector('[data-kn-table="row-delete"]').disabled=Number(row.value)===0;
+    document.querySelector('[data-kn-table="column-delete"]').disabled=table.rows[0].length===1;
+  };
   row.onchange=refresh;column.onchange=refresh;refresh();
   const widthLabel=document.createElement('label');widthLabel.textContent='列宽（px） ';
   const width=document.createElement('input');width.type='number';width.min='80';width.max='1600';width.value=editor.options.tableColumnWidths?.[editor.tableIndex(table.from)]?.[Number(column.value)]||120;widthLabel.append(width);controls.append(widthLabel);
@@ -1689,7 +1706,8 @@ function knowledgeTableTools(context=null) {
   };controls.append(resize);
   column.addEventListener('change',()=>{width.value=editor.options.tableColumnWidths?.[editor.tableIndex(table.from)]?.[Number(column.value)]||120;});
   document.querySelectorAll('[data-kn-table]').forEach(button=>button.onclick=()=>{const operation=button.dataset.knTable,idx=Number(column.value),v=operation==='align'?document.querySelector('#kn-table-align').value:value.value;
-    const pos=table.from+editor.getEditorText().slice(table.from,table.to).split('\n').slice(0,Number(row.value)).reduce((sum,line)=>sum+line.length+1,0);
+    const pos=table.span?table.grid[pickedRow()][idx].from:table.from+editor.getEditorText().slice(table.from,table.to).split('\n').slice(0,Number(row.value)).reduce((sum,line)=>sum+line.length+1,0);
+    editor.tableLocation=widget?{widget,row:pickedRow(),column:idx}:null;
     shellCloseOverlay({restoreFocus:false});editor.finishTableCell();editor.view.dispatch({selection:{anchor:pos}});if(!editor.table(operation,idx,v))shellToast('当前行或列不能执行此操作。');
   });
 }

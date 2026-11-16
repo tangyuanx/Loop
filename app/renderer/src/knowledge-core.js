@@ -74,17 +74,20 @@
   }
   function links(text) {
     text = String(text ?? '');
-    const excluded = excludedRanges(text), out = [];
+    const tables=spanTables(text);
+    const excluded = excludedRanges(text).concat(tables.map(table=>[table.from,table.to])).sort((a,b)=>a[0]-b[0]), out = [];
     const regex = /(!?)\[\[([^\]\n]+)\]\]/g; let m, cursor = 0;
     while ((m = regex.exec(text))) {
       while (cursor < excluded.length && excluded[cursor][1] <= m.index) cursor++;
       if (escaped(text, m.index) || (excluded[cursor] && excluded[cursor][0] < regex.lastIndex)) continue;
       out.push({ ...parseTarget(m[2]), from: m.index, to: regex.lastIndex, embed: m[1] === '!', raw: m[0] });
     }
-    return out;
+    return out.concat(spanTableLinks(text,tables).flatMap(ref=>ref.wiki?[{...ref.wiki,from:ref.start,to:ref.end}]:[])).sort((a,b)=>a.from-b.from);
   }
   function imageReferences(text) {
-    text=String(text??'');const masks=excludedRanges(text),out=[];let at=0,cursor=0;
+    text=String(text??'');
+    const tables=spanTables(text),masks=excludedRanges(text).concat(tables.map(table=>[table.from,table.to])).sort((a,b)=>a[0]-b[0]),out=[];
+    let at=0,cursor=0;
     while((at=text.indexOf('![',at))>=0){
       const start=at;at+=2;while(cursor<masks.length&&masks[cursor][1]<=start)cursor++;
       if(escaped(text,start)||(masks[cursor]&&masks[cursor][0]<=start))continue;
@@ -109,7 +112,7 @@
       if(!rest)continue;
       out.push({from,to,url,start,end:p+rest[0].length});at=p+rest[0].length;
     }
-    return out;
+    return out.concat(spanTableImages(text,tables)).sort((a,b)=>a.from-b.from);
   }
   function noteId(note) { return String(note?.knowledgeNote?.noteId || note?.id || ''); }
   function noteTitle(note) { return String(note?.knowledgeNote?.title || note?.title || '未命名笔记'); }
@@ -194,7 +197,8 @@
       const hashAt=raw.indexOf('#'),suffix=hashAt<0?(angle?'>':''):raw.slice(hashAt);
       const destination=`${link.dest.startsWith('./')?'./':''}${relative}`.replace(/\\/g,'/');
       const written=/%[0-9a-f]{2}/i.test(raw)?encodeURI(destination):destination;
-      output=output.slice(0,link.destFrom)+(angle?`<${written}${suffix}`:`${written}${suffix}`)+output.slice(link.destTo);
+      const replacement=angle?`<${written}${suffix}`:`${written}${suffix}`;
+      output=output.slice(0,link.destFrom)+(link.html?escapeTableAttribute(replacement):replacement)+output.slice(link.destTo);
     }
     return {content:output,changed:matches.length};
   }
@@ -278,7 +282,10 @@
   // Relative Markdown links that can point at another note on disk. Used for
   // backlinks alongside wiki links; images, code and comments are excluded.
   function relativeLinks(text) {
-    text=String(text??''); const masks=excludedRanges(text), out=[]; let cursor=0;
+    text=String(text??'');
+    const tables=spanTables(text);
+    const masks=excludedRanges(text).concat(tables.map(table=>[table.from,table.to])).sort((a,b)=>a[0]-b[0]), out=[];
+    let cursor=0;
     const regex=/!?\[([^\]\n]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g; let m;
     while((m=regex.exec(text))) {
       const start=m.index;
@@ -294,7 +301,136 @@
       out.push({dest, rawDest:raw, from:start, to:regex.lastIndex,
         destFrom, destTo:destFrom+raw.length});
     }
-    return out;
+    return out.concat(spanTableLinks(text,tables).flatMap(ref=>{
+      if(ref.wiki)return [];
+      let dest=ref.url.split('#')[0];
+      if(!dest||/^[a-z][a-z0-9+.-]*:/i.test(dest))return [];
+      try{dest=decodeURIComponent(dest);}catch{}
+      return [{...ref,dest,rawDest:ref.url,destFrom:ref.from,destTo:ref.to}];
+    })).sort((a,b)=>a.from-b.from);
+  }
+  const spanOpen = /^<table data-loop-table="1" data-align="([lcr]+)">/;
+  function tableGrid(height, width, cells) {
+    if(height<1||width<1||width>1000||height>65534||height*width>50000)return null;
+    const slots=Array.from({length:height},()=>Array(width).fill(null));
+    for(const cell of cells){
+      const {row,col,rows,cols}=cell;
+      if(row<0||col<0||rows<1||cols<1||row+rows>height||col+cols>width||row===0&&rows>1)return null;
+      for(let r=row;r<row+rows;r++)for(let c=col;c<col+cols;c++){
+        if(slots[r][c])return null;
+        slots[r][c]=cell;
+      }
+    }
+    return slots;
+  }
+  function parseSpanTable(source, from=0) {
+    const opening=spanOpen.exec(source);
+    if(!opening||opening[1].length>1000)return null;
+    const closing=source.indexOf('</table>');
+    if(closing===-1)return null;
+    const rowLimit=(source.slice(0,closing).match(/<tr>/g)||[]).length;
+    const align=opening[1].split(''),cells=[];
+    let at=opening[0].length,row=0;
+    const occupied=[];
+    const take=pattern=>{
+      const match=pattern.exec(source.slice(at));
+      if(match)at+=match[0].length;
+      return match;
+    };
+    const takeRow=tag=>{
+      if(!take(/^\s*<tr>/)||row>=rowLimit)return false;
+      let col=0;
+      occupied[row]??=[];
+      while(true){
+        const opening=take(tag==='th'?/^\s*<th(?: rowspan="([1-9]\d{0,4})")?(?: colspan="([1-9]\d{0,3})")?(?: style="text-align:(?:left|center|right)")?>/:/^\s*<td(?: rowspan="([1-9]\d{0,4})")?(?: colspan="([1-9]\d{0,3})")?(?: style="text-align:(?:left|center|right)")?>/);
+        if(!opening)break;
+        while(occupied[row][col])col++;
+        const rows=Number(opening[1]||1),cols=Number(opening[2]||1);
+        if(col+cols>align.length||row+rows>rowLimit||row===0&&rows!==1)return false;
+        const end=source.indexOf('</'+tag+'>',at);
+        if(end<0)return false;
+        const value=source.slice(at,end);
+        if(/<\/?(?:table|thead|tbody|tr|td|th)(?:\s|>)/i.test(value))return false;
+        for(let r=row;r<row+rows;r++){
+          occupied[r]??=[];
+          for(let c=col;c<col+cols;c++){
+            if(occupied[r][c])return false;
+            occupied[r][c]=true;
+          }
+        }
+        cells.push({row,col,rows,cols,value,from:from+at,to:from+end});
+        col+=cols;at=end+tag.length+3;
+      }
+      if(!take(/^\s*<\/tr>/)||occupied[row].filter(Boolean).length!==align.length)return false;
+      row++;return true;
+    };
+    if(!take(/^\s*<thead>/)||!takeRow('th')||!take(/^\s*<\/thead>\s*<tbody>/))return null;
+    while(/^\s*<tr>/.test(source.slice(at)))if(!takeRow('td'))return null;
+    if(!take(/^\s*<\/tbody>\s*<\/table>/)||occupied.length>row||/\n[ \t]*\n/.test(source.slice(0,at).replace(/\r\n?/g,'\n')))return null;
+    if(!tableGrid(row,align.length,cells))return null;
+    return {span:true,from,to:from+at,height:row,width:align.length,align,cells};
+  }
+  function spanTables(text) {
+    if(!text.includes('<table data-loop-table="1"'))return [];
+    const masks=excludedRanges(text),tables=[];
+    const starts=/^<table data-loop-table="1" data-align="[lcr]+">/gm;
+    for(const match of text.matchAll(starts)){
+      if(masks.some(([from,to])=>from<=match.index&&match.index<to))continue;
+      const table=parseSpanTable(text.slice(match.index),match.index);
+      if(table&&/^[ \t]*(?:\r|\n|$)/.test(text.slice(table.to)))tables.push(table);
+    }
+    return tables;
+  }
+  function htmlAttribute(tag,name) {
+    const pattern=new RegExp('(?:^|\\s)'+name+'="([^"]*)"');
+    const match=pattern.exec(tag);
+    return match&&{value:match[1],offset:match.index+match[0].length-match[1].length-1};
+  }
+  function decodeTableAttribute(value) {
+    return value.replace(/&(?:amp|quot|lt|gt|#39|#10|#13);/g,entity=>({
+      '&amp;':'&','&quot;':'"','&lt;':'<','&gt;':'>','&#39;':"'",'&#10;':'\n','&#13;':'\r'
+    })[entity]);
+  }
+  function htmlTableReferences(tables, tag, attribute) {
+    return tables.flatMap(table=>table.cells.flatMap(cell=>[...cell.value.matchAll(/<(?:img|a)(?:\s+[\w-]+="[^"]*")*\s*\/?>/gi)].flatMap(match=>{
+      if(!new RegExp('^<'+tag+'(?:\\s|>)','i').test(match[0]))return [];
+      const source=htmlAttribute(match[0],attribute);
+      if(!source||!source.value)return [];
+      const start=cell.from+match.index,from=start+source.offset,labelFrom=start+match[0].length;
+      const close=tag==='a'?cell.value.indexOf('</a>',match.index+match[0].length):-1;
+      if(tag==='a'&&close<0)return [];
+      const labelTo=close<0?labelFrom:cell.from+close;
+      const label=tag==='img'?htmlAttribute(match[0],'alt')?.value||'':cell.value.slice(labelFrom-cell.from,labelTo-cell.from).replace(/<[^>]*>/g,'');
+      const rawWiki=htmlAttribute(match[0],'data-loop-wiki')?.value;
+      let wiki;
+      if(rawWiki)try{
+        const raw=decodeURIComponent(decodeTableAttribute(rawWiki));
+        const parsed=/^(!?)\[\[([^\]\n]+)\]\]$/.exec(raw);
+        if(parsed)wiki={...parseTarget(parsed[2]),raw,embed:Boolean(parsed[1])};
+      }catch{}
+      return [{html:true,url:decodeTableAttribute(source.value),from,to:from+source.value.length,
+        start,end:close<0?labelFrom:labelTo+4,label:decodeTableAttribute(label),labelFrom,labelTo,wiki}];
+    })));
+  }
+  function spanTableImages(text,tables=spanTables(text)){return htmlTableReferences(tables,'img','src');}
+  function spanTableLinks(text,tables=spanTables(text)){return htmlTableReferences(tables,'a','href');}
+  function escapeTableAttribute(value) {
+    return String(value).replace(/[&"<>\n\r]/g,char=>({'&':'&amp;','"':'&quot;','<':'&lt;','>':'&gt;','\n':'&#10;','\r':'&#13;'})[char]);
+  }
+  function serializeSpanTable(table) {
+    const {align,cells,height}=table;
+    const grid=tableGrid(height,align.length,cells);
+    if(!grid||grid.some(row=>row.includes(null)))return null;
+    const lines=grid.map((row,index)=>{
+      const tag=index===0?'th':'td';
+      return '<tr>'+row.map((cell,col)=>{
+        if(cell.row!==index||cell.col!==col)return '';
+        const span=(cell.rows>1?` rowspan="${cell.rows}"`:'')+(cell.cols>1?` colspan="${cell.cols}"`:'');
+        const style=align[col]==='l'?'':` style="text-align:${align[col]==='c'?'center':'right'}"`;
+        return `<${tag}${span}${style}>${cell.value}</${tag}>`;
+      }).join('')+'</tr>';
+    });
+    return [`<table data-loop-table="1" data-align="${align.join('')}">`,'<thead>'+lines[0]+'</thead>','<tbody>',...lines.slice(1),'</tbody>','</table>'].join('\n');
   }
   function splitRow(line) {
     let raw = line.trim(); if (raw.startsWith('|')) raw=raw.slice(1); if (raw.endsWith('|') && !escaped(raw,raw.length-1)) raw=raw.slice(0,-1);
@@ -306,6 +442,14 @@
     cells.push(raw.slice(start).trim()); return cells;
   }
   function tableAt(text, pos) {
+    const span=spanTables(String(text)).find(table=>table.from<=pos&&pos<=table.to);
+    if(span){
+      const grid=tableGrid(span.height,span.width,span.cells);
+      const row=span.cells.find(cell=>cell.from<=pos&&pos<=cell.to)?.row??0;
+      const rows=grid.map((line,r)=>line.map((cell,c)=>cell.row===r&&cell.col===c?cell.value:''));
+      rows.splice(1,0,span.align.map(value=>value==='c'?':---:':value==='r'?'---:':'---'));
+      return {...span,grid,rows,row:row?row+1:0};
+    }
     const lines=String(text).split('\n'); let n=0, off=0;
     while(n<lines.length-1 && off+lines[n].length < pos) off+=lines[n++].length+1;
     let start=n; while(start>0 && lines[start-1].includes('|') && lines[start-1].trim()) start--;
@@ -363,5 +507,5 @@
       return next.finally(()=>{ if(this.queues.get(key)===next) this.queues.delete(key); });
     }
   }
-  return {sourceFormat,serializeSource,excludedRanges,escaped,parseTarget,links,imageReferences,noteId,noteTitle,resolve,stableLink,noteFileBase,validateNoteName,canonicalPath,resolvePath,relativePathBetween,linksToFile,rewriteLinksToFile,headings,unnumberedHeading,headingAnchorKey,anchorOffset,fragment,relativeLinks,splitRow,tableAt,editTable,pasteTable,SerialQueue};
+  return {sourceFormat,serializeSource,excludedRanges,escaped,parseTarget,links,imageReferences,noteId,noteTitle,resolve,stableLink,noteFileBase,validateNoteName,canonicalPath,resolvePath,relativePathBetween,linksToFile,rewriteLinksToFile,headings,unnumberedHeading,headingAnchorKey,anchorOffset,fragment,relativeLinks,splitRow,tableAt,editTable,pasteTable,parseSpanTable,spanTables,spanTableImages,spanTableLinks,tableGrid,serializeSpanTable,htmlAttribute,escapeTableAttribute,SerialQueue};
 });

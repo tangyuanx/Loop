@@ -1,7 +1,7 @@
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./knowledge-core.js'));
   else root.LoopShareMarkdown = factory(root.LoopKnowledgeCore);
-})(globalThis, ({ excludedRanges, escaped, parseTarget }) => {
+})(globalThis, ({ excludedRanges, escaped, parseTarget, spanTables, spanTableImages, spanTableLinks, escapeTableAttribute }) => {
 
 const ESCAPABLE = /[!"#$%&'()*+,./:;<=>?@[\]\\^_`{|}~-]/;
 const LINE_BREAK = /\r\n|\r|\n/;
@@ -194,6 +194,7 @@ function readWiki(content, from, at, image, excludedUntil) {
 
 function scan(value) {
   const content = String(value ?? '');
+  const tables = spanTables(content);
   const excludedUntil = exclusionIndex(content);
   const ends = bracketEnds(content, excludedUntil);
   const definitions = readDefinitions(content, ends, excludedUntil);
@@ -207,7 +208,7 @@ function scan(value) {
   for (const match of content.matchAll(/!?\[|</g)) {
     const image = match[0] === '![' && !escaped(content, match.index);
     const from = match.index + Number(match[0] === '![' && !image);
-    if (from < resumeAt || excludedUntil(from) > from || escaped(content, from)) continue;
+    if (from < resumeAt || excludedUntil(from) > from || escaped(content, from) || tables.some(table => table.from <= from && from < table.to)) continue;
     while (definitions[definitionIndex]?.to <= from) definitionIndex++;
     if (definitions[definitionIndex]?.from <= from) continue;
     if (match[0] === '<') {
@@ -253,6 +254,13 @@ function scan(value) {
     references.push({ from, to, label, labelFrom: start + 1, labelTo: close, destination: definition.destination,
       image, kind: 'link', reference: key });
   }
+  for (const [image, items] of [[true, spanTableImages(content, tables)], [false, spanTableLinks(content, tables)]]) {
+    for (const ref of items) references.push({
+      from:ref.start,to:ref.end,label:ref.label,labelFrom:ref.labelFrom,labelTo:ref.labelTo,
+      html:true,image,kind:ref.wiki?'wiki':'link',destination:ref.wiki?.target??ref.url,
+      anchor:ref.wiki?.anchor,embed:ref.wiki?.embed,destinationFrom:ref.from,destinationTo:ref.to,
+    });
+  }
   const valid = references.sort((a, b) => a.from - b.from || b.to - a.to);
   // Keep actual image children in a link label, while skipping false tokens
   // found inside its destination or explicit reference ID.
@@ -269,6 +277,20 @@ function scan(value) {
 function safeInlineDestination(value, angle) {
   return String(value).replace(angle ? /[\u0000-\u0020<>\\]/g : /[\u0000-\u0020<>()\\]/g, character =>
     '%' + character.charCodeAt(0).toString(16).padStart(2, '0').toUpperCase());
+}
+
+// Share transforms also return complete Markdown references or escaped labels.
+// Keep the surrounding HTML cell and encode the transformed reference there.
+function htmlReplacement(value) {
+  const refs=scan(value),ref=refs[0];
+  if(!ref||ref.from!==0||ref.to!==value.length)return escapeTableAttribute(unescapeMarkdown(value));
+  const label=escapeTableAttribute(unescapeMarkdown(ref.label||ref.destination));
+  if(ref.kind==='wiki'){
+    const raw=escapeTableAttribute(encodeURIComponent(value));
+    return `<a href="#" data-loop-wiki="${raw}">${label}</a>`;
+  }
+  const destination=escapeTableAttribute(safeInlineDestination(ref.destination,true));
+  return ref.image?`<img src="${destination}" alt="${label}">`:`<a href="${destination}">${label}</a>`;
 }
 
 /** A transform returns undefined to retain the span, a full replacement string,
@@ -302,14 +324,15 @@ function rewrite(value, references, transform) {
         original = content.slice(reference.from, reference.labelFrom) + label + content.slice(reference.labelTo, reference.to);
       }
       const updated = transform({ ...reference, label }, original);
-      if (typeof updated === 'string') parts.push(updated);
+      if (typeof updated === 'string') parts.push(reference.html?htmlReplacement(updated):updated);
       else if (updated?.destination !== undefined) {
-        const destination = safeInlineDestination(updated.destination, content[reference.destinationFrom - 1] === '<');
+        const written = safeInlineDestination(updated.destination, reference.html||content[reference.destinationFrom - 1] === '<');
+        const destination = reference.html?escapeTableAttribute(written):written;
         if (reference.reference && !reference.definition) {
           parts.push(`${reference.image ? '!' : ''}[${label}](<${destination}>)`);
         } else if (Number.isInteger(reference.destinationFrom)) {
-          // The destination follows the label. Account for any nested edits.
-          const adjustment = original.length - (reference.to - reference.from);
+          // Markdown destinations follow the label. HTML attributes precede it.
+          const adjustment = reference.html ? 0 : original.length - (reference.to - reference.from);
           parts.push(original.slice(0, reference.destinationFrom - reference.from + adjustment), destination,
             original.slice(reference.destinationTo - reference.from + adjustment));
         } else throw new TypeError('A wiki link needs a complete replacement');

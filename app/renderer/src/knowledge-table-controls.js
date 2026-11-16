@@ -1,5 +1,7 @@
 // Contextual controls for the production Markdown table widget. Every edit is
 // delegated to the editor transaction/history; no second table model exists.
+import {tableGeometry} from './knowledge-span-grid.js';
+
 const icons={plus:'M8 2v12M2 8h12',more:'M3 8h.01M8 8h.01M13 8h.01',grip:'M5 3h.01M11 3h.01M5 8h.01M11 8h.01M5 13h.01M11 13h.01'};
 // Only one clicked range is shown, including when several editors are mounted.
 let clearTableHighlight=null;
@@ -9,31 +11,35 @@ function button(label,icon,className='') {
   el.addEventListener('mousedown',event=>event.preventDefault());return el;
 }
 export function tablePosition(owner,widget,row,column=0) {
-  const cell=widget.querySelector('table')?.rows[row]?.cells[column];
+  const cell=owner.tableCellAt(widget,row,column);
   const range=cell&&owner.tableCellRange(widget,row,column);if(!range)return false;
-  owner.finishTableCell();owner.tableColumn=column;
+  if(!owner.settleTableCell())return false;
+  owner.tableColumn=column;owner.tableLocation={widget,row,column};
   owner.view.dispatch({selection:{anchor:range.from},scrollIntoView:false});return true;
 }
 export function installTableControls(owner,widget) {
   const table=widget.querySelector('table'),stage=document.createElement('div');stage.className='kn-table-stage';table.before(stage);stage.append(table);
+  const {slots,columns,colElements}=tableGeometry(table);
+  const columnBoxes=colElements.length?colElements:table.rows[0].cells;
   const controls=document.createElement('div');controls.className='kn-table-controls-layer';stage.append(controls);
   const main=button('表格操作','more','kn-table-menu-trigger');main.dataset.tableAction='tools';main.setAttribute('aria-haspopup','menu');controls.append(main);
   main.onclick=()=>{
     const active=owner.activeTableCell;
     if(active?.composing)return;
-    const row=active?.widget===widget?active.row:0,column=active?.widget===widget?active.column:0;
+    const target=active?.widget===widget?active:widget.cellRange?.head||widget.cellAnchor;
+    const row=target?.row??0,column=target?.column??target?.col??0;
     const cellSelection=active?.widget===widget?{start:active.input.selectionStart,end:active.input.selectionEnd,direction:active.input.selectionDirection}:null;
     if(tablePosition(owner,widget,row,column))owner.options.onTableMenu?.({widget,row,column,cellSelection,scope:'table',trigger:main});
   };
   const addRow=button('添加行','plus','kn-table-edge kn-table-add-row'),addColumn=button('添加列','plus','kn-table-edge kn-table-add-column');
   addRow.dataset.tableAction='row-add';addColumn.dataset.tableAction='column-add';controls.append(addRow,addColumn);
   addRow.onclick=()=>{if(!owner.activeTableCell?.composing&&tablePosition(owner,widget,table.rows.length-1,0))owner.table('row-add',0);};
-  addColumn.onclick=()=>{const column=table.rows[0].cells.length-1;if(!owner.activeTableCell?.composing&&tablePosition(owner,widget,0,column))owner.table('column-add',column);};
+  addColumn.onclick=()=>{const column=columns-1;if(!owner.activeTableCell?.composing&&tablePosition(owner,widget,0,column))owner.table('column-add',column);};
   const handles=[],resizers=[];let frame=0,gesture=null,clearHighlight=()=>{};
   function highlight(kind,index,trigger) {
     clearTableHighlight?.();
     if(!widget.isConnected)return;
-    const cells=kind==='row'?[...table.rows[index].cells]:[...table.rows].map(row=>row.cells[index]);
+    const cells=[...new Set(kind==='row'?slots[index]:slots.map(row=>row[index]))].filter(Boolean);
     const abort=new AbortController();
     for(const cell of cells)cell.dataset.tableHighlight=kind;
     trigger.dataset.tableActive='true';
@@ -54,15 +60,15 @@ export function installTableControls(owner,widget) {
   function layout() {
     if(!widget.isConnected||owner.destroyed)return;
     const bounds=table.getBoundingClientRect(),base=stage.getBoundingClientRect();
-    for(const item of handles){const rect=item.kind==='row'?table.rows[item.index].getBoundingClientRect():table.rows[0].cells[item.index].getBoundingClientRect();
+    for(const item of handles){const rect=item.kind==='row'?table.rows[item.index].getBoundingClientRect():columnBoxes[item.index].getBoundingClientRect();
       item.el.style.left=(item.kind==='row'?bounds.left-base.left-20:rect.left-base.left)+'px';
       item.el.style.top=(item.kind==='row'?rect.top-base.top:bounds.top-base.top-20)+'px';
       item.el.style.width=(item.kind==='row'?18:rect.width)+'px';item.el.style.height=(item.kind==='row'?rect.height:18)+'px';
     }
-    for(const item of resizers){const rect=table.rows[0].cells[item.column].getBoundingClientRect();item.el.style.left=rect.right-base.left-4+'px';item.el.style.top=bounds.top-base.top+'px';item.el.style.height=bounds.height+'px';}
+    for(const item of resizers){const rect=columnBoxes[item.column].getBoundingClientRect();item.el.style.left=rect.right-base.left-4+'px';item.el.style.top=bounds.top-base.top+'px';item.el.style.height=bounds.height+'px';}
     addRow.style.top=bounds.bottom-base.top+2+'px';addRow.style.width=bounds.width+'px';
     addColumn.style.left=bounds.right-base.left+2+'px';addColumn.style.height=bounds.height+'px';
-    main.title=main.getAttribute('aria-label')+` · ${table.rows.length-1} 行 ${table.rows[0].cells.length} 列`;
+    main.title=main.getAttribute('aria-label')+` · ${table.rows.length-1} 行 ${columns} 列`;
   }
   function finish(cancel=false) {
     const current=gesture;if(!current)return;gesture=null;current.abort.abort();widget.classList.remove('kn-table-dragging');
@@ -80,7 +86,7 @@ export function installTableControls(owner,widget) {
   function start(event,kind,index) {
     if(event.button!==0||owner.activeTableCell?.composing)return;
     event.preventDefault();event.stopPropagation();
-    const widths=[...table.rows[0].cells].map(cell=>Math.round(cell.getBoundingClientRect().width));
+    const widths=[...columnBoxes].map(cell=>Math.round(cell.getBoundingClientRect().width));
     gesture={kind,index,target:index,origin:[event.clientX,event.clientY],widths,width:widths[index],moved:false,abort:new AbortController()};
     const current=gesture,signal=current.abort.signal;
     window.addEventListener('pointermove',move=>{
@@ -90,9 +96,11 @@ export function installTableControls(owner,widget) {
       if(kind==='resize') {
         current.width=Math.max(80,Math.min(1600,Math.round(widths[index]+move.clientX-current.origin[0])));
         const next=widths.slice();next[index]=current.width;table.style.tableLayout='fixed';table.style.width=next.reduce((a,b)=>a+b,0)+'px';
-        for(const row of table.rows)for(let c=0;c<row.cells.length;c++)row.cells[c].style.width=next[c]+'px';queue();return;
+        if(colElements.length)colElements.forEach((col,index)=>col.style.width=next[index]+'px');
+        else for(const row of table.rows)for(let c=0;c<row.cells.length;c++)row.cells[c].style.width=next[c]+'px';
+        queue();return;
       }
-      const axis=kind==='row'?'clientY':'clientX',items=kind==='row'?[...table.rows]:[...table.rows[0].cells];
+      const axis=kind==='row'?'clientY':'clientX',items=kind==='row'?[...table.rows]:[...columnBoxes];
       current.target=items.findIndex(cell=>{const r=cell.getBoundingClientRect();return move[axis]>=(kind==='row'?r.top:r.left)&&move[axis]<=(kind==='row'?r.bottom:r.right);});
       if(kind==='row'&&current.target===0)current.target=1;
       if(current.target<0)current.target=index;
@@ -103,27 +111,62 @@ export function installTableControls(owner,widget) {
     window.addEventListener('blur',()=>finish(true),{once:true,signal});
     window.addEventListener('keydown',key=>{if(key.key==='Escape'){key.preventDefault();key.stopImmediatePropagation();finish(true);}},{capture:true,signal});
   }
+  function openRowMenu(row,trigger,point) {
+    if(!tablePosition(owner,widget,row))return;
+    highlight('row',row,trigger);
+    owner.options.onTableMenu?.({widget,row,column:0,scope:'row',trigger,point});
+  }
+  function rowContextMenu(target,point) {
+    const handle=target.closest('[data-table-handle="row"]');
+    if(handle&&controls.contains(handle)){
+      openRowMenu(Number(handle.dataset.index),handle,point);
+      return true;
+    }
+    const trigger=controls.querySelector('[data-table-handle="row"][data-table-active]');
+    if(!point||!trigger||owner.activeTableCell?.composing||target.closest('table')!==table||
+      target.closest('a,img,button,input,textarea,.kn-table-cell-visual')||owner.activeTableCell?.cell.contains(target))return false;
+    const row=Number(trigger.dataset.index),cell=target.closest('td,th');
+    const selection=window.getSelection();
+    if(selection&&!selection.isCollapsed&&cell?.contains(selection.anchorNode))return false;
+    if(cell){
+      if(!slots[row].includes(cell))return false;
+      const bounds=table.rows[row].getBoundingClientRect();
+      if(point.y<bounds.top||point.y>=bounds.bottom)return false;
+    }else if(target.closest('tr')!==table.rows[row])return false;
+    openRowMenu(row,trigger,point);
+    return true;
+  }
   function handle(kind,index) {
     const label=kind==='row'?(index===0?'表头行':`第${index}行`):`第${index+1}列`;
     const el=button(`${label}操作${kind==='row'&&index===0?'':'（可拖动排序）'}`,'grip',`kn-table-handle kn-table-${kind}-handle`);el.dataset.tableHandle=kind;el.dataset.index=index;el.setAttribute('aria-haspopup','menu');
     el.addEventListener('pointerdown',event=>{if(kind==='row'&&index===0)return;start(event,kind,index);});
     el.onclick=event=>{if(event.detail&&el.dataset.dragged==='true'){delete el.dataset.dragged;return;}
       if(owner.activeTableCell?.composing)return;
-      const row=kind==='row'?index:0,column=kind==='column'?index:0;
-      if(tablePosition(owner,widget,row,column)){
+      if(kind==='row'){
+        if(event.detail===0){openRowMenu(index,el);return;}
+        owner.options.onTableRowSelect?.();
         highlight(kind,index,el);
-        owner.options.onTableMenu?.({widget,row,column,scope:kind,trigger:el});
+        el.focus({preventScroll:true});
+        return;
+      }
+      if(tablePosition(owner,widget,0,index)){
+        highlight(kind,index,el);
+        owner.options.onTableMenu?.({widget,row:0,column:index,scope:kind,trigger:el});
       }
     };
+    if(kind==='row'){
+      el.title=`${label} · 单击选中，右键打开菜单`;
+      el.setAttribute('aria-keyshortcuts','Shift+F10');
+    }
     // Native click follows pointerup. Mark it before the global listener runs.
     el.addEventListener('pointerup',()=>{if(gesture?.moved)el.dataset.dragged='true';});
     controls.append(el);handles.push({kind,index,el});
   }
   for(let row=0;row<table.rows.length;row++)handle('row',row);
-  for(let column=0;column<table.rows[0].cells.length;column++){
+  for(let column=0;column<columns;column++){
     handle('column',column);const el=document.createElement('div');el.className='kn-table-resizer';el.dataset.column=column;el.title='拖动调整列宽';el.setAttribute('aria-hidden','true');
     el.addEventListener('pointerdown',event=>start(event,'resize',column));controls.append(el);resizers.push({el,column});
   }
   const observer=new ResizeObserver(queue);observer.observe(table);queue();
-  widget.tableControls={refresh:queue,destroy(){clearHighlight();finish(true);observer.disconnect();cancelAnimationFrame(frame);}};
+  widget.tableControls={rowContextMenu,refresh:queue,destroy(){clearHighlight();finish(true);observer.disconnect();cancelAnimationFrame(frame);}};
 }

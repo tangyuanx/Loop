@@ -9,6 +9,8 @@ import {closeBrackets,closeBracketsKeymap,autocompletion,completionKeymap} from 
 import {searchKeymap,highlightSelectionMatches} from '@codemirror/search';
 import {KnowledgeFind,knowledgeFindMarks} from './knowledge-search.js';
 import {installTableControls} from './knowledge-table-controls.js';
+import {tableGeometry,cellBounds,mergeBounds,splitSpan,editSpan} from './knowledge-span-grid.js';
+import {spanCellToPipe} from './knowledge-span-content.js';
 import {decodeTableCell,encodeTableCell} from './knowledge-table-content.js';
 import {VisualTableCell} from './knowledge-table-visual.js';
 import {tags} from '@lezer/highlight';
@@ -126,12 +128,26 @@ class TableWidget extends RenderWidget {
     // add or restructure a row first.
     el.tabIndex=0;el.setAttribute('role','group');
     const table=el.querySelector('table');
-    el.setAttribute('aria-label',`表格 ${Math.max(0,(table?.rows.length||1)-1)} 行 ${table?.rows[0]?.cells.length||0} 列，回车编辑`);
+    const geometry=tableGeometry(table);
+    el.setAttribute('aria-label',`表格 ${table.rows.length-1} 行 ${geometry.columns} 列，回车编辑，Shift 加方向键选择单元格`);
     el.addEventListener('keydown',event=>{
       if(event.isComposing||event.keyCode===229)return;
       // Cell typing and native button activation belong to their own controls.
       if(event.target!==el&&event.target.closest?.('button,.kn-table-cell-editor'))return;
-      if(!['Enter',' ','ArrowDown','ArrowUp','ArrowLeft','ArrowRight'].includes(event.key))return;
+      if(event.key==='Escape'&&el.cellRange){event.preventDefault();this.owner.clearTableRange(el);return;}
+      const direction={ArrowDown:[1,0],ArrowUp:[-1,0],ArrowLeft:[0,-1],ArrowRight:[0,1]}[event.key];
+      if(event.shiftKey&&direction){
+        const anchor=el.cellAnchor||{row:table.rows.length>1?1:0,col:0};
+        const head=el.cellRange?.head||anchor;
+        const target=geometry.slots[head.row][head.col],position=geometry.positions.get(target);
+        const next={row:Math.max(0,Math.min(table.rows.length-1,(direction[0]>0?position.row+target.rowSpan-1:head.row)+direction[0])),
+          col:Math.max(0,Math.min(geometry.columns-1,(direction[1]>0?position.col+target.colSpan-1:head.col)+direction[1]))};
+        event.preventDefault();event.stopPropagation();this.owner.selectTableRange(el,anchor,next);return;
+      }
+      if(!direction&&!['Enter',' '].includes(event.key))return;
+      if(el.cellRange&&(event.key==='Enter'||event.key===' ')){
+        event.preventDefault();el.querySelector('[data-table-action="tools"]')?.click();return;
+      }
       const body=el.querySelector('table tbody td')||el.querySelector('table th');
       if(!body)return;
       event.preventDefault();event.stopPropagation();
@@ -143,7 +159,27 @@ class TableWidget extends RenderWidget {
       const cell=event.target.closest('td,th');
       if(!cell||cell.closest('table')!==el.querySelector('table'))return;
       event.preventDefault();event.stopPropagation();
+      const position=geometry.positions.get(cell);
+      if(event.shiftKey&&!this.owner.activeTableCell?.composing){
+        if(!this.owner.settleTableCell())return;
+        this.owner.selectTableRange(el,el.cellAnchor||position,position);
+        el.focus({preventScroll:true});return;
+      }
+      this.owner.clearTableRange(el);
       this.owner.editTableCell(el,cell,false,this.owner.cellCaretAt(el,cell,event),{left:event.clientX,top:event.clientY});
+    });
+    el.addEventListener('copy',event=>{
+      if(!el.cellRange||!event.clipboardData||this.owner.activeTableCell?.widget===el)return;
+      const {top,left,bottom,right}=el.cellRange.bounds,lines=[];
+      for(let row=top;row<=bottom;row++){
+        const columns=[];
+        for(let col=left;col<=right;col++){
+          const cell=geometry.slots[row]?.[col],position=geometry.positions.get(cell);
+          columns.push(position?.row===row&&position.col===col?cell.innerText.replace(/[\t\r\n]+/g,' '):'');
+        }
+        lines.push(columns.join('\t'));
+      }
+      event.preventDefault();event.clipboardData.setData('text/plain',lines.join('\n'));
     });
     el.addEventListener('click',event=>this.owner.handleRenderedClick(event,this.from));return el;
   }
@@ -154,6 +190,8 @@ class TableWidget extends RenderWidget {
     const oldTable=el.querySelector('table'),newTable=next.querySelector('table');if(!oldTable||!newTable)return false;
     const oldRows=[...oldTable.rows],rows=[...newTable.rows];
     if(rows.length!==oldRows.length||rows.some((row,i)=>row.cells.length!==oldRows[i].cells.length))return false;
+    if(oldTable.hasAttribute('data-loop-table')!==newTable.hasAttribute('data-loop-table')||
+      rows.some((row,r)=>[...row.cells].some((cell,c)=>cell.colSpan!==oldRows[r].cells[c].colSpan||cell.rowSpan!==oldRows[r].cells[c].rowSpan)))return false;
     el.dataset.sourcePos=String(this.from);el.dataset.sourceTo=String(this.to);
     for(let r=0;r<rows.length;r++)for(let c=0;c<rows[r].cells.length;c++){
       const cell=oldRows[r].cells[c],fresh=rows[r].cells[c],active=this.owner.activeTableCell;
@@ -406,6 +444,15 @@ class KnowledgeEditor {
     if(!widget||image.closest('.kn-embed-body')||!this.root.contains(widget)||this.mode!=='edit')return null;
     const from=Number(widget.dataset.sourcePos),to=Number(widget.dataset.sourceTo);
     if(!Number.isFinite(from)||!Number.isFinite(to)||to<=from)return null;
+    if(widget.querySelector('table[data-loop-table]')){
+      const refs=core.imageReferences(this.getEditorText()).filter(ref=>ref.html&&ref.start>=from&&ref.end<=to);
+      const images=[...widget.querySelectorAll('img:not(.ProseMirror-separator),.kn-image-missing')].filter(item=>!item.closest('.kn-embed-body'));
+      const ref=refs[images.indexOf(image)];
+      if(!ref||images.length!==refs.length)return null;
+      const tag=this.view.state.doc.sliceString(ref.start,ref.end);
+      const title=document.createElement('template');title.innerHTML=tag;
+      return {node:{from:ref.start,to:ref.end},tag,layout:imageLayout(title.content.firstElementChild.getAttribute('title'))};
+    }
     forceParsing(this.view,Math.min(this.view.state.doc.length,to+1));
     const nodes=[];syntaxTree(this.view.state).iterate({from,to,enter:n=>{if(n.name==='Image'){nodes.push(n.node);return false;}}});
     // A missing image still occupies its own source position. Never write to
@@ -426,6 +473,13 @@ class KnowledgeEditor {
     }
     if(!['left','center','right'].includes(layout.align))return false;
     const marker=`[loop-image ${layout.width?'width='+layout.width+' ':''}align=${layout.align}]`;
+    if(context.tag){
+      const {from,to}=context.node;
+      const title=core.escapeTableAttribute((layout.title?layout.title+' ':'')+marker);
+      const tag=context.tag.replace(/\s(?:title|width)="[^"]*"/g,'').replace(/\s*\/?>$/,` title="${title}"${layout.width?' width="'+layout.width+'"':''}>`);
+      this.view.dispatch({changes:{from,to,insert:tag},annotations:isolateHistory.of('full'),userEvent:'input.image-layout'});
+      this.view.requestMeasure();return true;
+    }
     // Escape entities before writing a Markdown title so a literal entity or
     // table delimiter survives the next parse without changing the caption.
     const title=(layout.title?layout.title+' '+marker:marker)
@@ -532,7 +586,8 @@ class KnowledgeEditor {
       const text=state.doc.sliceString(node.from,node.to),reference=/!\[[^\]\n]*\](?!\()/.test(text)?this.imageReferenceEnv(state):{};
       const key=node.name+':'+text+(reference.references?JSON.stringify(reference.references):'');
       let html=this.renderCache.get(key);if(!html){html=this.renderer.render(text,{noteId:this.options.noteId,stack:[this.options.noteId],...reference});if(this.renderCache.size>160)this.renderCache.clear();this.renderCache.set(key,html);}
-      const Type=node.name==='Image'?ImageWidget:node.name==='Table'?TableWidget:RenderWidget;
+      const Type=node.name==='Image'?ImageWidget:node.name==='Table'||node.name==='HTMLBlock'?TableWidget:RenderWidget;
+      if(Type===TableWidget&&node.name==='HTMLBlock'&&!html.startsWith('<table '))return;
       // A block replacement must consume the line breaks that enclose it.
       // Otherwise CodeMirror keeps an empty line box for the first and the last
       // line of the block: the note gains a blank line above and below every
@@ -555,6 +610,10 @@ class KnowledgeEditor {
       }
 
       if(node.name==='Table'){widget(node);return false;}
+      if(node.name==='HTMLBlock'&&state.doc.sliceString(node.from,node.from+24).startsWith('<table data-loop-table=')){
+        const table=core.parseSpanTable(state.doc.sliceString(node.from,node.to),node.from);
+        if(table){widget({name:node.name,from:node.from,to:table.to});return false;}
+      }
       if(['FencedCode','HorizontalRule','Frontmatter'].includes(node.name) && !active){widget(node);return false;}
       if(node.name==='Blockquote' && /^>\s*\[!/.test(state.doc.sliceString(node.from,Math.min(node.to,node.from+80))) && !active){widget(node);return false;}
       if(node.name==='Image'){widget(node,true);return false;}
@@ -648,7 +707,7 @@ class KnowledgeEditor {
         const range=this.tableCellRange(cell.widget,cell.row,cell.column);
         if(range){
           Object.assign(cell,range);
-          const {text,structured}=decodeTableCell(update.state.sliceDoc(range.from,range.to).trim());
+          const {text,structured}=this.decodeCell(update.state.sliceDoc(range.from,range.to),range.span);
           const start=cell.input.selectionStart,end=cell.input.selectionEnd,direction=cell.input.selectionDirection;
           cell.input.value=cell.value=text;cell.structured=structured;
           cell.input.setSelectionRange(start,end,direction);
@@ -691,9 +750,10 @@ class KnowledgeEditor {
   cellCaretAt(widget,cell,event) {
     const range=document.caretRangeFromPoint?.(event.clientX,event.clientY);
     if(!range||!cell.contains(range.startContainer))return null;
-    const sourceRange=this.tableCellRange(widget,cell.parentElement.rowIndex,cell.cellIndex);
+    const {row,col}=this.tableCellPosition(widget,cell);
+    const sourceRange=this.tableCellRange(widget,row,col);
     if(!sourceRange)return null;
-    const text=decodeTableCell(this.view.state.sliceDoc(sourceRange.from,sourceRange.to).trim()).text;
+    const text=this.decodeCell(this.view.state.sliceDoc(sourceRange.from,sourceRange.to),sourceRange.span).text;
     const walker=document.createTreeWalker(cell,NodeFilter.SHOW_TEXT);
     let offset=0,current;
     while((current=walker.nextNode())){
@@ -704,8 +764,41 @@ class KnowledgeEditor {
     }
     return null;
   }
+  tableCellAt(widget,row,column){
+    const table=widget?.querySelector('table');
+    return table?tableGeometry(table).slots[row]?.[column]:null;
+  }
+  tableCellPosition(widget,cell){
+    return tableGeometry(widget.querySelector('table')).positions.get(cell);
+  }
+  clearTableRange(widget){
+    widget.cellRange=null;
+    for(const cell of widget.querySelectorAll('[data-table-range]'))delete cell.dataset.tableRange;
+  }
+  selectTableRange(widget,anchor,head){
+    if(this.rangedTable&&this.rangedTable!==widget)this.clearTableRange(this.rangedTable);
+    const geometry=tableGeometry(widget.querySelector('table')),bounds=cellBounds(anchor,head,geometry);
+    if(!bounds)return;
+    this.clearTableRange(widget);this.rangedTable=widget;
+    widget.cellAnchor=anchor;widget.cellRange={head,bounds};
+    for(let r=bounds.top;r<=bounds.bottom;r++)for(let c=bounds.left;c<=bounds.right;c++){
+      const cell=geometry.slots[r]?.[c];
+      if(cell)cell.dataset.tableRange='true';
+    }
+  }
+  decodeCell(source,span){
+    return decodeTableCell(span?spanCellToPipe(source)??'':source.trim());
+  }
+  storeSpanCell(pipe,state=this.view.state){
+    return this.renderer.storeSpanCell(pipe,{noteId:this.options.noteId,...this.imageReferenceEnv(state)});
+  }
   tableCellRange(widget,rowIndex,column) {
     const state=this.view.state;
+    if(widget.querySelector('table')?.hasAttribute('data-loop-table')){
+      const from=Number(widget.dataset.sourcePos),table=core.parseSpanTable(state.doc.sliceString(from),from);
+      const cell=table?.cells.find(cell=>cell.row<=rowIndex&&rowIndex<cell.row+cell.rows&&cell.col<=column&&column<cell.col+cell.cols);
+      return cell?{from:cell.from,to:cell.to,prefix:'',suffix:'',span:true}:null;
+    }
     let node=syntaxTree(state).resolveInner(Number(widget.dataset.sourcePos),1);
     while(node&&node.name!=='Table')node=node.parent;
     const rows=node?[...node.getChildren('TableHeader'),...node.getChildren('TableRow')]:[];
@@ -738,6 +831,12 @@ class KnowledgeEditor {
     else {active.content.innerHTML=active.renderedHTML;active.content.replaceWith(...active.content.childNodes);this.decorateImages(active.cell);}
     // A blurred table field restores rendered nodes without a transaction.
     queueMicrotask(()=>{if(!this.destroyed&&this.find?.active)this.find.update();});
+  }
+  settleTableCell(){
+    const active=this.activeTableCell;
+    if(!active)return true;
+    if(active.composing||active.commit()===false)return false;
+    this.finishTableCell();return true;
   }
   tableField(active){return active.visual?.dom||active.input;}
   syncTableSelection(active,selection=active.visual?.sourceSelection()){
@@ -793,9 +892,12 @@ class KnowledgeEditor {
   }
   editTableCell(widget,cell,reveal=false,caret=null,point=null) {
     if(this.activeTableCell?.cell===cell)return;
-    this.finishTableCell();
-    const row=cell.parentElement.rowIndex,column=cell.cellIndex,range=this.tableCellRange(widget,row,column);
+    if(!this.settleTableCell())return;
+    const {row,col:column}=this.tableCellPosition(widget,cell);
+    const range=this.tableCellRange(widget,row,column);
     if(!range)return;
+    if(this.rangedTable)this.clearTableRange(this.rangedTable);
+    widget.cellAnchor={row,col:column};this.tableLocation={widget,row,column};
     this.tableColumn=column;
     this.view.dispatch({selection:{anchor:range.from},scrollIntoView:false});
     const input=document.createElement('textarea');input.rows=1;input.className='kn-table-cell-editor';
@@ -804,7 +906,7 @@ class KnowledgeEditor {
     // An empty cell's range covers its padding; show it as an empty field so the
     // first keystroke is not appended to invisible spaces.
     const source=this.view.state.sliceDoc(range.from,range.to);
-    const decoded=decodeTableCell(source.trim());
+    const decoded=this.decodeCell(source,range.span);
     input.value=decoded.text;
     const content=document.createElement('span');content.className='kn-table-cell-content';content.setAttribute('aria-hidden','true');content.textContent=input.value||'\u200b';
     const active={widget,cell,input,content,renderedHTML:cell.innerHTML,renderedNodes:[...cell.childNodes],row,column,...range,events:new AbortController(),
@@ -812,15 +914,15 @@ class KnowledgeEditor {
     this.activeTableCell=active;
     cell.classList.add('kn-cell-editing');cell.replaceChildren(content,input);
     const commit=(formatting=false,autoSpacing=false)=>{
-      if(active.composing||this.activeTableCell!==active)return;
-      if(input.value===active.value)return;
+      if(active.composing||this.activeTableCell!==active)return false;
+      if(input.value===active.value)return true;
       const raw=input.value.replace(/\r\n?/g,'\n');
       const caret=input.selectionStart??raw.length,head=input.selectionEnd??caret,direction=input.selectionDirection;
       const structured=active.structured||/^\s*(?:[-+*]|\d{1,9}[.)])(?:\s|$)/m.test(raw)||/^\s*(`{3,}|~{3,})[^\n]*\n[\s\S]*\n\s*\1\s*$/m.test(raw);
       let value=encodeTableCell(raw,core.escaped,structured),display=raw,displayCaret=caret,displayHead=head;
       const from=active.from,to=active.to;
       const valueFrom=from+active.prefix.length;
-      if(autoSpacing&&!structured&&this.options.autoSpacing?.()){
+      if(autoSpacing&&!structured&&!active.span&&this.options.autoSpacing?.()){
         const previous=this.view.state.sliceDoc(from,to);
         const next=active.prefix+value+active.suffix;
         let start=0,end=0;
@@ -840,11 +942,15 @@ class KnowledgeEditor {
           }
         }
       }
+      if(active.span){
+        value=this.storeSpanCell(value);
+        if(value===null){this.statusHost.textContent='当前内容无法安全写入合并表格，请调整内容后重试。';return false;}
+      }
       const insert=active.prefix+value+active.suffix;
       input.value=active.value=display;active.structured=structured;
       input.setSelectionRange(displayCaret,displayHead,direction);
       content.textContent=(input.value||'\u200b')+(input.value.endsWith('\n')?'\u200b':'');
-      if(this.view.state.doc.sliceString(from,to)===insert)return;
+      if(this.view.state.doc.sliceString(from,to)===insert)return true;
       active.revision++;
       active.from=from+active.prefix.length;active.to=active.from+value.length;active.prefix='';active.suffix='';active.writing=true;
       try{this.view.dispatch({changes:{from,to,insert},selection:{anchor:active.from},annotations:formatting?isolateHistory.of('full'):[],userEvent:formatting?'input.format':'input.table-cell'});}
@@ -857,6 +963,7 @@ class KnowledgeEditor {
           this.refreshTableInput(active);this.focusTableInput(active);
         }
       }
+      return true;
     };
     active.commit=commit;
     const isFieldEvent=event=>this.activeTableCell===active&&this.tableField(active).contains(event.target);
@@ -879,6 +986,11 @@ class KnowledgeEditor {
       if(replacing||!text.includes('\t')){pasteText(event,text);return;}
       const state=this.tableInputState();
       for(let node=syntaxTree(state).resolveInner(state.selection.main.head,-1);node;node=node.parent)if(node.name==='FencedCode'){pasteText(event,text);return;}
+      if(active.span){
+        event.preventDefault();event.stopPropagation();
+        if(!this.pasteSpanCells(active,text))this.statusHost.textContent='粘贴范围会覆盖合并单元格或超出表格。';
+        return;
+      }
       const change=core.pasteTable(this.getEditorText(),active.from,active.column,text);
       if(!change){pasteText(event,text);return;}
       event.preventDefault();event.stopPropagation();
@@ -910,7 +1022,9 @@ class KnowledgeEditor {
       // Wait until that transaction has reconciled the value before committing.
       queueMicrotask(()=>{
         if(this.activeTableCell===active&&!active.writing&&!active.reconciling&&document.activeElement!==this.tableField(active)){
-          if(!active.composing)commit();this.finishTableCell();
+          if(active.composing)return;
+          if(commit()===false){this.focusTableInput(active);return;}
+          this.finishTableCell();
         }
       });
     },listeners);
@@ -935,7 +1049,7 @@ class KnowledgeEditor {
         return;
       }
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'){
-        event.preventDefault();event.stopPropagation();commit();this.options.onSave?.();return;
+        event.preventDefault();event.stopPropagation();if(commit())this.options.onSave?.();return;
       }
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='f'){
         event.preventDefault();event.stopPropagation();this.openSearch();return;
@@ -950,12 +1064,12 @@ class KnowledgeEditor {
       if(!['Tab','Enter','Escape'].includes(event.key))return;
       event.preventDefault();event.stopPropagation();
       if(event.key==='Escape'){void this.cancelTableInput(active);return;}
-      commit();
+      if(!commit())return;
       if(event.key==='Enter'){void this.finishTableInput(active);return;}
-      const table=widget.querySelector('table'),cells=[...table.querySelectorAll('th,td')];
+      const table=widget.querySelector('table'),cells=[...tableGeometry(table).positions.keys()];
       const next=cells[cells.indexOf(cell)+(event.shiftKey?-1:1)];
       if(next){this.editTableCell(widget,next,true);return;}
-      if(event.key==='Tab'&&!event.shiftKey){this.table('row-add',0);return;}
+      if(event.key==='Tab'&&!event.shiftKey){this.table('row-add',0,undefined,table.rows.length-1);return;}
       const block=core.tableAt(this.getEditorText(),active.from);
       this.finishTableCell();this.view.dispatch({selection:{anchor:Math.min(this.view.state.doc.length,(event.shiftKey?block?.from-1:block?.to+1)||0)},scrollIntoView:false});this.view.focus();
     },listeners);
@@ -1333,15 +1447,20 @@ class KnowledgeEditor {
   getFormatState(){const node=syntaxTree(this.view.state).resolveInner(this.view.state.selection.main.head,-1);const names=[];for(let n=node;n;n=n.parent)names.push(n.name);return {bold:names.includes('StrongEmphasis'),italic:names.includes('Emphasis'),strike:names.includes('Strikethrough'),inline:names.includes('InlineCode'),heading:names.find(n=>/^ATXHeading\d/.test(n))?.slice(-1)||'0',undo:true,redo:true};}
   openSearch(query){this.find.open(query);}
   tableIndex(pos) {
-    let index=-1;syntaxTree(this.view.state).iterate({enter:node=>{if(node.name==='Table'&&node.from<=pos)index++;}});return index;
+    let index=-1;
+    const {state}=this.view;
+    syntaxTree(state).iterate({to:Math.min(state.doc.length,pos+1),enter:node=>{
+      if(node.from<=pos&&(node.name==='Table'||node.name==='HTMLBlock'&&core.parseSpanTable(state.doc.sliceString(node.from,node.to))))index++;
+    }});return index;
   }
   applyTableWidths(widget,pos,index=this.tableIndex(pos)) {
     const table=widget.matches('table')?widget:widget.querySelector('table');if(!table||!this.view)return;
-    const widths=this.options.tableColumnWidths?.[index],cells=[...(table.rows[0]?.cells||[])];
-    const custom=widths?.length===cells.length;
+    const widths=this.options.tableColumnWidths?.[index],{columns,colElements}=tableGeometry(table);
+    const custom=widths?.length===columns;
     table.style.width=custom?widths.reduce((a,b)=>a+b,0)+'px':'';
     table.style.tableLayout=custom?'fixed':'';
-    for(const row of table.rows)for(let c=0;c<row.cells.length;c++)row.cells[c].style.width=custom?widths[c]+'px':'';
+    if(colElements.length)colElements.forEach((col,index)=>col.style.width=custom?widths[index]+'px':'');
+    else for(const row of table.rows)for(let c=0;c<row.cells.length;c++)row.cells[c].style.width=custom?widths[c]+'px':'';
   }
   resizeTableColumn(column,width,widget=null) {
     // Resize the table the gesture actually belongs to, not the table of the
@@ -1354,7 +1473,7 @@ class KnowledgeEditor {
     while(tables.length<=index)tables.push([]);
     const target=widget||this.root.querySelector(`.kn-table-widget[data-source-pos="${block.from}"]`);
     const table=target?.matches('table')?target:target?.querySelector('table');
-    const measured=Array.from(table?.rows[0]?.cells||[],cell=>Math.round(cell.getBoundingClientRect().width));
+    const measured=table?Array.from(tableGeometry(table).colElements.length?tableGeometry(table).colElements:table.rows[0].cells,cell=>Math.round(cell.getBoundingClientRect().width)):[];
     tables[index]=Array.from({length:block.rows[0].length},(_,c)=>tables[index][c]||measured[c]||120);tables[index][column]=width;
     this.view.dispatch({annotations:isolateHistory.of('full'),effects:tableWidthsEffect.of(tables),userEvent:'input.table-width'});
     return true;
@@ -1375,13 +1494,84 @@ class KnowledgeEditor {
     tables[idx]=width||widget?Array(columns).fill(Math.max(80,Math.min(1600,Math.floor(available/columns)))):[];
     this.view.dispatch({annotations:isolateHistory.of('full'),effects:tableWidthsEffect.of(tables),userEvent:'input.table-width'});return true;
   }
-  table(operation,index=0,value){
+  spanModel(block){
+    if(block.span)return block;
+    const [header,alignment,...body]=block.rows,rows=[header,...body],width=header.length;
+    if(rows.some(row=>row.length>width)||!core.tableGrid(rows.length,width,[]))return null;
+    const align=alignment.map(value=>/^:.*:$/.test(value)?'c':/:$/.test(value)?'r':'l'),cells=[];
+    if(align.length!==width)return null;
+    for(let row=0;row<rows.length;row++)for(let col=0;col<width;col++){
+      const value=this.storeSpanCell(rows[row][col]||'');
+      if(value===null)return null;
+      cells.push({row,col,rows:1,cols:1,value});
+    }
+    return {...block,align,cells,height:rows.length,width};
+  }
+  replaceSpanTable(block,model,row,col,effects=[]){
+    const hasSpan=model.cells.some(cell=>cell.rows>1||cell.cols>1);
+    let insert=core.serializeSpanTable(model);
+    if(insert===null)return false;
+    if(!hasSpan){
+      const grid=core.tableGrid(model.height,model.width,model.cells);
+      const rows=grid.map(row=>row.map(cell=>spanCellToPipe(cell.value)));
+      if(rows.every(row=>row.every(value=>value!==null))){
+        rows.splice(1,0,model.align.map(value=>value==='c'?':---:':value==='r'?'---:':'---'));
+        insert=rows.map(row=>'| '+row.join(' | ')+' |').join('\n');
+      }
+    }else if(this.view.state.doc.sliceString(block.to,block.to+2).match(/^\n[^\n]/))insert+='\n';
+    this.replaceTable(block,{from:block.from,to:block.to,insert},row,col,effects);
+    return true;
+  }
+  replaceTable(block,change,row,col,effects=[]){
+    this.finishTableCell();
+    this.tableLocation=null;
+    if(this.rangedTable)this.clearTableRange(this.rangedTable);
+    this.view.dispatch({changes:change,selection:{anchor:change.from},annotations:isolateHistory.of('full'),effects,userEvent:'input.table'});
+    if(this.mode!=='edit'||!change.insert){this.view.focus();return;}
+    requestAnimationFrame(()=>{
+      if(this.destroyed)return;
+      const widget=this.root.querySelector(`.kn-table-widget[data-source-pos="${block.from}"]`);
+      const cell=this.tableCellAt(widget,row,col);
+      if(cell)this.editTableCell(widget,cell,true);else this.view.focus();
+    });
+  }
+  pasteSpanCells(active,text){
+    const block=core.tableAt(this.getEditorText(),active.from);
+    if(!block?.span)return false;
+    const paste=text.replace(/\r\n?/g,'\n').replace(/\n$/,'').split('\n').map(row=>row.split('\t'));
+    const replacements=new Map();
+    for(let row=0;row<paste.length;row++)for(let col=0;col<paste[row].length;col++){
+      const cell=block.grid[active.row+row]?.[active.column+col];
+      if(!cell||cell.rows>1||cell.cols>1)return false;
+      const value=this.storeSpanCell(encodeTableCell(paste[row][col],core.escaped));
+      if(value===null)return false;
+      replacements.set(cell,value);
+    }
+    const cells=block.cells.map(cell=>replacements.has(cell)?{...cell,value:replacements.get(cell)}:cell);
+    return this.replaceSpanTable(block,{...block,cells},active.row,active.column);
+  }
+  table(operation,index=0,value,logicalRow=null){
     if(this.mode==='preview')return false;
     const pos=this.activeTableCell?.from??this.view.state.selection.main.head;
     for(let n=syntaxTree(this.view.state).resolveInner(pos,-1);n;n=n.parent)if(n.name==='FencedCode'||n.name==='IndentedCode')return false;
-    const block=core.tableAt(this.getEditorText(),pos),change=core.editTable(this.getEditorText(),pos,operation,index,value);if(!change)return false;
+    const location=this.tableLocation,widget=location?.widget?.isConnected?location.widget:null;
+    const inWidget=widget&&pos>=Number(widget.dataset.sourcePos)&&pos<=Number(widget.dataset.sourceTo);
+    const block=core.tableAt(this.getEditorText(),inWidget?Number(widget.dataset.sourcePos):pos);if(!block)return false;
     index=Math.max(0,Math.min(block.rows[0].length-1,index));
-    const active=this.activeTableCell,row=active?.row??Math.max(0,(block.row===0?0:block.row-1));
+    const active=this.activeTableCell,sourceBlock=inWidget&&!block.span?core.tableAt(this.getEditorText(),pos):block;
+    const row=logicalRow??active?.row??(inWidget?location.row:Math.max(0,(sourceBlock.row===0?0:sourceBlock.row-1)));
+    if(operation==='merge-cells'||operation==='split-cell'){
+      const bounds=widget?.cellRange?.bounds;
+      if(operation==='merge-cells'&&!bounds)return false;
+      const model=this.spanModel(block);
+      if(!model){this.statusHost.textContent='当前表格包含无法无损转换的内容。';return true;}
+      const next=operation==='merge-cells'?mergeBounds(model,bounds):block.span&&splitSpan(model,row,index);
+      if(!next)return false;
+      if(next.error){this.statusHost.textContent=next.error;widget?.focus({preventScroll:true});return true;}
+      return this.replaceSpanTable(block,next,bounds?.top??row,bounds?.left??index);
+    }
+    const change=block.span?(operation==='delete'?{from:block.from,to:block.to,insert:''}:null):core.editTable(this.getEditorText(),pos,operation,index,value);
+    if(!block.span&&!change)return false;
     let targetRow=row,targetColumn=index;
     if(operation==='row-add')targetRow=Math.max(1,row+1);
     if(operation==='row-before')targetRow=Math.max(1,row);
@@ -1401,14 +1591,16 @@ class KnowledgeEditor {
     if(operation==='row-move')targetRow=Number(value)-1;
     if(operation==='column-move')targetColumn=Number(value);
     if(operation==='column-duplicate')targetColumn=index+1;
-    this.finishTableCell();
-    this.view.dispatch({changes:change,selection:{anchor:change.from},annotations:isolateHistory.of('full'),effects:changedWidths?[tableWidthsEffect.of(tables)]:[],userEvent:'input.table'});
-    if(this.mode==='edit'&&operation!=='delete')requestAnimationFrame(()=>{
-      if(this.destroyed)return;
-      const widget=[...this.root.querySelectorAll('.kn-table-widget')].find(el=>Number(el.dataset.sourcePos)===change.from);
-      const cell=widget?.querySelector('table')?.rows[targetRow]?.cells[targetColumn];
-      if(cell)this.editTableCell(widget,cell,true);else this.view.focus();
-    });else this.view.focus();
+    const effects=changedWidths?[tableWidthsEffect.of(tables)]:[];
+    if(block.span&&operation!=='delete'){
+      const stored=operation==='cell'?this.storeSpanCell(encodeTableCell(String(value),core.escaped,true)):value;
+      if(operation==='cell'&&stored===null)return false;
+      const next=editSpan(block,operation,row,index,stored,core.tableGrid);
+      if(!next)return false;
+      if(next.error){this.statusHost.textContent=next.error;widget?.focus({preventScroll:true});return true;}
+      return this.replaceSpanTable(block,next,targetRow,targetColumn,effects);
+    }
+    this.replaceTable(block,change,targetRow,targetColumn,effects);
     return true;
   }
   imageFiles(data) {return [...data?.files||[]].filter(file=>file.type.startsWith('image/'));}
@@ -1431,20 +1623,22 @@ class KnowledgeEditor {
       const input=cell.input;
       if(input.value===slot.value)input.setSelectionRange(slot.start,slot.end);
       input.setRangeText(snippet,input.selectionStart,input.selectionEnd,'end');
-      cell.commit(true);
-      return true;
+      return cell.commit(true);
     }
     const {state}=this.view;
     if(state.sliceDoc(slot.from,slot.to)!==slot.source)return false;
     const table=core.tableAt(state.doc.toString(),slot.from);
     if(!table||table.row===1||slot.to>table.to)return false;
     const value=slot.value.slice(0,slot.start)+snippet+slot.value.slice(slot.end);
-    this.view.dispatch({changes:{from:slot.from,to:slot.to,insert:slot.prefix+encodeTableCell(value,core.escaped,slot.structured)+slot.suffix},
+    const pipe=encodeTableCell(value,core.escaped,slot.structured);
+    const insert=slot.span?this.storeSpanCell(pipe):pipe;
+    if(insert===null)return false;
+    this.view.dispatch({changes:{from:slot.from,to:slot.to,insert:slot.prefix+insert+slot.suffix},
       annotations:isolateHistory.of('full'),userEvent:'input.image'});
     return true;
   }
   async upload(file,pos=this.view.state.selection.main.head,cell=this.activeTableCell) {
-    const slot=cell?{from:cell.from,to:cell.to,prefix:cell.prefix,suffix:cell.suffix,structured:cell.structured,
+    const slot=cell?{from:cell.from,to:cell.to,prefix:cell.prefix,suffix:cell.suffix,span:cell.span,structured:cell.structured,
       source:this.view.state.sliceDoc(cell.from,cell.to),value:cell.input.value,start:cell.input.selectionStart,end:cell.input.selectionEnd}:null;
     const upload={id:++this.nextUpload,file,pos,cell,slot,status:'正在上传',retry:null};this.uploads.set(upload.id,upload);this.uploadStatus();
     let snippet;
@@ -1485,10 +1679,21 @@ class KnowledgeEditor {
   acceptSavedAssetReferences(assets){
     const doc=this.getEditorText(),changes=[];
     const managed=new Map((assets||[]).filter(asset=>asset.managed).map(asset=>[asset.source,asset.relativePath]));
-    const original=this.activeTableCell?.original;
-    if(original&&managed.size)original.source=window.LoopShareMarkdown.updateDestinations(original.source,managed);
+    const active=this.activeTableCell,original=active?.original;
+    if(original&&managed.size){
+      if(active.span){
+        const html=core.serializeSpanTable({align:['l'],height:1,cells:[{row:0,col:0,rows:1,cols:1,value:original.source}]});
+        const updated=window.LoopShareMarkdown.updateDestinations(html,managed);
+        original.source=core.parseSpanTable(updated)?.cells[0]?.value??original.source;
+      }else original.source=window.LoopShareMarkdown.updateDestinations(original.source,managed);
+    }
     if(managed.size){for(const ref of window.LoopShareMarkdown.scan(doc)){const destination=managed.get(ref.destination);if(destination&&Number.isInteger(ref.destinationFrom))changes.push({from:ref.destinationFrom,to:ref.destinationTo,insert:destination});}}
-    for(const asset of assets||[]){if(asset.managed||!asset.source||!asset.relativePath)continue;for(const ref of core.imageReferences(doc)){if(ref.url===asset.source)changes.push({from:ref.from,to:ref.to,insert:asset.relativePath});}}
+    for(const asset of assets||[]){
+      if(!asset.source||!asset.relativePath)continue;
+      for(const ref of core.imageReferences(doc)){
+        if(ref.url===asset.source&&!asset.managed)changes.push({from:ref.from,to:ref.to,insert:ref.html?core.escapeTableAttribute(asset.relativePath):asset.relativePath});
+      }
+    }
     if(changes.length)this.view.dispatch({changes:changes.sort((a,b)=>a.from-b.from),annotations:Transaction.addToHistory.of(false),userEvent:'input.assets'});
   }
   refresh(){this.renderCache.clear();if(this.mode==='preview')this.renderReading();this.view.dispatch({effects:refreshEffect.of(null)});this.view.requestMeasure();}

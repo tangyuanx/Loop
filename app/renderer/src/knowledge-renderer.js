@@ -9,6 +9,7 @@ import DOMPurify from 'dompurify';
 import hljs from 'highlight.js/lib/common';
 import 'katex/dist/katex.min.css';
 import {installTableContent} from './knowledge-table-content.js';
+import {normalizeSpanCell,spanCellToPipe} from './knowledge-span-content.js';
 
 const core = window.LoopKnowledgeCore;
 const escape = value => String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -59,6 +60,26 @@ export function createRenderer(options) {
     }
   });
   installTableContent(md);
+  md.block.ruler.before('html_block','loop_span_table',(state,start,end,silent)=>{
+    if(!state.src.startsWith('<table data-loop-table="1"',state.bMarks[start])||state.tShift[start])return false;
+    const from=state.bMarks[start],table=core.parseSpanTable(state.src.slice(from,state.eMarks[end-1]),from);
+    if(!table||!/^\s*(?:\n|$)/.test(state.src.slice(table.to)))return false;
+    const lines=state.src.slice(from,table.to).split('\n').length;
+    if(silent)return true;
+    const token=state.push('loop_span_table','',0);
+    token.meta=table;token.content=state.src.slice(from,table.to);token.map=[start,start+lines];
+    state.line=start+lines;
+    return true;
+  },{alt:['paragraph','reference','blockquote']});
+  md.renderer.rules.loop_span_table=(tokens,index,_options,env)=>{
+    const {meta:table,content}=tokens[index],cells=[];
+    for(const cell of table.cells){
+      const pipe=spanCellToPipe(cell.value);
+      if(pipe===null)return '<pre class="kn-render-failure">'+escape(content)+'</pre>';
+      cells.push({...cell,value:pipeCellHTML(pipe,env)});
+    }
+    return core.serializeSpanTable({...table,cells});
+  };
   md.block.ruler.before('hr','frontmatter',(state,start,end,silent)=>{
     if(start!==0 || state.src.slice(state.bMarks[0],state.eMarks[0]).replace(/^\uFEFF/,'')!=='---') return false;
     let line=start+1;
@@ -127,6 +148,11 @@ export function createRenderer(options) {
     const notes=options.getNotes(); const current=notes.find(n=>core.noteId(n)===env.noteId);
     const found=core.resolve(link.target,notes,current);
     const title=link.label || (found.note ? core.noteTitle(found.note) : link.target) || link.anchor;
+    if(env.spanStorage){
+      const raw=`${link.embed?'!':''}[[${link.target}${link.anchor?'#'+link.anchor:''}${link.label?'|'+link.label:''}]]`;
+      const href=link.target.startsWith('note:')?'#':link.target?'./'+encodeURI(link.target.replace(/\.md$/i,'')+'.md')+(link.anchor?'#'+encodeURIComponent(link.anchor):''):'#'+encodeURIComponent(link.anchor);
+      return `<a class="internal-link" href="${escape(href)}" data-href="${escape(href)}" data-loop-wiki="${escape(encodeURIComponent(raw))}">${escape(title)}</a>`;
+    }
     const attr=`data-note-target="${escape(link.target)}" data-note-anchor="${escape(link.anchor)}"`;
     const button=`<a href="#" class="kn-wiki ${found.status==='resolved'?'':'is-unresolved'}" ${attr} title="${escape(found.status==='missing'?'笔记不存在，点击创建':found.status==='ambiguous'?'有多个同名笔记，点击选择':title)}">${escape(title)}</a>`;
     if(!link.embed) return button;
@@ -140,6 +166,11 @@ export function createRenderer(options) {
   const defaultImage=md.renderer.rules.image;
   md.renderer.rules.image=(tokens,i,o,env,self)=>{
     const src=tokens[i].attrGet('src');
+    if(env.spanStorage){
+      const width=imageLayout(tokens[i].attrGet('title')).width;
+      if(width)tokens[i].attrSet('width',String(width));
+      return defaultImage(tokens,i,o,env,self);
+    }
     const resolved=options.resolveImage?.(env.noteId,src) || (/^(https?:|data:image\/)/i.test(src) ? safeURL(src,true) : '');
     const safeImage=safeURL(resolved,true);
     if(options.offlineExport && /^https?:/i.test(safeImage))return `<span class="kn-image-missing">网络图片未内嵌：${escape(tokens[i].content||src)}</span>`;
@@ -163,6 +194,7 @@ export function createRenderer(options) {
   const defaultLink=md.renderer.rules.link_open || ((ts,i,o,_e,s)=>s.renderToken(ts,i,o));
   md.renderer.rules.link_open=(tokens,i,o,env,self)=>{
     const url=tokens[i].attrGet('href');
+    if(env.spanStorage)return defaultLink(tokens,i,o,env,self);
     tokens[i].attrSet('href',safeURL(url)||'#'); tokens[i].attrSet('rel','noopener noreferrer');
     if(url && !/^(?:https?:|mailto:|#)/i.test(url)) tokens[i].attrSet('data-relative-note',url);
     return defaultLink(tokens,i,o,env,self);
@@ -170,6 +202,16 @@ export function createRenderer(options) {
   // task-image is a managed reference, resolved and validated by the image rule.
   const validate=md.validateLink.bind(md);
   md.validateLink=url=>/^file:\/\//i.test(url)||/^[a-z]:[\\/]/i.test(url)||/^task-image:[\w-]+$/.test(url) || /^data:image\/(?:png|jpe?g|gif|webp|avif|bmp);base64,/i.test(url) || validate(url);
+  function pipeCellHTML(source,env={}){
+    const block=md.render('| cell |\n| --- |\n| '+source+' |',{...env});
+    const first=block.indexOf('<td>'),last=block.lastIndexOf('</td>');
+    return first>=0&&last>first?block.slice(first+4,last):'';
+  }
+  function storeSpanCell(source,env={}){
+    if(core.excludedRanges(source).some(([from])=>source.startsWith('<!--',from)||source.startsWith('%%',from)))return null;
+    for(const delimiter of source.matchAll(/\|/g))if(!core.escaped(source,delimiter.index))return null;
+    return normalizeSpanCell(pipeCellHTML(source,{...env,spanStorage:true}));
+  }
   function render(source,env={}) {
     try {
       let input=String(source ?? '');
@@ -247,7 +289,7 @@ export function createRenderer(options) {
       return {html,issues:[...new Set(issues)],diagrams};
     } finally {signal?.removeEventListener('abort',abort);root.remove();}
   }
-  return {render,enhance,exportStatic,parse:(source,env={})=>md.parse(source,env)};
+  return {render,enhance,exportStatic,storeSpanCell,parse:(source,env={})=>md.parse(source,env)};
 }
 export {escape};
 export function highlightCode(code,language) {

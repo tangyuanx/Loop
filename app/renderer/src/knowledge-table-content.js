@@ -160,11 +160,11 @@ export function installTableContent(renderer) {
   const escape = renderer.utils.escapeHtml;
   renderer.renderer.rules.loop_table_structure = (tokens, index) => escape(tokens[index].content);
   renderer.renderer.rules.loop_table_list = (tokens, index) => tokens[index].content;
-  renderer.renderer.rules.loop_table_code = (tokens, index) => {
+  renderer.renderer.rules.loop_table_code = (tokens, index, _options, env) => {
     const { code, language } = tokens[index].meta;
-    const highlight = language && renderer.options.highlight?.(code, language);
+    const highlight = !env.spanStorage && language && renderer.options.highlight?.(code, language);
     const className = language ? ` class="language-${language}"` : '';
-    return `<pre class="kn-table-code"><code${className}>${highlight || escape(code)}</code></pre>`;
+    return `<pre${env.spanStorage?'':' class="kn-table-code"'}><code${className}>${highlight || escape(code)}</code></pre>`;
   };
   renderer.core.ruler.after('inline', 'loop_table_structure', state => {
     let cell = false;

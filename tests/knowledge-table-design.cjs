@@ -6,10 +6,12 @@ module.exports=async({page,choose,mode,markdown})=>{
  await page.evaluate(source=>{const e=knowledgeCurrentEntry();e.finishTableCell();e.fitTableWidth(0);e.view.dispatch({changes:{from:0,to:e.view.state.doc.length,insert:source},selection:{anchor:0}});e.view.dom.blur();},source);
  const widget=page.locator('.kn-table-widget'),table=widget.locator('table');
  const row=i=>widget.locator(`[data-table-handle="row"][data-index="${i}"]`),column=i=>widget.locator(`[data-table-handle="column"][data-index="${i}"]`);
- const menu=async(scope,index)=>{await (scope==='row'?row(index):scope==='column'?column(index):widget.locator('[data-table-action=tools]')).click();await page.locator('.kn-table-menu').waitFor();};
+ const menu=async(scope,index)=>{await (scope==='row'?row(index):scope==='column'?column(index):widget.locator('[data-table-action=tools]')).click({button:scope==='row'?'right':'left'});await page.locator('.kn-table-menu').waitFor();};
  const command=async name=>{await page.locator(`[data-table-command="${name}"]:not(:disabled)`).first().click();await page.waitForTimeout(60);};
  const undo=async()=>{await page.evaluate(()=>knowledgeCurrentEntry().format('undo'));await page.waitForTimeout(50);};
- await page.locator('.task-work-main > .tabs-bar').click({position:{x:20,y:10}});await page.mouse.move(700,100);assert.equal(await row(1).evaluate(el=>getComputedStyle(el).opacity),'0');await widget.hover();assert.equal(await row(1).evaluate(el=>getComputedStyle(el).opacity),'1');
+ await page.locator('.task-work-main > .tabs-bar').click({position:{x:20,y:10}});await page.mouse.move(700,100);assert.equal(await row(1).evaluate(el=>getComputedStyle(el).opacity),'0');
+ await widget.locator('tbody td').first().hover();
+ await page.waitForFunction(()=>getComputedStyle(document.querySelector('.kn-table-widget [data-table-handle="row"][data-index="1"]')).opacity==='1');
  await menu('row',1);await command('row-duplicate');assert.equal(await widget.locator('tbody tr').count(),4);await undo();assert.equal(await markdown(),source);
  await menu('row',1);await command('row-move'); // first enabled match is "下移一行".
  assert.match(await markdown(),/\| B \| 2 \|\n\| A \| 1 \|/);await undo();

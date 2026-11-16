@@ -48,8 +48,11 @@
 .kn-rendered table {border-collapse:collapse;margin:16px 0;max-width:100%;font-size:.95em;display:block;overflow-x:auto;width:max-content;}
 .kn-rendered th,.kn-rendered td {border:1px solid color-mix(in srgb,currentColor 18%,transparent);padding:7px 13px;min-width:80px;}
 .kn-rendered th {font-weight:600;background:color-mix(in srgb,currentColor 4%,transparent);}
+/* Covered rows and columns still need a box for their logical handles. */
+.kn-rendered table[data-loop-table] tr {height:42px;}
+.kn-rendered table[data-loop-table] col {width:100px;}
 /* Clicked row/column feedback is transient and follows the actual cells. */
-.kn-table-widget :is(th,td)[data-table-highlight] {background:color-mix(in srgb,var(--text) 10%,var(--canvas));}
+.kn-table-widget :is(th,td):is([data-table-highlight],[data-table-range]) {background:color-mix(in srgb,var(--text) 10%,var(--canvas));}
 /* CodeMirror measures block widget bounds without vertical margins. Keep the
    same table spacing inside those bounds so later text uses the correct Y.
    The stage fills the widget instead of growing with the table: CodeMirror

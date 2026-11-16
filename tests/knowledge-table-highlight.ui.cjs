@@ -1,4 +1,4 @@
-/* #106: clicked table ranges are UI-only, with the real editor, menus and disk. */
+/* #106 and #111: table selections and menus are UI-only in the real editor. */
 const assert=require('node:assert/strict');
 const fs=require('node:fs/promises');
 const path=require('node:path');
@@ -9,10 +9,11 @@ async function main(){
   const review=process.argv.includes('--review'),root=path.resolve(__dirname,'..');
   const evidence=await fs.mkdtemp(path.join(root,'.local-review/table-highlight-'));
   const text='# 表格行列反馈\n\n点击行或列按钮查看作用范围。移开鼠标仍保留，点击表格外恢复。\n\n'+
-    '| 项目 | 状态 | 负责人 |\n| --- | --- | --- |\n| 方案 | [已确认](https://example.com) | 小林 |\n| 设计 | 进行中 | 小陈 |\n| 验证 | 待执行 | 小李 |\n\n'+
+    '| 项目 | 状态 | 负责人 |\n| --- | --- | --- |\n| 方案 | [已确认](https://example.com) | 小林 |\n| 设计 | 进行中 | 小陈 |\n| 验证 | 待执行 | ![样图](./fixture.png) |\n\n'+
     '第二张表格\n\n| 阶段 | 内容 | 结果 |\n| --- | --- | --- |\n'+
     Array.from({length:18},(_,i)=>`| 阶段${i+1} | 工作${i+1} | 记录${i+1} |`).join('\n')+'\n\n表格外正文';
   const file=path.join(evidence,'表格行列反馈.md');await fs.writeFile(file,text);
+  await fs.writeFile(path.join(evidence,'fixture.png'),Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jC1sAAAAASUVORK5CYII=','base64'));
   const disk=await readKnowledgeDocument(file);
   const run=await launchRepository({activeTaskId:'highlight',taskPane:'notes',tasks:[task('highlight',{
     title:'表格行列反馈',notes:text,knowledgeNote:{...disk,title:'表格行列反馈',documentState:'SAVED',dirty:false}
@@ -27,15 +28,26 @@ async function main(){
   const ranges=()=>page.locator('.kn-table-widget').evaluateAll(widgets=>widgets.flatMap((widget,t)=>
     [...widget.querySelector('table').rows].flatMap((row,r)=>[...row.cells].flatMap((cell,c)=>cell.hasAttribute('data-table-highlight')?[[t,r,c]]:[]))));
   const expected=(kind,index,table=0,rows=4,columns=3)=>kind==='row'?Array.from({length:columns},(_,c)=>[table,index,c]):Array.from({length:rows},(_,r)=>[table,r,index]);
-  const choose=async(kind,index,table=0)=>{await handle(kind,index,table).click();await page.locator('.kn-table-menu').waitFor();assert.deepEqual(await ranges(),expected(kind,index,table,table?19:4));};
+  const menu=page.locator('.kn-table-menu');
+  const rowCell=(row,column=0,table=0)=>widget(table).locator('tbody tr').nth(row-1).locator('td').nth(column);
+  const selectRow=async(index,table=0)=>{
+    await handle('row',index,table).click();
+    assert.equal(await menu.count(),0,'left click only selects the row');
+    assert.deepEqual(await ranges(),expected('row',index,table,table?19:4));
+  };
+  const choose=async(kind,index,table=0)=>{
+    await handle(kind,index,table).click({button:kind==='row'?'right':'left'});
+    await menu.waitFor();
+    assert.deepEqual(await ranges(),expected(kind,index,table,table?19:4));
+  };
   const dismiss=async()=>{await page.keyboard.press('Escape');await page.locator('.kn-table-menu').waitFor({state:'detached'});};
   const outside=()=>page.locator('.knowledge-footer [data-note-stats]').click();
   try{
     await page.locator('[data-pane=notes]').click();await page.waitForFunction(()=>knowledgeCurrentEntry()?.view);
     await page.waitForFunction(()=>knowledgeCurrentEntry().getMarkdown().includes('阶段18'));
     if(review){
-      runtime.title=await app.evaluate(({BrowserWindow})=>{const window=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html'));window.setTitle('Loop · 需求106 表格行列反馈验收');window.setSize(1280,850);window.show();window.focus();return window.getTitle();});
-      await choose('row',2);await dismiss();await page.mouse.move(1000,210);
+      runtime.title=await app.evaluate(({BrowserWindow})=>{const window=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html'));window.setTitle('Loop · 需求111 表格行菜单验收');window.setSize(1280,850);window.show();window.focus();return window.getTitle();});
+      await selectRow(2);await page.mouse.move(1000,210);
       await page.screenshot({path:path.join(evidence,'candidate.png')});
       await fs.writeFile(path.join(evidence,'runtime.json'),JSON.stringify(report,null,2));
       console.log(JSON.stringify(report));await new Promise(resolve=>app.once('close',resolve));return;
@@ -44,9 +56,42 @@ async function main(){
     const snapshot=()=>page.evaluate(()=>{const note=knowledgeActiveDocument();return {text:knowledgeCurrentEntry().getMarkdown(),note:note.knowledgeNote,updatedAt:note.updatedAt};});
     const before=await snapshot(),stat=await fs.stat(file);
     await handle('row',1).hover();assert.deepEqual(await ranges(),[]);
-    await choose('row',1);await page.mouse.move(1000,210);assert.deepEqual(await ranges(),expected('row',1));
+    await selectRow(1);await selectRow(1);await page.mouse.move(1000,210);assert.deepEqual(await ranges(),expected('row',1));
+    for(const column of [0,2]){
+      await rowCell(1,column).click({button:'right',position:column===0?{x:27,y:10}:{x:85,y:25}});
+      await menu.waitFor();
+      assert.equal(await menu.getAttribute('aria-label'),'第 1 行操作');
+      assert.deepEqual(await ranges(),expected('row',1));
+      assert.equal(await page.locator('.kn-table-cell-editor').count(),0);
+      await dismiss();
+    }
+    await rowCell(2).click({button:'right'});
+    await menu.waitFor();
+    assert.equal(await menu.getAttribute('aria-label'),'3 行 · 3 列操作','right-click on an unselected row keeps the general table menu');
+    await dismiss();
+    await choose('row',2);
+    assert.equal(await menu.getAttribute('aria-label'),'第 2 行操作');
+    await selectRow(3);
+    await choose('row',3);await selectRow(3);
+    await choose('row',1);
     await dismiss();assert.deepEqual(await ranges(),expected('row',1));
     assert.equal(await handle('row',1).evaluate(el=>el===document.activeElement),true);
+    await rowCell(1,1).locator('a').click({button:'right'});
+    await page.getByRole('menu',{name:'链接操作'}).waitFor();
+    assert.equal(await menu.count(),0);
+    await page.keyboard.press('Escape');
+    await selectRow(3);
+    await rowCell(3,2).locator('img').click({button:'right'});
+    await page.getByRole('menu',{name:'图片操作'}).waitFor();
+    assert.equal(await menu.count(),0);
+    await page.keyboard.press('Escape');
+    await selectRow(2);
+    await rowCell(2).click();
+    await page.locator('.kn-table-cell-editor').click({button:'right'});
+    await page.getByRole('menu',{name:'单元格格式菜单'}).waitFor();
+    assert.equal(await menu.count(),0);
+    await page.keyboard.press('Escape');
+    await selectRow(1);
     await handle('column',2).hover();assert.deepEqual(await ranges(),expected('row',1),'hover never switches the clicked range');
     await choose('column',1);await dismiss();
     await widget(0).locator('tbody td').first().click();assert.deepEqual(await ranges(),expected('column',1),'inside-table clicks preserve the range');
@@ -60,13 +105,15 @@ async function main(){
     assert.deepEqual(await snapshot(),before,'range feedback does not dirty or change the document');
     assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().format('undo')),false,'range feedback adds no undo entry');
     assert.equal(await fs.readFile(file,'utf8'),text);assert.equal((await fs.stat(file)).mtimeMs,stat.mtimeMs);
-    check('click-only rows/columns/header, hover and mouse leave, inside/outside clicks, menu dismissal, unchanged file/state/history');
+    check('left-select, both right-click targets, correct row, menu switching, link/image priority and unchanged file/state/history');
 
     await handle('column',2).focus();await page.keyboard.press('Enter');
     await page.locator('.kn-table-menu').waitFor();assert.deepEqual(await ranges(),expected('column',2));await dismiss();
     await handle('row',3).focus();await page.keyboard.press('Space');
     await page.locator('.kn-table-menu').waitFor();assert.deepEqual(await ranges(),expected('row',3));await dismiss();
-    check('native Enter and Space activate the same row/column buttons');
+    await handle('row',1).focus();await page.keyboard.press('Shift+F10');
+    await menu.waitFor();assert.equal(await menu.getAttribute('aria-label'),'第 1 行操作');await dismiss();
+    check('Enter, Space and Shift+F10 retain keyboard menu access');
 
     for(const theme of ['light','dark'])for(const width of [1280,1024]){
       await app.evaluate(({BrowserWindow},width)=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(width,820),width);
@@ -89,6 +136,12 @@ async function main(){
     check('light/dark neutral background, readable text, normal/largest type and 1280/1024 windows');
 
     await page.evaluate(()=>{state.theme='light';state.fontScale='larger';render();});
+    await selectRow(10,1);
+    await rowCell(10,1,1).click({button:'right'});
+    await menu.waitFor();assert.equal(await menu.getAttribute('aria-label'),'第 10 行操作');
+    assert.deepEqual(await ranges(),expected('row',10,1,19));
+    assert.equal(await menu.evaluate(el=>{const rect=el.getBoundingClientRect();return rect.left>=0&&rect.right<=innerWidth&&rect.top>=0&&rect.bottom<=innerHeight;}),true);
+    await dismiss();
     await choose('column',2,1);await dismiss();assert.equal((await ranges()).length,19,'the second table clears the first');
     await page.mouse.move(900,500);await page.mouse.wheel(0,320);
     assert.deepEqual(await ranges(),expected('column',2,1,19),'vertical scrolling preserves the actual cells');
