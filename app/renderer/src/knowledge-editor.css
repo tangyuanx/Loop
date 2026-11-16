@@ -48,6 +48,7 @@
 .kn-rendered table {border-collapse:collapse;margin:16px 0;max-width:100%;font-size:.95em;display:block;overflow-x:auto;width:max-content;}
 .kn-rendered th,.kn-rendered td {border:1px solid color-mix(in srgb,currentColor 18%,transparent);padding:7px 13px;min-width:80px;}
 .kn-rendered th {font-weight:600;background:color-mix(in srgb,currentColor 4%,transparent);}
+.kn-rendered thead {overflow-anchor:none;}
 .kn-rendered thead[data-table-pinned] {position:relative;z-index:1;background:var(--canvas);}
 /* Covered rows and columns still need a box for their logical handles. */
 .kn-rendered table[data-loop-table] tr {height:42px;}

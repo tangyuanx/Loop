@@ -4,6 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { launchRepository, task } = require('./electron-ui-helpers.cjs');
 const { readKnowledgeDocument } = require('../app/main/knowledge-file.cjs');
+const { readTaskData } = require('../app/main/storage.cjs');
 
 const row = (columns, value) => '| ' + Array.from({ length: columns }, (_, i) => value(i)).join(' | ') + ' |';
 const large = [
@@ -44,6 +45,20 @@ const nested = [
   '',
   '正文',
 ].join('\n');
+
+const wideText = '这是用于核对合并前后列宽保持一致的长文字。'.repeat(3);
+const mergeLayout = [
+  '# 合并与滚动稳定性', '',
+  '| 项目 | 内容与自动列宽 | 备注 |', '| - | - | - |',
+  '| 合并甲<br><br>原有空行 | ' + wideText + ' | A |',
+  '| 合并乙 | ' + wideText + ' | B |',
+  ...Array.from({ length: 78 }, (_, i) => `| 项目 ${i} | 说明 | C |`),
+  '',
+  ...Array.from({ length: 340 }, (_, i) => `表格之后第 ${i} 行，用于核对滚动时页面位置和正文稳定。\n`),
+].join('\n');
+
+const columnWidths = table => table.locator('colgroup col').evaluateAll(columns =>
+  columns.map(column => Math.round(column.getBoundingClientRect().width)));
 
 async function main() {
   const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'loop-table-report-'));
@@ -173,7 +188,7 @@ async function main() {
     await page.locator('[data-table-command=merge-cells]').click();
     await table.locator('td[rowspan="2"][colspan="2"]').waitFor();
     assert.equal(await table.locator('th[scope=col]').count(), 2);
-    assert.match(await source(), /<strong>alpha<\/strong> text<br><br>beta<br><br>gamma<br><br>delta/);
+    assert.match(await source(), /<strong>alpha<\/strong> text<br>beta<br>gamma<br>delta/);
 
     const paste = async (target, entries) => target.evaluate((node, entries) => {
       const clipboardData = new DataTransfer();
@@ -201,10 +216,90 @@ async function main() {
       await expectSource(expected);
       assert.equal(await cell(1,1).textContent(), 'last');
     }
+
+    await fixture(mergeLayout);
+    await table.waitFor();
+    const originalWidths = await columnWidths(table);
+    assert.ok(originalWidths[1] > originalWidths[0] + 50);
+    const mergeRectangle = async () => {
+      await cell(0,0).click({ position: { x: 9, y: 9 } });
+      await cell(1,1).click({ position: { x: 9, y: 9 }, modifiers: ['Shift'] });
+      await cell(1,1).click({ position: { x: 9, y: 9 }, button: 'right' });
+      await page.locator('[data-table-command=merge-cells]').click();
+      const merged = table.locator('td[rowspan="2"][colspan="2"]');
+      await merged.waitFor();
+      await editorField.press('Enter');
+      await editorField.waitFor({ state: 'detached' });
+      return merged;
+    };
+    const merged = await mergeRectangle();
+    assert.deepEqual(await columnWidths(table), originalWidths);
+    assert.equal(await merged.locator('br').count(), 5, await merged.innerHTML());
+    assert.match(await source(), /合并甲<br><br>原有空行<br>这/);
+    assert.doesNotMatch(await source(), /<br><br>合并乙/);
+    await mode('preview');
+    assert.deepEqual(await columnWidths(reading), originalWidths);
+    await mode('edit');
+    await page.locator('.knowledge-body').evaluate(body => { body.scrollTop = 0; });
+
+    await page.evaluate(() => {
+      const editor = knowledgeCurrentEntry(), body = editor.root.closest('.knowledge-body'), samples = [];
+      function sample() {
+        samples.push({ top: body.scrollTop, height: body.scrollHeight,
+          raw: Array.from(editor.view.contentDOM.querySelectorAll('.cm-line')).some(line => line.textContent.includes('<table data-loop-table=')) });
+        window.tableScrollProbe.frame = requestAnimationFrame(sample);
+      }
+      window.tableScrollProbe = { samples };
+      sample();
+    });
+    const body = await page.locator('.knowledge-body').boundingBox();
+    await page.mouse.move(body.x + body.width - 36, body.y + body.height / 2);
+    for (const delta of [3400, 2500, 900, 350, 350, -200, 1200, -1000, -1700, -1200, 99999, -99999]) {
+      await page.mouse.wheel(0, delta);
+      await page.waitForFunction(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))));
+    }
+    const frames = await page.evaluate(() => {
+      const { samples, frame } = window.tableScrollProbe;
+      cancelAnimationFrame(frame);
+      delete window.tableScrollProbe;
+      return samples;
+    });
+    assert.ok(Math.max(...frames.map(frame => frame.top)) > 9000, 'wheel reached deeply past the table');
+    assert.ok(frames.at(-1).top < 100, 'wheel returned to the table');
+    assert.ok(frames.every(frame => !frame.raw), 'scroll never exposes the merged table source');
+    const heights = frames.map(frame => frame.height);
+    assert.ok(Math.max(...heights) - Math.min(...heights) < 80, 'scroll never substitutes source height for the table');
+    assert.deepEqual(await columnWidths(table), originalWidths);
+
+    await merged.click({ button: 'right', position: { x: 9, y: 9 } });
+    await page.locator('[data-table-command=split-cell]').click();
+    await table.locator('table:not([data-loop-table])').waitFor();
+    assert.deepEqual(await columnWidths(table), originalWidths);
+    assert.equal(await page.evaluate(() => {
+      const entry = knowledgeCurrentEntry(), widget = entry.root.querySelector('.kn-table-widget');
+      return entry.resizeTableColumn(1, 275, widget);
+    }), true);
+    const customWidths = await columnWidths(table);
+    assert.equal(customWidths[1], 275);
+    await mergeRectangle();
+    assert.deepEqual(await columnWidths(table), customWidths);
     await save();
+    await page.waitForFunction(() => !pendingPayload && !saveInFlight);
+    const documentId = await page.evaluate(() => knowledgeActiveDocument().id);
+    const data = await readTaskData(run.profile);
+    const savedNote = [...data.knowledgeDocuments, ...data.tasks].find(note => note.id === documentId);
+    assert.deepEqual(savedNote?.knowledgeNote.tableColumnWidths[0], customWidths);
+    const savedMerge = await source();
+    const legacyMerge = savedMerge.replace('合并甲<br><br>原有空行', '合并甲<br>&#10;<br>&#10;原有空行');
+    assert.notEqual(legacyMerge, savedMerge);
+    await fixture(legacyMerge);
+    assert.equal(await table.locator('td[rowspan="2"][colspan="2"] br').count(), 5);
+    await mode('preview');
+    assert.equal(await reading.locator('td[rowspan="2"][colspan="2"] br').count(), 5);
+    assert.equal(await source(), legacyMerge, 'rendering historical merges preserves the saved source');
     assert.deepEqual(errors, []);
     assert.equal(await app.evaluate(({ app }) => app.getPath('userData')), run.profile);
-    console.log('Table report: complete initial render, pinning, source fidelity, table commands, drag-to-merge, clipboard and disk passed.');
+    console.log('Table report: rendering, source fidelity, commands, clipboard, merge widths/spacing, wheel scrolling and disk passed.');
   } finally {
     await run?.close();
     await fs.rm(folder, { recursive: true, force: true });

@@ -16,13 +16,33 @@ export function tableGeometry(table){
       col+=cell.colSpan;
     }
   }
-  const columns=slots[0]?.length||0,spanned=table.hasAttribute('data-loop-table');
-  const colElements=spanned?Array.from({length:columns},()=>document.createElement('col')):[];
+  const columns=slots[0]?.length||0;
+  const colElements=Array.from({length:columns},()=>document.createElement('col'));
   if(colElements.length){
     const group=document.createElement('colgroup');group.append(...colElements);table.prepend(group);
   }
   const geometry={slots,positions,rows,columns,colElements};
   geometries.set(table,geometry);return geometry;
+}
+
+export function measureTableColumns(table){
+  const {colElements}=tableGeometry(table);
+  const origin=colElements[0]?.getBoundingClientRect().left;
+  let edge=0;
+  return colElements.map(column=>{
+    const next=Math.round(column.getBoundingClientRect().right-origin);
+    const width=next-edge;
+    edge=next;
+    return width;
+  });
+}
+
+export function applyTableColumnWidths(table,widths){
+  const {columns,colElements}=tableGeometry(table);
+  const fixed=widths?.length===columns;
+  table.style.width=fixed?widths.reduce((total,width)=>total+width,0)+'px':'';
+  table.style.tableLayout=fixed?'fixed':'';
+  colElements.forEach((column,index)=>column.style.width=fixed?widths[index]+'px':'');
 }
 
 export function cellBounds(anchor,head,geometry){
@@ -40,8 +60,13 @@ export function mergeBounds(model,{top,left,bottom,right}){
     return {error:'选区包含部分已合并单元格，请选中整个合并区域。'};
   if(selected.length<2)return {error:'请选择至少两个相邻单元格。'};
   const values=selected.sort((a,b)=>a.row-b.row||a.col-b.col).map(cell=>cell.value).filter(Boolean);
+  const content=values.map((value,index)=>{
+    const previous=values[index-1];
+    const needsBreak=index&&!/<\/(?:ul|ol|pre|p)>$/i.test(previous)&&!/^<(?:ul|ol|pre|p)\b/i.test(value);
+    return (needsBreak?'<br>':'')+value;
+  }).join('');
   const cells=model.cells.filter(cell=>!selected.includes(cell));
-  cells.push({row:top,col:left,rows:bottom-top+1,cols:right-left+1,value:values.join('<br><br>')});
+  cells.push({row:top,col:left,rows:bottom-top+1,cols:right-left+1,value:content});
   return {...model,cells};
 }
 

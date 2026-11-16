@@ -66,10 +66,10 @@ async function main() {
     await select(header.nth(0),header.nth(1));
     await menu('merge-cells');
     await table().locator('th[colspan="2"]').waitFor();
-    assert.match(await markdown(),/<th colspan="2">H1<br><br>H2<\/th>/);
+    assert.match(await markdown(),/<th colspan="2">H1<br>H2<\/th>/);
     await menu('split-cell');
     await table().locator('table:not([data-loop-table])').waitFor();
-    assert.match(await markdown(),/\| H1<br><br>H2 \|  \| H3 \|/);
+    assert.match(await markdown(),/\| H1<br>H2 \|  \| H3 \|/);
     await page.evaluate(()=>{const e=knowledgeCurrentEntry();e.finishTableCell();e.view.focus();});
     await page.keyboard.press(process.platform==='darwin'?'Meta+z':'Control+z');
     await table().locator('th[colspan="2"]').waitFor();

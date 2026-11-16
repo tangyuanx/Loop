@@ -1,6 +1,6 @@
 // Contextual controls for the production Markdown table widget. Every edit is
 // delegated to the editor transaction/history; no second table model exists.
-import {tableGeometry} from './knowledge-span-grid.js';
+import {tableGeometry,measureTableColumns,applyTableColumnWidths} from './knowledge-span-grid.js';
 
 const icons={plus:'M8 2v12M2 8h12',more:'M3 8h.01M8 8h.01M13 8h.01',grip:'M5 3h.01M11 3h.01M5 8h.01M11 8h.01M5 13h.01M11 13h.01'};
 // Only one clicked range is shown, including when several editors are mounted.
@@ -20,8 +20,7 @@ export function tablePosition(owner,widget,row,column=0) {
 export function installTableControls(owner,widget) {
   const table=widget.querySelector('table');if(!table?.rows.length)return;
   const stage=document.createElement('div');stage.className='kn-table-stage';table.before(stage);stage.append(table);
-  const {slots,columns,colElements}=tableGeometry(table);
-  const columnBoxes=colElements.length?colElements:table.rows[0].cells;
+  const {slots,columns,colElements:columnBoxes}=tableGeometry(table);
   const controls=document.createElement('div');controls.className='kn-table-controls-layer';stage.append(controls);
   const main=button('表格操作','more','kn-table-menu-trigger');main.dataset.tableAction='tools';main.setAttribute('aria-haspopup','menu');controls.append(main);
   main.onclick=()=>{
@@ -89,7 +88,7 @@ export function installTableControls(owner,widget) {
   function start(event,kind,index) {
     if(event.button!==0||owner.activeTableCell?.composing)return;
     event.preventDefault();event.stopPropagation();
-    const widths=[...columnBoxes].map(cell=>Math.round(cell.getBoundingClientRect().width));
+    const widths=measureTableColumns(table);
     gesture={kind,index,target:index,origin:[event.clientX,event.clientY],widths,width:widths[index],moved:false,abort:new AbortController()};
     const current=gesture,signal=current.abort.signal;
     window.addEventListener('pointermove',move=>{
@@ -98,9 +97,7 @@ export function installTableControls(owner,widget) {
       current.moved=true;clearHighlight();widget.classList.add('kn-table-dragging');
       if(kind==='resize') {
         current.width=Math.max(80,Math.min(1600,Math.round(widths[index]+move.clientX-current.origin[0])));
-        const next=widths.slice();next[index]=current.width;table.style.tableLayout='fixed';table.style.width=next.reduce((a,b)=>a+b,0)+'px';
-        if(colElements.length)colElements.forEach((col,index)=>col.style.width=next[index]+'px');
-        else for(const row of table.rows)for(let c=0;c<row.cells.length;c++)row.cells[c].style.width=next[c]+'px';
+        const next=widths.slice();next[index]=current.width;applyTableColumnWidths(table,next);
         queue();return;
       }
       const axis=kind==='row'?'clientY':'clientX',items=kind==='row'?[...table.rows]:[...columnBoxes];

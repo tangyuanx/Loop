@@ -53,6 +53,11 @@ export function createRenderer(options) {
     state.pos+=match[0].length;return true;
   });
   md.renderer.rules.loop_table_break=(tokens,index)=>escape(tokens[index].content);
+  const renderHardbreak=md.renderer.rules.hardbreak;
+  // Markdown-it adds a formatting newline after <br>. In a stored merged
+  // cell, that newline would be read back as a second Markdown line break.
+  md.renderer.rules.hardbreak=(tokens,index,options,env,self)=>
+    env.spanStorage?'<br>':renderHardbreak(tokens,index,options,env,self);
   md.core.ruler.after('inline','loop_table_breaks',state=>{
     let cell=false;
     for(const token of state.tokens){

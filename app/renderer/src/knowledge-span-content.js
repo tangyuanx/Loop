@@ -38,7 +38,12 @@ export function spanCellToPipe(source){
   const template=document.createElement('template');
   template.innerHTML=source;
   function convert(node){
-    if(node.nodeType===Node.TEXT_NODE)return literal(node.nodeValue);
+    if(node.nodeType===Node.TEXT_NODE){
+      // Older merged cells encoded the renderer's formatting newline after
+      // a break as &#10;. Keep the explicit break and discard its HTML spacing.
+      const text=node.previousSibling?.localName==='br'?node.nodeValue.replace(/^\n/,''):node.nodeValue;
+      return literal(text);
+    }
     if(node.nodeType!==Node.ELEMENT_NODE)throw new Error('unsupported table content');
     const tag=node.localName,attr=attributes[tag];
     if(!known.has(tag)||[...node.attributes].some(item=>!attr?.has(item.name)))throw new Error('unsupported table markup');
