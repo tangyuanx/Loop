@@ -18,7 +18,8 @@ export function tablePosition(owner,widget,row,column=0) {
   owner.view.dispatch({selection:{anchor:range.from},scrollIntoView:false});return true;
 }
 export function installTableControls(owner,widget) {
-  const table=widget.querySelector('table'),stage=document.createElement('div');stage.className='kn-table-stage';table.before(stage);stage.append(table);
+  const table=widget.querySelector('table');if(!table?.rows.length)return;
+  const stage=document.createElement('div');stage.className='kn-table-stage';table.before(stage);stage.append(table);
   const {slots,columns,colElements}=tableGeometry(table);
   const columnBoxes=colElements.length?colElements:table.rows[0].cells;
   const controls=document.createElement('div');controls.className='kn-table-controls-layer';stage.append(controls);
@@ -60,12 +61,14 @@ export function installTableControls(owner,widget) {
   function layout() {
     if(!widget.isConnected||owner.destroyed)return;
     const bounds=table.getBoundingClientRect(),base=stage.getBoundingClientRect();
-    for(const item of handles){const rect=item.kind==='row'?table.rows[item.index].getBoundingClientRect():columnBoxes[item.index].getBoundingClientRect();
+    const rowRects=Array.from(table.rows,row=>row.getBoundingClientRect());
+    const columnRects=Array.from(columnBoxes,col=>col.getBoundingClientRect());
+    for(const item of handles){const rect=item.kind==='row'?rowRects[item.index]:columnRects[item.index];
       item.el.style.left=(item.kind==='row'?bounds.left-base.left-20:rect.left-base.left)+'px';
       item.el.style.top=(item.kind==='row'?rect.top-base.top:bounds.top-base.top-20)+'px';
       item.el.style.width=(item.kind==='row'?18:rect.width)+'px';item.el.style.height=(item.kind==='row'?rect.height:18)+'px';
     }
-    for(const item of resizers){const rect=columnBoxes[item.column].getBoundingClientRect();item.el.style.left=rect.right-base.left-4+'px';item.el.style.top=bounds.top-base.top+'px';item.el.style.height=bounds.height+'px';}
+    for(const item of resizers){const rect=columnRects[item.column];item.el.style.left=rect.right-base.left-4+'px';item.el.style.top=bounds.top-base.top+'px';item.el.style.height=bounds.height+'px';}
     addRow.style.top=bounds.bottom-base.top+2+'px';addRow.style.width=bounds.width+'px';
     addColumn.style.left=bounds.right-base.left+2+'px';addColumn.style.height=bounds.height+'px';
     main.title=main.getAttribute('aria-label')+` · ${table.rows.length-1} 行 ${columns} 列`;

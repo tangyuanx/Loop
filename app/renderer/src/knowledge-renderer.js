@@ -9,6 +9,7 @@ import DOMPurify from 'dompurify';
 import hljs from 'highlight.js/lib/common';
 import 'katex/dist/katex.min.css';
 import {installTableContent} from './knowledge-table-content.js';
+import {installTableMarkdown} from './knowledge-table-markdown.js';
 import {normalizeSpanCell,spanCellToPipe} from './knowledge-span-content.js';
 
 const core = window.LoopKnowledgeCore;
@@ -43,6 +44,7 @@ export function createRenderer(options) {
   // Render soft breaks without rewriting the authoritative Markdown document.
   const md=new MarkdownIt({html:false,linkify:true,breaks:true,typographer:false,highlight:highlightCode})
     .use(footnote).use(mark).use(tasks,{enabled:true}).use(texmath,{engine:katex,delimiters:'dollars',katexOptions:{throwOnError:false,trust:false,strict:'warn',maxExpand:1000,maxSize:20}});
+  installTableMarkdown(md,core);
   // Permit the Markdown-table line-break convention without enabling
   // arbitrary HTML. Escaped markup and code tokens remain literal text.
   md.inline.ruler.before('html_inline','loop_table_break',(state,silent)=>{
@@ -78,7 +80,7 @@ export function createRenderer(options) {
       if(pipe===null)return '<pre class="kn-render-failure">'+escape(content)+'</pre>';
       cells.push({...cell,value:pipeCellHTML(pipe,env)});
     }
-    return core.serializeSpanTable({...table,cells});
+    return core.serializeSpanTable({...table,cells}).replace(/<th(?=[ >])/g,'<th scope="col"');
   };
   md.block.ruler.before('hr','frontmatter',(state,start,end,silent)=>{
     if(start!==0 || state.src.slice(state.bMarks[0],state.eMarks[0]).replace(/^\uFEFF/,'')!=='---') return false;
@@ -209,16 +211,36 @@ export function createRenderer(options) {
   }
   function storeSpanCell(source,env={}){
     if(core.excludedRanges(source).some(([from])=>source.startsWith('<!--',from)||source.startsWith('%%',from)))return null;
-    for(const delimiter of source.matchAll(/\|/g))if(!core.escaped(source,delimiter.index))return null;
+    const split=core.tableRow(source);
+    if(split.leading||split.trailing||split.cells.length!==1)return null;
     return normalizeSpanCell(pipeCellHTML(source,{...env,spanStorage:true}));
+  }
+  function maskComments(source){
+    let input=String(source??'');
+    // Preserve source offsets while hiding Obsidian and HTML comments.
+    const ranges=core.excludedRanges(input).filter(([a])=>input.startsWith('%%',a)||input.startsWith('<!--',a));
+    for(const [a,b] of ranges.reverse())input=input.slice(0,a)+input.slice(a,b).replace(/[^\n]/g,' ')+input.slice(b);
+    return input;
+  }
+  function tableLocations(source){
+    if(!source.includes('|')&&!source.includes('<table data-loop-table='))return [];
+    const tokens=[];
+    md.block.parse(maskComments(source),md,{tableLocationsOnly:true},tokens);
+    return tokens.flatMap(token=>{
+      if(token.type==='table_open'){
+        const table=token.meta;
+        return [{...table,rows:table.rows.map(row=>({
+          ...row,text:source.slice(row.from,row.to),
+          values:row.cells?row.cells.map(cell=>source.slice(row.from+cell.from,row.from+cell.to).trim()):row.values,
+        }))}];
+      }
+      if(token.type==='loop_span_table')return [{...token.meta,lineFrom:token.meta.from}];
+      return [];
+    });
   }
   function render(source,env={}) {
     try {
-      let input=String(source ?? '');
-      // Obsidian block comments are hidden, including multi-paragraph comments.
-      const ranges=core.excludedRanges(input).filter(([a])=>input.startsWith('%%',a)||input.startsWith('<!--',a));
-      for(const [a,b] of ranges.reverse()) input=input.slice(0,a)+input.slice(a,b).replace(/[^\n]/g,' ')+input.slice(b);
-      const html=md.render(input,env);
+      const html=md.render(maskComments(source),env);
       return DOMPurify.sanitize(html,{ADD_ATTR:['data-task-pos','data-note-target','data-note-anchor','data-relative-note','data-diagram','data-callout','data-source-line','aria-expanded'],FORBID_TAGS:['style','iframe','object','embed','script'],USE_PROFILES:{html:true,svg:true,svgFilters:true}});
     } catch(error) { return `<pre class="kn-render-failure">${escape(source)}</pre>`; }
   }
@@ -289,7 +311,7 @@ export function createRenderer(options) {
       return {html,issues:[...new Set(issues)],diagrams};
     } finally {signal?.removeEventListener('abort',abort);root.remove();}
   }
-  return {render,enhance,exportStatic,storeSpanCell,parse:(source,env={})=>md.parse(source,env)};
+  return {render,enhance,exportStatic,storeSpanCell,tableLocations,parse:(source,env={})=>md.parse(source,env)};
 }
 export {escape};
 export function highlightCode(code,language) {

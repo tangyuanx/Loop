@@ -1620,7 +1620,7 @@ function knowledgeFocusTableCell(editor,widget,row,column,selection=null) {
 function knowledgeTableMenu({widget,row=0,column=0,cellSelection=null,scope='table',trigger,point}) {
   const editor=knowledgeCurrentEntry();if(!editor||editor.mode==='preview')return;
   const from=Number(widget.dataset.sourcePos),source=editor.view.state.doc;
-  const table=LoopKnowledgeCore.tableAt(editor.getEditorText(),from);if(!table)return;
+  const table=editor.tableAt(from);if(!table)return;
   const rowCount=table.rows.length-2,columnCount=table.rows[0].length;
   const caption=scope==='row'?(row===0?'表头行':`第 ${row} 行`):scope==='column'?`第 ${column+1} 列`:`${rowCount} 行 · ${columnCount} 列`;
   const cell=editor.tableCellAt(widget,row,column);
@@ -1633,7 +1633,7 @@ function knowledgeTableMenu({widget,row=0,column=0,cellSelection=null,scope='tab
     item('column-move','向左移动',{value:column-1,disabled:column===0})+item('column-move','向右移动',{value:column+1,disabled:column>=columnCount-1})+divider+
     [['left','左对齐'],['center','居中'],['right','右对齐']].map(([value,label])=>item('align',label,{value,checked:alignment===value})).join('')+divider+item('column-clear','清空这一列')+item('column-delete','删除这一列',{disabled:columnCount<=1});
   const content=scope==='row'?rowItems():scope==='column'?columnItems():
-    item('merge-cells','合并单元格',{disabled:!widget.cellRange})+
+    item('merge-cells','合并单元格',{disabled:!widget.cellRange||Boolean(table.prefix)||table.lineFrom!==table.from})+
     item('split-cell','取消合并',{disabled:!cell||cell.rowSpan===1&&cell.colSpan===1})+divider+
     item('fit','适应页宽')+item('auto-width','自动列宽')+divider+item('row-menu','当前行操作…')+item('column-menu','当前列操作…')+item('cell-clear','清空当前单元格')+divider+item('copy','复制 Markdown')+item('details','精确设置…')+divider+item('delete','删除表格');
   const menu=shellMountSurface(`<div class="surface-popover wb-menu kn-table-menu" role="menu" data-light-dismiss aria-label="${escAttr(caption)}操作"><div class="kn-table-menu-caption">${caption}</div><div class="wb-menu-list">${content}</div></div>`,trigger||widget,218);
@@ -1656,7 +1656,11 @@ function knowledgeTableMenu({widget,row=0,column=0,cellSelection=null,scope='tab
     if(command==='row-menu'){knowledgeTableMenu({...next,scope:'row'});return;}
     if(command==='column-menu'){knowledgeTableMenu({...next,scope:'column'});return;}
     if(command==='details'){knowledgeTableTools(next);return;}
-    if(command==='copy'){try{await navigator.clipboard.writeText(editor.getEditorText().slice(table.from,table.to));shellToast('已复制表格 Markdown');}catch{shellToast('无法复制，请在源码模式选择表格后复制。');}knowledgeFocusTableCell(editor,widget,row,column,cellSelection);return;}
+    if(command==='copy'){
+      const markdown=table.sourceLines?.map(line=>line.text).join('\n')??source.sliceString(table.from,table.to);
+      try{await navigator.clipboard.writeText(markdown);shellToast('已复制表格 Markdown');}catch{shellToast('无法复制，请在源码模式选择表格后复制。');}
+      knowledgeFocusTableCell(editor,widget,row,column,cellSelection);return;
+    }
     if(command==='fit'||command==='auto-width'){
       if(command==='fit')editor.fitTableWidth(0,widget);
       else editor.fitTableWidth(0);
@@ -1676,7 +1680,7 @@ function knowledgeTableMenu({widget,row=0,column=0,cellSelection=null,scope='tab
 }
 function knowledgeTableTools(context=null) {
   const editor=knowledgeCurrentEntry();if(!editor)return;
-  const table=LoopKnowledgeCore.tableAt(editor.getEditorText(),editor.view.state.selection.main.head);
+  const table=editor.tableAt(editor.view.state.selection.main.head);
   if(!table){shellToast('请先点击需要编辑的表格单元格。');return;}
   const widget=context?.widget||editor.root.querySelector(`.kn-table-widget[data-source-pos="${table.from}"]`);
   shellKnowledgeDialog('编辑表格',`<div class="kn-table-controls"><label>列 <select id="kn-table-column">${table.rows[0].map((_,i)=>`<option value="${i}" ${i===(editor.tableColumn||0)?'selected':''}>${i+1}</option>`).join('')}</select></label><label>单元格 <input id="kn-table-value" value="${escAttr(table.rows[table.row]?.[editor.tableColumn||0]||'')}"></label><button class="button" data-kn-table="cell">更新单元格</button><button class="button" data-kn-table="row-add">在下方插入行</button><button class="button" data-kn-table="row-delete">删除当前行</button><button class="button" data-kn-table="column-add">在右侧插入列</button><button class="button" data-kn-table="column-delete">删除当前列</button><label>对齐 <select id="kn-table-align"><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option></select></label><button class="button" data-kn-table="align">应用对齐</button></div>`,'<button class="button" data-action="close-dialog">关闭</button>');

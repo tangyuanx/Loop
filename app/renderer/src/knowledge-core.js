@@ -432,35 +432,64 @@
     });
     return [`<table data-loop-table="1" data-align="${align.join('')}">`,'<thead>'+lines[0]+'</thead>','<tbody>',...lines.slice(1),'</tbody>','</table>'].join('\n');
   }
-  function splitRow(line) {
-    let raw = line.trim(); if (raw.startsWith('|')) raw=raw.slice(1); if (raw.endsWith('|') && !escaped(raw,raw.length-1)) raw=raw.slice(0,-1);
-    const cells=[]; let start=0, tick=0;
-    for(let i=0;i<raw.length;i++) {
-      if(raw[i]==='`' && !escaped(raw,i)) tick = tick ? 0 : 1;
-      if(raw[i]==='|' && !tick && !escaped(raw,i)) { cells.push(raw.slice(start,i).trim()); start=i+1; }
+  function tableRow(line) {
+    // A backtick run opens code only when an equally long closing run exists.
+    // A backslash can escape the opener, but it is literal inside code.
+    const nextRun=new Map(),lastRun=new Map();
+    for(const run of [...line.matchAll(/`+/g)].reverse()){
+      const width=run[0].length,skip=Number(escaped(line,run.index));
+      const end=lastRun.get(width-skip);
+      if(end!==undefined)nextRun.set(run.index+skip,end);
+      lastRun.set(width,run.index+width);
     }
-    cells.push(raw.slice(start).trim()); return cells;
+    const cells=[];let start=0,leading=false,trailing=false;
+    for(let i=0;i<line.length;i++){
+      if(line[i]==='`'){
+        const end=!escaped(line,i)&&nextRun.get(i);
+        if(end){i=end-1;continue;}
+        if(!escaped(line,i))while(line[i+1]==='`')i++;
+      }
+      if(line[i]!=='|'||escaped(line,i))continue;
+      if(!cells.length&&start===0&&!line.slice(0,i).trim())leading=true;
+      else cells.push({from:start,to:i});
+      start=i+1;
+    }
+    trailing=start>0&&!line.slice(start).trim();
+    if(!trailing||!cells.length&&!leading)cells.push({from:start,to:line.length});
+    return {cells,leading,trailing,values:cells.map(({from,to})=>line.slice(from,to).trim())};
+  }
+  const splitRow=line=>tableRow(line).values;
+  const tableAlign=value=>/^:?-+:?$/.test(value);
+  const escapeTablePipes=value=>String(value).replace(/\|/g,(pipe,index,source)=>escaped(source,index)?pipe:'\\'+pipe);
+  function serializePipeRows(rows,prefix=''){
+    return rows.map(row=>'| '+row.join(' | ')+' |').join('\n'+prefix);
+  }
+  function spanTableAt(span,pos){
+    const grid=tableGrid(span.height,span.width,span.cells);
+    const row=span.cells.find(cell=>cell.from<=pos&&pos<=cell.to)?.row??0;
+    const rows=grid.map((line,r)=>line.map((cell,c)=>cell.row===r&&cell.col===c?cell.value:''));
+    rows.splice(1,0,span.align.map(value=>value==='c'?':---:':value==='r'?'---:':'---'));
+    return {...span,grid,rows,row:row?row+1:0};
   }
   function tableAt(text, pos) {
     const span=spanTables(String(text)).find(table=>table.from<=pos&&pos<=table.to);
-    if(span){
-      const grid=tableGrid(span.height,span.width,span.cells);
-      const row=span.cells.find(cell=>cell.from<=pos&&pos<=cell.to)?.row??0;
-      const rows=grid.map((line,r)=>line.map((cell,c)=>cell.row===r&&cell.col===c?cell.value:''));
-      rows.splice(1,0,span.align.map(value=>value==='c'?':---:':value==='r'?'---:':'---'));
-      return {...span,grid,rows,row:row?row+1:0};
-    }
+    if(span)return spanTableAt(span,pos);
     const lines=String(text).split('\n'); let n=0, off=0;
     while(n<lines.length-1 && off+lines[n].length < pos) off+=lines[n++].length+1;
     let start=n; while(start>0 && lines[start-1].includes('|') && lines[start-1].trim()) start--;
-    if(!lines[start]?.includes('|') || !/^\s*\|?\s*:?-{3,}/.test(lines[start+1] || '')) return null;
+    if(!lines[start]?.includes('|')||!lines[start+1])return null;
+    const head=splitRow(lines[start]),align=splitRow(lines[start+1]);
+    if(!head.length||head.length!==align.length||!align.every(tableAlign))return null;
     let end=start+2; while(end<lines.length && lines[end].includes('|') && lines[end].trim()) end++;
     if(n>=end) return null;
     const from=lines.slice(0,start).reduce((a,s)=>a+s.length+1,0);
-    return {from,to:from+lines.slice(start,end).join('\n').length,row:n-start,rows:lines.slice(start,end).map(splitRow)};
+    return {from,to:from+lines.slice(start,end).join('\n').length,row:n-start,rows:lines.slice(start,end).map(splitRow),prefix:lines[start+1].match(/^[ \t]*/)[0]};
   }
   function editTable(text,pos,operation,index=0,value='') {
-    const table=tableAt(text,pos); if(!table) return null;
+    return editTableRows(tableAt(text,pos),operation,index,value);
+  }
+  function editTableRows(table,operation,index=0,value=''){
+    if(!table)return null;
     let rows=table.rows.map(r=>r.slice()), count=rows[0].length;
     // Pad short rows to the header width but never truncate: a row may carry
     // extra fields the rendered table does not show, and an unrelated edit
@@ -481,23 +510,26 @@
     else if(operation==='column-move') {const target=Number(value);if(!Number.isInteger(target)||target<0||target>=count||target===index)return null;
       // Move inside the header width only; cells beyond it keep their place.
       rows.forEach(r=>{const cells=r.slice(0,count);cells.splice(target,0,cells.splice(index,1)[0]);r.splice(0,count,...cells);});}
-    else if(operation==='cell') { if(row===1) return null; rows[row][index]=String(value).replace(/\n/g,'<br>').replace(/(?<!\\)\|/g,'\\|'); }
+    else if(operation==='cell') { if(row===1) return null; rows[row][index]=escapeTablePipes(String(value).replace(/\n/g,'<br>')); }
     else if(operation==='align') rows[1][index]=value==='center'?':---:':value==='right'?'---:':':---';
     else return null;
-    return {from:table.from,to:table.to,insert:rows.map(r=>'| '+r.join(' | ')+' |').join('\n')};
+    return {from:table.from,to:table.to,insert:serializePipeRows(rows,table.prefix)};
   }
   function pasteTable(text,pos,column,clipboard) {
-    const table=tableAt(text,pos);if(!table||table.row===1)return null;
-    const grid=String(clipboard).replace(/\r\n?/g,'\n').replace(/\n$/,'').split('\n').map(line=>line.split('\t'));
+    const grid=Array.isArray(clipboard)?clipboard:String(clipboard).replace(/\r\n?/g,'\n').replace(/\n$/,'').split('\n').map(line=>line.split('\t'));
+    return pasteTableRows(tableAt(text,pos),column,grid);
+  }
+  function pasteTableRows(table,column,grid){
+    if(!table||table.row===1)return null;
     const rows=table.rows.map(row=>row.slice()),start=table.row;
     const count=Math.max(rows[0].length,column+Math.max(...grid.map(row=>row.length)));
     for(const row of rows)while(row.length<count)row.push(row===rows[1]?'---':'');
     for(let r=0;r<grid.length;r++){
       const target=start+r+(start===0&&r>0?1:0);
       while(rows.length<=target)rows.push(Array(count).fill(''));
-      for(let c=0;c<grid[r].length;c++)rows[target][column+c]=grid[r][c].replace(/(?<!\\)\|/g,'\\|');
+      for(let c=0;c<grid[r].length;c++)rows[target][column+c]=escapeTablePipes(grid[r][c].replace(/\r\n?|\n/g,'<br>'));
     }
-    return {from:table.from,to:table.to,insert:rows.map(row=>'| '+row.join(' | ')+' |').join('\n')};
+    return {from:table.from,to:table.to,insert:serializePipeRows(rows,table.prefix)};
   }
   class SerialQueue {
     constructor() { this.queues=new Map(); }
@@ -507,5 +539,5 @@
       return next.finally(()=>{ if(this.queues.get(key)===next) this.queues.delete(key); });
     }
   }
-  return {sourceFormat,serializeSource,excludedRanges,escaped,parseTarget,links,imageReferences,noteId,noteTitle,resolve,stableLink,noteFileBase,validateNoteName,canonicalPath,resolvePath,relativePathBetween,linksToFile,rewriteLinksToFile,headings,unnumberedHeading,headingAnchorKey,anchorOffset,fragment,relativeLinks,splitRow,tableAt,editTable,pasteTable,parseSpanTable,spanTables,spanTableImages,spanTableLinks,tableGrid,serializeSpanTable,htmlAttribute,escapeTableAttribute,SerialQueue};
+  return {sourceFormat,serializeSource,excludedRanges,escaped,parseTarget,links,imageReferences,noteId,noteTitle,resolve,stableLink,noteFileBase,validateNoteName,canonicalPath,resolvePath,relativePathBetween,linksToFile,rewriteLinksToFile,headings,unnumberedHeading,headingAnchorKey,anchorOffset,fragment,relativeLinks,splitRow,tableRow,tableAlign,serializePipeRows,escapeTablePipes,tableAt,editTable,editTableRows,pasteTable,pasteTableRows,parseSpanTable,spanTableAt,spanTables,spanTableImages,spanTableLinks,tableGrid,serializeSpanTable,htmlAttribute,escapeTableAttribute,SerialQueue};
 });

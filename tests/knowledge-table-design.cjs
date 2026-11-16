@@ -49,11 +49,11 @@ module.exports=async({page,choose,mode,markdown})=>{
  await page.keyboard.press(process.platform==='darwin'?'Meta+z':'Control+z');assert.equal(await markdown(),source);
  const customWidths=await page.evaluate(()=>knowledgeCurrentEntry().options.tableColumnWidths);
  await menu('table');await command('auto-width');assert.equal((await cellFocus()).focused,true);
- assert.deepEqual(await page.evaluate(()=>knowledgeCurrentEntry().options.tableColumnWidths[0]),[],'automatic width clears the custom widths');
+ assert.deepEqual(await page.evaluate(()=>knowledgeCurrentEntry().options.tableColumnWidths),[],'automatic width clears the custom widths');
  await page.keyboard.press(process.platform==='darwin'?'Meta+z':'Control+z');
  assert.deepEqual(await page.evaluate(()=>knowledgeCurrentEntry().options.tableColumnWidths),customWidths,'undo restores the previous custom widths');
  await page.keyboard.press(process.platform==='darwin'?'Meta+Shift+z':'Control+Shift+z');
- assert.deepEqual(await page.evaluate(()=>knowledgeCurrentEntry().options.tableColumnWidths[0]),[]);
+ assert.deepEqual(await page.evaluate(()=>knowledgeCurrentEntry().options.tableColumnWidths),[]);
  const automaticWidths=await widget.locator('th').evaluateAll(cells=>cells.map(cell=>cell.getBoundingClientRect().width));
  await field.evaluate(input=>input.setSelectionRange(0,1,'backward'));
  await menu('table');await command('details');
