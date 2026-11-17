@@ -414,7 +414,7 @@ class KnowledgeEditor {
       // Revealing hidden Markdown while the pointer is placing a selection
       // moves its visible endpoints. Keep that geometry until the user puts
       // down a single caret or actually edits the document.
-      if(!tr.docChanged&&!tr.effects.some(e=>e.is(refreshEffect)||e.is(expandBlockEffect)||e.is(clearExpandedEffect))&&
+      if(!tr.docChanged&&this.decorationMode===this.mode&&!tr.effects.some(e=>e.is(expandBlockEffect)||e.is(clearExpandedEffect))&&
         (this.pointerSelecting||!tr.state.selection.main.empty))return decos;
       if(tr.docChanged||tr.selection||syntaxTree(tr.startState)!==syntaxTree(tr.state)||tr.effects.some(e=>e.is(refreshEffect)||e.is(expandBlockEffect)||e.is(clearExpandedEffect))) return this.buildDecorations(tr.state);
       return decos.map(tr.changes);
@@ -783,6 +783,7 @@ class KnowledgeEditor {
     }
   }
   buildDecorations(state) {
+    this.decorationMode=this.mode;
     if(this.mode!=='edit')return Decoration.none;
     const ranges=[],blocks=[];let blockEnd=0;
     const add=(from,to,deco)=>{if(to>=from)ranges.push(deco.range(from,to));};

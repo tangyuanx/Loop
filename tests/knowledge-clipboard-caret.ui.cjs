@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path');
 const {launchRepository,task}=require('./electron-ui-helpers.cjs');
 const {readKnowledgeDocument}=require('../app/main/knowledge-file.cjs');
-const wb=require('./workbench-helpers.cjs'),mod=process.platform==='darwin'?'Meta':'Control';
+const wb=require('./workbench-helpers.cjs'),mod=process.platform==='darwin'?'Meta':'Control',redoKey=process.platform==='darwin'?'Meta+Shift+z':'Control+y';
 async function main(){
  const evidence=await fs.mkdtemp(path.resolve('.local-review/clipboard-caret-'));
  const file=path.join(evidence,'Clipboard.md');await fs.writeFile(file,'start\n\nend');
@@ -25,14 +25,14 @@ async function main(){
    await run.app.evaluate(({clipboard},sample)=>clipboard.write({text:sample.text,html:sample.html}),sample);
    await page.keyboard.press(mod+'+v');await page.waitForTimeout(100);
    assert.equal(await source(),'start\n\n'+sample.text+'end',sample.name+' preserves the complete plain-text selection');
-   await page.keyboard.press(mod+'+z');assert.equal(await source(),'start\n\nend');await page.keyboard.press(mod+'+Shift+z');assert.equal(await source(),'start\n\n'+sample.text+'end');cases.push(sample.name);
+   await page.keyboard.press(mod+'+z');assert.equal(await source(),'start\n\nend');await page.keyboard.press(redoKey);assert.equal(await source(),'start\n\n'+sample.text+'end');cases.push(sample.name);
   }
   await reset('');await run.app.evaluate(({clipboard},html)=>clipboard.write({text:'A\tB\none\ttwo',html}),'<html><head><style>td{color:red}</style></head><body><div>'+table+'</div></body></html>');await page.keyboard.press(mod+'+v');
   await page.locator('.kn-table-widget').waitFor();assert.match(await source(),/\| A \| B \|/);assert.match(await source(),/one/);cases.push('whole HTML table retains table conversion');
   await reset('');
   await page.evaluate(html=>{const data=new DataTransfer();data.setData('text/html',html);knowledgeCurrentEntry().view.contentDOM.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data}));},'<p>Before</p>'+table+'<p>After</p><script>evil()</script>');
   const htmlOnly=await source();assert.ok(htmlOnly.startsWith('Before\n')&&htmlOnly.includes('one\ttwo')&&htmlOnly.endsWith('After'),htmlOnly);assert.ok(!htmlOnly.includes('evil'));cases.push('HTML-only mixed content retains all visible text');
-  await require('./knowledge-selection-stability.cjs')({page,reset,source,cases,mod});
+  await require('./knowledge-selection-stability.cjs')({page,reset,source,cases,mod,redoKey});
   const code='plain before\n\n```js\nconst value = 42;\nconst other = 9;\n```\n\nplain after [legal]';
   for(const theme of ['light','dark'])for(const scale of [1,1.3]){
    await reset(code);await page.evaluate(({theme,scale})=>{state.theme=theme;render();knowledgeCurrentEntry().root.style.setProperty('--font-scale',String(scale));},{theme,scale});
