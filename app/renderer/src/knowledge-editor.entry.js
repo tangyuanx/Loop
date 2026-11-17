@@ -157,11 +157,19 @@ class TableWidget extends RenderWidget {
   eq(other){
     if(this.from!==other.from||this.to!==other.to||this.context!==other.context||
       this.source!==other.source||this.references!==other.references)return false;
-    if(this.revision===other.revision)return true;
+    if(this.revision===other.revision){
+      // Equal widgets can replace one another in the decoration set without
+      // mounting DOM. Carry the rendered snapshot forward for a later refresh.
+      this.html||=other.html;other.html||=this.html;
+      return true;
+    }
     // A save can refresh asset references without changing the rendered table.
     // Preserve its focused editor when the resulting markup is identical.
     const [previous,next]=this.revision<other.revision?[this,other]:[other,this];
-    return Boolean(previous.html)&&previous.html===next.renderTable();
+    // Offscreen widgets may never have mounted. An empty HTML cache does not
+    // mean their rendering changed: treating it that way drops CodeMirror's
+    // measured height back to its one-line estimate for every preceding table.
+    return previous.renderTable()===next.renderTable();
   }
   renderTable(){return this.html||=this.owner.renderWidgetHTML('Table',this.source,this.reference);}
   toDOM(view) {
@@ -486,7 +494,13 @@ class KnowledgeEditor {
       });
     },{capture:true,signal});
     this.tableScrollHost=this.root.closest('.knowledge-body')||this.view.scrollDOM;
-    this.tableScrollHost.addEventListener('scroll',()=>this.queueTableHeaders(),{passive:true,signal});
+    // Workspace renders can move this editor into a new body while preserving
+    // its state. Scroll doesn't bubble; capture it and resolve the current
+    // owner instead of keeping a listener on the detached original body.
+    document.addEventListener('scroll',event=>{
+      const host=this.root.closest('.knowledge-body')||this.view.scrollDOM;
+      if(event.target===host)this.queueTableHeaders();
+    },{capture:true,passive:true,signal});
     this.queueTableHeaders();
     document.addEventListener('pointerdown',event=>{
       const active=this.activeTableCell;
@@ -944,6 +958,7 @@ class KnowledgeEditor {
     return changes.length?[tr,{changes,sequential:true}]:tr;
   }
   onUpdate(update) {
+    if(update.geometryChanged||update.viewportChanged)this.queueTableHeaders();
     if((update.docChanged||update.selectionSet||update.viewportChanged)&&this.blockCaret)this.clearBlockCaret();
     if(update.transactions.some(tr=>tr.effects.some(effect=>effect.is(tableWidthsEffect)))){
       this.options.tableColumnWidths=update.state.field(this.tableWidths);this.options.onTableColumnWidthsChange?.(this.options.tableColumnWidths);
@@ -1482,26 +1497,29 @@ class KnowledgeEditor {
     this.queueTableHeaders();
   }
   queueTableHeaders(){
-    if(!this.tableScrollHost||this.tableHeaderFrame||this.destroyed||this.mode==='source')return;
-    this.tableHeaderFrame=requestAnimationFrame(()=>{
-      this.tableHeaderFrame=0;
-      if(!this.root.isConnected)return;
+    if(!this.tableScrollHost||this.destroyed||this.mode==='source')return;
+    // Measure after CodeMirror has settled its virtualized viewport, rather
+    // than in a competing animation frame using temporary table coordinates.
+    this.view.requestMeasure({key:this,read:()=>{
+      if(!this.root.isConnected||this.destroyed||this.mode==='source')return [];
       const host=this.mode==='preview'?this.readHost:this.editHost;
-      const viewport=this.tableScrollHost.getBoundingClientRect();
-      const top=viewport.top+this.tableScrollHost.clientTop;
-      const updates=[...host.querySelectorAll('table>thead')].map(header=>{
+      const scrollHost=this.tableScrollHost=this.root.closest('.knowledge-body')||this.view.scrollDOM;
+      const viewport=scrollHost.getBoundingClientRect();
+      const top=viewport.top+scrollHost.clientTop;
+      return [...host.querySelectorAll('table>thead')].map(header=>{
         const bounds=header.parentElement.getBoundingClientRect();
         const offset=bounds.bottom>top&&bounds.top<viewport.bottom
           ?Math.max(0,Math.min(top-bounds.top,bounds.height-header.offsetHeight)):0;
         return [header,offset];
       });
+    },write:updates=>{
       for(const [header,offset] of updates){
         const translate=offset>0?`0px ${offset}px`:'';
         if(header.style.translate===translate)continue;
         header.toggleAttribute('data-table-pinned',offset>0);
         header.style.translate=translate;
       }
-    });
+    }});
   }
   handleRenderedClick(event,base) {
     const target=event.target;
@@ -2096,6 +2114,6 @@ class KnowledgeEditor {
     if(changes.length)this.view.dispatch({changes:changes.sort((a,b)=>a.from-b.from),annotations:Transaction.addToHistory.of(false),userEvent:'input.assets'});
   }
   refresh(){this.renderRevision++;this.renderCache.clear();if(this.mode==='preview')this.renderReading();this.view.dispatch({effects:refreshEffect.of(null)});this.view.requestMeasure();}
-  destroy(){this.destroyed=true;cancelAnimationFrame(this.tableHeaderFrame);this.events?.abort();this.find?.destroy();this.view.destroy();instances.delete(this.root);return Promise.resolve();}
+  destroy(){this.destroyed=true;this.events?.abort();this.find?.destroy();this.view.destroy();instances.delete(this.root);return Promise.resolve();}
 }
 window.LoopKnowledgeEditor={create:async options=>new KnowledgeEditor(options),createRenderer,safeURL,instances};
