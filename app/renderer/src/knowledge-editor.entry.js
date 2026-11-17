@@ -13,7 +13,7 @@ import {applyTableRowHeights,preferredColumnWidth} from './knowledge-table-sizin
 import {tableGeometry,measureTableColumns,applyTableColumnWidths,cellBounds,mergeBounds,splitSpan,editSpan} from './knowledge-span-grid.js';
 import {spanCellToPipe} from './knowledge-span-content.js';
 import {decodeTableCell,encodeTableCell} from './knowledge-table-content.js';
-import {clipboardTable,copyTableGrid} from './knowledge-table-clipboard.js';
+import {clipboardTable,clipboardPlainText,copyTableGrid} from './knowledge-table-clipboard.js';
 import {VisualTableCell} from './knowledge-table-visual.js';
 import {tags} from '@lezer/highlight';
 import {obsidianComments} from './knowledge-syntax.js';
@@ -411,6 +411,11 @@ class KnowledgeEditor {
     this.readHost.addEventListener('click',event=>this.handleRenderedClick(event,0));
     this.readHost.addEventListener('toggle',()=>this.find?.update(true),true);
     this.decorations=StateField.define({create:state=>this.buildDecorations(state),update:(decos,tr)=>{
+      // Revealing hidden Markdown while the pointer is placing a selection
+      // moves its visible endpoints. Keep that geometry until the user puts
+      // down a single caret or actually edits the document.
+      if(!tr.docChanged&&!tr.effects.some(e=>e.is(refreshEffect)||e.is(expandBlockEffect)||e.is(clearExpandedEffect))&&
+        (this.pointerSelecting||!tr.state.selection.main.empty))return decos;
       if(tr.docChanged||tr.selection||syntaxTree(tr.startState)!==syntaxTree(tr.state)||tr.effects.some(e=>e.is(refreshEffect)||e.is(expandBlockEffect)||e.is(clearExpandedEffect))) return this.buildDecorations(tr.state);
       return decos.map(tr.changes);
     },provide:field=>EditorView.decorations.from(field)});
@@ -420,6 +425,7 @@ class KnowledgeEditor {
       this.expandedBlocks,
       this.lineEndings,invertedEffects.of(tr=>tr.docChanged||tr.effects.some(e=>e.is(restoreLineEndings))?[restoreLineEndings.of(tr.startState.field(this.lineEndings))]:[]),
       history(),drawSelection(),rectangularSelection(),crosshairCursor(),EditorView.lineWrapping,
+      EditorState.transactionFilter.of(tr=>this.includeSelectedMarkup(tr)),
       EditorState.transactionFilter.of(tr=>{
         if(!options.autoSpacing?.() || this.mode==='preview' || !tr.docChanged || !tr.isUserEvent('input.type') || tr.isUserEvent('input.type.compose'))return tr;
         const changes=typedSpacing(tr);
@@ -469,6 +475,16 @@ class KnowledgeEditor {
     ]})});
     this.find=new KnowledgeFind(this);this.setMode(this.mode);instances.set(options.root,this);
     this.events=new AbortController();const signal=this.events.signal;
+    this.view.dom.addEventListener('mousedown',event=>{
+      if(event.button===0&&event.target.closest('.cm-content')&&!event.target.closest('.kn-live-widget,button,input,textarea'))this.pointerSelecting=true;
+    },{capture:true,signal});
+    document.addEventListener('mouseup',()=>{
+      if(!this.pointerSelecting)return;
+      this.pointerSelecting=false;
+      requestAnimationFrame(()=>{
+        if(!this.destroyed&&!this.pointerSelecting&&this.view.state.selection.main.empty){this.clearBlockCaret();this.view.dispatch({effects:refreshEffect.of(null)});}
+      });
+    },{capture:true,signal});
     this.tableScrollHost=this.root.closest('.knowledge-body')||this.view.scrollDOM;
     this.tableScrollHost.addEventListener('scroll',()=>this.queueTableHeaders(),{passive:true,signal});
     this.queueTableHeaders();
@@ -732,12 +748,16 @@ class KnowledgeEditor {
   showBlockCaret(el,event) {
     this.clearBlockCaret();
     if(getComputedStyle(el).position==='static')el.style.position='relative';
-    const rect=el.getBoundingClientRect(),height=parseFloat(getComputedStyle(el).lineHeight)||20;
+    const rect=el.getBoundingClientRect();
+    const range=document.caretRangeFromPoint?.(event.clientX,event.clientY);
+    const target=range?.startContainer.nodeType===3?range.startContainer.parentElement:range?.startContainer;
+    const measured=target&&el.contains(target)?range.getBoundingClientRect():null;
+    const height=measured?.height||parseFloat(getComputedStyle(target&&el.contains(target)?target:el).lineHeight)||20;
     const caret=document.createElement('span');
     caret.className='kn-block-caret';
     caret.setAttribute('aria-hidden','true');
-    caret.style.left=(event.clientX-rect.left)+'px';
-    caret.style.top=Math.max(0,event.clientY-rect.top-height/2)+'px';
+    caret.style.left=((measured?.height?measured.left:event.clientX)-rect.left)+'px';
+    caret.style.top=Math.max(0,(measured?.height?measured.top:event.clientY-height/2)-rect.top)+'px';
     caret.style.height=height+'px';
     el.append(caret);
     this.blockCaret={from:this.from,element:caret,widget:el};
@@ -834,13 +854,13 @@ class KnowledgeEditor {
         if(parent&&!selected(state,parent.from,parent.to)){
           const space=node.name==='HeaderMark'&&parent.name.startsWith('ATXHeading')
             ?state.doc.sliceString(node.to,Math.min(parent.to,node.to+32)).match(/^[ \t]+/)?.[0].length||0:0;
-          add(node.from,node.to+space,Decoration.replace({inclusive:false}));
+          add(node.from,node.to+space,Decoration.replace({inclusive:false,knHiddenSyntax:true}));
         }
       }
       if(node.name==='Link' && !active) {
         const children=[];let child=node.node.firstChild;while(child){children.push(child);child=child.nextSibling;}
         const markers=children.filter(c=>c.name==='LinkMark'||c.name==='URL');
-        for(const c of markers)add(c.from,c.to,Decoration.replace({inclusive:false}));
+        for(const c of markers)add(c.from,c.to,Decoration.replace({inclusive:false,knHiddenSyntax:true}));
         add(node.from,node.to,Decoration.mark({class:'kn-external-link',attributes:{'data-kn-link-from':String(node.from)}}));
       }
       if(node.name==='TaskMarker'&&!active){
@@ -864,7 +884,7 @@ class KnowledgeEditor {
         if(selected(state,a,b))continue;
         const html=this.renderer.render(link.raw,{noteId:this.options.noteId,stack:[this.options.noteId]});
         // Avoid a paragraph wrapper inside an inline widget.
-        add(a,b,Decoration.replace({widget:new RenderWidget(html.replace(/^<p>|<\/p>\n?$/g,''),this,a,'inline'),inclusive:false}));
+        add(a,b,Decoration.replace({widget:new RenderWidget(html.replace(/^<p(?:\s[^>]*)?>|<\/p>\n?$/g,''),this,a,'inline'),inclusive:false}));
       }
       const masks=core.excludedRanges(text);
       const pattern=/==([^=\n]+)==|(?<!\\)\$\$([\s\S]+?)\$\$|(?<![\\$])\$([^$\n]+)\$(?!\$)/g;let m;
@@ -872,7 +892,7 @@ class KnowledgeEditor {
         const a=node.from+m.index,b=a+m[0].length;
         if(masks.some(([x,y])=>m.index<y&&m.index+m[0].length>x))continue;
         if(selected(state,a,b))continue;
-        if(m[1]){add(a,b,Decoration.mark({class:'kn-highlight'}));add(a,a+2,Decoration.replace({}));add(b-2,b,Decoration.replace({}));}
+        if(m[1]){add(a,b,Decoration.mark({class:'kn-highlight'}));add(a,a+2,Decoration.replace({knHiddenSyntax:true}));add(b-2,b,Decoration.replace({knHiddenSyntax:true}));}
         else add(a,b,Decoration.replace({widget:new RenderWidget(this.renderer.render(m[0],{noteId:this.options.noteId}).replace(/^<p>|<\/p>\n?$/g,''),this,a,'inline'),inclusive:false}));
       }
       return false;
@@ -891,8 +911,39 @@ class KnowledgeEditor {
     const outer=[];for(const r of replacements)if(!outer.some(o=>r.from>=o.from&&r.from<o.to&&r.to<=o.to))outer.push(r);
     return Decoration.set(ranges.filter(r=>!replacements.includes(r)||outer.includes(r)).filter(r=>outer.includes(r)||!outer.some(o=>r.from>=o.from&&r.from<o.to&&r.to<=o.to)),true);
   }
+  includeSelectedMarkup(tr) {
+    const selection=tr.startState.selection.main;
+    if(this.mode!=='edit'||!tr.docChanged||selection.empty||!(tr.isUserEvent('delete')||tr.isUserEvent('input')))return tr;
+    const changed=[];tr.changes.iterChanges((from,to,_a,_b,insert)=>changed.push({from,to,replacing:insert.length>0}));
+    if(changed.length!==1||changed[0].from!==selection.from||changed[0].to!==selection.to)return tr;
+    const decorations=tr.startState.field(this.decorations),starts=new Map(),ends=new Map(),candidates=[];
+    decorations.between(0,tr.startState.doc.length,(from,to,value)=>{
+      if(value.spec.knHiddenSyntax){starts.set(from,to);ends.set(to,from);}
+      if(value.spec.class==='kn-highlight')candidates.push({from,to});
+    });
+    syntaxTree(tr.startState).iterate({enter:node=>{
+      if(node.to<selection.from||node.from>selection.to)return false;
+      if(['StrongEmphasis','Emphasis','Strikethrough','InlineCode','Link'].includes(node.name))candidates.push({from:node.from,to:node.to});
+    }});
+    let from=selection.from,to=selection.to;
+    for(const node of candidates){
+      let start=node.from,end=node.to;
+      while(starts.has(start))start=starts.get(start);
+      while(ends.has(end))end=ends.get(end);
+      if(start<end&&selection.from<=start&&selection.to>=end){
+        // Replacing just a label keeps its existing formatting/link. Cleanup
+        // is needed for deletion, or replacement that also removed one edge.
+        if(changed[0].replacing&&selection.from===start&&selection.to===end)continue;
+        from=Math.min(from,node.from);to=Math.max(to,node.to);
+      }
+    }
+    const changes=[];
+    if(from<selection.from)changes.push({from:tr.changes.mapPos(from,1),to:tr.changes.mapPos(selection.from,-1)});
+    if(to>selection.to)changes.push({from:tr.changes.mapPos(selection.to,1),to:tr.changes.mapPos(to,-1)});
+    return changes.length?[tr,{changes,sequential:true}]:tr;
+  }
   onUpdate(update) {
-    if((update.docChanged||update.viewportChanged)&&this.blockCaret)this.clearBlockCaret();
+    if((update.docChanged||update.selectionSet||update.viewportChanged)&&this.blockCaret)this.clearBlockCaret();
     if(update.transactions.some(tr=>tr.effects.some(effect=>effect.is(tableWidthsEffect)))){
       this.options.tableColumnWidths=update.state.field(this.tableWidths);this.options.onTableColumnWidthsChange?.(this.options.tableColumnWidths);
       for(const widget of this.root.querySelectorAll('.kn-table-widget'))this.applyTableWidths(widget,Number(widget.dataset.sourcePos));
@@ -1988,7 +2039,13 @@ class KnowledgeEditor {
     const grid=this.mode==='edit'&&!this.view.composing?clipboardTable(event.clipboardData):null;
     const files=this.imageFiles(event.clipboardData);
     if(files.length&&!grid){event.preventDefault();void this.uploadFiles(files);return true;}
-    if(!grid)return false;
+    if(!grid){
+      if(!event.clipboardData?.getData('text/plain')){
+        const insert=clipboardPlainText(event.clipboardData);
+        if(insert){event.preventDefault();this.view.dispatch(this.view.state.replaceSelection(insert),{userEvent:'input.paste',scrollIntoView:true});return true;}
+      }
+      return false;
+    }
     const {state}=this.view,{from,to}=state.selection.main;
     forceParsing(this.view,to);
     for(let node=syntaxTree(this.view.state).resolveInner(from,1);node;node=node.parent)if(/^(FencedCode|IndentedCode|Frontmatter)$/.test(node.name))return false;

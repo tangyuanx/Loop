@@ -121,6 +121,8 @@ jobs:
           $executable = Join-Path $PWD "release/win-unpacked/Loop.exe"
           if (-not (Test-Path -LiteralPath $executable)) { throw "Packaged Loop.exe is missing." }
           "LOOP_APP_EXECUTABLE=$executable" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Test packaged clipboard content and code caret geometry
+        run: node tests/knowledge-clipboard-caret.ui.cjs
       - name: Test packaged task-note membership
         run: npm run test:ui:knowledge-membership
       - name: Test packaged knowledge editing scroll stability
@@ -148,6 +150,7 @@ jobs:
           name: knowledge-evidence-${{ matrix.platform }}
           path: |
             .local-review/scroll-stability-120-*
+            .local-review/clipboard-caret-*
             ${{ runner.temp }}/knowledge-export/evidence
             ${{ runner.temp }}/knowledge-conflict/evidence
             ${{ runner.temp }}/knowledge-feedback/evidence
