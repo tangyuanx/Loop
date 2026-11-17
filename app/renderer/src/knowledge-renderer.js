@@ -227,6 +227,24 @@ export function createRenderer(options) {
     for(const [a,b] of ranges.reverse())input=input.slice(0,a)+input.slice(a,b).replace(/[^\n]/g,' ')+input.slice(b);
     return input;
   }
+  function firstHeadingText(source) {
+    try {
+      const tokens = md.parse(maskComments(source), {});
+      for (const [index, token] of tokens.entries()) {
+        if (token.type !== 'heading_open' || token.level !== 0) continue;
+        const title = tokens[index + 1]?.children?.map(child => {
+          if (['text', 'code_inline', 'image'].includes(child.type)) return child.content;
+          if (child.type === 'loop_wiki') return child.meta.label || child.meta.target || child.meta.anchor;
+          if (child.type === 'softbreak' || child.type === 'hardbreak') return ' ';
+          return '';
+        }).join('').replace(/\s+/g, ' ').trim();
+        if (title) return title;
+      }
+    } catch {
+      // A filename suggestion is optional even when the note cannot be parsed.
+    }
+    return '';
+  }
   function tableLocations(source){
     if(!source.includes('|')&&!source.includes('<table data-loop-table='))return [];
     const tokens=[];
@@ -316,7 +334,7 @@ export function createRenderer(options) {
       return {html,issues:[...new Set(issues)],diagrams};
     } finally {signal?.removeEventListener('abort',abort);root.remove();}
   }
-  return {render,enhance,exportStatic,storeSpanCell,tableLocations,parse:(source,env={})=>md.parse(source,env)};
+  return {render,enhance,exportStatic,storeSpanCell,firstHeadingText,tableLocations,parse:(source,env={})=>md.parse(source,env)};
 }
 export {escape};
 export function highlightCode(code,language) {

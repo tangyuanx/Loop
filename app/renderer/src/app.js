@@ -1749,6 +1749,8 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
   const lifecycleBeforeSave = typeof knowledgeGenerations !== "undefined" ? knowledgeGenerations.get(task.id) || 0 : 0;
   const contentBeforeSave = task.notes;
   const sessionBeforeSave = { ...task.knowledgeNote };
+  const useFirstSaveName = !sessionBeforeSave.filePath && !state.tasks.includes(task) &&
+    ['未命名', '未命名笔记'].includes(knowledgeDocument.normalizeKnowledgeNote(sessionBeforeSave).title);
   const conflictBeforeSave = knowledgeExternalSnapshots.get(note.noteId);
   const taskUpdatedAtBeforeSave = task.updatedAt;
   try {
@@ -1772,7 +1774,7 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
       filePath: saveAs ? "" : note.filePath,
       defaultDirectory: defaultSaveDirectory,
       saveAs,
-      title: task.title,
+      title: (useFirstSaveName && knowledgeRendererForTask(task).firstHeadingText(contentToSave)) || task.title,
       // "Save as" carries the note's existing relative attachments into the new
       // directory so the copy still resolves its images.
       sourceFilePath: saveAs ? (note.filePath || "") : "",
@@ -1829,7 +1831,7 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
     rememberKnowledgeAssetFiles(result.assetFiles, task.knowledgeNote.noteId);
     task.knowledgeNote = knowledgeDocument.markDocumentSaved(task.knowledgeNote, result);
     if(typeof knowledgeRememberSaveDirectory==='function')knowledgeRememberSaveDirectory(task,result.filePath,saveDirectoryOwnerId);
-    if(!sessionBeforeSave.filePath&&!state.tasks.includes(task)&&['未命名','未命名笔记'].includes(knowledgeDocument.normalizeKnowledgeNote(sessionBeforeSave).title)) {
+    if (useFirstSaveName) {
       const title=result.filePath?.replace(/\\/g,'/').split('/').at(-1)?.replace(/\.md$/i,'');
       if(title){task.title=title;task.knowledgeNote=knowledgeDocument.updateDocumentTitle(task.knowledgeNote,title);}
     }
