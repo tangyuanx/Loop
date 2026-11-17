@@ -13,6 +13,8 @@
 .kn-editor-host .cm-activeLine {background:color-mix(in srgb,currentColor 3%,transparent);}
 .kn-editor-host .cm-foldGutter .cm-gutterElement {padding:0 4px;}
 .kn-fold-toggle {width:16px;height:22px;padding:0;font:inherit;color:var(--secondary);}
+/* Selection rectangles from the previous width can briefly outlive a resize. */
+.kn-editor-host .cm-selectionLayer {right:0;overflow-x:clip;}
 .kn-editor-host .cm-selectionBackground,.kn-editor-host.cm-focused .cm-selectionBackground {background:var(--kn-selection)!important;}
 .kn-editor-host .cm-cursor {border-left-color:currentColor;}
 .kn-editor-host .cm-panels {background:var(--panel,#f5f6f3);color:inherit;position:sticky;top:0;z-index:4;border-radius:8px;}

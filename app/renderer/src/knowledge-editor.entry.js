@@ -78,12 +78,17 @@ class RenderWidget extends WidgetType {
         const mapped=this.owner.calloutPositionAt(this.from,event);
         if(mapped!==null) pos=mapped;
       }
-      // Consume this click's scroll request so CodeMirror does not apply its
-      // automatic height-based scroll correction to the outer note pane.
+      const scrollHost=this.owner.root.closest('.knowledge-body')||view.scrollDOM;
+      const scrollTop=scrollHost.scrollTop;
+      // Measure the selection and focus together before painting the caret.
+      // The outer pane keeps its current position even if CodeMirror measures
+      // a new height for a virtualized line above this widget.
+      view.focus();
       const target=EditorSelection.cursor(pos);
       widgetClickScrollTargets.add(target);
       view.dispatch({selection:{anchor:pos},effects:EditorView.scrollIntoView(target)});
-      view.focus();
+      view.elementAtHeight(scrollTop);
+      if(scrollHost.scrollTop!==scrollTop)scrollHost.scrollTop=scrollTop;
       this.owner.showBlockCaret(el,event);
     });
     if(this.kind==='block'&&this.nodeName!=='Table'){
