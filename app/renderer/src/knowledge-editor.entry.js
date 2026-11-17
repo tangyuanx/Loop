@@ -22,6 +22,7 @@ import {documentFormat,spacingAt,typedSpacing} from './knowledge-format.js';
 const core=window.LoopKnowledgeCore;
 const refreshEffect=StateEffect.define(),tableWidthsEffect=StateEffect.define(),tableHeightsEffect=StateEffect.define(),expandBlockEffect=StateEffect.define(),clearExpandedEffect=StateEffect.define();
 const instances=new WeakMap();
+const widgetClickScrollTargets=new WeakSet();
 const cellMarkdown=markdown({base:markdownLanguage,addKeymap:false,completeHTMLTags:false});
 function trimTableWidths(widths){
   while(widths.length&&!widths.at(-1).length)widths.pop();
@@ -77,7 +78,12 @@ class RenderWidget extends WidgetType {
         const mapped=this.owner.calloutPositionAt(this.from,event);
         if(mapped!==null) pos=mapped;
       }
-      view.dispatch({selection:{anchor:pos},scrollIntoView:false}); view.focus();
+      // Consume this click's scroll request so CodeMirror does not apply its
+      // automatic height-based scroll correction to the outer note pane.
+      const target=EditorSelection.cursor(pos);
+      widgetClickScrollTargets.add(target);
+      view.dispatch({selection:{anchor:pos},effects:EditorView.scrollIntoView(target)});
+      view.focus();
       this.owner.showBlockCaret(el,event);
     });
     if(this.kind==='block'&&this.nodeName!=='Table'){
@@ -440,6 +446,7 @@ class KnowledgeEditor {
       EditorView.atomicRanges.of(view=>view.state.field(this.decorations).update({filter:(_from,_to,value)=>value.spec.widget instanceof ImageWidget})),
       this.lineConfig.of(this.mode==='source'?[lineNumbers(),highlightActiveLine()]:[]),
       EditorView.contentAttributes.of({'aria-label':'Markdown 内容',spellcheck:'false'}),
+      EditorView.scrollHandler.of((_view,range)=>widgetClickScrollTargets.delete(range)),
       EditorView.updateListener.of(update=>this.onUpdate(update)),
       EditorView.domEventHandlers({paste:(event)=>this.paste(event),drop:(event,view)=>this.drop(event,view),dragover:event=>{
         if([...event.dataTransfer?.items||[]].some(i=>i.type.startsWith('image/'))) {event.preventDefault();return true;} return false;
