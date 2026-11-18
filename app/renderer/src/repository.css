@@ -138,9 +138,13 @@ body .list-search-end { display: grid; place-items: center; flex: none; min-inli
 body .list-search-end > * { grid-area: 1 / 1; }
 body .list-search:has(input:not(:placeholder-shown)) .search-shortcut { visibility: hidden; }
 body .task-list-pane .list-heading { padding: 15px 20px 17px; border: 0; gap: 6px; }
+body .list-heading-label { display: flex; align-items: center; gap: 3px; min-width: 0; }
 body .list-heading h2 { min-width: 0; font-size: var(--type-13); gap: 9px; }
 body .list-heading .list-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body .list-heading h2 .count { flex-shrink: 0; color: var(--secondary); background: transparent; font-size: var(--type-11); }
+body .list-more-button { width: 24px; height: 28px; padding: 0; color: var(--secondary); }
+body .list-more-button svg { width: 14px; height: 14px; }
+body .list-more-button[aria-expanded="true"] { color: var(--text); background: var(--hover); }
 body .heading-list-actions { gap: 3px; flex-shrink: 0; }
 body .heading-list-actions :is(.scope-filter, .icon-button) {
   min-height: 28px;
@@ -151,7 +155,11 @@ body .heading-list-actions :is(.scope-filter, .icon-button) {
 }
 
 body .heading-list-actions :is(.scope-filter, .icon-button):hover { background: var(--hover); color: var(--text); }
-body .scope-filter .filter-indicator { display: grid; place-items: center; flex: none; width: 17px; height: 17px; }
+body .heading-list-actions .scope-filter { padding: 0; }
+body .heading-list-actions .scope-filter svg { width: 16px; height: 16px; }
+body .heading-list-actions .scope-filter.has-filters { color: var(--text); background: var(--selected); }
+body .heading-list-actions > [data-action="add-task"] { background: var(--hover); color: var(--text); }
+body .heading-list-actions > [data-action="add-task"]:hover { background: var(--selected); }
 body .task-list-pane .tasks-scroll { padding: 2px 12px 20px; }
 body .task-list-pane .task-item { height: 44px; min-height: 44px; margin: 4px 0; border-radius: 8px; gap: 7px; padding-inline: 9px; }
 body .task-item.selected::before { display: none; }

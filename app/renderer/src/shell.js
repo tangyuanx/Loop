@@ -63,7 +63,7 @@ const SHELL_TASK_TAG_LABELS = { blocked: "卡住", later: "稍后" };
 const SHELL_WEEKDAY_NAMES = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
 function shellIcon(name, className = "") {
-  const sprite = { taskList: "columns", share: "share-2", nodeTodo: "square", nodeDone: "check", flowPath: "git-branch" }[name];
+  const sprite = { taskList: "columns", share: "share-2", listMore: "more-horizontal", nodeTodo: "square", nodeDone: "check", flowPath: "git-branch" }[name];
   if (sprite) return `<svg${className ? ` class="${escAttr(className)}"` : ""} viewBox="0 0 24 24" aria-hidden="true"><use href="./src/assets/feather/feather-sprite.svg#${sprite}"></use></svg>`;
   const path = SHELL_ICON_PATHS[name] || SHELL_ICON_PATHS.circle;
   return `<svg${className ? ` class="${escAttr(className)}"` : ""} viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"></path></svg>`;
@@ -429,10 +429,12 @@ function renderShellTaskList(list) {
         </span>
       </div>
       <div class="list-heading">
-        <h2 title="${escAttr(shellListTitle())}"><span class="list-title">${esc(shellListTitle())}</span><span class="count" role="status" aria-live="polite">${list.length}</span></h2>
+        <div class="list-heading-label">
+          <h2 title="${escAttr(shellListTitle())}"><span class="list-title">${esc(shellListTitle())}</span><span class="count" role="status" aria-live="polite">${list.length}</span></h2>
+          ${shellRoute() === 'tasks' && window.personalTaskTrack?.taskShare ? `<button class="icon-button list-more-button" type="button" data-action="open-task-list-menu" aria-label="任务列表更多操作" title="更多操作" aria-haspopup="menu" aria-expanded="${state.contextMenu?.kind === 'task-list-more'}">${shellIcon('listMore')}</button>` : ''}
+        </div>
         <div class="heading-list-actions">
-          <button class="scope-filter ${filters.length ? "has-filters" : ""}" type="button" data-action="open-combined-filter" aria-label="筛选记录" aria-haspopup="dialog" title="${filters.length ? escAttr(filters.join(" · ")) : "筛选记录"}">筛选<span class="filter-indicator">${filters.length ? `<span class="filter-count">${filters.length}</span>` : shellIcon("filter")}</span></button>
-          ${shellRoute() === 'tasks' && window.personalTaskTrack?.taskShare ? `<button class="icon-button" type="button" data-action="import-task-share" aria-label="导入任务包" title="导入任务包…" aria-haspopup="dialog">${shellIcon('download')}</button>` : ''}
+          <button class="icon-button scope-filter ${filters.length ? "has-filters" : ""}" type="button" data-action="open-combined-filter" aria-label="筛选记录" aria-haspopup="dialog" title="${filters.length ? escAttr(`筛选记录：${filters.join(" · ")}`) : "筛选记录"}">${shellIcon("filter")}</button>
           <button class="icon-button" type="button" data-action="add-task" aria-label="新建${note ? "速记" : "任务"}" title="新建${note ? "速记" : "任务"}（${desktopPlatform === "darwin" ? "⌘" : "Ctrl"} + N）">${shellIcon("plus")}</button>
         </div>
       </div>

@@ -423,7 +423,7 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
 
 async function openTaskPackageImport() {
   if (!taskShareBridge || dataProtectionMessage || dataTransferInProgress || taskShareCommitBusy) return;
-  const returnFocus = '[data-action="import-task-share"]';
+  const returnFocus = '[data-action="open-task-list-menu"]';
   shellKnowledgeDialog('导入任务包', '<div class="task-share-dialog-body"><p id="task-share-import-status" role="status">正在检查任务包…</p><div id="task-share-import-details"></div><p id="task-share-import-error" class="error" role="alert" hidden></p></div>',
     '<button class="button" data-action="close-dialog" type="button">取消</button><button class="button primary" id="task-share-import-confirm" type="button" disabled>导入为新任务</button>', 640, returnFocus);
   const confirm = document.querySelector('#task-share-import-confirm');

@@ -176,7 +176,8 @@ async function importedPack(run, input) {
     await page.reload();
     await page.waitForFunction(id => state.tasks.some(task => task.id === id), importedId);
     await openDialog(app, input);
-    await page.getByRole('button', { name: '导入任务包', exact: true }).click();
+    await page.getByRole('button', { name: '任务列表更多操作', exact: true }).click();
+    await page.getByRole('menuitem', { name: '导入任务包…', exact: true }).click();
     await page.locator('#task-share-import-status').getByText(/完整任务/).waitFor();
     assert.match(await page.locator('#task-share-import-details').innerText(), /提醒关闭/);
     await page.locator('#task-share-import-title').fill('再次导入 · 独立副本');

@@ -3908,7 +3908,7 @@ function renderEmptyPage() {
 let taskContextMenuReturnFocus = null;
 
 window.addEventListener("pointerdown", (event) => {
-  if (state.contextMenu && event.button !== 2 && !event.target?.closest?.(".context-menu")) closeContextMenu();
+  if (state.contextMenu && event.button !== 2 && !event.target?.closest?.(".context-menu, [data-action='open-task-list-menu']")) closeContextMenu();
 }, true);
 window.addEventListener("scroll", (event) => {
   if (state.contextMenu && !event.target?.closest?.(".context-menu")) closeContextMenu();
@@ -3940,6 +3940,17 @@ function closeContextMenu(restoreFocus = false) {
   taskContextMenuReturnFocus = null;
   syncContextMenuRoot();
   if (restoreFocus && trigger?.isConnected) trigger.focus({ preventScroll: true });
+}
+
+function openTaskListMenu(trigger) {
+  if (shellRoute() !== "tasks" || !window.personalTaskTrack?.taskShare || !trigger) return;
+  if (state.contextMenu?.kind === "task-list-more") { closeContextMenu(true); return; }
+  const rect = trigger.getBoundingClientRect();
+  if (typeof shellCloseOverlay === "function") shellCloseOverlay({ restoreFocus: false });
+  taskContextMenuReturnFocus = trigger;
+  state.contextMenu = { kind: "task-list-more", x: rect.left, y: rect.bottom };
+  syncContextMenuRoot();
+  document.querySelector("#context-menu-root .context-menu button")?.focus({ preventScroll: true });
 }
 
 function openNodeContextMenu(taskId, nodeId, event, row) {
@@ -3983,6 +3994,13 @@ function renderContextMenu() {
         <button data-action="insert-editor-snippet" data-kind="code">插入代码块</button>
         <button data-action="insert-editor-snippet" data-kind="table">插入表格</button>
         <button data-action="insert-editor-snippet" data-kind="image">插入图片</button>
+      </div>
+    `;
+  }
+  if (menu.kind === "task-list-more") {
+    return `
+      <div class="context-menu task-list-context-menu" role="menu" aria-label="任务列表更多操作" style="left:${menu.x}px; top:${menu.y}px">
+        <button type="button" role="menuitem" data-action="import-task-share">导入任务包…</button>
       </div>
     `;
   }
@@ -4042,6 +4060,7 @@ function syncContextMenuRoot() {
   const root = document.querySelector("#context-menu-root");
   if (!root) return;
   root.innerHTML = renderContextMenu();
+  document.querySelector('[data-action="open-task-list-menu"]')?.setAttribute("aria-expanded", String(state.contextMenu?.kind === "task-list-more"));
   document.querySelectorAll(".task-item[data-task-id]").forEach((row) => {
     row.classList.toggle("context-menu-target", state.contextMenu?.kind === "task" && row.dataset.taskId === state.contextMenu.taskId);
   });
@@ -8350,6 +8369,10 @@ async function pickEditorImageFile() {
  * @param {Event|null} event - Original DOM event, used for position calculations
  */
 async function action(data, event = null) {
+  if (data.action === "open-task-list-menu") {
+    openTaskListMenu(event?.currentTarget || event?.target?.closest?.('[data-action="open-task-list-menu"]'));
+    return;
+  }
   const nodeShareTrigger = data.action === "share-node" ? event?.currentTarget : null;
   const cycleTrigger = data.action === "cycle-node-status" && event?.currentTarget?.matches(".node-status")
     ? event.currentTarget : null;
