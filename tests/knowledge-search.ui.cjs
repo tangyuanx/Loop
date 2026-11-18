@@ -1,7 +1,7 @@
 const wb=require('./workbench-helpers.cjs');
 /* Real Electron and production storage, with isolated synthetic notes. */
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
-const {_electron}=require('playwright-core');
+const {_electron}=require('../tools/guarded-electron.cjs');
 const {readTaskData,writeTaskData}=require('../app/main/storage.cjs');
 const {readKnowledgeDocument}=require('../app/main/knowledge-file.cjs');
 const source=path.resolve(__dirname,'..'),results=[],errors=[];

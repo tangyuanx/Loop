@@ -1,6 +1,6 @@
 {
   "name": "loop",
-  "version": "0.2.58",
+  "version": "0.2.59",
   "description": "Loop is a local-first personal task flow tracker for closing work from creation to completion.",
   "private": true,
   "license": "UNLICENSED",
@@ -15,9 +15,9 @@
   "homepage": "https://github.com/tangyuanx/Loop#readme",
   "main": "app/main/main.cjs",
   "scripts": {
-    "dev": "electron .",
+    "dev": "node tools/launch-electron.cjs .",
     "predev": "npm run build:knowledge",
-    "start": "electron .",
+    "start": "node tools/launch-electron.cjs .",
     "prestart": "npm run build:knowledge",
     "postinstall": "npm --prefix services/bug-report ci",
     "build:milkdown": "node tools/build-milkdown.cjs",

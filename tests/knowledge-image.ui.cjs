@@ -1,7 +1,7 @@
 const wb=require('./workbench-helpers.cjs');
 /* Image selection regression in real Electron; no IPC or input mocks. */
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
-const {_electron}=require('playwright-core');
+const {_electron}=require('../tools/guarded-electron.cjs');
 const {writeTaskData}=require('../app/main/storage.cjs');
 const source=path.resolve(__dirname,'..');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));

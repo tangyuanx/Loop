@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
-const { _electron } = require('playwright-core');
+const { _electron } = require('../tools/guarded-electron.cjs');
 const { launchRepository, task } = require('./electron-ui-helpers.cjs');
 const { readTaskData } = require('../app/main/storage.cjs');
 const node = (id, title, children = [], links = [], order = 0) => ({ id, title, note: `记录-${id}`, children, downstreamNodeIds: links, order });

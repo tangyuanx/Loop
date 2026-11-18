@@ -13,6 +13,13 @@
 - 沿用真实候选验收与发布授权；用户已批准当前候选并要求发布时不重复询问。不把历史批准当作新候选授权。
 - 本规则取代旧技能、历史交接与阶段发布文档中的重复本地全检/双平台构建要求；阶段0–8的串行实施与最终集中发布边界仍保留。后续用户新指令优先。
 
+# 本地 Electron 启动与防崩溃
+
+- macOS 的 Codex Seatbelt 受限命令环境（`CODEX_SANDBOX=seatbelt`）不能启动 Electron 图形进程，连 `electron --version` 也可能在 `_RegisterApplication` 阶段 SIGABRT，产生系统“意外退出”弹窗。
+- 在该环境不要先试启再重试。真实应用、UI 测试和候选启动直接通过获准的 `require_escalated` 执行；权限不可用时，完成非 GUI 检查并报告限制。不得删除或改写环境标识来绕过检查。
+- 开发启动使用 `npm run dev` / `npm start`（统一经过 `tools/launch-electron.cjs`）；真实 Electron 测试从 `tools/guarded-electron.cjs` 导入 `_electron`。新增入口也必须复用启动保护，不直接运行 Electron 二进制探测环境。
+- 启动保护必须先检查当前进程环境，再检查本地失败标记。其他终端成功、标记已清除或 `--retry-desktop-startup` 均不能解除当前命令的 Seatbelt 限制。不要关闭系统崩溃提示或删除诊断报告来掩盖故障。
+
 # 长期界面要求
 
 以下为用户明确提出的硬性要求，适用于正式应用、候选、Demo及之后新增的界面：

@@ -86,6 +86,7 @@ jobs:
         # complete editor builds, service checks and source suite per platform.
         run: |
           node --test tests/desktop.test.cjs
+          node tests/completion-readiness.ui.cjs
           node tests/flow-outline.ui.cjs
           npm run test:ui:flow-navigation
           npm run test:ui:node-draft

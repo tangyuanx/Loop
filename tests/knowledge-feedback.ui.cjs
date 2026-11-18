@@ -2,7 +2,7 @@
    explicit task-data write faults/delays are injected in this test process. */
 const wb=require('./workbench-helpers.cjs');
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
-const {_electron}=require('playwright-core');
+const {_electron}=require('../tools/guarded-electron.cjs');
 const {writeTaskData}=require('../app/main/storage.cjs');
 const {readKnowledgeDocument}=require('../app/main/knowledge-file.cjs');
 const source=path.resolve(__dirname,'..'),results=[],errors=[];

@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { _electron } = require('playwright-core');
+const { _electron } = require('../tools/guarded-electron.cjs');
 const wb = require('./workbench-helpers.cjs');
 
 (async () => {

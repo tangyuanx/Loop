@@ -587,10 +587,12 @@ function shellJourneyAction(action, trigger) {
     render();
     return true;
   }
-  const task = receipt ? state.tasks.find((item) => item.id === receipt.id) : null;
-  if (!task) return true;
   if (action === "conclusion" || action === "node") {
-    const target = state.tasks.find((item) => item.id === trigger?.dataset.record) || task;
+    // Readiness is shown before completion, so it has no journey receipt.
+    // Its explicit task ID also takes precedence over any older receipt.
+    const target = state.tasks.find((item) => item.id === trigger?.dataset.record);
+    if (!target) return true;
+    shellCloseOverlay({ restoreFocus: false });
     shellJourneyRevealTask(target.id);
     if (action === "conclusion") {
       state.taskPane = "flow";
@@ -601,17 +603,21 @@ function shellJourneyAction(action, trigger) {
       }
     } else {
       const nodeId = trigger?.dataset.nextNode;
-      if (nodeId) {
+      const node = nodeId && findNode(target.nodes, nodeId);
+      if (node) {
+        // Reveal before selecting: render clears a selection excluded by the
+        // current flow view, even when navigation later scrolls to the node.
+        if (shellReviewOnly && !shellFlowHasReview(node)) shellReviewOnly = false;
         state.nodeRecordPreview = "";
         state.selectedNodeId = nodeId;
         render();
-        const element = document.querySelector(`[data-node-id="${CSS.escape(nodeId)}"]`);
-        element?.focus({ preventScroll: true });
-        element?.scrollIntoView({ block: "nearest" });
+        shellFlowNavigationRuntime?.navigate(nodeId);
       }
     }
     return true;
   }
+  const task = receipt ? state.tasks.find((item) => item.id === receipt.id) : null;
+  if (!task) return true;
   if (action === "result") {
     shellJourneyRevealTask(task.id);
     if (document.body.hasAttribute("data-brief21-enabled")) { brief21BeginEdit(`${state.activeTaskId}:conclusion`); return; }

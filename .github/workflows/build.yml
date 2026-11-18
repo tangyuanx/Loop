@@ -60,6 +60,7 @@ jobs:
         run: node tests/knowledge-clipboard-caret.ui.cjs
       - name: Verify inline conclusions and existing node interactions
         run: |
+          node tests/completion-readiness.ui.cjs
           node tests/flow-outline.ui.cjs
           npm run test:ui:flow-navigation
           npm run test:ui:node-draft

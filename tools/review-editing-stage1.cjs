@@ -5,7 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const {spawn,spawnSync} = require('node:child_process');
 const {writeTaskData,readTaskData} = require('../app/main/storage.cjs');
-const {assertElectronStartupAllowed,pauseElectronStartup,clearElectronStartupPause} = require('./electron-startup-guard.cjs');
+const {assertElectronEnvironmentAllowed,assertElectronStartupAllowed,pauseElectronStartup,clearElectronStartupPause} = require('./electron-startup-guard.cjs');
 
 const root=path.resolve(__dirname,'..');
 const base=path.join(root,'.local-review/memo-20261111/stage1');
@@ -57,6 +57,7 @@ async function runTest(file,run,env) {
 }
 
 async function main() {
+  if (!process.argv.includes('--prepare-only')) assertElectronEnvironmentAllowed();
   // A known startup crash is not a reason to probe the same GUI again. Retry
   // only after the operator has deliberately selected a new startup attempt.
   if (!process.argv.includes('--prepare-only') && !process.argv.includes('--retry-desktop-startup')) {
@@ -101,7 +102,7 @@ async function main() {
     await clearElectronStartupPause(root);
     for(const file of suites){await runTest(file,run,env);result.tests.push({file,status:'passed'});await report();}
     result.status='ui_tests_passed';await report();
-    const {_electron}=require('playwright-core');
+    const {_electron}=require('./guarded-electron.cjs');
     app=await _electron.launch({executablePath,args:[root],cwd:root,env:{...env,LOOP_USER_DATA_DIR:result.data.profile}});
     let page;
     const end=Date.now()+20000;

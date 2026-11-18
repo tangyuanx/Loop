@@ -1,6 +1,6 @@
 /* Exercise the real production workbench and editor, with synthetic disk data. */
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
-const {_electron}=require('playwright-core'),wb=require('./workbench-helpers.cjs');
+const {_electron}=require('../tools/guarded-electron.cjs'),wb=require('./workbench-helpers.cjs');
 const {writeTaskData}=require('../app/main/storage.cjs');
 const root=path.resolve(__dirname,'..');
 (async()=>{

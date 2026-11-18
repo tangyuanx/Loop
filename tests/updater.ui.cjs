@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const { _electron: electron } = require("playwright-core");
+const { _electron: electron } = require("../tools/guarded-electron.cjs");
 
 (async () => {
   const root = path.resolve(__dirname, "..");

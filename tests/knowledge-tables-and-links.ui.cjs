@@ -1,6 +1,6 @@
 /* The same behavioral audit against the real Electron renderer, IPC and disk. */
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path');
-const {_electron}=require('playwright-core');
+const {_electron}=require('../tools/guarded-electron.cjs');
 const {writeTaskData,readTaskData}=require('../app/main/storage.cjs');
 const wb=require('./workbench-helpers.cjs');
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));

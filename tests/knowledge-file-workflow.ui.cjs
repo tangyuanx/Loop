@@ -1,7 +1,7 @@
 /* Real Electron renderer, IPC, recovery and disk. Only the native picker
    answers are supplied by the test; native dialogs are also reviewed manually. */
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path');
-const {_electron}=require('playwright-core');
+const {_electron}=require('../tools/guarded-electron.cjs');
 const {writeTaskData,readTaskData}=require('../app/main/storage.cjs');
 const wb=require('./workbench-helpers.cjs');
 const source=path.resolve(__dirname,'..'),pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));

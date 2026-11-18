@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { _electron: electron } = require('playwright-core');
+const { _electron: electron } = require('../tools/guarded-electron.cjs');
 const { launchRepository, task } = require('./electron-ui-helpers.cjs');
 const evidence = path.resolve(process.env.LOOP_WIDGET_LIFECYCLE_QA_DIR || '.local-review/frontend-remediation/stage-07/lifecycle');
 

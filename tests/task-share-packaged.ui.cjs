@@ -3,7 +3,7 @@ const { createHash } = require('node:crypto');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { _electron } = require('playwright-core');
+const { _electron } = require('../tools/guarded-electron.cjs');
 const { writeTaskData, readTaskData } = require('../app/main/storage.cjs');
 const { readTaskPackage } = require('../app/main/task-share-format.cjs');
 

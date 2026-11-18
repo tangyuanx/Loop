@@ -1,7 +1,7 @@
 /* Launch the actual app with fresh synthetic acceptance data and a verified
    pre-launch backup. Never reads the user's normal Loop profile. */
 const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto');
-const {_electron}=require('playwright-core');
+const {_electron}=require('./guarded-electron.cjs');
 const {writeTaskData}=require('../app/main/storage.cjs');
 const {readKnowledgeDocument}=require('../app/main/knowledge-file.cjs');
 const root=path.resolve(__dirname,'..'),base=path.resolve(root,'..','acceptance');
