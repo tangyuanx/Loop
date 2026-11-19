@@ -4456,8 +4456,9 @@ test("production Today widget uses its dedicated frontend and a sandboxed Electr
   // today's completions stay reachable; minimal empty states; no row tags
   assert.match(rendererApp, /function shellCompletedToday\(\)/);
   assert.match(rendererApp, /state\.todayFilter === "done"/);
-  assert.match(shellSource2, /time18-list-empty/);
-  assert.match(workspaceSource, /time18-empty/);
+  assert.match(shellSource2, /state\.todayFilter === "done" \? "今天暂无完成任务" : "暂无待办"/);
+  assert.match(workspaceSource, /renderShellEmptyPrompt\("check", "今天暂无完成任务"[\s\S]*?data-action="show-today-active"/);
+  assert.match(workspaceSource, /renderShellEmptyPrompt\("check", "今日任务已完成"[\s\S]*?data-action="show-today-completed"/);
   assert.match(actionsSource2, /function shellCycleState\(\)/);
   assert.match(workspaceSource, /time18-soon/);
   // membership changes explain themselves and link to the record
@@ -6303,7 +6304,7 @@ test("calendar owns one global navigation entry, fills the workspace, and keeps 
   // Wide routes hide the task-list column and let the workspace take the row.
   // render() builds the list markup once so it can be reused as a region, and
   // retainRegion clears the slot when that markup is empty.
-  assert.match(app, /const listMarkup = shellWide \? "" : renderShellTaskList\(filteredTasks\(\)\);/);
+  assert.match(app, /const visibleTasks = shellWide \? \[\] : filteredTasks\(\);\s*const listMarkup = shellWide \? "" : renderShellTaskList\(visibleTasks\);/);
   assert.match(app, /retainRegion\("task-list", listMarkup\);/);
   assert.match(app, /const shellWide = shellIsWide\(\);/);
   assert.match(shellCss, /\.app-wide\{grid-template-columns:var\(--nav-width\) minmax\(0,1fr\)\}/);

@@ -383,20 +383,16 @@ function shellActiveFilterLabels() {
 function renderShellTaskRows(list) {
   if (shellBulk.active && list.length) return renderShellBulkRows(list);
   if (!list.length) {
-    // Phase18: the Today route gets its own minimal copy instead of "暂无任务".
-    const hasFilters = shellActiveFilterLabels().length > 0 || Boolean(state.taskDateFilter);
-    if (shellRoute() === "today" && state.captureSourceFilter !== "quick" && !hasFilters) {
-      return `<div class="empty time18-list-empty">${state.todayFilter === "done" ? "今天暂无完成任务" : "暂无待办"}</div>`;
-    }
-    const filtered = hasFilters;
+    const filtered = shellActiveFilterLabels().length > 0 || Boolean(state.taskDateFilter);
+    const today = shellRoute() === "today";
     const noun = state.captureSourceFilter === "quick" ? "速记" : "任务";
-    // Phase26: the Demo keeps a reachable recovery entrance in the empty list,
-    // without adding a permanent navigation row that would change the height.
-    const archive = typeof state !== "undefined" && Array.isArray(state.recentlyDeleted) ? state.recentlyDeleted.length : 0;
-    const recovery = typeof recovery26Open === "function" && archive
+    const message = filtered ? `没有匹配的${noun}` : today
+      ? (state.todayFilter === "done" ? "今天暂无完成任务" : "暂无待办")
+      : state.taskFilter === "done" ? `暂无已完成${noun}` : `暂无${noun}`;
+    const recovery = typeof recovery26Open === "function" && state.recentlyDeleted?.length && (!today || filtered)
       ? '<button class="text-button" type="button" data-recovery26="open">最近删除</button>'
       : "";
-    return `<div class="empty"><p>${filtered ? `没有匹配的${noun}` : `暂无${noun}`}</p>${filtered ? '<button class="text-button" type="button" data-action="clear-list-filters">清除筛选</button>' : ""}${recovery}</div>`;
+    return `<div class="repository-empty"><p role="status">${message}</p>${filtered ? '<button class="text-button" type="button" data-action="clear-list-filters">清除筛选</button>' : ""}${recovery}</div>`;
   }
   return `<ol class="task-rows" aria-label="任务列表">${list.map((task, index) => renderShellTaskRow(task, index + 1)).join("")}</ol>`;
 }

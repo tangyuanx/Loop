@@ -331,7 +331,7 @@ function renderShellFlow(task) {
   const empty = !list.length || (list.length === 1 && list[0].id === state.focusNodeTitleId);
   const selected = list.find((node) => node.id === state.selectedNodeId);
   const roots = sort(task.nodes || []);
-  const addButton = `<button class="add-node" type="button" data-action="add-root-node" data-task-id="${escAttr(task.id)}">${shellIcon("plus")}添加节点</button>`;
+  const addButton = `<button class="add-node" type="button" data-action="add-root-node" data-task-id="${escAttr(task.id)}"${empty ? ' aria-describedby="flow-start-hint"' : ""}>${shellIcon("plus")}${empty ? "添加第一个节点" : "添加节点"}</button>`;
   return `<section class="flow-pane${empty ? " flow-empty" : ""}" aria-label="层级处理流">
     <div class="flow-toolbar">
       <span class="flow-progress">${shellCountDoneNodes(task)} / ${list.length} 已完成</span>
@@ -349,8 +349,8 @@ function renderShellFlow(task) {
       <ol class="flow-tree">
         ${roots.map((node) => renderShellFlowNode(task, node, 0)).join("")}
       </ol>
-      ${shellReviewOnly && !list.some(node => node.status === "review") ? '<p class="flow-filter-empty" role="status">没有待确认的节点</p>' : ""}
-      ${empty ? `<div class="flow-start">${addButton}<p>拆成步骤，逐步推进。</p></div>` : ""}
+      ${!empty && shellReviewOnly && !list.some(node => node.status === "review") ? '<p class="flow-filter-empty" role="status">没有待确认的节点</p>' : ""}
+      ${empty ? `<div class="flow-start">${addButton}<p id="flow-start-hint">用节点把任务拆成具体步骤。</p></div>` : ""}
       ${!shellReviewOnly && shellHideCompletedNodes && list.length && list.every((node) => !shellFlowNodeVisible(node)) ? '<p class="flow-filter-empty" role="status">所有节点均已完成，已隐藏</p>' : ""}
       ${empty ? "" : addButton}
       </div>
@@ -955,8 +955,8 @@ function shellSetTaskInfoCollapsed(taskId, collapsed) {
   if (!collapsed) brief21ResizeAll?.();
 }
 
-function renderShellWorkspace(task) {
-  if (!task) return renderShellEmptyWorkspace();
+function renderShellWorkspace(task, visibleTaskCount) {
+  if (!task) return renderShellEmptyWorkspace(visibleTaskCount);
   const pane = state.taskPane === "notes" ? "notes" : state.taskPane === "history" ? "history" : "flow";
   return `<section class="task-work-area ${shellTaskInfoCollapsed.has(task.id) ? "task-info-collapsed" : ""}">
       <div class="task-work-main">
@@ -968,7 +968,7 @@ function renderShellWorkspace(task) {
       </div>
       ${renderShellTaskInfo(task)}
     </section>
-    ${pane === "notes" ? "" : renderShellWorkspaceFooter(pane)}`;
+    ${pane === "notes" ? "" : renderShellWorkspaceFooter(pane === "flow" && !(task.nodes || []).length ? "" : pane)}`;
 }
 
 function renderShellWorkspaceFooter(pane = "") {
@@ -981,17 +981,43 @@ function renderShellWorkspaceFooter(pane = "") {
   </footer>`;
 }
 
-function renderShellEmptyWorkspace() {
+function renderShellEmptyPrompt(icon, title, description, actions = "") {
+  return `<div class="workspace-empty-prompt">
+    <span class="workspace-empty-icon">${shellIcon(icon)}</span>
+    <div class="workspace-empty-copy">
+      <h2>${esc(title)}</h2>
+      <p>${esc(description)}</p>
+      ${actions ? `<div class="workspace-empty-actions">${actions}</div>` : ""}
+    </div>
+  </div>`;
+}
+
+function renderShellEmptyWorkspace(visibleTaskCount) {
   const filtered = shellActiveFilterLabels().length || state.taskDateFilter || state.taskFilter === "done";
-  // Phase18: the Today route shows a minimal all-done / nothing-today state,
-  // and the all-done one links straight to today's completions.
-  if (!filtered && shellRoute() === "today" && state.captureSourceFilter !== "quick" && state.todayFilter !== "done") {
+  const today = shellRoute() === "today";
+  const noun = state.captureSourceFilter === "quick" ? "速记" : "任务";
+  let prompt;
+  if (visibleTaskCount) {
+    prompt = renderShellEmptyPrompt("tasks", `选择一项${noun}`, "在任务列表中选择一项记录，查看详情。");
+  } else if (filtered) {
+    prompt = renderShellEmptyPrompt("filter", `没有匹配的${noun}`, "清除筛选可以查看其他记录。",
+      '<button class="button" type="button" data-action="clear-list-filters">清除筛选</button>');
+  } else if (today && state.todayFilter === "done") {
+    prompt = renderShellEmptyPrompt("check", "今天暂无完成任务", "查看今日待办，继续处理任务。",
+      '<button class="button" type="button" data-action="show-today-active">查看待办</button>');
+  } else if (today) {
     const completed = shellCompletedToday().length;
-    return `<div class="workspace-empty time18-empty product-empty"><span class="empty-state-icon">${shellIcon(completed ? "check" : "sun")}</span><h2>${completed ? "今日任务已完成" : "今天，专注一件事"}</h2><p>${completed ? `今天已完成 ${completed} 项任务。` : "新建一项任务，或从任务仓库加入今日。"}</p>${completed
-      ? `<button class="text-button" type="button" data-action="show-today-completed">查看完成任务${shellIcon("arrow")}</button>`
-      : `<div class="empty-state-actions"><button class="button primary" type="button" data-action="add-task">${shellIcon("plus")}新建今日任务</button><button class="text-button" type="button" data-setting-button="task-filter" data-value="all">前往任务仓库${shellIcon("arrow")}</button></div>`}</div>`;
+    prompt = completed
+      ? renderShellEmptyPrompt("check", "今日任务已完成", `今天已完成 ${completed} 项任务。`,
+        '<button class="button" type="button" data-action="show-today-completed">查看完成任务</button>')
+      : renderShellEmptyPrompt("sun", "今天暂无待办", "新建一项今日任务，或从任务仓库加入今日。",
+        `<button class="button" type="button" data-action="add-task">${shellIcon("plus")}新建今日任务</button>
+         <button class="text-button" type="button" data-setting-button="task-filter" data-value="all">前往任务仓库${shellIcon("arrow")}</button>`);
+  } else {
+    prompt = renderShellEmptyPrompt("tasks", "开始一项新任务", "新建任务后，可以拆分步骤、记录进展。",
+      `<button class="button" type="button" data-action="add-task">${shellIcon("plus")}新建任务</button>`);
   }
-  return `<div class="workspace-empty product-empty"><span class="empty-state-icon">${shellIcon(filtered ? "filter" : "tasks")}</span><h2>${filtered ? "没有匹配的任务" : "开始一项新任务"}</h2><p>${filtered ? "调整筛选条件，查看其他任务。" : "从一个问题开始，记录过程，留下结论。"}</p><button class="button ${filtered ? "" : "primary"}" type="button" data-action="${filtered ? "clear-list-filters" : "add-task"}">${shellIcon(filtered ? "close" : "plus")}${filtered ? "清除筛选" : "新建任务"}</button></div>`;
+  return `<div class="workspace-empty">${prompt}</div>`;
 }
 
 // The knowledge pane still runs on the project's own renderer: the Demo's

@@ -54,22 +54,6 @@ body .flow-row:not(:hover):not(.selected)>.node-badge.todo { color:var(--seconda
 body .inspector.inspector-record-only { background:var(--list); }
 body .inspector.inspector-record-only .inspector-body { background:var(--list); }
 body .inspector.inspector-record-only .record-editor { background:transparent; }
-body .product-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:36px 24px; text-align:center; }
-body .empty-state-icon { display:grid; place-items:center; width:44px; height:44px; border:1px solid var(--line); background:var(--list); border-radius:12px; color:var(--green); }
-body .empty-state-icon svg { width:22px; height:22px; stroke-width:1.4; }
-body .product-empty h2 { color:var(--text); font-weight:400; font-size:var(--type-17); }
-body .product-empty p, body .flow-start p { font-size:var(--type-12); line-height:1.8; color:var(--secondary); }
-body .empty-state-actions { display:flex; flex-direction:column; align-items:center; gap:8px; margin-top:4px; }
-body .product-empty>.button { margin-top:4px; }
-/* Empty flows start at the list's own inset, with one action and its hint.
-   Preserve the mounted entry while a first draft is edited: outside-click
-   cancellation removes that draft in place, without remounting clicked UI. */
-body .flow-start { display:flex; flex-direction:column; align-items:flex-start; gap:2px; padding:20px 8px 0; text-align:left; }
-body .flow-start>.add-node { margin:0; min-height:34px; height:auto; padding:0 9px; color:var(--green); }
-body .flow-start>p { padding-left:30px; }
-body .flow-empty>.flow-toolbar { display:none; }
-body .flow-empty:has(.node-draft) .flow-start { display:none; }
-body .flow-empty .flow-tree:has(.node-draft) { padding-top:20px; }
 @media(max-width:1100px) {
   body .search-shortcut { display:none; }
   body .task-heading .task-properties { gap:5px; }
@@ -610,7 +594,6 @@ body[data-window25-inactive] .topbar > .brand-update-slot > .brand-update {
 .workspace-feedback-dismiss { flex-shrink: 0; width: 22px; height: 22px; min-height: 0; padding: 0; color: var(--secondary); }
 .workspace-feedback-dismiss svg { width: 12px; height: 12px; }
 .workspace-foot:has(.workspace-feedback) .foot-shortcut { display: none; }
-.workspace > .workspace-empty { flex: 1; }
 
 /* Reduce the visible completion circle without changing its 26 × 28px button. */
 .task-check-ring { width: 14px; height: 14px; }

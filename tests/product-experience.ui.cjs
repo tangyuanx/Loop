@@ -61,7 +61,7 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     await page.keyboard.press('ArrowDown');
     assert.equal(await page.evaluate(() => document.activeElement.dataset.taskId), 'today');
     await page.locator('#search').fill('找不到的内容');
-    assert.match(await page.locator('#task-results .empty').innerText(), /没有匹配的任务/);
+    assert.match(await page.locator('#task-results').getByRole('status').innerText(), /没有匹配的任务/);
     await page.locator('#search').press('Escape'); assert.equal(await page.evaluate(() => state.query), '');
     await page.locator('#search').evaluate(input => {
       input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));

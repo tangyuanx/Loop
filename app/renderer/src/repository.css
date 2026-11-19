@@ -161,6 +161,8 @@ body .heading-list-actions .scope-filter.has-filters { color: var(--text); backg
 body .heading-list-actions > [data-action="add-task"] { background: var(--hover); color: var(--text); }
 body .heading-list-actions > [data-action="add-task"]:hover { background: var(--selected); }
 body .task-list-pane .tasks-scroll { padding: 2px 12px 20px; }
+body .repository-empty { padding: 12px 8px; color: var(--secondary); font-size: var(--type-12); overflow-wrap: anywhere; }
+body .repository-empty .text-button { display: flex; margin-block-start: 4px; }
 body .task-list-pane .task-item { height: 44px; min-height: 44px; margin: 4px 0; border-radius: 8px; gap: 7px; padding-inline: 9px; }
 body .task-item.selected::before { display: none; }
 body .task-list-pane .task-item.selected,

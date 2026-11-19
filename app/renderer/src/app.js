@@ -2594,8 +2594,9 @@ function render() {
   // keeps its list scroll position and the bindings recorded on each row.
   const navigationMarkup = renderShellNavigation();
   const topbarMarkup = renderShellTopbar(task);
-  const listMarkup = shellWide ? "" : renderShellTaskList(filteredTasks());
-  let workspaceBody = state.calendarOpen ? renderShellCalendar() : state.reviewOpen ? renderShellReview() : state.settingsOpen ? renderShellSettings() : renderShellWorkspace(task);
+  const visibleTasks = shellWide ? [] : filteredTasks();
+  const listMarkup = shellWide ? "" : renderShellTaskList(visibleTasks);
+  let workspaceBody = state.calendarOpen ? renderShellCalendar() : state.reviewOpen ? renderShellReview() : state.settingsOpen ? renderShellSettings() : renderShellWorkspace(task, visibleTasks.length);
   if (!workspaceBody.includes("data-workspace-status")) workspaceBody += renderShellWorkspaceFooter();
   const workspaceMarkup = `<section data-region="workspace" class="workspace ${shellWide ? "workspace-wide" : ""}${!shellWide && task && state.taskPane === "notes" && !shellTaskIsNote(task) ? " knowledge-workspace" : ""}" data-task-id="${escAttr(task?.id || "")}" aria-label="${shellWide ? "全屏页面" : "任务工作台"}">
     ${workspaceBody}
