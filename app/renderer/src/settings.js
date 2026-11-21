@@ -151,15 +151,6 @@ const SHELL_SETTINGS_CHOICE_LABELS = {
   "recently-deleted-retention": "保留期",
 };
 
-const SHELL_SETTINGS_CHOICE_DESCRIPTIONS = {
-  "font-scale": "",
-  "zh-font": "非内置字体需先在设备上安装。",
-  "en-font": "",
-  "task-filter": "",
-  "priority-filter": "",
-  "new-task-priority": "",
-};
-
 function shellSettingsChoiceOptions(key) {
   if (key === "font-scale") return shellFontScaleChoices();
   if (key === "zh-font") return zhFontLabels;
@@ -200,41 +191,56 @@ function shellSettingsAction(label, description, text, attributes) {
 // Page bodies
 // ------------------------------------------------------------
 
+function shellSettingsGroup(id, title, rows) {
+  return `<section class="prefs-group" aria-labelledby="prefs-${id}">
+    <h3 id="prefs-${id}">${esc(title)}</h3>
+    <div class="prefs-group-body">${rows}</div>
+  </section>`;
+}
+
 function shellSettingsAppearance() {
   const dark = state.theme === "dark";
   const theme = `<div class="prefs-theme" role="group" aria-label="主题">${["light", "dark"].map((value) => `<button class="theme-option ${(dark ? "dark" : "light") === value ? "active" : ""}" type="button" data-setting-button="theme" data-value="${value}" aria-pressed="${(dark ? "dark" : "light") === value}"><span class="theme-mini ${value}" aria-hidden="true"><i></i><b></b><span></span></span><span>${shellIcon(value === "light" ? "sun" : "moon")}${value === "light" ? "浅色" : "深色"}</span></button>`).join("")}</div>`;
-  return `<h2>外观</h2>
-    ${shellSettingsRow("主题", "", theme)}
-    ${shellSettingsChoice("font-scale", SHELL_SETTINGS_CHOICE_DESCRIPTIONS["font-scale"], shellSettingsChoiceOptions("font-scale"), state.fontScale)}
-    ${shellSettingsChoice("zh-font", SHELL_SETTINGS_CHOICE_DESCRIPTIONS["zh-font"], shellSettingsChoiceOptions("zh-font"), state.zhFont)}
-    ${shellSettingsChoice("en-font", SHELL_SETTINGS_CHOICE_DESCRIPTIONS["en-font"], shellSettingsChoiceOptions("en-font"), state.enFont)}
-    ${window.LoopContinuity28?.settings() || ""}
-    <div class="font-preview"><div><span>字体预览</span><span>中文 · English · 0123456789</span></div><b>PCIe MSI 中断路径排查</b><p>沿设备、驱动到内核中断域逐层确认。<br />Record each step, keep the context. 0123456789</p></div>
-    <footer class="settings-footer"><button class="text-button" type="button" data-action="reset-appearance">恢复默认外观</button></footer>`;
+  const interaction = window.LoopContinuity28?.settings() || "";
+  return `<h2>外观</h2><div class="prefs-group-stack">
+    ${shellSettingsGroup("theme", "主题", theme)}
+    ${shellSettingsGroup("typography", "字体与字号", `
+      ${shellSettingsChoice("font-scale", "", shellSettingsChoiceOptions("font-scale"), state.fontScale)}
+      ${shellSettingsChoice("zh-font", "自选字体需先在系统中安装。", shellSettingsChoiceOptions("zh-font"), state.zhFont)}
+      ${shellSettingsChoice("en-font", "", shellSettingsChoiceOptions("en-font"), state.enFont)}
+      <div class="font-preview"><b>字体预览</b><p>记录任务与笔记 · Task notes 0123456789</p></div>`)}
+    ${interaction ? shellSettingsGroup("interaction", "界面切换", interaction) : ""}
+    <footer class="settings-footer"><button class="button" type="button" data-action="reset-appearance">恢复默认外观</button></footer>
+  </div>`;
 }
 
 function shellSettingsTasks() {
-  return `<h2>任务与浮窗</h2>
-    ${shellSettingsChoice("task-filter", SHELL_SETTINGS_CHOICE_DESCRIPTIONS["task-filter"], shellSettingsChoiceOptions("task-filter"), state.taskFilter)}
-    ${shellSettingsChoice("priority-filter", SHELL_SETTINGS_CHOICE_DESCRIPTIONS["priority-filter"], shellSettingsChoiceOptions("priority-filter"), state.priorityFilter)}
-    ${shellSettingsChoice("new-task-priority", SHELL_SETTINGS_CHOICE_DESCRIPTIONS["new-task-priority"], shellSettingsChoiceOptions("new-task-priority"), state.newTaskPriority)}
-    <h3 class="prefs-subheading">处理流</h3>
-    <h3 class="prefs-subheading">今日浮窗</h3>
-    ${shellSettingsToggle("显示今日浮窗", "", todayWidgetWindowState.visible === true, `data-action="toggle-today-widget-visibility" ${desktopTodayWidget ? "" : "disabled"}`)}
-    ${shellSettingsToggle("始终置顶", "", todayWidgetWindowState.alwaysOnTop === true, `data-action="toggle-today-widget-always-on-top" ${desktopTodayWidget ? "" : "disabled"}`)}
-    ${shellSettingsToggle("鼠标穿透", "点击穿过浮窗，操作后方应用。", todayWidgetWindowState.clickThrough === true, `data-action="toggle-today-widget-click-through" ${desktopTodayWidget ? "" : "disabled"}`)}
-    <h3 class="prefs-subheading">桌面提醒</h3>
-    ${typeof desktopReminderSettingsRow === "function" ? desktopReminderSettingsRow() : ""}
-    <p class="prefs-native-caption">鼠标穿透：<kbd>⌘ / Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>T</kbd></p>`;
+  const modifier = desktopPlatform === "darwin" ? "⌘" : "Ctrl";
+  const reminders = typeof desktopReminderSettingsRow === "function" ? desktopReminderSettingsRow() : "";
+  return `<h2>任务与浮窗</h2><div class="prefs-group-stack">
+    ${shellSettingsGroup("task-lists", "任务列表", `
+      ${shellSettingsChoice("task-filter", "", shellSettingsChoiceOptions("task-filter"), state.taskFilter)}
+      ${shellSettingsChoice("priority-filter", "", shellSettingsChoiceOptions("priority-filter"), state.priorityFilter)}`)}
+    ${shellSettingsGroup("task-creation", "新建任务",
+      shellSettingsChoice("new-task-priority", "", shellSettingsChoiceOptions("new-task-priority"), state.newTaskPriority))}
+    ${shellSettingsGroup("today-widget", "今日浮窗", `
+      ${shellSettingsToggle("显示今日浮窗", "", todayWidgetWindowState.visible === true, `data-action="toggle-today-widget-visibility" ${desktopTodayWidget ? "" : "disabled"}`)}
+      ${shellSettingsToggle("始终置顶", "", todayWidgetWindowState.alwaysOnTop === true, `data-action="toggle-today-widget-always-on-top" ${desktopTodayWidget ? "" : "disabled"}`)}
+      ${shellSettingsToggle("鼠标穿透", `点击穿过浮窗 · ${modifier} + Shift + T`, todayWidgetWindowState.clickThrough === true, `data-action="toggle-today-widget-click-through" ${desktopTodayWidget ? "" : "disabled"}`)}`)}
+    ${reminders ? shellSettingsGroup("reminders", "桌面提醒", reminders) : ""}
+  </div>`;
 }
 
 function shellSettingsKnowledge() {
-  return `<h2>知识笔记</h2><p>对所有笔记生效。</p>
-    ${shellSettingsChoice("knowledge-width", "", shellSettingsChoiceOptions("knowledge-width"), shellNoteWidth())}
-    ${shellSettingsChoice("knowledge-mode", "与笔记内的视图切换同步。", shellSettingsChoiceOptions("knowledge-mode"), shellKnowledgeMode())}
-    ${shellSettingsChoice('resource-open-mode','网页与本地文件共用；代码预览为只读。',shellSettingsChoiceOptions('resource-open-mode'),state.knowledgeWorkspace.resourceOpenMode)}
-    ${shellSettingsToggle('中英文自动加空格', '在笔记中输入或确认输入法文字时，在相邻的汉字和英文字母之间插入一个空格。', state.uiPreferences.knowledgeAutoSpacing, 'data-action="toggle-knowledge-auto-spacing"')}
-    <p class="prefs-native-caption">笔记的字体与字号跟随「外观」设置。</p>`;
+  return `<h2>知识笔记</h2><div class="prefs-group-stack">
+    ${shellSettingsGroup("note-layout", "阅读与布局", `
+      ${shellSettingsChoice("knowledge-mode", "", shellSettingsChoiceOptions("knowledge-mode"), shellKnowledgeMode())}
+      ${shellSettingsChoice("knowledge-width", "", shellSettingsChoiceOptions("knowledge-width"), shellNoteWidth())}`)}
+    ${shellSettingsGroup("note-editing", "编辑", shellSettingsToggle(
+      "中英文自动加空格", "", state.uiPreferences.knowledgeAutoSpacing, 'data-action="toggle-knowledge-auto-spacing"'))}
+    ${shellSettingsGroup("note-links", "链接", shellSettingsChoice(
+      "resource-open-mode", "", shellSettingsChoiceOptions("resource-open-mode"), state.knowledgeWorkspace.resourceOpenMode))}
+  </div>`;
 }
 
 function shellSettingsData() {
@@ -290,7 +296,7 @@ function shellSettingsUpdateCardBody() {
   const status = update.status;
   const checkedAt = update.lastCheckedAt ? new Date(update.lastCheckedAt) : null;
   const checkedLabel = checkedAt && !Number.isNaN(checkedAt.getTime())
-    ? `刚刚检查 · ${checkedAt.getHours()}:${String(checkedAt.getMinutes()).padStart(2, "0")}`
+    ? `上次检查 · ${checkedAt.getHours()}:${String(checkedAt.getMinutes()).padStart(2, "0")}`
     : "";
   const titles = {
     available: "有可用更新",
@@ -299,22 +305,17 @@ function shellSettingsUpdateCardBody() {
     preparing: "正在保存并准备升级…",
     installing: "正在完成升级…",
     error: update.retryAction === "check" ? "检查更新失败" : "更新未完成",
-    unsupported: "当前环境暂不支持应用内更新",
+    unsupported: update.unsupportedReason === "development" ? "开发版不支持应用内更新" : "当前构建不支持应用内更新",
     latest: "当前已是最新版本",
     checking: "正在检查更新…",
     idle: "尚未检查更新",
   };
   const bodies = {
-    available: "点击下载获取更新包，完成后由你选择安装。",
-    downloading: "下载期间可继续处理任务，完成后会停在待安装状态。",
-    downloaded: update.errorCode ? "升级前保存未完成，应用没有退出。请检查磁盘空间或目录权限后重试。" : "你可以继续使用 Loop，准备好后点击“安装并重启”。",
-    preparing: "正在安全写入任务与知识笔记草稿。",
-    installing: "应用即将自动重启，请稍候。",
+    downloaded: update.errorCode ? "升级前保存未完成。请检查磁盘空间或目录权限后重试。" : "",
     error: updateErrorPresentation(update.errorCode).detail,
     latest: checkedLabel,
-    checking: "正在连接 GitHub Release。",
-    idle: "应用启动后会定期检查，也可以手动检查。",
-    unsupported: update.unsupportedReason === "development" ? "开发检阅不会连接更新服务。" : "请从发布页获取安装包。",
+    idle: checkedLabel,
+    unsupported: update.unsupportedReason === "development" ? "" : "请从发布页获取安装包。",
   };
   const busy = ["checking", "downloading", "preparing", "installing"].includes(status);
   const percent = Math.max(0, Math.min(100, Math.round(Number(update.percent) || 0)));
@@ -332,7 +333,7 @@ function shellSettingsUpdateCardBody() {
     || (status === "error" && update.retryAction !== "check");
   const targetVersion = hasTarget && update.version && update.version !== currentVersion ? String(update.version) : "";
   const versions = `<div class="prefs-update-version"><span aria-label="${escAttr(`当前版本 v${currentVersion}`)}">v${esc(currentVersion)}</span>${targetVersion ? `<span class="prefs-version-arrow" aria-hidden="true">→</span><strong aria-label="${escAttr(`更新版本 v${targetVersion}`)}">v${esc(targetVersion)}</strong>` : ""}</div>`;
-  return `<div class="prefs-update-heading"><div><h3>${esc(titles[status] || "软件更新")}</h3>${versions}</div><div class="prefs-update-actions">${actions}</div></div>
+  return `<div class="prefs-update-heading"><div><span class="setting-label">${esc(titles[status] || "当前版本")}</span>${versions}</div><div class="prefs-update-actions">${actions}</div></div>
       ${bodies[status] ? `<p>${esc(bodies[status])}</p>` : ""}
       ${progress}${renderUpdateReleaseNotes(update)}`;
 }
@@ -347,27 +348,35 @@ function shellSettingsSyncUpdateCard() {
   if (toggle) {
     toggle.setAttribute("aria-checked", String(appUpdateState.automaticChecks === true));
     toggle.disabled = !appUpdateState.supported || updatePreferenceInFlight;
-    const caption = toggle.closest(".setting-row")?.querySelector("p");
-    if (caption) caption.textContent = appUpdateState.preferenceError ? "设置未保存，请检查目录权限后重试。" : appUpdateState.automaticChecks ? "应用启动后定期检查。" : "仅在手动操作时检查。";
+    const status = document.querySelector("[data-update-preference-status]");
+    if (status) status.textContent = shellSettingsUpdatePreferenceMessage();
   }
+}
+
+function shellSettingsUpdatePreferenceMessage() {
+  return appUpdateState.preferenceError ? "设置未保存，请检查目录权限后重试。" : "";
 }
 
 function shellSettingsUpdates() {
   const update = appUpdateState;
-  return `<h2>软件更新</h2>
-    <section class="prefs-update-detail" data-shell-update-detail aria-live="polite">${shellSettingsUpdateCardBody()}</section>
-    <div class="prefs-update-options">${shellSettingsToggle("自动检查更新", update.preferenceError ? "设置未保存，请检查目录权限后重试。" : update.automaticChecks ? "应用启动后定期检查。" : "仅在手动操作时检查。", update.automaticChecks === true, `data-update-automatic ${update.supported && !updatePreferenceInFlight ? "" : "disabled"}`)}</div>
-    ${update.supported ? "" : '<p class="prefs-native-caption">开发模式或未签名的构建不连接更新服务。</p>'}`;
+  const options = shellSettingsToggle("自动检查更新", "", update.automaticChecks === true,
+    `data-update-automatic ${update.supported && !updatePreferenceInFlight ? "" : "disabled"}`);
+  return `<h2>软件更新</h2><div class="prefs-group-stack">
+    ${shellSettingsGroup("version", "版本与更新", `<div class="prefs-update-detail" data-shell-update-detail aria-live="polite">${shellSettingsUpdateCardBody()}</div>`)}
+    ${shellSettingsGroup("update-preferences", "更新偏好", `${options}
+      <p class="prefs-transfer-status" data-update-preference-status role="status">${esc(shellSettingsUpdatePreferenceMessage())}</p>`)}
+  </div>`;
 }
 
 function shellSettingsAdvanced() {
-  // work.js owns this page (Demo phase 15): unlock gate + schedule form.
-  const body = typeof globalThis.LoopWork?.settingsBody === "function"
-    ? globalThis.LoopWork.settingsBody()
-    : `<h2>高级功能</h2>`;
-  return `${body}<h3 class="prefs-subheading">时间预览</h3>
-    ${shellSettingsAction("预览时间", loopClockIsPreview() ? `当前：${loopStamp()}。不影响系统时间。` : "仅改变界面时间，不影响系统。", "设置预览", 'data-action="time18-clock" aria-haspopup="dialog" aria-expanded="false"')}
-    ${loopClockIsPreview() ? '<button class="text-button" type="button" data-action="time18-clear">恢复真实时间</button>' : ""}`;
+  const navigation = globalThis.LoopWork?.settingsBody() || "";
+  const previewActive = loopClockIsPreview();
+  return `<h2>高级功能</h2><div class="prefs-group-stack">
+    ${navigation ? shellSettingsGroup("work-navigation", "工作与成长", navigation) : ""}
+    ${shellSettingsGroup("time-preview", "时间预览", `
+      ${shellSettingsAction("界面时间", previewActive ? loopStamp() : "仅用于 Loop 内预览。", "设置预览", 'data-action="time18-clock" aria-haspopup="dialog" aria-expanded="false"')}
+      ${previewActive ? shellSettingsAction("退出预览", "", "恢复真实时间", 'data-action="time18-clear"') : ""}`)}
+  </div>`;
 }
 
 // ------------------------------------------------------------
@@ -388,20 +397,20 @@ const SHELL_HELP_TOPICS = [
 
 function shellSettingsHelp() {
   const open = Number(state.helpTopicOpen);
-  return `<h2>帮助与反馈</h2>
-    ${globalThis.LoopManual27?.entry() || ""}
-    <section class="help14-intro">
-      <div><span class="setting-label">问题与建议</span></div>
-      <button class="button" type="button" data-action="open-help-feedback">提交反馈</button>
-    </section>
-    <h3 class="prefs-subheading">使用说明</h3>
-    <ul class="help14-topics">
-      ${SHELL_HELP_TOPICS.map(([title, body], index) => `<li>
-        <button type="button" data-action="toggle-help-topic" data-topic="${index}" aria-expanded="${index === open}">${esc(title)}${shellIcon(index === open ? "minus" : "plus")}</button>
-        ${index === open ? `<p>${esc(body)}</p>` : ""}
-      </li>`).join("")}
-    </ul>
-    <div class="setting-row"><div><span class="setting-label">关于 Loop</span><p>个人任务与处理过程管理</p></div><span class="muted">v${esc(APP_VERSION || "0.1.200")}</span></div>`;
+  const manual = globalThis.LoopManual27?.entry() || "";
+  const topics = `<ul class="help14-topics">
+    ${SHELL_HELP_TOPICS.map(([title, body], index) => `<li>
+      <button type="button" data-action="toggle-help-topic" data-topic="${index}" aria-expanded="${index === open}">${esc(title)}${shellIcon(index === open ? "minus" : "plus")}</button>
+      ${index === open ? `<p>${esc(body)}</p>` : ""}
+    </li>`).join("")}
+  </ul>`;
+  return `<h2>帮助与反馈</h2><div class="prefs-group-stack">
+    ${manual ? shellSettingsGroup("guide", "使用指南", manual) : ""}
+    ${shellSettingsGroup("questions", "常见问题", topics)}
+    ${shellSettingsGroup("feedback", "反馈与版本", `
+      ${shellSettingsAction("问题与建议", "", "提交反馈", 'data-action="open-help-feedback"')}
+      ${shellSettingsInfo("Loop 版本", "", `v${APP_VERSION}`)}`)}
+  </div>`;
 }
 
 function shellHelpFeedbackField(key, label, optional = false, textarea = false, rows = 3) {

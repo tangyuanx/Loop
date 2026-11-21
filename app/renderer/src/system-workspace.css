@@ -283,12 +283,12 @@ body #overlay { position: relative; z-index: 100; }
   box-shadow: inset 0 -1px 0 var(--input-focus);
 }
 
-body .data-settings {
+body :is(.data-settings, .prefs-group-stack) {
   display: grid;
   gap: 24px;
 }
 
-body .data-settings h3 {
+body :is(.data-settings, .prefs-group-stack) h3 {
   margin: 0;
   font-size: calc(14px * var(--font-scale, 1));
   font-weight: var(--ui-emphasis-weight);
@@ -306,13 +306,13 @@ body .data-settings-summary > p {
   line-height: 1.8;
 }
 
-body .data-settings-section {
+body :is(.data-settings-section, .prefs-group) {
   padding: 20px;
   border: 1px solid var(--line);
   border-radius: 8px;
 }
 
-body .data-settings .setting-row {
+body :is(.data-settings, .prefs-group-stack) .setting-row {
   padding: 12px 0;
   gap: 20px;
 }
@@ -355,4 +355,75 @@ body .data-settings-section > .prefs-transfer-status {
     flex-wrap: wrap;
     gap: 12px;
   }
+}
+
+/* Settings outside Data use the same section and row rhythm. */
+body .prefs-group-stack { gap: 16px; margin-top: 4px; }
+body .prefs-group { min-width: 0; padding: 16px 20px; container-type: inline-size; }
+body .prefs-group .setting-row { padding-block: 8px; }
+body .prefs-group .setting-row p { margin-top: 2px; }
+body .prefs-group-body > .prefs-theme { margin-top: 10px; }
+body .prefs-group-body > .setting-row:last-child,
+body .prefs-group-body > [data-desktop-reminder-settings] .setting-row {
+  border-bottom: 0;
+}
+body .prefs-group .setting-row > div:first-child { overflow-wrap: anywhere; }
+body .prefs-group .setting-row > :is(.button, [role="group"]) { max-width: 100%; }
+body .prefs-group .prefs-theme { flex-wrap: wrap; }
+body .prefs-group .theme-option { width: 104px; padding: 6px; gap: 6px; }
+body .prefs-group .theme-mini { height: 34px; }
+body .prefs-group .theme-option.active {
+  border-color: var(--focus-line-strong);
+  background: var(--selected);
+}
+body .prefs-group .font-preview { margin-top: 10px; padding: 10px 14px; }
+body .prefs-group .font-preview p { margin: 4px 0 0; }
+body .prefs-group-stack .settings-footer { justify-content: flex-end; }
+body .prefs-group [role="group"]:has(> [data-continuity28]) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+body .prefs-group button[data-continuity28][aria-pressed] {
+  min-height: 26px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+body .prefs-group button[data-continuity28][aria-pressed="true"] {
+  color: var(--text);
+  background: var(--selected);
+}
+body .prefs-group .prefs-update-detail { margin: 0; padding-top: 12px; }
+body .prefs-group .prefs-update-version { margin-top: 5px; }
+body .prefs-group .prefs-transfer-status {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--orange);
+}
+body .prefs-group .help14-topics { margin: 0; }
+body .prefs-group .help14-topics li:last-child { border: 0; }
+body .prefs-group .help14-topics button { min-height: 42px; gap: 12px; padding-block: 10px; }
+body .prefs-group .help14-topics svg { flex-shrink: 0; }
+body .prefs-group .work15-gate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+}
+body .prefs-group .work15-gate :is(label, .work15-error) { grid-column: 1 / -1; }
+body .prefs-group .work15-gate :is(label, .button) { margin: 0; }
+body .prefs-group .work15-gate input { width: 100%; max-width: none; min-width: 0; }
+body .prefs-group .work15-time-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 128px), 1fr));
+}
+@container (max-width: 360px) {
+  body .prefs-group :is(.setting-row, .prefs-update-heading) { flex-wrap: wrap; gap: 10px; }
+  body .prefs-group .setting-row > .prefs-choice { max-width: 100%; }
+  body .prefs-group .work15-gate { grid-template-columns: minmax(0, 1fr); }
+  body .prefs-group .work15-gate .button { justify-self: start; }
 }

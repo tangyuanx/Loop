@@ -262,6 +262,6 @@
   }, true);
   globalThis.LoopManual27 = {
     open,
-    entry: () => `<section class="manual27-entry"><div><strong>使用手册</strong><p>从第一件任务，到笔记保存与数据恢复。</p></div>${command('open', '阅读手册', 'class="button"')}</section>`,
+    entry: () => shellSettingsRow('使用手册', '', command('open', '阅读手册', 'class="button"')),
   };
 })();

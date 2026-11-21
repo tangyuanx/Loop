@@ -7565,8 +7565,9 @@ test('the real manual includes all Demo articles, local multiword search and cle
   assert.equal(harness.evaluate('manualInput.value'), '');
   assert.equal((harness.evaluate('manualTopics.innerHTML').match(/class="manual27-topic"/g) || []).length, 15);
   harness.manualClick('close');
-  assert.match(harness.evaluate('renderShellSettings()'), /manual27-entry/);
-  assert.match(harness.evaluate('renderShellSettings()'), /help14-intro/, 'existing help and feedback remain available');
+  const help = harness.evaluate('renderShellSettings()');
+  assert.match(help, /aria-labelledby="prefs-guide"[\s\S]*data-manual27="open"/, 'manual remains available under 使用指南');
+  assert.match(help, /aria-labelledby="prefs-feedback"[\s\S]*data-action="open-help-feedback"/, 'feedback remains available under 反馈与版本');
 });
 
 test('manual function jumps use real routes and return to the same article, query and reading position', async () => {

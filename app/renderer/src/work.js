@@ -109,9 +109,8 @@
             ${ui.gateError ? `<p class="work15-error" role="alert">${esc(ui.gateError)}</p>` : ""}
           </form>`
         : "";
-      return `<h2>高级功能</h2>
-        <div class="setting-row">
-          <div><span class="setting-label">工作与成长导航</span><p>根据时间安排，衔接工作和学习任务。</p></div>
+      return `<div class="setting-row">
+          <div><span class="setting-label">工作与成长导航</span></div>
           <button class="prefs-switch" type="button" role="switch" aria-label="工作与成长导航" aria-checked="false" data-work15="toggle"></button>
         </div>
         ${gateMarkup}
@@ -121,9 +120,8 @@
     const view = phaseView(data);
     const config = data.navigation.config;
     const schedule = config.schedule;
-    return `<h2>高级功能</h2>
-      <div class="setting-row">
-        <div><span class="setting-label">工作与成长导航</span><p>根据时间安排，衔接工作和学习任务。</p></div>
+    return `<div class="setting-row">
+        <div><span class="setting-label">工作与成长导航</span></div>
         <button class="prefs-switch" type="button" role="switch" aria-label="工作与成长导航" aria-checked="true" data-work15="toggle"></button>
       </div>
       <div class="setting-row">
