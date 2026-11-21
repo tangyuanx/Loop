@@ -2638,6 +2638,9 @@ test("renderer keeps a temporarily unavailable file bound without inventing FILE
   assert.equal(harness.json(`state.tasks[0].knowledgeNote.documentState`), "SAVED");
   assert.equal(harness.json(`state.tasks[0].knowledgeNote.filePath`), "/volume/note.md");
   assert.equal(harness.json(`state.knowledgeFileIssues.unavailable_bound_task.message`), "磁盘暂时不可用");
+  await harness.evaluate(`handleKnowledgeFileChange({ type: "baseline", noteId: "unavailable_bound_task", filePath: "/volume/note.md", lastSavedHash: "hash-a" })`);
+  assert.equal(harness.evaluate(`Object.hasOwn(state.knowledgeFileIssues, "unavailable_bound_task")`), false);
+  assert.equal(harness.json(`state.tasks[0].notes`), "当前正文");
 });
 
 test("renderer cannot recreate a missing path and can relocate to a selected file", async () => {

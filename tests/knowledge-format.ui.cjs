@@ -130,6 +130,9 @@ async function run() {
     await page.evaluate(() => saveKnowledgeTask('format'));
     assert.equal(await fs.readFile(file,'utf8'),external);
     assert.match(await markdown(), /新增 React/);
+    await page.locator('[data-knowledge-conflict]').waitFor();
+    await page.keyboard.press('Escape');
+    await page.locator('[data-knowledge-conflict]').waitFor({state:'detached'});
 
     await open('input');
     await wb.mode(page,'source');

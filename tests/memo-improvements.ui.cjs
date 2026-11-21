@@ -22,7 +22,7 @@ const {launchRepository,task}=require('./electron-ui-helpers.cjs');
     await app.evaluate(({dialog},{directory,secondDirectory})=>{globalThis.__memoSaveDialogs=[];dialog.showSaveDialog=async(_parent,options)=>{const opts=options||_parent;globalThis.__memoSaveDialogs.push(opts);return {canceled:false,filePath:(globalThis.__memoSaveDialogs.length===1?directory:secondDirectory)+'/note-'+globalThis.__memoSaveDialogs.length+'.md'};};},{directory,secondDirectory});
     assert.equal((await p.evaluate(()=>saveKnowledgeTask(knowledgeActiveDocument().id))).success,true);
     assert.equal(await p.locator('.kn-document-close[data-unsaved]').count(),0);
-    await p.locator('.kn-document-new').click();await p.getByRole('menuitem',{name:'新建笔记',exact:true}).click();await p.waitForFunction(()=>knowledgeCurrentEntry()?.view&&knowledgeActiveDocument().id!=='memo');
+    await p.locator('.kn-document-new').click();await p.waitForFunction(()=>knowledgeCurrentEntry()?.view&&knowledgeActiveDocument().id!=='memo');
     assert.equal(await p.locator('.kn-document-tabs [role="tab"]').count(),2);
     assert.equal(await p.locator('.kn-document-close[data-unsaved]').count(),0,'a blank tab has no content to save');
     await p.evaluate(()=>knowledgeCurrentEntry().insertText('新笔记内容'));

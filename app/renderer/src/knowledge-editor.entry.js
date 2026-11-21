@@ -24,6 +24,27 @@ const refreshEffect=StateEffect.define(),tableWidthsEffect=StateEffect.define(),
 const instances=new WeakMap();
 const widgetClickScrollTargets=new WeakSet();
 const cellMarkdown=markdown({base:markdownLanguage,addKeymap:false,completeHTMLTags:false});
+function closedCodeFence(node) {
+  if(node.name!=='FencedCode')return false;
+  const {firstChild,lastChild}=node.node||node;
+  return lastChild?.name==='CodeMark'&&lastChild.from!==firstChild?.from;
+}
+function codeQuoteEnd(doc,mark) {
+  return mark.to+(doc.sliceString(mark.to,mark.to+1)===' '?1:0);
+}
+function codeWidgetSource(doc,node) {
+  const closing=node.lastChild;
+  const closingStart=doc.lineAt(closing.from).from;
+  let text=doc.sliceString(node.from,closingStart);
+  // The widget parses a standalone fence. Remove containing quote markers
+  // and the closing line's container indentation from that projection.
+  for(const mark of node.getChildren('QuoteMark').reverse()){
+    if(mark.from>=node.from&&mark.from<closingStart){
+      text=text.slice(0,mark.from-node.from)+text.slice(codeQuoteEnd(doc,mark)-node.from);
+    }
+  }
+  return text+doc.sliceString(closing.from,node.to);
+}
 function trimTableWidths(widths){
   while(widths.length&&!widths.at(-1).length)widths.pop();
   return widths;
@@ -396,10 +417,12 @@ class KnowledgeEditor {
       create:()=>new Set(),
       update:(set,tr)=>{
         let next=null;
-        for(const pos of set){
-          const mapped=tr.changes.mapPos(pos,-1);
-          if(mapped===null)continue;
-          if(mapped!==pos){if(!next)next=new Set(set);next.delete(pos);next.add(mapped);}
+        if(tr.docChanged&&set.size){
+          next=new Set();
+          for(const pos of set){
+            const mapped=tr.changes.mapPos(pos,1,MapMode.TrackAfter);
+            if(mapped!==null)next.add(mapped);
+          }
         }
         for(const effect of tr.effects){
           if(effect.is(clearExpandedEffect))return new Set();
@@ -446,6 +469,15 @@ class KnowledgeEditor {
       yamlFrontmatter({content:markdown({base:markdownLanguage,codeLanguages:languages,addKeymap:false,completeHTMLTags:false,extensions:[obsidianComments]})}),
       syntaxHighlighting(loopHighlight),indentUnit.of('    '),bracketMatching(),closeBrackets(),
       markdownLanguage.data.of({closeBrackets:{brackets:['(','[','{',"'",'"','`','*','~']}}),
+      Prec.high(EditorView.inputHandler.of((view,from,to,insert)=>{
+        if(insert!=='`'||from!==to||view.composing||view.state.readOnly||view.state.selection.ranges.length!==1)return false;
+        const line=view.state.doc.lineAt(from);
+        // Delimiters at the start of a Markdown block are typed one at a time.
+        // Keep automatic pairing for backticks used inline.
+        if(!/^[ \t]*(?:>[ \t]*)*(?:(?:[-+*]|\d+[.)])[ \t]+)?`*$/.test(view.state.sliceDoc(line.from,from)))return false;
+        view.dispatch({changes:{from,to,insert},selection:{anchor:from+1},userEvent:'input.type',scrollIntoView:true});
+        return true;
+      })),
       knowledgeFindMarks,highlightSelectionMatches(),
       // Wiki completion is explicitly requested by [[; Enter should accept a
       // visible candidate even when it arrives less than 75ms before the key.
@@ -787,7 +819,7 @@ class KnowledgeEditor {
     const state=this.view.state;
     let node=syntaxTree(state).resolveInner(pos,-1);
     while(node){
-      const block=node.name==='FencedCode'||node.name==='HorizontalRule'||node.name==='Frontmatter'||
+      const block=closedCodeFence(node)||node.name==='HorizontalRule'||node.name==='Frontmatter'||
         (node.name==='Blockquote'&&/^>\s*\[!/.test(state.doc.sliceString(node.from,Math.min(node.to,node.from+80))));
       if(block){
         if(!this.blockExpanded(state,node.from))this.expandBlock(node.from,pos);
@@ -810,7 +842,7 @@ class KnowledgeEditor {
     let referenceEnv;
     const referenceFor=text=>/!\[[^\]\n]*\](?!\()/.test(text)?(referenceEnv??=this.imageReferenceEnv(state)):{};
     const widget=(node,inline=false)=>{
-      const text=state.doc.sliceString(node.from,node.to);
+      const text=node.name==='FencedCode'?codeWidgetSource(state.doc,node.node):state.doc.sliceString(node.from,node.to);
       const html=this.renderWidgetHTML(node.name,text,referenceFor(text));
       const Type=node.name==='Image'?ImageWidget:RenderWidget;
       const body=new Type(html,this,node.from,inline?'inline':'block',node.to,node.name);
@@ -842,6 +874,7 @@ class KnowledgeEditor {
         add(node.from,node.to,Decoration.replace({block:node.name!=='ObsidianComment',inclusive:false}));return false;
       }
 
+      if(node.name==='FencedCode'&&!closedCodeFence(node))return false;
       if(['FencedCode','HorizontalRule','Frontmatter'].includes(node.name) && !this.blockExpanded(state,node.from)){widget(node);return false;}
       if(node.name==='Blockquote' && /^>\s*\[!/.test(state.doc.sliceString(node.from,Math.min(node.to,node.from+80))) && !this.blockExpanded(state,node.from)){
         if(!locations.some(table=>node.from<table.from&&table.from<node.to)){widget(node);return false;}
@@ -1060,7 +1093,12 @@ class KnowledgeEditor {
     const column=offset-(before.lastIndexOf('\n')+1);
     const doc=this.view.state.doc,first=doc.lineAt(from),target=doc.line(Math.min(doc.lines,first.number+1+lineIndex));
     if(target.number<=first.number)return from;
-    return Math.min(target.to,target.from+Math.max(0,column));
+    let start=target.from;
+    let fence=syntaxTree(this.view.state).resolveInner(from,1);
+    while(fence&&fence.name!=='FencedCode')fence=fence.parent;
+    const quote=fence?.getChildren('QuoteMark').findLast(mark=>mark.from>=target.from&&mark.to<=target.to);
+    if(quote)start=codeQuoteEnd(doc,quote);
+    return Math.min(target.to,start+Math.max(0,column));
   }
   // Character offset of a click inside a rendered table cell.
   cellCaretAt(widget,cell,event) {
@@ -1703,7 +1741,10 @@ class KnowledgeEditor {
     const anchor=action==='code'?from+before.length+fence.length+'text\n'.length:action==='table'?from+2+blocks.table.lastIndexOf('|  |  |')+2:from+insert.length;
     const labelEnd=action==='link'?from+insert.lastIndexOf(']('):0;
     const backward=view.state.selection.main.anchor>view.state.selection.main.head;
-    view.dispatch({changes:{from,to,insert},selection:action==='link'&&text?{anchor:backward?labelEnd:from+1,head:backward?from+1:labelEnd}:{anchor},annotations:isolateHistory.of('full'),userEvent:'input.format'});view.focus();
+    // A collapsed code widget owns the DOM caret at its edge. Keep a newly
+    // inserted fence expanded so the first keystroke lands inside the block.
+    const effects=action==='code'&&!cell&&this.mode==='edit'?[expandBlockEffect.of(from+before.length)]:[];
+    view.dispatch({changes:{from,to,insert},selection:action==='link'&&text?{anchor:backward?labelEnd:from+1,head:backward?from+1:labelEnd}:{anchor},effects,annotations:isolateHistory.of('full'),userEvent:'input.format'});view.focus();
     if(action==='table'&&this.mode==='edit'){
       // A prior code block can leave incremental parsing behind this edit.
       // Materialize the new table before choosing its first editable cell.
@@ -1922,7 +1963,7 @@ class KnowledgeEditor {
   table(operation,index=0,value,logicalRow=null){
     if(this.mode==='preview')return false;
     const pos=this.activeTableCell?.from??this.view.state.selection.main.head;
-    for(let n=syntaxTree(this.view.state).resolveInner(pos,-1);n;n=n.parent)if(n.name==='FencedCode'||n.name==='IndentedCode')return false;
+    for(let n=syntaxTree(this.view.state).resolveInner(pos,-1);n;n=n.parent)if(closedCodeFence(n)||n.name==='IndentedCode')return false;
     const location=this.tableLocation,widget=location?.widget?.isConnected?location.widget:null;
     const inWidget=widget&&pos>=Number(widget.dataset.sourcePos)&&pos<=Number(widget.dataset.sourceTo);
     const block=this.tableAt(inWidget?Number(widget.dataset.sourcePos):pos);if(!block)return false;
@@ -2067,7 +2108,7 @@ class KnowledgeEditor {
     }
     const {state}=this.view,{from,to}=state.selection.main;
     forceParsing(this.view,to);
-    for(let node=syntaxTree(this.view.state).resolveInner(from,1);node;node=node.parent)if(/^(FencedCode|IndentedCode|Frontmatter)$/.test(node.name))return false;
+    for(let node=syntaxTree(this.view.state).resolveInner(from,1);node;node=node.parent)if(closedCodeFence(node)||node.name==='IndentedCode'||node.name==='Frontmatter')return false;
     const columns=grid.reduce((max,row)=>Math.max(max,row.length),0);
     const rows=grid.map(row=>Array.from({length:columns},(_,column)=>encodeTableCell(row[column]??'',core.escaped)));
     rows.splice(1,0,Array(columns).fill('---'));

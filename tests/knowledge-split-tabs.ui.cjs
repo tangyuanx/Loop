@@ -131,7 +131,7 @@ const out=path.resolve(process.env.LOOP_SPLIT_TABS_QA_DIR||'.local-review/knowle
   assert.deepEqual(await ids('left'),persisted.leftTabs);assert.deepEqual(await ids('right'),persisted.rightTabs);
   assert.ok(await page.evaluate(()=>knowledgeFindDocument('a').notes.startsWith('待保存的编辑 ')));
   assert.ok(await page.evaluate(()=>knowledgeFindDocument('b').notes.startsWith('B 编辑 ')));
-  await pane('right').locator('.kn-document-new').click();await page.getByRole('menuitem',{name:'新建笔记',exact:true}).click();await page.waitForFunction(()=>!['a','b','c','d'].includes(knowledgeActiveDocument()?.id)&&knowledgeCurrentEntry()?.view);
+  await pane('right').locator('.kn-document-new').click();await page.waitForFunction(()=>!['a','b','c','d'].includes(knowledgeActiveDocument()?.id)&&knowledgeCurrentEntry()?.view);
   const created=await page.evaluate(()=>knowledgeActiveDocument().id);assert.deepEqual(await ids('right'),['c',created]);
   await page.locator(`[data-kn-detach="${created}"]`).click();assert.equal(await page.locator('.kn-split').count(),1);assert.deepEqual(await ids('right'),['c']);
   check('group order/current notes survive disk reload; each + creates in its pane and closing picks a same-pane fallback');

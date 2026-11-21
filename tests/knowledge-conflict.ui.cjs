@@ -9,7 +9,7 @@ const { _electron } = require('../tools/guarded-electron.cjs');
 const { writeTaskData } = require('../app/main/storage.cjs');
 const { readKnowledgeDocument } = require('../app/main/knowledge-file.cjs');
 const source = path.resolve(__dirname, '..');
-const ids = ['cancel','reload','missing','persist','draft','saveas','late-a','late-b','again','clean','reopen','close'];
+const ids = ['cancel','reload','missing','persist','draft','saveas','late-a','late-b','again','clean','reopen','close','cancel-close'];
 const results = [], errors = [];
 let app, page, run, profile, files, out;
 const local = id => '# 本地草稿 ' + id + '\n\n必须保留的输入。\n';
@@ -63,7 +63,7 @@ async function release() {await app.evaluate(()=>{global.__s2Release?.();global.
   await fs.access(path.join(profile,'task-data.json')).then(()=>{throw Error('Refusing to replace test data')},()=>{});
   const tasks=[];const stamp=new Date().toISOString();
   for(const id of ids) {
-    const clean = ['clean','reopen','close'].includes(id);
+    const clean = ['clean','reopen','close','cancel-close'].includes(id);
     await fs.writeFile(file(id),clean ? local(id) : disk(id));const read=await readKnowledgeDocument(file(id));
     tasks.push({id,title:'S2 '+id,notes:local(id),nodes:[],createdAt:stamp,updatedAt:stamp,knowledgeNote:{...read,noteId:'note-'+id,title:'S2 '+id,documentState:clean?'SAVED':'EXTERNAL_CHANGED',dirty:!clean,lastSavedHash:clean?read.lastSavedHash:'old-'+id}});
   }
@@ -228,9 +228,25 @@ async function release() {await app.evaluate(()=>{global.__s2Release?.();global.
       await tab.waitFor({state:'detached'});
       assert.equal(await fs.readFile(file('close'),'utf8'),local('close')+change);
     });
+    await test('S2-close-cancel-resumes-auto-save',async()=>{
+      const id='cancel-close';
+      await choose(id);
+      const change='\n取消关闭后自动保存\n';
+      await edit(id,change);
+      const tab=page.locator(`[data-kn-document="${id}"]`);
+      await page.locator(`[data-kn-detach="${id}"]`).click();
+      const dialog=page.locator('[data-knowledge-close]');
+      await dialog.waitFor();
+      const before=await fs.readFile(file(id),'utf8');
+      await pause(1350);
+      assert.equal(await fs.readFile(file(id),'utf8'),before);
+      await page.keyboard.press('Escape');
+      await dialog.waitFor({state:'detached'});
+      await until(async()=>(await fs.readFile(file(id),'utf8'))===before+change);
+      assert.equal(await tab.count(),1);
+    });
     await test('S2-13-close-new-note-and-cancel-save-picker',async()=>{
       await page.locator('.kn-document-new').click();
-      await page.getByRole('menuitem',{name:'新建笔记',exact:true}).click();
       const newId=await page.evaluate(()=>knowledgeActiveDocument().id);
       await page.waitForFunction(id=>knowledgeCurrentEntry(id)?.view,newId);
       await edit(newId,'待保存的新笔记');

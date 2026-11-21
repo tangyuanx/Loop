@@ -1655,6 +1655,8 @@ async function handleKnowledgeFileChange(event, { duringSave = false } = {}) {
     }
   }
   if (event.type === "baseline") {
+    const recoveredAvailability = Boolean(state.knowledgeFileIssues[note.noteId]);
+    delete state.knowledgeFileIssues[note.noteId];
     rememberKnowledgeAssetDiagnostics(note.noteId, event);
     rememberKnowledgeAssetFiles(event.assetFiles, task.knowledgeNote.noteId, { replace: true });
     // The file returned at its path with the content we last wrote: there is no
@@ -1676,8 +1678,8 @@ async function handleKnowledgeFileChange(event, { duringSave = false } = {}) {
       // Attachments are refreshed as decorations, not by rebuilding the shell.
       milkdownEditors.get(noteDraftKey(task.id, ""))?.instance?.refresh?.();
       if (typeof knowledgeUpdateChrome === "function") knowledgeUpdateChrome(task);
-      if (restored) render();
     }
+    if (restored || recoveredAvailability) render();
     return;
   }
   if (event.type === "read-only") {

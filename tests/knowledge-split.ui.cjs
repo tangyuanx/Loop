@@ -38,6 +38,20 @@ const report={checks:[],errors:[],limitations:['native Windows','physical cross-
  await page.keyboard.press('Escape');await settle();assert.equal(await pane('left').isVisible(),true);assert.equal(await page.evaluate(()=>knowledgeSplitLayout().ratio),keepRatio);
  assert.equal(await page.evaluate(()=>__splitLeft===knowledgeCurrentEntry('owner')&&__splitRight===knowledgeCurrentEntry('right')),true);
  check('scroll positions survive redraw; divider supports pointer/keyboard; focus restores both editors and width');
+ for(const side of ['left','right']){
+   await pane(side).locator('[data-wb-action="more"]').click();
+   await page.locator('.wb-more-menu [data-kn-action="panels"]').click();
+ }
+ await page.evaluate(()=>{
+   for(const [id,label] of [['owner','左栏标题'],['right','右栏标题']]){
+     const editor=knowledgeCurrentEntry(id);
+     editor.view.dispatch({changes:{from:editor.view.state.doc.length,insert:'\n\n## '+label}});
+   }
+ });
+ await pane('left').getByRole('button',{name:'左栏标题',exact:true}).waitFor();
+ await pane('right').getByRole('button',{name:'右栏标题',exact:true}).waitFor();
+ for(const side of ['left','right'])await pane(side).getByRole('button',{name:'关闭大纲'}).click();
+ check('both outlines refresh after rapid edits in the two panes');
  const originalSidebars=await page.evaluate(()=>[state.navCollapsed,state.taskListCollapsed]);
  await pane('right').locator('[data-wb-action="focus"]').click();
  for(const enabled of [true,false]){
@@ -71,9 +85,26 @@ const report={checks:[],errors:[],limitations:['native Windows','physical cross-
    await page.screenshot({path:path.join(out,`split-${theme}-${width}-${scale}.png`)});
    await pane('left').locator('.kn-find [name="close"]').click();await pane('right').locator('.kn-find [name="close"]').click();
  }
+ await divider.focus();await divider.press('Home');
+ for(let step=0;step<3;step++)await divider.press('Shift+ArrowLeft');
+ await pane('left').locator('[data-kn-action="find"]').click();
+ await pane('left').locator('[name="search"]').fill('共同');
+ await pane('left').locator('[name="toggleReplace"]').click();
+ await pane('left').locator('[name="replace"]').fill('替换样本');
+ const fits=await pane('left').locator('.kn-find').evaluate(panel=>{
+   const bounds=panel.closest('.knowledge-pane').getBoundingClientRect();
+   return [...panel.querySelectorAll('input,button')].every(control=>{
+     const box=control.getBoundingClientRect();
+     return box.width>0&&box.left>=bounds.left&&box.right<=bounds.right;
+   });
+ });
+ assert.equal(fits,true,'search and replace controls stay inside the narrowest pane');
+ await page.screenshot({path:path.join(out,'split-narrow-replace.png')});
+ await pane('left').locator('.kn-find [name="close"]').click();
+ await divider.press('Home');
+ check('search and replace remain usable at the minimum split width');
  await pane('right').locator('[data-wb-action="more"]').click();await page.locator('[data-wb-mode="preview"]').click();await page.waitForFunction(()=>knowledgeCurrentEntry('right').mode==='preview');assert.equal(await entry('owner',e=>e.mode),'source');
  await pane('right').locator('.kn-document-new').click();
- await page.getByRole('menuitem',{name:'新建笔记',exact:true}).click();
  await page.waitForFunction(()=>!['owner','right','third'].includes(knowledgeActiveDocument()?.id)&&knowledgeCurrentEntry()?.view&&knowledgeCurrentEntry().mode==='edit');
  await page.evaluate(()=>knowledgeCurrentEntry().insertText('右栏新草稿'));
  assert.equal(await entry('owner',e=>e.mode),'source');assert.ok((await entry('owner',e=>e.getEditorText())).startsWith('LEFT-EDIT '));

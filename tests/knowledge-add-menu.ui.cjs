@@ -6,25 +6,24 @@ async function main(){
  const run=await launchRepository({activeTaskId:'owner',taskPane:'notes',tasks:[task('owner',{notes:'# 原笔记\n\n原文'})]},'add-note-menu');
  try{
   const {app,page}=run;await page.locator('[data-pane=notes]').click();await wb.minimizeTaskInfo(page);await page.waitForFunction(()=>knowledgeCurrentEntry()?.view);
-  const plus=()=>page.locator('.kn-document-new'),menu=page.getByRole('menu',{name:'添加知识笔记'});
-  const original=await page.evaluate(()=>({count:knowledgeAllDocuments().length,text:knowledgeCurrentEntry().getMarkdown(),id:knowledgeActiveDocument().id}));
-  await plus().click();await menu.waitFor();assert.equal(await menu.getByRole('menuitem').count(),2);
-  await page.keyboard.press('Escape');assert.equal(await plus().getAttribute('aria-expanded'),'false');assert.equal(await plus().evaluate(el=>el===document.activeElement),true);
-  assert.deepEqual(await page.evaluate(()=>({count:knowledgeAllDocuments().length,text:knowledgeCurrentEntry().getMarkdown(),id:knowledgeActiveDocument().id})),original);
+  const plus=()=>page.getByRole('button',{name:'新建笔记',exact:true});
+  const menu=page.getByRole('menu',{name:'更多笔记操作'});
+  const open=async()=>{await wb.more(page);await menu.getByRole('menuitem',{name:'打开 Markdown 文件…'}).click();};
+  const original=await page.evaluate(()=>({count:knowledgeAllDocuments().length,id:knowledgeActiveDocument().id}));
   await app.evaluate(({dialog})=>{dialog.showOpenDialog=async()=>({canceled:true,filePaths:[]});});
-  await plus().click();await menu.getByRole('menuitem',{name:'打开笔记…'}).click();assert.equal(await page.evaluate(()=>knowledgeAllDocuments().length),original.count);
+  await open();assert.equal(await page.evaluate(()=>knowledgeAllDocuments().length),original.count);
   await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},file);
-  await plus().click();await menu.getByRole('menuitem',{name:'打开笔记…'}).click();await page.waitForFunction(()=>knowledgeActiveDocument()?.title==='打开笔记');
+  await open();await page.waitForFunction(()=>knowledgeActiveDocument()?.title==='打开笔记'&&knowledgeCurrentEntry()?.view);
   assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),text);assert.equal(await fs.readFile(file,'utf8'),text);
   const opened=await page.evaluate(()=>knowledgeActiveDocument().id),count=await page.evaluate(()=>knowledgeAllDocuments().length);
-  await plus().click();await menu.getByRole('menuitem',{name:'打开笔记…'}).click();await page.waitForFunction(id=>knowledgeActiveDocument()?.id===id,opened);assert.equal(await page.evaluate(()=>knowledgeAllDocuments().length),count);
-  await plus().focus();await page.keyboard.press('Enter');await page.keyboard.press('Home');await page.keyboard.press('Enter');
+  await open();await page.waitForFunction(id=>knowledgeActiveDocument()?.id===id,opened);assert.equal(await page.evaluate(()=>knowledgeAllDocuments().length),count);
+  await plus().focus();await page.keyboard.press('Enter');
   await page.waitForFunction(ids=>!ids.includes(knowledgeActiveDocument()?.id)&&knowledgeCurrentEntry()?.view,[original.id,opened]);
   assert.equal(await page.evaluate(()=>knowledgeAllDocuments().length),count+1);
   const created=await page.evaluate(()=>knowledgeActiveDocument().id);assert.equal(await page.evaluate(id=>state.tasks.find(t=>t.id==='owner').knowledgeNoteIds.includes(id),created),true);
-  // Empty workspace still provides both actions through the same +.
+  // The empty workspace also creates a note directly.
   await page.evaluate(()=>{const s=state.knowledgeWorkspace;s.openIds=[];s.activeId='';s.tabsByTask.owner=[];s.lastByTask.owner='';render();});
-  await plus().click();await menu.getByRole('menuitem',{name:'新建笔记'}).click();await page.waitForFunction(id=>knowledgeActiveDocument()?.id!==id&&knowledgeCurrentEntry()?.view,created);
+  await plus().click();await page.waitForFunction(id=>knowledgeActiveDocument()?.id!==id&&knowledgeCurrentEntry()?.view,created);
 
   // Capture the production save-dialog options and let IPC write the chosen file.
   const sample='```md\n# 示例代码\n```\n\n## **方案** [甲](https://example.test) / 乙\n\n# 后续标题';
@@ -57,7 +56,7 @@ async function main(){
 
   await app.evaluate(()=>{global.noteSavePath='';});
   const savedId=await page.evaluate(()=>knowledgeActiveDocument().id);
-  await plus().click();await menu.getByRole('menuitem',{name:'新建笔记'}).click();
+  await plus().click();
   await page.waitForFunction(id=>knowledgeActiveDocument()?.id!==id&&knowledgeCurrentEntry()?.view,savedId);
   const replaceDraft=async text=>{
     await page.locator('.cm-content').focus();await page.keyboard.press('ControlOrMeta+a');await page.keyboard.insertText(text);
@@ -71,7 +70,7 @@ async function main(){
   await page.locator('#kn-rename-title').fill('先手动指定名称');await page.locator('#kn-rename-commit').click();
   await page.locator('#kn-rename-title').waitFor({state:'detached'});
   await replaceDraft('# 正文名称');assert.equal(path.basename(await suggested()),'先手动指定名称.md');
-  assert.deepEqual(run.errors,[]);console.log('Add-note menu and first-save filenames passed.');
+  assert.deepEqual(run.errors,[]);console.log('Direct note creation, file menu and first-save filenames passed.');
  }finally{await run.close();}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

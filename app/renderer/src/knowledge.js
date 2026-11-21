@@ -105,7 +105,7 @@ function renderKnowledgeTabs(task,side='') {
   const scrollButton=(direction,label)=>`<button type="button" class="kn-document-scroll" data-kn-scroll="${direction}" aria-label="${label}" title="${label}" hidden>${shellIcon('chevron')}</button>`;
   return `<div class="kn-document-bar" data-kn-tab-side="${side}"><div class="kn-document-tabs" role="tablist" aria-label="${side?(side==='left'?'左侧':'右侧'):''}已打开的笔记">${notes.map(note=>`<div class="kn-document-tab"><button type="button" role="tab" tabindex="${!resource&&active?.id===note.id?0:-1}" aria-selected="${!resource&&active?.id===note.id}" aria-label="${escAttr(LoopKnowledgeCore.noteTitle(note))}" aria-keyshortcuts="F2" data-kn-document="${escAttr(note.id)}" title="${escAttr(knowledgeTabTitle(note))}"><span>${esc(LoopKnowledgeCore.noteTitle(note))}</span></button><button type="button" class="kn-document-close" data-kn-detach="${escAttr(note.id)}" aria-label="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}" title="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}（草稿仍保留）">${shellIcon('close')}</button></div>`).join('')}${(!side||side==='left')&&typeof renderKnowledgeResourceTabs==='function'?renderKnowledgeResourceTabs(task):''}</div>
     ${scrollButton(-1,'向左滚动页签')}${scrollButton(1,'向右滚动页签')}
-    <button type="button" class="kn-document-new" data-kn-action="add-note-menu" aria-label="新建或打开笔记" title="新建或打开笔记" aria-haspopup="menu" aria-expanded="false">${shellIcon('plus')}</button>
+    <button type="button" class="kn-document-new" data-kn-action="new-note" aria-label="新建笔记" title="新建笔记">${shellIcon('plus')}</button>
   </div>`;
 }
 

@@ -57,11 +57,7 @@ function neutral(css,label) {
   assert.equal(await p.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),original);
   await p.evaluate(()=>localStorage.setItem('loop-knowledge-editor-preferences','{"mode":"unknown","width":"__proto__"}'));await p.reload();await p.locator('.app').waitFor();await choose(p,'note');
   assert.deepEqual(await p.evaluate(()=>[state.markdownMode,state.knowledgeWidth]),['source','full'],'published global preferences take priority over an old local cache');
-  await p.evaluate(()=>flushSave());
-  await app.evaluate(async({app})=>{const fs=process.mainModule.require('node:fs/promises'),path=process.mainModule.require('node:path'),file=path.join(app.getPath('userData'),'task-data.json');const data=JSON.parse(await fs.readFile(file,'utf8'));data.markdownMode='unknown';data.knowledgeWidth='__proto__';await fs.writeFile(file,JSON.stringify(data));});
-  await p.reload();await p.locator('.app').waitFor();await choose(p,'note');
-  assert.deepEqual(await p.evaluate(()=>[state.markdownMode,state.knowledgeWidth]),['edit','default']);
-  results.checks.push('mode/width survive reload via global preferences; stale local cache cannot override them; invalid disk values safely fall back');
+  results.checks.push('mode/width survive reload via global preferences; stale local cache cannot override them');
   await wb.more(p);await p.locator('[data-kn-action="switcher"]').click();const query=p.locator('#kn-switcher-query');await query.fill('独有目标正文');
   await query.dispatchEvent('compositionstart');await query.dispatchEvent('keydown',{key:'Enter',code:'Enter',isComposing:true,keyCode:229});assert.equal(await query.count(),1);
   await query.dispatchEvent('compositionend');await query.press('Enter');await p.waitForFunction(()=>knowledgeActiveDocument()?.id==='other');
@@ -103,8 +99,19 @@ function neutral(css,label) {
   await p.evaluate(()=>{const e=knowledgeCurrentEntry();e.view.dispatch({selection:{anchor:e.view.state.doc.length}});e.view.focus()});const inputStart=performance.now();await p.keyboard.type('perf-marker');await settle(p);const inputMs=performance.now()-inputStart;await p.keyboard.press('ControlOrMeta+z');assert.equal(await p.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),text);
   results.performance={openMs,inputMs,...measure};results.checks.push('600-heading long note: modes preserve text; repeated render keeps view/scroll; physical-keyboard API input undone');
   await p.evaluate(()=>saveKnowledgeTask(state.activeTaskId));await fs.copyFile(path.join(h.profile,'task-data.json'),path.join(out,'verified-task-data.json'));
-  assert.deepEqual(results.errors,[]);results.passed=true;
+  assert.deepEqual(results.errors,[]);
  } catch(error) {results.failure=error.stack;await p.screenshot({path:path.join(out,'failure.png')}).catch(()=>{});throw error;
  } finally {await fs.writeFile(path.join(out,'results.json'),JSON.stringify(results,null,2));await h.close();}
+ // The main process caches task data. Verify an invalid on-disk preference in
+ // a new process, so the test actually exercises the startup normalizer.
+ const invalid=await launchRepository({activeTaskId:'note',tasks:[task('note',{notes:original})],markdownMode:'unknown',knowledgeWidth:'__proto__'},'invalid-note-preferences');
+ try {
+  await choose(invalid.page,'note');
+  assert.deepEqual(await invalid.page.evaluate(()=>[state.markdownMode,state.knowledgeWidth]),['edit','default']);
+  assert.deepEqual(invalid.errors,[]);
+  results.checks.push('invalid disk view and page-width values safely fall back on a cold start');
+ } finally {await invalid.close();}
+ results.passed=true;
+ await fs.writeFile(path.join(out,'results.json'),JSON.stringify(results,null,2));
  console.log(JSON.stringify({passed:results.passed,checks:results.checks,performance:results.performance}));
 })().catch(error=>{console.error(error);process.exitCode=1});

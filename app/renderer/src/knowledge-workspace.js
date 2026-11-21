@@ -476,13 +476,17 @@ function knowledgeLayoutTabs(binding) {
   const css=getComputedStyle(bar),gap=parseFloat(getComputedStyle(viewport).columnGap);
   const minimum=parseFloat(css.getPropertyValue('--kn-tab-min-width'));
   const maximum=parseFloat(css.getPropertyValue('--kn-tab-max-width'));
+  const overflowWidth=parseFloat(css.getPropertyValue('--kn-tab-overflow-width'));
   const available=bar.clientWidth-parseFloat(css.paddingLeft)-parseFloat(css.paddingRight)-(bar.querySelector('.kn-document-new')?.offsetWidth||0)-6;
   const fitted=count?Math.floor((available-(count-1)*gap)/count):maximum;
-  const width=Math.max(minimum,Math.min(maximum,fitted));
+  const overflows=fitted<minimum;
+  const scrollControls=[...bar.querySelectorAll('[data-kn-scroll]')];
+  for(const button of scrollControls)button.hidden=!overflows;
+  const singleTabSpace=available-scrollControls.reduce((sum,button)=>sum+button.offsetWidth+gap,0);
+  const width=Math.min(Math.max(1,singleTabSpace),overflows?overflowWidth:Math.min(maximum,fitted));
   bar.style.setProperty('--kn-tab-width',width+'px');
-  bar.toggleAttribute('data-compact',width<=minimum+6);
-  for(const button of bar.querySelectorAll('[data-kn-scroll]')){
-    button.hidden=fitted>=minimum;
+  bar.toggleAttribute('data-compact',overflows||width<=96);
+  for(const button of scrollControls){
     if(button.hidden&&button===document.activeElement)viewport.querySelector('[aria-selected="true"]')?.focus({preventScroll:true});
   }
   if(resized)knowledgeRevealBindingTab(binding);
@@ -607,7 +611,7 @@ function knowledgeBindTabReordering(viewport,owner,bindingSignal) {
         ghost.toggleAttribute('data-compact',compact);
         const title=document.createElement('span');title.className='kn-tab-drag-title';
         const label=button.querySelector('span')?.textContent||button.getAttribute('aria-label')||'笔记';
-        title.textContent=compact?Array.from(label)[0]:label;ghost.append(title);
+        title.textContent=label;ghost.append(title);
         const workspace=getComputedStyle(viewport);
         for(const name of ['--canvas','--text','--line'])ghost.style.setProperty(name,workspace.getPropertyValue(name));
         document.body.append(ghost);document.body.classList.add('kn-tab-drag-active');
@@ -880,6 +884,13 @@ function knowledgeRequestClose(noteId, trigger) {
      <button class="button primary" type="button" data-kn-close-choice="save"></button>`, 460, returnFocus);
   const dialog = shellOverlay().querySelector('.knowledge-dialog');
   dialog.dataset.knowledgeClose = noteId;
+  const dismissed = new MutationObserver(() => {
+    if (dialog.isConnected) return;
+    dismissed.disconnect();
+    if (knowledgeHasDocument(note) && state.knowledgeWorkspace.openIds.includes(noteId) &&
+        (note.knowledgeNote.documentState === 'DIRTY' || !note.knowledgeNote.filePath)) knowledgeDidEdit(noteId);
+  });
+  dismissed.observe(shellOverlay(), {childList:true});
   const keep = dialog.querySelector('[data-kn-close-choice="keep"]');
   const commit = dialog.querySelector('[data-kn-close-choice="save"]');
   const closeButtons = [...dialog.querySelectorAll('button')];
@@ -965,22 +976,6 @@ function knowledgeRejoinTaskNote(task) {
   const note=state.knowledgeDocuments.find(note=>note.id===task.id);if(!note)return;
   task.notes=note.notes;task.knowledgeNote=note.knowledgeNote;
   state.knowledgeDocuments=state.knowledgeDocuments.filter(candidate=>candidate!==note);
-}
-function knowledgeNewDialog() {
-  return knowledgeCreate();
-}
-function knowledgeAddNoteMenu(trigger) {
-  if(shellOverlay()?.querySelector('.kn-add-note-menu')){shellCloseOverlay();return;}
-  const menu=shellMountSurface('<div class="surface-popover wb-menu kn-add-note-menu" role="menu" data-light-dismiss aria-label="添加知识笔记"><div class="wb-menu-list"><button type="button" role="menuitem" data-kn-action="new-note">新建笔记</button><button type="button" role="menuitem" data-kn-action="open-file">打开笔记…</button></div></div>',trigger,190);
-  if(!menu)return;
-  const side=trigger.closest('[data-kn-tab-side]')?.dataset.knTabSide||'';
-  menu.dataset.returnFocus=`.kn-document-bar[data-kn-tab-side="${side}"] [data-kn-action="add-note-menu"]`;
-  menu.addEventListener('keydown',event=>{
-    if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;
-    event.preventDefault();event.stopPropagation();
-    const items=[...menu.querySelectorAll('[role="menuitem"]')],index=items.indexOf(document.activeElement);
-    items[event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:items.length-1))%items.length]?.focus();
-  });
 }
 async function knowledgeOpenFile() {
   const owner=state.tasks.find(t=>t.id===state.activeTaskId);if(!owner||!desktopKnowledgeFile?.choose)return;
@@ -1153,7 +1148,12 @@ function knowledgeDidEdit(taskId) {
     void knowledgeAutoSave(taskId);
   },1200));
   knowledgeUpdateChrome(task);
-  clearTimeout(knowledgeIndexTimer);knowledgeIndexTimer=setTimeout(()=>knowledgeRefreshPanels(task),500);
+  clearTimeout(knowledgeIndexTimer);knowledgeIndexTimer=setTimeout(()=>{
+    for(const pane of document.querySelectorAll('.knowledge-pane[data-task-id]')){
+      const visible=knowledgeFindDocument(pane.dataset.taskId);
+      if(visible)knowledgeRefreshPanels(visible);
+    }
+  },500);
 }
 async function knowledgeAutoSave(taskId) {
   const task=knowledgeAllDocuments().find(t=>t.id===taskId); if(!task)return;
@@ -1808,9 +1808,8 @@ document.addEventListener('click',event=>{
     void knowledgeSetMembership(button.dataset.ownerTaskId,button.dataset.noteId,button.dataset.joined==='true',button);
     return;
   }
-  if(action==='add-note-menu'){knowledgeAddNoteMenu(button);return;}
-  if(action==='new-note'){shellCloseOverlay({restoreFocus:false});void knowledgeNewDialog();return;}
-  if(action==='open-file'){shellCloseOverlay({restoreFocus:Boolean(button.closest('.kn-add-note-menu'))});void knowledgeOpenFile();return;}
+  if(action==='new-note'){shellCloseOverlay({restoreFocus:false});void knowledgeCreate();return;}
+  if(action==='open-file'){shellCloseOverlay();void knowledgeOpenFile();return;}
   if(action==='recent'){knowledgeShowRecent();return;}
   if(action==='switcher'){knowledgeShowSwitcher();return;}
   const task=knowledgeActiveDocument();if(!task)return;
@@ -1892,10 +1891,13 @@ document.addEventListener('compositionend', event => {
 
 async function knowledgeInspectFileChange(task, options) {
   if(!knowledgeHasDocument(task)||!task.knowledgeNote.filePath)return;
+  const {filePath,lastSavedHash,noteId}=task.knowledgeNote;
   try {
-    const current=await desktopKnowledgeFile.read({filePath:task.knowledgeNote.filePath});
-    if(current?.success && current.lastSavedHash!==task.knowledgeNote.lastSavedHash) {
-      await handleKnowledgeFileChange({...current,type:'external-changed',noteId:task.knowledgeNote.noteId},options);
+    const current=await desktopKnowledgeFile.read({filePath});
+    const note=task.knowledgeNote;
+    if(!knowledgeHasDocument(task)||note.filePath!==filePath||note.lastSavedHash!==lastSavedHash||note.noteId!==noteId)return;
+    if(current?.success && current.lastSavedHash!==lastSavedHash) {
+      await handleKnowledgeFileChange({...current,type:'external-changed',noteId},options);
     }
   } catch { /* The watcher reports unavailable files. */ }
 }

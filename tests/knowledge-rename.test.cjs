@@ -255,7 +255,7 @@ test("re-pointing the watcher after a rename stays silent and still detects late
 
   // An external edit after the rename is still reported, on the new path.
   await fs.writeFile(renamed.filePath, "# 外部修改\n");
-  await pause(400);
+  for (let attempt = 0; attempt < 40 && !events.some(event => event.type === "external-changed"); attempt++) await pause(50);
   const changed = events.filter((event) => event.type === "external-changed");
   assert.equal(changed.length, 1);
   assert.equal(changed[0].filePath, renamed.filePath);
@@ -280,7 +280,7 @@ test("the watcher follows the renamed path instead of reporting our own rename a
   const renamed = await renameKnowledgeDocument({ filePath, title: "新设计方案" });
   assert.equal(renamed.success, true);
   watcher.updateBaseline("note-rename", { filePath: renamed.filePath, lastSavedHash: baseline.lastSavedHash });
-  await pause(400);
+  for (let attempt = 0; attempt < 40 && !events.some(event => event.filePath === renamed.filePath); attempt++) await pause(50);
 
   assert.deepEqual(events.filter((event) => event.type === "file-missing"), []);
   assert.ok(events.some((event) => event.type === "baseline" && event.filePath === renamed.filePath));

@@ -28,18 +28,21 @@
       const list = line.match(/^(\s*)(?:[-+*]|\d+[.)])\s+/);
       if (list) listIndent = list[0].length;
       else if (line.trim() && !/^\s/.test(line)) listIndent = null;
-      const marker = line.match(/^\s{0,3}(?:>\s*)*(`{3,}|~{3,})(.*)$/);
+      const marker = line.match(/^[ \t]{0,3}(?:>[ \t]*)*(`{3,}|~{3,})([^\r\n]*)\r?$/);
       if (fence) {
-        ranges.push([offset, offset + line.length]);
-        if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2].trim()) fence = null;
-      } else if (marker) {
-        fence = marker[1]; ranges.push([offset, offset + line.length]);
+        if (marker && marker[1][0] === fence.marker[0] && marker[1].length >= fence.marker.length && !marker[2].trim()) {
+          ranges.push([fence.from, offset + line.length]);
+          fence = null;
+        }
+      } else if (marker && (marker[1][0] !== '`' || !marker[2].includes('`'))) {
+        fence = { marker: marker[1], from: offset, openerEnd: offset + line.length };
       } else if (/^(?: {4}|\t)/.test(line) && !list && (listIndent === null || line.match(/^\s*/)[0].length >= listIndent + 4)) {
         // Indented code; nested list text is subsequently identified by the editor parser.
         ranges.push([offset, offset + line.length]);
       }
       offset += line.length + 1;
     }
+    if (fence) ranges.push([fence.from, fence.openerEnd]);
     const blockRanges = ranges.slice().sort((a,b)=>a[0]-b[0]);
     let blockCursor = 0;
     const covered = pos => {

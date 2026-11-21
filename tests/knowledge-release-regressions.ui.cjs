@@ -58,6 +58,42 @@ async function prompt(id){await open(id);await page.locator('[data-action="knowl
     await reset('正文',0,2);await wb.format(page,'heading',2);assert.equal(await focused(),true,'custom heading dropdown returns editor focus');await page.keyboard.type('继续');assert.match(await text(),/继续/);await page.keyboard.press('ControlOrMeta+z');assert.equal(await text(),'## 正文');
   });
   await test('D3-code-caret',async()=>{await reset('前文',2);await insert('code');await page.keyboard.type('const x = 1;');assert.match(await text(),/```text\nconst x = 1;\n```/);});
+  await test('D3-manually-typed-code-fences',async()=>{
+    const fence='`'.repeat(3),tail='\n\n## 后续标题\n\n继续编辑这段正文。';
+    await reset(tail);
+    await page.keyboard.type(fence+'js');
+    assert.equal(await text(),fence+'js'+tail);
+    assert.equal(await page.locator('.kn-code').count(),0,'an opening fence cannot consume existing prose');
+    assert.equal(await page.evaluate(()=>LoopKnowledgeCore.headings(knowledgeCurrentEntry().getMarkdown())[0]?.text),'后续标题');
+    await wb.mode(page,'preview');
+    assert.equal(await page.locator('.kn-reading .kn-code').count(),0);
+    await page.locator('.kn-reading h2').filter({hasText:'后续标题'}).waitFor();
+    await wb.mode(page,'edit');
+    await page.evaluate(()=>knowledgeCurrentEntry().view.focus());
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('const x = 1;');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type(fence.slice(0,2));
+    assert.equal(await page.locator('.kn-code').count(),0,'a short closing marker is still draft text');
+    await page.keyboard.type(fence[0]);
+    const closed=fence+'js\nconst x = 1;\n'+fence;
+    assert.equal(await text(),closed+tail);
+    await page.locator('.kn-code').waitFor();
+    assert.equal((await page.locator('.kn-code pre').innerText()).trim(),'const x = 1;');
+    assert.match(await page.locator('.cm-content').innerText(),/继续编辑这段正文。/);
+    await page.keyboard.press('ControlOrMeta+z');
+    assert.equal(await page.locator('.kn-code').count(),0);
+    await page.keyboard.press(process.platform==='darwin'?'Meta+Shift+z':'Control+y');
+    assert.equal(await text(),closed+tail);
+    await page.keyboard.press('Enter');
+    await page.keyboard.insertText('块外新正文');
+    assert.equal(await text(),closed+'\n块外新正文'+tail);
+
+    await reset('> '+fence+'\n> quoted\n\n普通正文');
+    assert.equal(await page.locator('.kn-code').count(),0,'a quote needs its own closing fence');
+    await reset('> '+fence+'\n> quoted\n> '+fence+'\n\n普通正文');
+    assert.equal((await page.locator('.kn-code pre').innerText()).trim(),'quoted');
+  });
   await test('D4-table-caret-and-tab',async()=>{await reset('前文',2);await insert('table');await page.locator('.kn-table-cell-editor').waitFor();await page.keyboard.type('甲');await page.keyboard.press('Tab');await page.keyboard.type('乙');assert.deepEqual(await page.evaluate(()=>LoopKnowledgeCore.tableAt(knowledgeCurrentEntry().getEditorText(),knowledgeCurrentEntry().view.state.selection.main.head).rows[2]),['甲','乙']);});
   await test('D5-block-prefix-and-multiline',async()=>{
     for(const line of ['# 一级标题','> 引用','- 列表','- [ ] 任务']){await reset(line,0,line.length);await wb.format(page,'bold');const expected=line.replace(/([^ ]+)$/, '**$1**');assert.equal(await text(),expected);await wb.format(page,'bold');assert.equal(await text(),line);}
@@ -74,17 +110,20 @@ async function prompt(id){await open(id);await page.locator('[data-action="knowl
     await open('readonly');await page.evaluate(async()=>{const e=knowledgeCurrentEntry();e.insertText('本地修改');await saveKnowledgeTask('readonly');});assert.equal(await page.locator('.knowledge-notice').count(),1);assert.equal(await page.locator('.knowledge-notice button').filter({hasText:'重试'}).count(),1);
     const file=path.join(files,'readonly.md');await fs.chmod(file,0o644);await fs.writeFile(file,'# 磁盘新内容');await page.evaluate(async()=>{await reloadKnowledgeTask('readonly');render();});assert.equal(await page.locator('[data-kn-receipt]').textContent(),'已保存到文件');assert.equal(await page.locator('[data-kn-save-error]').count(),0);assert.equal(await text(),'# 磁盘新内容');
   });
-  await test('D7-no-internal-note-id',async()=>{await open();await page.locator('[data-kn-action="switcher"]').click();assert.doesNotMatch(await page.locator('.kn-switcher-list').innerText(),/private-note/);await page.keyboard.press('Escape');});
+  await test('D7-no-internal-note-id',async()=>{await open();await wb.more(page);await page.locator('.wb-more-menu [data-kn-action="switcher"]').click();assert.doesNotMatch(await page.locator('.kn-switcher-list').innerText(),/private-note/);await page.keyboard.press('Escape');});
   await test('D10-D11-D14-theme-and-keyboard-states',async()=>{
     await reset('==高亮== 和 [[keep]]');
     for(const theme of ['light','dark'])for(const size of [[1024,680],[1440,900]]){
       await app.evaluate(({BrowserWindow},s)=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(...s),size);
       await page.evaluate(theme=>{state.theme=theme;state.markdownMode='preview';render();},theme);await page.locator('.kn-reading mark').waitFor();const css=await page.locator('.kn-reading mark').evaluate(e=>({bg:getComputedStyle(e).backgroundColor,color:getComputedStyle(e).color}));assert.notEqual(css.bg,'rgba(0, 0, 0, 0)');assert.equal(await page.locator('.kn-reading .kn-wiki').evaluate(e=>getComputedStyle(e).textDecorationLine),'underline');await page.screenshot({path:path.join(out,`reading-${theme}-${size[0]}.png`)});
     }
-    await page.evaluate(()=>{state.markdownMode='edit';render()});
+    await wb.mode(page,'edit');
     // The view selector now lives in the document menu; its trigger keeps the
     // neutral keyboard focus line and the menu exposes all three views.
-    const trigger=page.locator('[data-wb-action="more"]');await trigger.focus();await page.keyboard.press('Tab');await page.keyboard.press('Shift+Tab');
+    const trigger=page.locator('[data-wb-action="more"]');
+    await page.locator('[data-wb-action="focus"]').focus();
+    await page.keyboard.press('Tab');
+    await page.waitForFunction(()=>document.activeElement.matches('[data-wb-action="more"]:focus-visible'));
     assert.equal(await trigger.evaluate(e=>getComputedStyle(e).outlineStyle),'solid');
     await trigger.click();assert.deepEqual(await page.locator('.wb-more-menu [data-wb-mode]').evaluateAll(items=>items.map(item=>[item.dataset.wbMode,item.getAttribute('aria-checked')])),[['edit','true'],['source','false'],['preview','false']]);
     await page.locator('.wb-more-menu [data-wb-mode="source"]').click();await page.waitForFunction(()=>knowledgeCurrentEntry()?.mode==='source');

@@ -55,6 +55,7 @@ function createKnowledgeFileWatcher({
   }
 
   function emitUnavailable(entry, error) {
+    entry.suppressBaseline = false;
     emit({
       type: "file-unavailable",
       noteId: entry.noteId,
@@ -67,6 +68,8 @@ function createKnowledgeFileWatcher({
   async function inspect(entry) {
     entry.timer = null;
     if (entries.get(entry.noteId) !== entry) return;
+    const inspection = ++entry.inspection;
+    const isCurrent = () => entries.get(entry.noteId) === entry && entry.inspection === inspection;
     let result;
     try {
       let timeout;
@@ -81,12 +84,14 @@ function createKnowledgeFileWatcher({
         if (timeout) clearTimeout(timeout);
       }
     } catch (error) {
-      if (entries.get(entry.noteId) === entry) emitUnavailable(entry, error);
+      if (isCurrent()) emitUnavailable(entry, error);
       return;
     }
-    if (entries.get(entry.noteId) !== entry) return;
+    if (!isCurrent()) return;
 
     if (!result?.success) {
+      entry.suppressBaseline = false;
+      entry.reportedExternalHash = null;
       const missing = ["ENOENT", "ENOTDIR"].includes(result?.errorCode);
       const readOnly = ["EACCES", "EPERM", "EROFS"].includes(result?.errorCode);
       if (missing) {
@@ -117,6 +122,7 @@ function createKnowledgeFileWatcher({
       entry.lastSavedHash = result.lastSavedHash;
       entry.lastSavedMtime = result.lastSavedMtime;
       if (result.readOnly) {
+        entry.suppressBaseline = false;
         emit({
           type: "read-only",
           noteId: entry.noteId,
@@ -172,10 +178,12 @@ function createKnowledgeFileWatcher({
       suppressBaseline: !emitBaseline,
       watcher: null,
       timer: null,
+      inspection: 0,
     };
     entries.set(normalizedNoteId, entry);
     const watchedDirectory = path.dirname(normalizedPath);
     const watchedName = path.basename(normalizedPath);
+    let watchError;
     try {
       // Watch the parent directory instead of the file itself: editors save with
       // an atomic rename, which leaves a watch bound to the old inode silent
@@ -186,20 +194,28 @@ function createKnowledgeFileWatcher({
       });
       if (typeof entry.watcher?.on === "function") {
         entry.watcher.on("error", (error) => {
-          if (entries.get(normalizedNoteId) === entry) emitUnavailable(entry, error);
+          if (entries.get(normalizedNoteId) !== entry || entry.pollListener) return;
+          emitUnavailable(entry, error);
         });
       }
-      // Directory notifications can be dropped by removable/network volumes
-      // and restricted macOS environments. Stat polling follows replacement
-      // inodes as well; it reads document contents only after metadata changes.
+    } catch (error) {
+      watchError = error;
+    }
+    // Stat polling also works when the directory cannot be watched at all.
+    try {
       if (typeof fsApi.watchFile === "function" && typeof fsApi.unwatchFile === "function") {
-        entry.pollListener = (current, previous) => {
+        const listener = (current, previous) => {
           if (current.mtimeMs !== previous.mtimeMs || current.ctimeMs !== previous.ctimeMs
             || current.size !== previous.size || current.ino !== previous.ino) schedule(entry);
         };
-        fsApi.watchFile(normalizedPath, { persistent: false, interval: 1000 }, entry.pollListener);
+        fsApi.watchFile(normalizedPath, { persistent: false, interval: 1000 }, listener);
+        entry.pollListener = listener;
       }
     } catch (error) {
+      watchError ||= error;
+    }
+    if (!entry.watcher && !entry.pollListener) {
+      const error = watchError;
       closeEntry(entry);
       entries.delete(normalizedNoteId);
       const missing = ["ENOENT", "ENOTDIR"].includes(error?.code);
@@ -224,6 +240,7 @@ function createKnowledgeFileWatcher({
       return watch({ noteId, ...baseline, filePath: nextPath }, options);
     }
     entry.lastSavedHash = baseline.lastSavedHash || entry.lastSavedHash;
+    entry.inspection++;
     entry.reportedExternalHash = null;
     entry.lastSavedMtime = baseline.lastSavedMtime ?? entry.lastSavedMtime;
     entry.suppressBaseline = options.emitBaseline === false;

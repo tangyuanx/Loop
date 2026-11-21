@@ -139,7 +139,7 @@ async function until(check) {
       await size(1280);
     });
     await test('new has a tab-bar shortcut; open and recent remain in the more menu',async()=>{
-      assert.equal(await page.locator('.kn-document-bar [data-kn-action="add-note-menu"]').count(),1);
+      assert.equal(await page.locator('.kn-document-bar [data-kn-action="new-note"]').count(),1);
       for(const action of ['open-file','recent']){
         assert.equal(await page.locator('.knowledge-pane [data-kn-action="'+action+'"]').count(),0);
       }
@@ -210,7 +210,9 @@ async function until(check) {
       await choose('group-26');
       await active('group-26-0');
       const compact = await measure();
-      assert.deepEqual([...new Set(compact.widths)], [40]);
+      assert.deepEqual([...new Set(compact.widths)], [112]);
+      const titleSpace=await tab('group-26-0').locator('span').evaluate(span=>({width:span.clientWidth,opacity:getComputedStyle(span).opacity}));
+      assert.ok(titleSpace.width>=60 && titleSpace.opacity==='1');
       assert.ok(compact.compact && compact.content > compact.width);
       assert.equal(await left().isDisabled(), true);
       await right().click();

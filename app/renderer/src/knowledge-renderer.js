@@ -39,11 +39,38 @@ export function safeURL(value, image=false) {
   if(!/^[a-z][a-z\d+.-]*:/i.test(raw) && !raw.startsWith('//') && !raw.includes('\\')) return raw;
   return '';
 }
+function parseClosedFence(state,start,end,silent) {
+  const body=line=>state.src.slice(state.bMarks[line]+state.tShift[line],state.eMarks[line]);
+  if(state.sCount[start]-state.blkIndent>=4)return false;
+  const opening=/^(`{3,}|~{3,})(.*)$/.exec(body(start));
+  if(!opening)return false;
+  const [,marker,info]=opening;
+  if(marker[0]==='`'&&info.includes('`'))return false;
+  for(let line=start+1;line<end;line++){
+    const text=body(line),indent=state.sCount[line]-state.blkIndent;
+    if(text&&indent<0)break;
+    if(indent>=4)continue;
+    const closing=/^(`{3,}|~{3,})[ \t]*$/.exec(text)?.[1];
+    if(!closing||closing[0]!==marker[0]||closing.length<marker.length)continue;
+    if(!silent){
+      const token=state.push('fence','code',0);
+      token.info=info;
+      token.content=state.getLines(start+1,line,state.sCount[start],true);
+      token.markup=marker;
+      token.map=[start,line+1];
+      state.line=line+1;
+    }
+    return true;
+  }
+  return false;
+}
+
 export function createRenderer(options) {
   // Match the editor's visible source lines in reading, embeds and exports.
   // Render soft breaks without rewriting the authoritative Markdown document.
   const md=new MarkdownIt({html:false,linkify:true,breaks:true,typographer:false,highlight:highlightCode})
     .use(footnote).use(mark).use(tasks,{enabled:true}).use(texmath,{engine:katex,delimiters:'dollars',katexOptions:{throwOnError:false,trust:false,strict:'warn',maxExpand:1000,maxSize:20}});
+  md.block.ruler.at('fence',parseClosedFence,{alt:['paragraph','reference','blockquote','list']});
   installTableMarkdown(md,core);
   // Permit the Markdown-table line-break convention without enabling
   // arbitrary HTML. Escaped markup and code tokens remain literal text.
