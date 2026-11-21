@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { _electron } = require("../tools/guarded-electron.cjs");
 const { writeTaskData, readTaskData } = require("../app/main/storage.cjs");
+const { readKnowledgeDocument } = require("../app/main/knowledge-file.cjs");
 const { exportWorkspaceBackup } = require("../app/main/workspace-backup.cjs");
 const { SNAPSHOT_DIRECTORY } = require("../app/main/automatic-backups.cjs");
 
@@ -22,6 +23,36 @@ async function start(profile) {
   assert.equal(await app.evaluate(({ app }) => app.getPath("userData")), profile);
   assert.equal(await app.evaluate(({ app }) => app.getAppPath()), repository);
   return { app, page, errors };
+}
+
+async function interceptQuitPrompt(app) {
+  await app.evaluate(({ dialog }) => {
+    dialog.showMessageBox = (_parent, options) => new Promise(resolve => {
+      globalThis.quitPrompt = options;
+      globalThis.answerQuitPrompt = response => resolve({ response });
+    });
+  });
+}
+
+async function waitForQuitPrompt(app) {
+  const prompt = await app.evaluate(async () => {
+    const deadline = Date.now() + 13000;
+    while (!globalThis.quitPrompt && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    return globalThis.quitPrompt;
+  });
+  assert.ok(prompt, "the application offers to quit without saving");
+  assert.deepEqual(prompt.buttons, ["返回编辑", "放弃未保存内容并退出"]);
+  assert.equal(prompt.defaultId, 0);
+  assert.equal(prompt.cancelId, 0);
+  return prompt;
+}
+
+async function discardAndWaitForExit(app) {
+  const closed = app.waitForEvent("close", { timeout: 10000 });
+  await app.evaluate(() => { answerQuitPrompt(1); });
+  await closed;
 }
 
 (async () => {
@@ -98,8 +129,11 @@ async function start(profile) {
       save();
       await flushSave();
     });
+    await interceptQuitPrompt(app);
     await app.evaluate(({ app }) => { app.quit(); });
-    await page.getByRole("alert").filter({ hasText: "退出已暂停" }).waitFor();
+    assert.equal((await waitForQuitPrompt(app)).message, "有修改未能保存。");
+    await app.evaluate(() => { answerQuitPrompt(0); });
+    await page.getByRole("alert").filter({ hasText: "有修改未能保存" }).waitFor();
     assert.equal(await disk(), previous);
     assert.equal(await page.evaluate(() => state.tasks[0].title), "磁盘失败后仍要保留的标题");
     await app.evaluate(() => { restoreDataRename(); });
@@ -108,6 +142,59 @@ async function start(profile) {
     assert.deepEqual(run.errors, []);
     await app.close();
     app = null;
+
+    const quitProfile = path.join(root, "quit-without-saving");
+    const notePath = path.join(root, "已保存的笔记.md");
+    const savedNote = Buffer.from("# 已保存的笔记\r\n\r\n这部分必须保留。\r\n");
+    await fs.writeFile(notePath, savedNote);
+    const { lastSavedHash, lastSavedMtime } = await readKnowledgeDocument(notePath);
+    await writeTaskData(quitProfile, { tasks: [{ ...data.tasks[0], notes: savedNote.toString(), knowledgeNote: {
+      noteId: "quit-note", title: "已保存的笔记", filePath: notePath, documentState: "SAVED", lastSavedHash, lastSavedMtime,
+    } }] });
+    run = await start(quitProfile);
+    ({ app } = run);
+    await run.page.waitForFunction(() => typeof recurrenceScheduleTimer !== "undefined" && recurrenceScheduleTimer !== 0);
+    await run.page.evaluate(() => flushAllDataForTransfer());
+    const quitDisk = () => fs.readFile(path.join(quitProfile, "task-data.json"));
+    const savedWorkspace = await quitDisk();
+    await app.evaluate((_electron, maintenancePath) => {
+      process.mainModule.require(maintenancePath).begin("manual-import");
+    }, path.join(repository, "app", "main", "data-maintenance.cjs"));
+    const failedSave = await run.page.evaluate(async () => {
+      updateNodeNoteDraft("data-test", "", "# 放弃这段尚未保存的笔记");
+      const result = await saveKnowledgeTask("data-test");
+      return { success: result.success, message: result.message };
+    });
+    assert.equal(failedSave.success, false);
+    assert.match(failedSave.message, /正在恢复或导入数据/);
+    await interceptQuitPrompt(app);
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith("/index.html")).close();
+    });
+    assert.equal((await waitForQuitPrompt(app)).message, "有修改未能保存。");
+    await discardAndWaitForExit(app);
+    app = null;
+    assert.deepEqual(await fs.readFile(notePath), savedNote);
+    assert.deepEqual(await quitDisk(), savedWorkspace);
+
+    run = await start(quitProfile);
+    ({ app } = run);
+    await run.page.waitForFunction(() => typeof recurrenceScheduleTimer !== "undefined" && recurrenceScheduleTimer !== 0);
+    await run.page.evaluate(() => flushAllDataForTransfer());
+    assert.equal(await run.page.evaluate(() => state.tasks[0].notes.replaceAll("\r\n", "\n")), savedNote.toString().replaceAll("\r\n", "\n"));
+    await run.page.evaluate(() => {
+      flushAllDataForTransfer = () => new Promise(resolve => { window.finishDelayedQuitSave = resolve; });
+    });
+    await interceptQuitPrompt(app);
+    await app.evaluate(({ app }) => { app.quit(); });
+    assert.match((await waitForQuitPrompt(app)).message, /还没有收到保存完成的确认/);
+    await run.page.evaluate(() => window.finishDelayedQuitSave());
+    const restartedWorkspace = await quitDisk();
+    await run.page.evaluate(() => { state.tasks[0].notes = "# 放弃此时仍未保存的内容"; });
+    await discardAndWaitForExit(app);
+    app = null;
+    assert.deepEqual(await fs.readFile(notePath), savedNote);
+    assert.deepEqual(await quitDisk(), restartedWorkspace);
 
     const protectedProfile = path.join(root, "protected");
     await writeTaskData(protectedProfile, data);
@@ -135,8 +222,9 @@ async function start(profile) {
     assert.deepEqual(run.errors, []);
     await app.close();
     app = null;
-    console.log("Data product UI passed: encrypted export, neutral focus in both themes, failed-save exit protection, retry, corrupt-workspace protection and native backup restoration.");
+    console.log("Data product UI passed: encrypted export, neutral focus in both themes, quit after save failure or timeout, cancel and retry, corrupt-workspace protection and native backup restoration.");
   } finally {
+    await app?.evaluate(({ app }) => app.exit(0)).catch(() => {});
     await app?.close().catch(() => {});
     await fs.rm(root, { recursive: true, force: true });
   }

@@ -284,13 +284,13 @@ function cancelRecoveryShutdown(window, message = "") {
 function flushBeforeQuit(window, discardCreateDraft = false) {
   const request = ++recoveryShutdownRequest;
   recoveryShutdownTimer = setTimeout(() => {
-    cancelRecoveryShutdown(window, "退出已暂停。Loop 还没有收到保存完成的确认，请等待保存结束后重试。");
+    void confirmUnsavedQuit(window, "Loop 还没有收到保存完成的确认。");
   }, RECOVERY_SHUTDOWN_TIMEOUT_MS);
   window.webContents.send("knowledge-recovery:flush-and-quit", discardCreateDraft, request);
 }
 
 function requestRecoveryShutdown(event) {
-  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  if (recoveryShutdownWaitingFor === null && (!mainWindow || mainWindow.isDestroyed())) return false;
   event.preventDefault();
   if (recoveryShutdownWaitingFor !== null) return true;
   recoveryShutdownWaitingFor = mainWindow.webContents.id;
@@ -320,6 +320,37 @@ async function confirmCreateDraftQuit(window) {
     console.error("Unable to confirm whether to discard the creation draft.", error);
   }
   cancelRecoveryShutdown(window);
+}
+
+async function confirmUnsavedQuit(window, message) {
+  clearTimeout(recoveryShutdownTimer);
+  recoveryShutdownTimer = null;
+  let response;
+  try {
+    ({ response } = await dialog.showMessageBox(window, {
+      type: "warning",
+      title: "退出 Loop",
+      message,
+      detail: "放弃并退出会丢失尚未保存的修改。",
+      buttons: ["返回编辑", "放弃未保存内容并退出"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    }));
+  } catch (error) {
+    console.error("Unable to confirm whether to quit without saving.", error);
+  }
+  if (response !== 1) {
+    cancelRecoveryShutdown(window, message);
+    return;
+  }
+
+  dataMaintenance.begin("quit-without-saving");
+  // Skip renderer beforeunload, which would queue another draft save. Let any
+  // file write already in progress finish its replacement or rollback.
+  if (!window.isDestroyed()) window.destroy();
+  await dataMaintenance.waitForWrites();
+  finishRecoveryShutdown();
 }
 
 function describeWorkspaceProtection(error, { restoreAllowed = true } = {}) {
@@ -717,7 +748,7 @@ function registerStorageHandlers() {
     if (outcome === "create-draft") void confirmCreateDraftQuit(mainWindow);
     else if (outcome === "create-saving") resetRecoveryShutdown();
     else if (outcome === "saved") finishRecoveryShutdown();
-    else cancelRecoveryShutdown(mainWindow, "退出已暂停。还有数据未保存，请检查磁盘空间和权限，重试后再退出。");
+    else void confirmUnsavedQuit(mainWindow, "有修改未能保存。");
   });
   ipcMain.on("app-update:prepare-install-complete", (event, success) => {
     if (event.sender.id !== updateInstallPreparation?.senderId) return;
