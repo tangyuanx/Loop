@@ -7,6 +7,8 @@ const { writeTaskData, readTaskData } = require("../app/main/storage.cjs");
 const { readKnowledgeDocument } = require("../app/main/knowledge-file.cjs");
 const { exportWorkspaceBackup } = require("../app/main/workspace-backup.cjs");
 const { SNAPSHOT_DIRECTORY } = require("../app/main/automatic-backups.cjs");
+const { prepareUpgradeVerification } = require("../app/main/upgrade-verification.cjs");
+const { version: candidateVersion } = require("../package.json");
 
 const repository = path.resolve(__dirname, "..");
 const stamp = new Date().toISOString();
@@ -222,7 +224,60 @@ async function discardAndWaitForExit(app) {
     assert.deepEqual(run.errors, []);
     await app.close();
     app = null;
-    console.log("Data product UI passed: encrypted export, neutral focus in both themes, quit after save failure or timeout, cancel and retry, corrupt-workspace protection and native backup restoration.");
+
+    const upgradeProfile = path.join(root, "upgrade");
+    const upgradeAppData = path.join(upgradeProfile, ".isolated-backups");
+    const upgradeOptions = {
+      appDataPath: upgradeAppData, userDataPath: upgradeProfile,
+      currentVersion: "0.0.1", targetVersion: candidateVersion,
+    };
+    await writeTaskData(upgradeProfile, data);
+    await prepareUpgradeVerification(upgradeOptions);
+    await fs.writeFile(path.join(upgradeProfile, "task-data.json"), '{"version":4,"tasks":[]}');
+    run = await start(upgradeProfile);
+    ({ app } = run);
+    await run.page.getByRole("heading", { name: "工作区已进入只读保护" }).waitFor();
+    await run.page.getByRole("button", { name: "重试自检" }).waitFor();
+    await app.evaluate(({ app, dialog, shell }) => {
+      dialog.showMessageBox = async () => ({ response: 1 });
+      globalThis.loopDowngrade = {};
+      app.relaunch = () => { globalThis.loopDowngrade.relaunch = true; };
+      app.exit = () => { globalThis.loopDowngrade.exit = true; };
+      shell.openExternal = async url => { globalThis.loopDowngrade.url = url; };
+    });
+    await run.page.getByRole("button", { name: "准备退回旧版" }).click();
+    await run.page.locator('[data-backup-status="upgrade"]').filter({ hasText: "已恢复并校验升级前的数据" }).waitFor();
+    await new Promise(resolve => setTimeout(resolve, 400));
+    assert.deepEqual(await app.evaluate(() => globalThis.loopDowngrade), {
+      url: "https://github.com/tangyuanx/Loop/releases/tag/v0.0.1", exit: true,
+    });
+    assert.equal((await readTaskData(upgradeProfile)).tasks[0].title, "数据保护候选");
+    const backupNames = await fs.readdir(path.join(upgradeAppData, "Personal Task Track Upgrade Backups"));
+    assert.equal(backupNames.filter(name => name.startsWith("pre-manual-import-")).length, 1);
+    assert.equal(backupNames.filter(name => name.startsWith("pre-update-")).length, 1);
+    assert.deepEqual(run.errors, []);
+    await app.close();
+    app = null;
+
+    const cleanProfile = path.join(root, "upgrade-clean");
+    const cleanAppDataPath = path.join(cleanProfile, ".isolated-backups");
+    await writeTaskData(cleanProfile, data);
+    await prepareUpgradeVerification({ ...upgradeOptions, appDataPath: cleanAppDataPath, userDataPath: cleanProfile });
+    run = await start(cleanProfile);
+    ({ app } = run);
+    await run.page.locator(".app").waitFor();
+    await run.page.waitForFunction(() => typeof recovery26Open === "function");
+    await run.page.evaluate(() => {
+      state.settingsOpen = true;
+      activeSettingsPage = "data";
+      render();
+    });
+    await run.page.locator("[data-upgrade-message]").filter({ hasText: "升级自检通过，本次升级备份已清理" }).waitFor();
+    assert.equal((await fs.readdir(path.join(cleanAppDataPath, "Personal Task Track Upgrade Backups"))).length, 0);
+    assert.deepEqual(run.errors, []);
+    await app.close();
+    app = null;
+    console.log("Data product UI passed: storage, protection, quit after save failure or timeout, upgrade verification, backup cleanup and downgrade preparation.");
   } finally {
     await app?.evaluate(({ app }) => app.exit(0)).catch(() => {});
     await app?.close().catch(() => {});

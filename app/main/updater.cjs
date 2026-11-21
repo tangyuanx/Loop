@@ -21,28 +21,26 @@ function createUpdateController({
   ipcMain,
   autoUpdater,
   platform = process.platform,
-  macUpdatesEnabled = false,
   installDirectory = "",
   startupDelayMs = DEFAULT_STARTUP_DELAY_MS,
   intervalMs = DEFAULT_INTERVAL_MS,
   fileSystem = fs,
   prepareInstall = async () => true,
+  onInstallFailure = () => {},
   fetchReleaseNotes = null,
 } = {}) {
   if (!app || !BrowserWindow || !ipcMain || !autoUpdater) {
     throw new TypeError("Updater controller requires Electron app, BrowserWindow, ipcMain, and autoUpdater.");
   }
 
-  const supportedPlatform = platform === "win32" || (platform === "darwin" && macUpdatesEnabled);
+  const macInstaller = platform === "darwin";
+  const supportedPlatform = platform === "win32" || macInstaller;
   const supported = Boolean(app.isPackaged && supportedPlatform);
-  const unsupportedReason = !app.isPackaged
-    ? "development"
-    : platform === "darwin"
-      ? "mac-signing-required"
-      : "platform-unsupported";
+  const unsupportedReason = app.isPackaged ? "platform-unsupported" : "development";
   let state = {
     status: supported ? "idle" : "unsupported",
     supported,
+    macInstaller,
     unsupportedReason: supported ? "" : unsupportedReason,
     automaticChecks: true,
     currentVersion: sanitizeVersion(app.getVersion?.()),
@@ -186,6 +184,7 @@ function createUpdateController({
     updateState({ status: "downloading", errorCode: "", percent: 0, retryAction: "download" });
     try {
       await autoUpdater.downloadUpdate();
+      if (macInstaller && state.status === "downloaded") return await installUpdate();
     } catch (error) {
       userApprovedInstall = false;
       setError(error);
@@ -222,11 +221,15 @@ function createUpdateController({
       }
       updateState({ status: "installing", errorCode: "" });
       try {
-        // The explicit install action has already authorized this
-        // Windows-only silent installer run and the automatic relaunch.
-        autoUpdater.quitAndInstall(true, true);
+        if (macInstaller) {
+          await autoUpdater.quitAndInstall();
+        } else {
+          autoUpdater.quitAndInstall(true, true);
+        }
       } catch (error) {
         userApprovedInstall = false;
+        onInstallFailure();
+        if (error?.code === "UPDATE_MAC_INSTALLER_MISSING") updateState({ retryAction: "download" }, { broadcast: false });
         setError(error);
       }
       return getState();

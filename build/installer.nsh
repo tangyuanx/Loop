@@ -4,6 +4,8 @@
 !ifndef BUILD_UNINSTALLER
 Var loopUpgradeBackupRoot
 Var loopUpgradeBackupCreated
+Var loopNewUpgradeBackup
+Var loopPreviousVersion
 Var loopLegacyInstallBackupsSource
 Var loopLegacyInstallBackupsQuarantine
 Var loopRegisteredInstallLocation
@@ -160,6 +162,12 @@ Var loopRegisteredInstallLocation
 !macro customInit
   StrCpy $loopUpgradeBackupRoot "$APPDATA\Personal Task Track Upgrade Backups\installer-pre-${VERSION}"
   StrCpy $loopUpgradeBackupCreated "0"
+  StrCpy $loopNewUpgradeBackup "1"
+  ReadRegStr $loopPreviousVersion SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" "DisplayVersion"
+  ${If} ${FileExists} "$loopUpgradeBackupRoot\*.*"
+    StrCpy $loopNewUpgradeBackup "0"
+    Delete "$loopUpgradeBackupRoot\.loop-install-check"
+  ${EndIf}
   CreateDirectory "$loopUpgradeBackupRoot"
 
   !insertmacro backupLoopUpgradeDirectory "$APPDATA\Personal Task Track" "Personal Task Track"
@@ -187,6 +195,15 @@ Var loopRegisteredInstallLocation
     ${EndIf}
     ${If} ${FileExists} "$loopUpgradeBackupRoot\Loop\task-data.json"
       !insertmacro verifyLoopUpgradeFile "$loopUpgradeBackupRoot\Loop\task-data.json" "$INSTDIR\Loop Data Backups\installer-pre-${VERSION}\Loop\task-data.json"
+    ${EndIf}
+    ${If} $loopNewUpgradeBackup == "1"
+    ${AndIf} ${FileExists} "$loopUpgradeBackupRoot\Personal Task Track\task-data.json"
+      ClearErrors
+      FileOpen $R6 "$loopUpgradeBackupRoot\.loop-install-check" w
+      ${IfNot} ${Errors}
+        FileWrite $R6 "1$\r$\n$loopPreviousVersion$\r$\n"
+        FileClose $R6
+      ${EndIf}
     ${EndIf}
   ${EndIf}
 !macroend

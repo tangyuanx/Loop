@@ -1,16 +1,18 @@
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { EventEmitter } = require("node:events");
+const { Readable } = require("node:stream");
 const { classifyUpdateError, createUpdateController } = require("../app/main/updater.cjs");
+const { createMacInstallerUpdater } = require("../app/main/mac-update.cjs");
 const { normalizeReleaseNotes, notesFromUpdateInfo, fetchUpdateReleaseNotes } = require("../app/main/update-release-notes.cjs");
 
 function createHarness({
   platform = "win32",
   isPackaged = true,
-  macUpdatesEnabled = false,
   prepareInstallResult = true,
   installThrows = false,
   checkError = null,
@@ -65,7 +67,6 @@ function createHarness({
     },
     autoUpdater: updates,
     platform,
-    macUpdatesEnabled,
     installDirectory,
     fileSystem,
     fetchReleaseNotes,
@@ -255,10 +256,11 @@ test("automatic-check preference is persisted outside task data", async () => {
   await fs.rm(harness.userData, { recursive: true, force: true });
 });
 
-test("development and unsigned macOS builds do not contact the update feed", async () => {
+test("development and unsupported platforms do not contact the update feed", async () => {
   for (const options of [
     { platform: "win32", isPackaged: false },
-    { platform: "darwin", isPackaged: true, macUpdatesEnabled: false },
+    { platform: "darwin", isPackaged: false },
+    { platform: "linux", isPackaged: true },
   ]) {
     const harness = createHarness(options);
     await harness.controller.start({ schedule: false });
@@ -267,6 +269,83 @@ test("development and unsigned macOS builds do not contact the update feed", asy
     assert.equal(harness.checkCount(), 0);
     await fs.rm(harness.userData, { recursive: true, force: true });
   }
+});
+
+test("a Mac download action saves and backs up before handing off to Finder", async () => {
+  const h = createHarness({ platform: "darwin" });
+  await h.controller.start({ schedule: false });
+  assert.equal(h.controller.getState().supported, true);
+  await h.controller.checkForUpdates();
+  assert.equal(h.prepareInstallCount(), 0);
+  assert.equal(h.installArgs(), null);
+  assert.equal((await h.controller.downloadUpdate()).status, "installing");
+  assert.equal(h.prepareInstallCount(), 1);
+  assert.deepEqual(h.installArgs(), []);
+  const failure = createHarness({ platform: "darwin", prepareInstallResult: false });
+  await failure.controller.checkForUpdates();
+  assert.equal((await failure.controller.downloadUpdate()).errorCode, "INSTALL_PREPARATION_FAILED");
+  assert.equal(failure.installArgs(), null);
+});
+
+test("Mac updater chooses a verified DMG for the hardware and refuses untrusted downloads", async (t) => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "loop-mac-dmg-test-"));
+  t.after(() => fs.rm(temp, { recursive: true, force: true }));
+  const data = Buffer.from("example installer bytes");
+  const latest = "https://api.github.com/repos/tangyuanx/Loop/releases/latest";
+  const asset = (arch) => ({
+    name: `Loop-0.2.66-${arch}.dmg`, state: "uploaded", size: data.length,
+    browser_download_url: `https://github.com/tangyuanx/Loop/releases/download/v0.2.66/Loop-0.2.66-${arch}.dmg`,
+    digest: `sha256:${crypto.createHash("sha256").update(data).digest("hex")}`,
+  });
+  const arm = asset("arm64");
+  const cdn = "https://release-assets.githubusercontent.com/download/example";
+  const release = { tag_name: "v0.2.66", assets: [asset("x64"), arm] };
+  let redirect = cdn;
+  let payload = data;
+  const events = [];
+  const updater = createMacInstallerUpdater({
+    app: { runningUnderARM64Translation: true, getPath: () => temp, getVersion: () => "0.2.65", quit: () => events.push("quit") },
+    fetch: async (url) => {
+      assert.equal(url, latest);
+      return Response.json(release);
+    },
+    request: ({ url }) => {
+      assert.equal(url, arm.browser_download_url);
+      const request = new EventEmitter();
+      request.end = () => request.emit("redirect", 302, "GET", redirect);
+      request.abort = () => request.emit("close");
+      request.followRedirect = () => {
+        assert.equal(redirect, cdn);
+        const response = Readable.from([payload]);
+        response.statusCode = 200;
+        response.once("end", () => request.emit("close"));
+        request.emit("response", response);
+      };
+      return request;
+    },
+    quarantine: async (file) => {
+      assert.deepEqual(await fs.readFile(file), data);
+      events.push("quarantine");
+    },
+    openAfterExit: async (file) => {
+      assert.equal(path.basename(file), arm.name);
+      events.push("handoff");
+    },
+  });
+  updater.on("update-available", () => events.push("available"));
+  updater.on("update-downloaded", () => events.push("downloaded"));
+  await updater.checkForUpdates();
+  redirect = "https://example.com/unexpected";
+  await assert.rejects(updater.downloadUpdate(), { code: "UPDATE_INTEGRITY_FAILED" });
+  redirect = cdn;
+  payload = Buffer.alloc(data.length);
+  await assert.rejects(updater.downloadUpdate(), { code: "UPDATE_INTEGRITY_FAILED" });
+  assert.deepEqual(await fs.readdir(temp), []);
+  payload = data;
+  await updater.downloadUpdate();
+  assert.deepEqual(events, ["available", "quarantine", "downloaded"]);
+  await updater.quitAndInstall();
+  assert.deepEqual(events.slice(-2), ["handoff", "quit"]);
 });
 
 test("update failures distinguish an incomplete Windows release from user network errors", async () => {

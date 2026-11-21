@@ -271,6 +271,7 @@ function shellSettingsData() {
         <span class="setting-label">本机自动备份</span>
         <p data-backup-overview>正在读取备份状态…</p>
       </div>
+      ${renderUpgradeVerification()}
       <p class="prefs-transfer-status" data-backup-status="export" role="status"></p>
     </section>
     ${recoveryEntry}
@@ -303,7 +304,7 @@ function shellSettingsUpdateCardBody() {
     downloading: `正在下载更新 · ${Math.round(update.percent || 0)}%`,
     downloaded: "下载完成，等待安装",
     preparing: "正在保存并准备升级…",
-    installing: "正在完成升级…",
+    installing: update.macInstaller ? "正在退出并打开安装包…" : "正在完成升级…",
     error: update.retryAction === "check" ? "检查更新失败" : "更新未完成",
     unsupported: update.unsupportedReason === "development" ? "开发版不支持应用内更新" : "当前构建不支持应用内更新",
     latest: "当前已是最新版本",
@@ -311,7 +312,8 @@ function shellSettingsUpdateCardBody() {
     idle: "尚未检查更新",
   };
   const bodies = {
-    downloaded: update.errorCode ? "升级前保存未完成。请检查磁盘空间或目录权限后重试。" : "",
+    available: update.macInstaller ? "下载后将备份并退出。安装包打开后，把 Loop 拖入「应用程序」。" : "",
+    downloaded: update.errorCode ? "升级前保存或备份未完成。请检查磁盘空间或目录权限后重试。" : "",
     error: updateErrorPresentation(update.errorCode).detail,
     latest: checkedLabel,
     idle: checkedLabel,
@@ -324,8 +326,8 @@ function shellSettingsUpdateCardBody() {
     : "";
   // One entry point. What it does follows the state, so it is never a no-op:
   // checking while busy is disabled, otherwise it offers the only useful action.
-  const actions = status === "available" ? '<button class="button primary" type="button" data-update-action="download">下载更新</button>'
-    : status === "downloaded" ? '<button class="button primary" type="button" data-update-action="install">安装并重启</button>'
+  const actions = status === "available" ? `<button class="button primary" type="button" data-update-action="download">${update.macInstaller ? "下载并更新" : "下载更新"}</button>`
+    : status === "downloaded" ? `<button class="button primary" type="button" data-update-action="install">${update.macInstaller ? "备份并退出" : "安装并重启"}</button>`
       : status === "error" ? `<button class="button primary" type="button" data-update-action="${update.retryAction}">${update.retryAction === "check" ? "重新检查" : update.retryAction === "install" ? "重试安装" : "重试下载"}</button>`
         : `<button class="button" type="button" data-update-action="check" ${busy || !update.supported ? "disabled" : ""}>${status === "checking" ? "检查中…" : "检查更新"}</button>`;
   const currentVersion = String(update.currentVersion || APP_VERSION || "");

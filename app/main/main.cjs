@@ -46,15 +46,16 @@ const {
   writeKnowledgeRecovery,
 } = require("./recovery.cjs");
 const { clearBackupStaging, exportWorkspaceBackup, stageWorkspaceBackup } = require("./workspace-backup.cjs");
+const { finishUpgradeRecovery, prepareUpgradeVerification, runUpgradeVerification, upgradeRecoveryPath } = require("./upgrade-verification.cjs");
 const { createAutomaticBackupController, workspaceDiskUsage } = require("./automatic-backups.cjs");
 const { createRecentlyDeletedRetention } = require("./recently-deleted-retention.cjs");
 const { createTodayWidgetController } = require("./today-widget.cjs");
 const { createDeadlineReminderController } = require("./deadline-reminders.cjs");
 const { createUpdateController } = require("./updater.cjs");
+const { createMacInstallerUpdater } = require("./mac-update.cjs");
 const { APP_DISPLAY_NAME, DESKTOP_APP_ID, configureDesktopIdentity } = require("./app-identity.cjs");
 const { createPointerContinuity } = require("./pointer-continuity.cjs");
 const {
-  createPreInstallBackup,
   importBackup,
   recoverInterruptedRestore,
   recoverLegacyUserData,
@@ -118,10 +119,12 @@ let knowledgeResources = null;
 let pointerContinuity = null;
 let isQuitting = false;
 let updateInstallPrepared = false;
+let releaseUpgradeWriteLock = null;
 let recoveryShutdownWaitingFor = null;
 let recoveryShutdownTimer = null;
 let recoveryShutdownRequest = 0;
 let workspaceProtection = null;
+let workspaceUpgradeResult = null;
 let automaticBackupController = null;
 const RECOVERY_SHUTDOWN_TIMEOUT_MS = 10000;
 let updateInstallPreparation = null;
@@ -264,6 +267,23 @@ function workspaceBackupAppDataPath() {
     : app.getPath("appData");
 }
 
+function workspaceUpgradeOptions() {
+  const allowInstaller = process.platform === "win32" && app.isPackaged && !desktopIdentity.usesExplicitProfile;
+  return {
+    userDataPath: app.getPath("userData"),
+    appDataPath: workspaceBackupAppDataPath(),
+    version: app.getVersion(),
+    installDirectory: allowInstaller ? path.dirname(process.execPath) : "",
+    allowInstaller,
+  };
+}
+
+function openUpgradeReleases() {
+  const version = workspaceUpgradeResult?.previousVersion;
+  const base = "https://github.com/tangyuanx/Loop/releases";
+  return shell.openExternal(version ? base + "/tag/v" + encodeURIComponent(version) : base);
+}
+
 function resetRecoveryShutdown() {
   if (recoveryShutdownTimer) clearTimeout(recoveryShutdownTimer);
   recoveryShutdownTimer = null;
@@ -379,6 +399,12 @@ async function stopRuntimeForUpdateInstall() {
   await deadlineReminderController?.stop();
 }
 
+function resetUpdateInstallPreparation() {
+  releaseUpgradeWriteLock?.();
+  releaseUpgradeWriteLock = null;
+  updateInstallPrepared = false;
+}
+
 async function withProfileWriteBarrier(reason, operation) {
   dataMaintenance.assertWritable();
   const release = dataMaintenance.begin(reason);
@@ -406,24 +432,29 @@ async function finishUpdateInstallPreparation(success) {
     return;
   }
   try {
-    const backup = () => createPreInstallBackup({
-      appDataPath: workspaceBackupAppDataPath(),
-      userDataPath: app.getPath("userData"),
-      installDirectory: path.dirname(process.execPath),
-      currentVersion: app.getVersion(),
-      targetVersion: updateController?.getState()?.version,
-    });
-    if (taskStore) await serializeProfileBackup(backup);
+    const backup = async () => {
+      dataMaintenance.assertWritable();
+      releaseUpgradeWriteLock = dataMaintenance.begin("update-install");
+      await dataMaintenance.waitForWrites();
+      await prepareUpgradeVerification({
+        appDataPath: workspaceBackupAppDataPath(),
+        userDataPath: app.getPath("userData"),
+        currentVersion: app.getVersion(),
+        targetVersion: updateController?.getState()?.version,
+      });
+    };
+    if (taskStore) await taskStore.serialize(backup);
     else await backup();
     // Stop auxiliary windows, shortcuts, watchers, and timers before the
     // updater launches NSIS. This shortens the interval in which a Loop child
     // process can keep the previous installation directory locked.
-    await stopRuntimeForUpdateInstall();
+    if (process.platform === "win32") await stopRuntimeForUpdateInstall();
     // `quitAndInstall` closes windows before `before-quit`, so the renderer and
     // the verified byte-level backup are both complete before this flag is set.
     updateInstallPrepared = true;
     resolve(true);
   } catch (error) {
+    resetUpdateInstallPreparation();
     console.error("Unable to create a verified pre-upgrade data backup.", error?.code || error);
     resolve(false);
   } finally {
@@ -523,7 +554,22 @@ function registerStorageHandlers() {
     await automaticBackupController?.refresh();
     const usage = await workspaceDiskUsage(app.getPath("userData"),
       path.join(workspaceBackupAppDataPath(), "Personal Task Track Upgrade Backups"));
-    return { automatic: automaticBackupController?.status() || null, usage };
+    const upgrade = workspaceUpgradeResult;
+    return { automatic: automaticBackupController?.status() || null, usage, upgrade: upgrade ? {
+      status: upgrade.status,
+      message: upgrade.message,
+      canRestore: Boolean(upgrade.source),
+      canRetry: upgrade.status === "failed",
+    } : null };
+  });
+  ipcMain.handle("data-backup:upgrade-action", (event, action) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWindow || !workspaceUpgradeResult) return;
+    if (action === "retry" && workspaceProtection?.upgradeCheck && workspaceUpgradeResult.status === "failed") {
+      const flag = "--retry-workspace-upgrade";
+      app.relaunch({ args: [...process.argv.slice(1).filter(arg => arg !== flag), flag] });
+      app.exit(0);
+    }
+    if (action === "versions" && workspaceUpgradeResult.status === "restored") return openUpgradeReleases();
   });
 /**
  * Export a task document as Markdown or PDF.
@@ -569,14 +615,21 @@ function registerStorageHandlers() {
     }
     const parent = BrowserWindow.fromWebContents(event.sender);
     const localRestore = value?.selectionType === "recent";
-    const selectionType = value?.selectionType === "directory" ? "directory" : "file";
+    const upgradeRestore = value?.selectionType === "upgrade";
+    const forDowngrade = upgradeRestore && value?.forDowngrade === true;
+    if (upgradeRestore && (!parent || parent !== mainWindow)) return { canceled: true };
+    const selectionType = upgradeRestore || value?.selectionType === "directory" ? "directory" : "file";
     let recentPath = "";
     if (localRestore) {
       await automaticBackupController?.refresh();
       recentPath = automaticBackupController?.status().latestPath || "";
       if (!recentPath) throw new Error("当前没有可用的本机自动备份。");
     }
-    const selection = localRestore ? { canceled: false, filePaths: [recentPath] } : await dialog.showOpenDialog(parent, selectionType === "directory" ? {
+    if (upgradeRestore) {
+      recentPath = await upgradeRecoveryPath(workspaceUpgradeOptions(), workspaceUpgradeResult);
+      if (!recentPath) throw new Error("升级前的备份无法通过校验，当前数据已保留。");
+    }
+    const selection = localRestore || upgradeRestore ? { canceled: false, filePaths: [recentPath] } : await dialog.showOpenDialog(parent, selectionType === "directory" ? {
       title: "选择 Loop 备份目录",
       properties: ["openDirectory"],
     } : {
@@ -588,12 +641,16 @@ function registerStorageHandlers() {
     if (selection.canceled || !selectedPath) return { canceled: true };
     const confirmation = await dialog.showMessageBox(parent, {
       type: "warning",
-      buttons: ["取消", "备份当前数据并导入"],
+      buttons: ["取消", forDowngrade ? "备份并准备退回旧版" : "备份当前数据并导入"],
       defaultId: 0,
       cancelId: 0,
       title: "确认恢复数据",
-      message: "导入会将当前工作区替换为所选备份。",
-      detail: "Loop 会先完整备份并校验当前数据；导入失败时会自动回滚。成功后应用将重新启动。",
+      message: upgradeRestore ? "恢复会将工作区替换为升级前的数据。" : "导入会将当前工作区替换为所选备份。",
+      detail: forDowngrade
+        ? "Loop 会先备份并校验当前工作区，恢复成功后退出并打开旧版下载页。请安装升级前的版本，再打开工作区。"
+        : upgradeRestore
+        ? "Loop 会先备份并校验当前工作区，然后恢复数据并重启。"
+        : "Loop 会先完整备份并校验当前数据；导入失败时会自动回滚。成功后应用将重新启动。",
       noLink: true,
     });
     if (confirmation.response !== 1) return { canceled: true };
@@ -622,11 +679,20 @@ function registerStorageHandlers() {
       if (error?.code !== "IMPORT_ROLLBACK_FAILED") dataMaintenance.end();
       throw error;
     }
+    if (upgradeRestore || workspaceProtection?.upgradeCheck) {
+      await finishUpgradeRecovery(workspaceUpgradeOptions(), workspaceUpgradeResult).catch(error => {
+        console.error("Unable to record the completed upgrade recovery.", error?.code || error?.name);
+      });
+    }
     setTimeout(() => {
-      app.relaunch();
-      app.exit(0);
+      if (forDowngrade) {
+        void openUpgradeReleases().catch(() => {}).finally(() => app.exit(0));
+      } else {
+        app.relaunch();
+        app.exit(0);
+      }
     }, 350).unref?.();
-    return { canceled: false, restartScheduled: true, ...result };
+    return { canceled: false, restartScheduled: !forDowngrade, downgradePrepared: forDowngrade, ...result };
   });
   ipcMain.handle("knowledge-document:save", async (event, payload) => {
     const parent = BrowserWindow.fromWebContents(event.sender);
@@ -1107,9 +1173,16 @@ app.whenReady().then(async () => {
       });
     }
     if (!workspaceProtection) {
-      await verifyTaskWorkspace(userDataPath);
-      await readKnowledgeRecovery(userDataPath, { validateOnly: true });
-      await recoverAssetImports(userDataPath);
+      workspaceUpgradeResult = await runUpgradeVerification(workspaceUpgradeOptions(), {
+        retry: process.argv.includes("--retry-workspace-upgrade"),
+      });
+      if (workspaceUpgradeResult?.status === "failed") {
+        workspaceProtection = { message: workspaceUpgradeResult.message, restoreAllowed: true, upgradeCheck: true };
+      } else {
+        await verifyTaskWorkspace(userDataPath);
+        await readKnowledgeRecovery(userDataPath, { validateOnly: true });
+        await recoverAssetImports(userDataPath);
+      }
     }
   } catch (error) {
     console.error("Unable to verify the workspace.", error?.code || error);
@@ -1150,22 +1223,35 @@ app.whenReady().then(async () => {
     ensureMainWindow: createWindow,
   });
   deadlineReminderController.registerIpc();
+  const fetch = (url, options) => net.fetch(url, options);
+  const platformUpdater = isMac ? createMacInstallerUpdater({
+    app, fetch, request: (options) => net.request(options),
+    profile: desktopIdentity.usesExplicitProfile ? userDataPath : "",
+  }) : autoUpdater;
   updateController = createUpdateController({
     app,
     BrowserWindow,
     ipcMain,
-    autoUpdater,
-    fetchReleaseNotes: (url, options) => net.fetch(url, options),
-    macUpdatesEnabled: false,
+    autoUpdater: platformUpdater,
+    fetchReleaseNotes: fetch,
     installDirectory: process.platform === "win32" ? path.dirname(process.execPath) : "",
     prepareInstall: requestUpdateInstallPreparation,
+    onInstallFailure: resetUpdateInstallPreparation,
   });
-  autoUpdater.on("error", () => {
-    updateInstallPrepared = false;
-  });
+  platformUpdater.on("error", resetUpdateInstallPreparation);
   updateController.registerIpc();
   createMenu();
   createWindow();
+  if (!workspaceProtection && workspaceUpgradeResult?.status === "warning" && workspaceUpgradeResult.fresh) {
+    void dialog.showMessageBox(mainWindow, {
+      type: "warning",
+      title: "升级自检",
+      message: workspaceUpgradeResult.message,
+      detail: "可以继续使用 Loop。请在设置的「数据」页查看自检结果和可用的恢复方式。",
+      buttons: ["保留备份并继续"],
+      noLink: true,
+    }).catch(() => {});
+  }
   await Promise.all([updateController.start(), todayWidgetController.start(), deadlineReminderController.start()]);
 
   app.on("activate", () => {

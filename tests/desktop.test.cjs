@@ -2740,7 +2740,7 @@ test("knowledge file IPC exposes read, relocate, and watcher lifecycle", async (
   assert.match(main, /knowledge-recovery:flush-complete/);
   assert.match(main, /before-quit[\s\S]*knowledgeWatcher\.closeAll\(\)/);
   assert.match(main, /stopRuntimeForUpdateInstall[\s\S]*knowledgeWatcher\.closeAll\(\)[\s\S]*todayWidgetController\?\.stop\(\)[\s\S]*await deadlineReminderController\?\.stop\(\)/);
-  assert.match(main, /createPreInstallBackup[\s\S]*await stopRuntimeForUpdateInstall\(\)[\s\S]*updateInstallPrepared = true/);
+  assert.match(main, /prepareUpgradeVerification[\s\S]*await stopRuntimeForUpdateInstall\(\)[\s\S]*updateInstallPrepared = true/);
   assert.match(main, /requestSingleInstanceLock/);
   assert.match(main, /second-instance/);
   assert.match(preload, /onChange: \(callback\) => subscribe\("knowledge-file:changed", callback\)/);
@@ -7838,6 +7838,7 @@ test('native import releases the write lock on cancellation or successful rollba
       dialog:{showOpenDialog:async()=>({canceled:scenario==='canceled',filePaths:['/synthetic/incoming.loopbackup']}),showMessageBox:async()=>({response:1})},
       app:{getPath:()=>'/synthetic/profile',relaunch(){},exit(){}}, dataMaintenance:lock,
       workspaceBackupAppDataPath:()=>'/synthetic/profile',
+      workspaceProtection:null,
       taskStore:{serialize:fn=>fn()},
       importBackup:async()=>{ assert.equal(lock.isActive(),true); if(scenario!=='success') throw Object.assign(new Error(scenario),{code:scenario}); return {imported:true}; },
       setTimeout:()=>({unref(){}}),

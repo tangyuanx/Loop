@@ -674,7 +674,7 @@ async function installStagedWorkspace(paths, journal, fileSystem) {
   await advanceRestore(paths, installing, "committed", fileSystem);
 }
 
-async function stageAndRestore({ userDataPath, fileSystem, prepare, saveCurrent }) {
+async function stageAndRestore({ userDataPath, fileSystem = fs, prepare, saveCurrent }) {
   const paths = restorePaths(userDataPath);
   await fileSystem.mkdir(userDataPath, { recursive: true, mode: 0o700 });
   try {
@@ -831,6 +831,7 @@ module.exports = {
   createPreInstallBackup,
   createVerifiedBackup,
   createManagedManifest,
+  copyVerifiedManagedData,
   exportPortableBackup,
   fileDigest,
   importBackup,
@@ -838,6 +839,7 @@ module.exports = {
   readPortableBackup,
   recoverInterruptedRestore,
   recoverLegacyUserData,
+  stageAndRestore,
   validateManifestFiles,
   taskDataSummary,
   verifyManifest,

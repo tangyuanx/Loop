@@ -25,6 +25,7 @@ $fixtureRoot = Join-Path $env:RUNNER_TEMP "loop-upgrade-installer-fixture"
 $installDir = Join-Path $fixtureRoot "PersonalTaskTrackInstall"
 $downloadDir = Join-Path $fixtureRoot "installers"
 $userDataDir = Join-Path $env:APPDATA "Personal Task Track"
+$installerBackup = Join-Path $env:APPDATA "Personal Task Track Upgrade Backups\installer-pre-$expectedVersion"
 $installRegistryKey = "HKCU:\Software\202fcf38-9bdb-57df-9a48-40d277bbfed9"
 $uninstallRegistryKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\202fcf38-9bdb-57df-9a48-40d277bbfed9"
 
@@ -58,6 +59,36 @@ function Reset-Fixture([string]$TargetVersion) {
     Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $quarantine -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $userDataDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $installerBackup -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+function Test-InstalledUpgradeVerification([string]$Executable, [string]$ExpectedStatus) {
+    $process = Start-Process -FilePath $Executable -PassThru
+    try {
+        $reportPath = Join-Path $userDataDir ".loop-upgrade-report.json"
+        $deadline = [DateTime]::UtcNow.AddSeconds(45)
+        do {
+            if (Test-Path -LiteralPath $reportPath -PathType Leaf) {
+                $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+                if ($report.status -ne "checked") {
+                    if ($report.status -ne $ExpectedStatus -or $report.version -ne $expectedVersion) {
+                        throw "Unexpected startup verification result: $($report.status) $($report.message)"
+                    }
+                    return
+                }
+            }
+            Start-Sleep -Milliseconds 200
+        } while ([DateTime]::UtcNow -lt $deadline)
+        throw "Loop did not finish upgrade verification."
+    } finally {
+        if (-not $process.HasExited) {
+            [void]$process.CloseMainWindow()
+            if (-not $process.WaitForExit(5000)) {
+                Stop-Process -Id $process.Id -Force
+                [void]$process.WaitForExit(5000)
+            }
+        }
+    }
 }
 
 function New-LegacyBackupTree([string]$InstalledVersion) {
@@ -97,7 +128,8 @@ try {
         New-Item -ItemType Directory -Path $userDataDir -Force | Out-Null
         $marker = "upgrade-$installedVersion-to-$expectedVersion"
         $taskDataPath = Join-Path $userDataDir "task-data.json"
-        Set-Content -LiteralPath $taskDataPath -Value "{`"marker`":`"$marker`",`"tasks`":[]}" -Encoding UTF8
+        $sourceData = @{ version = 4; marker = $marker; tasks = @() } | ConvertTo-Json -Compress
+        [IO.File]::WriteAllText($taskDataPath, $sourceData)
         $beforeHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $taskDataPath).Hash
         $assets = @{
             'task-share-assets\task_178a2e09-1c92-4170-a8b2-3b20c30d27ef\attachment.txt' = [Text.Encoding]::UTF8.GetBytes("Loop attachment $marker")
@@ -162,6 +194,26 @@ try {
         }
         if ((Get-Content -LiteralPath $markerFile -Raw).Trim() -ne $quarantine) {
             throw "The quarantine marker contains an unexpected path after upgrading v$installedVersion."
+        }
+
+        $upgradeCheckMarker = Join-Path $installerBackup ".loop-install-check"
+        if (-not (Test-Path -LiteralPath $upgradeCheckMarker -PathType Leaf)) {
+            throw "The installer did not mark the new upgrade snapshot."
+        }
+        if ($installedVersion -eq "0.1.153") {
+            [IO.File]::WriteAllText($taskDataPath, '{"version":4,"tasks":[]}')
+            Test-InstalledUpgradeVerification -Executable $loopExecutable -ExpectedStatus "failed"
+            if (-not (Test-Path -LiteralPath $stableBackup) -or -not (Test-Path -LiteralPath $installedBackup)) {
+                throw "A workspace mismatch removed pre-upgrade backups."
+            }
+        } else {
+            Test-InstalledUpgradeVerification -Executable $loopExecutable -ExpectedStatus "passed"
+            if ((Test-Path -LiteralPath $stableBackup) -or (Test-Path -LiteralPath $installedBackup)) {
+                throw "Verified duplicate payloads remained after the first launch."
+            }
+        }
+        if (-not (Test-Path -LiteralPath $quarantine -PathType Container)) {
+            throw "Startup verification touched historical backup quarantine."
         }
 
         Write-Host "Verified Windows installer upgrade v$installedVersion -> v$expectedVersion"

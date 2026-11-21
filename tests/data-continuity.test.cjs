@@ -603,7 +603,7 @@ test("Windows installer never recursively wraps historical installation backups"
   assert.notEqual(mirrorDirectory, "");
   assert.equal(installer.includes("previous-install-backups"), false);
   assert.equal(installer.includes('$INSTDIR\\Loop Data Backups\\*.*'), false);
-  assert.equal(installer.includes('$loopUpgradeBackupRoot\\*.*'), false);
+  assert.doesNotMatch(installer, /CopyFiles[^\r\n]*\$loopUpgradeBackupRoot\\\*\.\*/);
 
   const backedUpLabels = [...customInit.matchAll(/!insertmacro backupLoopUpgradeDirectory "\$APPDATA\\[^"]+" "([^"]+)"/g)]
     .map((match) => match[1]);

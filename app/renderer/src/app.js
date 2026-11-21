@@ -1975,7 +1975,8 @@ function renderProtectedWorkspace() {
         <button class="settings-inline-action primary" type="button" data-backup-action="import-file">选择备份文件</button>
         <button class="settings-inline-action" type="button" data-backup-action="import-directory">选择备份目录</button>
         <button class="settings-inline-action" type="button" data-backup-action="import-recent" hidden>恢复最近自动备份</button>
-      </div><p class="settings-page-note" data-backup-overview></p>`
+      </div><p class="settings-page-note" data-backup-overview></p>
+      ${renderUpgradeVerification()}`
     : "";
   root.innerHTML = `<main class="data-protection-panel">
     <section aria-labelledby="data-protection-heading">
@@ -5015,7 +5016,8 @@ function normalizeAppUpdateState(value) {
   return {
     status,
     supported: raw.supported === true,
-    unsupportedReason: ["", "development", "mac-signing-required", "platform-unsupported"].includes(raw.unsupportedReason)
+    macInstaller: raw.macInstaller === true,
+    unsupportedReason: ["", "development", "platform-unsupported"].includes(raw.unsupportedReason)
       ? raw.unsupportedReason
       : "platform-unsupported",
     automaticChecks: raw.automaticChecks !== false,
@@ -5128,12 +5130,11 @@ function renderUpdateSettingsControls() {
 function renderUpdateStatus(update) {
   if (update.status === "idle") return "";
   if (update.status === "unsupported") {
-    const macUnsigned = update.unsupportedReason === "mac-signing-required";
     const development = update.unsupportedReason === "development";
     return updateStatusSheet({
       icon: "i",
-      title: macUnsigned ? "当前 macOS 版本暂未启用应用内更新" : development ? "安装版支持应用内更新" : "当前系统暂不支持应用内更新",
-      detail: macUnsigned ? "完成应用签名与公证后即可启用。" : development ? "开发预览不会连接更新服务，请在安装版中使用。" : "你仍可以从 GitHub Release 获取新版本。",
+      title: development ? "安装版支持应用内更新" : "当前系统暂不支持应用内更新",
+      detail: development ? "开发预览不会连接更新服务，请在安装版中使用。" : "你仍可以从 GitHub Release 获取新版本。",
     });
   }
   if (update.status === "checking") {
@@ -5149,8 +5150,8 @@ function renderUpdateStatus(update) {
       tone: "available",
       title: `v${esc(update.version)} 可用`,
       detail: metadata || "新版本已发布",
-      notes: ["点击下载后在后台获取更新包", "下载完成后，由你选择安装并重启"],
-      actions: `<button class="settings-update-button ghost" type="button" data-update-action="later">稍后</button><button class="settings-update-button primary" type="button" data-update-action="download">下载更新</button>`,
+      notes: update.macInstaller ? ["下载后将备份并退出。安装包打开后，把 Loop 拖入「应用程序」。"] : ["点击下载后在后台获取更新包", "下载完成后，由你选择安装并重启"],
+      actions: `<button class="settings-update-button ghost" type="button" data-update-action="later">稍后</button><button class="settings-update-button primary" type="button" data-update-action="download">${update.macInstaller ? "下载并更新" : "下载更新"}</button>`,
     });
   }
   if (update.status === "downloading") {
@@ -5158,7 +5159,7 @@ function renderUpdateStatus(update) {
     const detail = [
       `${percent}%`,
       update.bytesPerSecond ? `${formatUpdateSize(update.bytesPerSecond)}/s` : "",
-      "完成后等待你安装",
+      update.macInstaller ? "下载后将备份并退出" : "完成后等待你安装",
     ].filter(Boolean).join(" · ");
     return updateStatusSheet({
       icon: "↓",
@@ -5173,15 +5174,15 @@ function renderUpdateStatus(update) {
       icon: preparationFailed ? "!" : "✓",
       tone: preparationFailed ? "error" : "available",
       title: preparationFailed ? "升级前保存未完成" : `v${esc(update.version)} 已下载`,
-      detail: preparationFailed ? "应用没有退出，你的内容仍保留。请排除磁盘或权限问题后重试。" : "升级包已就绪，由你确认后再安装并重启。",
-      actions: `<button class="settings-update-button ghost" type="button" data-update-action="later">稍后</button><button class="settings-update-button primary" type="button" data-update-action="install">${preparationFailed ? "重试安装" : "安装并重启"}</button>`,
+      detail: preparationFailed ? "应用没有退出，你的内容仍保留。请排除磁盘或权限问题后重试。" : update.macInstaller ? "备份并退出后，把 Loop 拖入「应用程序」。" : "升级包已就绪，由你确认后再安装并重启。",
+      actions: `<button class="settings-update-button ghost" type="button" data-update-action="later">稍后</button><button class="settings-update-button primary" type="button" data-update-action="install">${update.macInstaller ? "备份并退出" : preparationFailed ? "重试安装" : "安装并重启"}</button>`,
     });
   }
   if (update.status === "preparing") {
     return updateStatusSheet({ icon: "", title: "正在保存并准备升级…", detail: "正在安全写入任务与知识笔记草稿。", spinning: true });
   }
   if (update.status === "installing") {
-    return updateStatusSheet({ icon: "", title: "正在完成升级…", detail: "应用即将自动重启，请稍候。", spinning: true, progress: 100 });
+    return updateStatusSheet({ icon: "", title: "正在完成升级…", detail: update.macInstaller ? "Loop 退出后会打开安装包。" : "应用即将自动重启，请稍候。", spinning: true, progress: 100 });
   }
   const error = updateErrorPresentation(update.errorCode);
   return updateStatusSheet({
@@ -5201,6 +5202,13 @@ function updateErrorPresentation(value) {
       code,
       title: "Windows 更新包尚未发布完整",
       detail: "GitHub Release 缺少 Windows 更新元数据。请稍后重试，或打开发布页手动下载完整安装包。",
+    };
+  }
+  if (code === "UPDATE_MAC_ASSET_UNAVAILABLE" || code === "UPDATE_MAC_INSTALLER_MISSING") {
+    return {
+      code,
+      title: "Mac 安装包暂不可用",
+      detail: "请重试，或从发布页获取与你的 Mac 匹配的安装包。",
     };
   }
   if (["UPDATE_METADATA_INVALID", "UPDATE_RELEASE_NOT_FOUND"].includes(code)) {
@@ -5462,6 +5470,9 @@ function bindDataBackupControls() {
   syncDataBackupControls();
   syncRecentlyDeletedRetentionControls();
   refreshDataBackupOverview();
+  document.querySelectorAll("[data-upgrade-action]").forEach(button => {
+    button.onclick = () => desktopDataBackup?.upgradeAction?.(button.dataset.upgradeAction);
+  });
   document.querySelectorAll("[data-backup-action]").forEach((button) => {
     if (button.dataset.backupBound === "1") return;
     button.dataset.backupBound = "1";
@@ -5469,7 +5480,8 @@ function bindDataBackupControls() {
       event.stopPropagation();
       if (!desktopDataBackup || dataBackupOperation.busy || dataTransferInProgress) return;
       const action = event.currentTarget.dataset.backupAction;
-      const scope = action === "export" ? "export" : "restore";
+      const isUpgradeRestore = action === "import-upgrade" || action === "upgrade-downgrade";
+      const scope = action === "export" ? "export" : isUpgradeRestore ? "upgrade" : "restore";
       const passwordScope = action === "export" ? "export" : "import";
       const passwordInput = document.querySelector(`[data-backup-password="${passwordScope}"]`);
       const password = passwordInput?.value || "";
@@ -5491,7 +5503,9 @@ function bindDataBackupControls() {
               ? await desktopDataBackup.importDirectory()
               : action === "import-recent"
                 ? await desktopDataBackup.importRecent()
-                : await desktopDataBackup.importFile(password);
+                : isUpgradeRestore
+                  ? await desktopDataBackup.importUpgrade(action === "upgrade-downgrade")
+                  : await desktopDataBackup.importFile(password);
         } catch (error) {
           if (isImport && !/IMPORT_ROLLBACK_FAILED|自动回滚未能完成/.test(`${error?.code} ${error?.message}`)) dataTransferInProgress = false;
           throw error;
@@ -5505,6 +5519,8 @@ function bindDataBackupControls() {
           const scope = summary ? `便携笔记 ${summary.includedNotes} 篇，未带入 ${summary.missingNotes + summary.excludedNotes} 篇，不可迁移资源 ${summary.missingResources} 项。` : "";
           dataBackupOperation.message = `${result.encrypted ? "加密备份" : "工作区备份"}已保存。${scope}${result.destinationPath || "所选位置"}`;
           if (passwordInput) passwordInput.value = "";
+        } else if (result.downgradePrepared) {
+          dataBackupOperation.message = "已恢复并校验升级前的数据。Loop 将退出并打开旧版下载页。";
         } else {
           dataBackupOperation.message = "数据已恢复并校验成功，Loop 正在重新启动…";
         }
@@ -5519,7 +5535,7 @@ function bindDataBackupControls() {
         }
         dataBackupOperation.message = rollbackFailed ? dataProtectionMessage
           : rolledBack ? "导入未完成，已回滚到操作前的数据，任务与笔记恢复内容均保留。请检查磁盘空间或目录权限后重试。"
-            : `操作未完成。${detail && /回滚|备份/.test(detail) ? detail : "请检查文件、磁盘空间或目录权限后重试，当前工作空间已保留。"}`;
+              : `操作未完成。${detail && /回滚|备份/.test(detail) ? detail : "请检查文件、磁盘空间或目录权限后重试，当前工作空间已保留。"}`;
       } finally {
         dataBackupOperation.busy = false;
         syncDataBackupControls();
@@ -5528,6 +5544,20 @@ function bindDataBackupControls() {
       }
     });
   });
+}
+
+function renderUpgradeVerification() {
+  return `<div data-upgrade-verification hidden>
+    <span class="setting-label">升级自检</span>
+    <p class="settings-page-note" role="status" data-upgrade-message></p>
+    <div class="data-protection-actions">
+      <button class="settings-inline-action" type="button" data-upgrade-action="retry" hidden>重试自检</button>
+      <button class="settings-inline-action" type="button" data-backup-action="import-upgrade" hidden>恢复升级前数据</button>
+      <button class="settings-inline-action" type="button" data-backup-action="upgrade-downgrade" hidden>准备退回旧版</button>
+      <button class="settings-inline-action" type="button" data-upgrade-action="versions" hidden>查看旧版安装包</button>
+    </div>
+    <p class="settings-page-note" data-backup-status="upgrade" role="status"></p>
+  </div>`;
 }
 
 function syncDataBackupControls() {
@@ -5545,7 +5575,17 @@ function syncDataBackupControls() {
   });
   const overview = document.querySelector("[data-backup-overview]");
   if (overview && dataBackupOverview) {
-    const { automatic, usage } = dataBackupOverview;
+    const { automatic, usage, upgrade } = dataBackupOverview;
+    const upgradePanel = document.querySelector("[data-upgrade-verification]");
+    if (upgradePanel && upgrade) {
+      upgradePanel.hidden = false;
+      upgradePanel.querySelector("[data-upgrade-message]").textContent = upgrade.message;
+      upgradePanel.querySelector('[data-upgrade-action="retry"]').hidden = !upgrade.canRetry;
+      upgradePanel.querySelector('[data-backup-action="import-upgrade"]').hidden = !upgrade.canRestore || upgrade.status === "restored";
+      upgradePanel.querySelector('[data-backup-action="upgrade-downgrade"]').hidden = !upgrade.canRestore || upgrade.status === "restored";
+      upgradePanel.querySelector('[data-upgrade-action="versions"]').hidden =
+        !upgrade.canRestore || upgrade.status !== "restored";
+    }
     const last = automatic?.latestAt
       ? `上次 ${new Date(automatic.latestAt).toLocaleString("zh-CN", {
         year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
@@ -5633,7 +5673,7 @@ function showUpdateInstallOverlay() {
       <span class="update-install-spinner" aria-hidden="true"></span>
       <div>
         <strong id="update-install-overlay-title">正在完成升级</strong>
-        <p>正在安全保存当前内容，完成后应用会自动重启。</p>
+        <p>${appUpdateState.macInstaller ? "正在保存并备份。Loop 退出后会打开安装包。" : "正在安全保存当前内容，完成后应用会自动重启。"}</p>
       </div>
     </div>
   `;

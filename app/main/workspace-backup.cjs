@@ -436,4 +436,4 @@ async function stageWorkspaceBackup(selectedPath, { userDataPath, dataPath, pass
   return { dataPath, manifest, inventory: manifest.inventory };
 }
 
-module.exports = { clearBackupStaging, exportWorkspaceBackup, stageWorkspaceBackup, verifyWorkspaceBackup: verifyArchive };
+module.exports = { clearBackupStaging, exportWorkspaceBackup, noteBindings, resourceRelativePath, stageWorkspaceBackup, verifyWorkspaceBackup: verifyArchive };

@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld("personalTaskTrack", {
     importFile: (password) => ipcRenderer.invoke("data-backup:import", { selectionType: "file", password }),
     importDirectory: () => ipcRenderer.invoke("data-backup:import", { selectionType: "directory" }),
     importRecent: () => ipcRenderer.invoke("data-backup:import", { selectionType: "recent" }),
+    importUpgrade: (forDowngrade) => ipcRenderer.invoke("data-backup:import", { selectionType: "upgrade", forDowngrade }),
+    upgradeAction: (action) => ipcRenderer.invoke("data-backup:upgrade-action", action),
     overview: () => ipcRenderer.invoke("data-backup:overview"),
   },
   recentlyDeletedRetention: {
