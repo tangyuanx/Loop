@@ -2693,6 +2693,38 @@ test("renderer cannot recreate a missing path and can relocate to a selected fil
   assert.equal(harness.json(`state.tasks[0].knowledgeNote.documentState`), "SAVED");
 });
 
+test("saving a returned note rejects a different disk version and preserves the draft", async () => {
+  let saveCalls = 0;
+  const harness = await rendererHarness({
+    knowledgeFile: {
+      read: async ({ filePath }) => ({
+        success: true, filePath, content: "外部版本", lastSavedHash: "external-hash",
+      }),
+      save: async () => { saveCalls += 1; },
+    },
+  });
+  harness.evaluate(`render = () => {}; state.tasks = normalizeTasks([{
+    id: "returned_task",
+    title: "已恢复的文件",
+    notes: "本地草稿",
+    nodes: [],
+    knowledgeNote: {
+      noteId: "returned_task",
+      filePath: "/tmp/returned.md",
+      documentState: "FILE_MISSING",
+      dirty: true,
+      lastSavedHash: "old-hash"
+    }
+  }])`);
+
+  const result = await harness.evaluate(`saveKnowledgeTask("returned_task", { allowExternalOverwrite: true })`);
+  assert.equal(result.code, "EXTERNAL_CHANGE_REQUIRES_CONFIRMATION");
+  assert.equal(saveCalls, 0);
+  assert.equal(harness.json(`state.tasks[0].notes`), "本地草稿");
+  assert.equal(harness.json(`state.tasks[0].knowledgeNote.documentState`), "EXTERNAL_CHANGED");
+  assert.equal(harness.json(`knowledgeExternalSnapshots.get("returned_task").content`), "外部版本");
+});
+
 test("knowledge file IPC exposes read, relocate, and watcher lifecycle", async () => {
   const [main, preload, watcher] = await Promise.all([
     fs.readFile(path.join(__dirname, "..", "app", "main", "main.cjs"), "utf8"),

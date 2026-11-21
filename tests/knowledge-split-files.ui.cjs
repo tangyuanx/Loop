@@ -15,8 +15,10 @@ const out=path.resolve(process.env.LOOP_SPLIT_FILES_QA_DIR||'.local-review/memo-
  const saved=await page.evaluate(async()=>({left:await saveKnowledgeTask('owner'),right:await saveKnowledgeTask('right')}));assert.equal(saved.left.success,true);assert.equal(saved.right.success,true);
  assert.ok((await fs.readFile(leftPath,'utf8')).startsWith('LEFT-DISK '));assert.ok((await fs.readFile(rightPath,'utf8')).startsWith('RIGHT-DISK '));
  await fs.rename(rightPath,rightPath+'.unavailable');
+ await page.waitForFunction(()=>knowledgeFindDocument('right').knowledgeNote.documentState==='FILE_MISSING');
  await page.evaluate(()=>{const e=knowledgeCurrentEntry('right');e.view.dispatch({selection:{anchor:0}});e.insertText('RETRY-DRAFT ');});
- const failed=await page.evaluate(()=>saveKnowledgeTask('right'));assert.equal(failed.success,false);
+ const failed=await page.evaluate(()=>saveKnowledgeTask('right'));assert.equal(failed.code,'FILE_MISSING_REQUIRES_RELOCATION');
+ await assert.rejects(fs.access(rightPath),{code:'ENOENT'});
  await pane('right').locator('.knowledge-notice').first().waitFor();assert.equal(await pane('owner').locator('.knowledge-notice').count(),0);
  assert.ok(await page.evaluate(()=>knowledgeCurrentEntry('right').getEditorText().startsWith('RETRY-DRAFT ')));
  await page.evaluate(()=>{const e=knowledgeCurrentEntry('owner');e.view.dispatch({selection:{anchor:0}});e.insertText('LEFT-CONTINUES ');});assert.equal((await page.evaluate(()=>saveKnowledgeTask('owner'))).success,true);

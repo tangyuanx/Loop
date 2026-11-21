@@ -1438,7 +1438,14 @@ function syncKnowledgeFileWatcher(task) {
 
 async function verifyKnowledgeFileBeforeSave(task, { saveAs = false, allowExternalOverwrite = false } = {}) {
   const note = task?.knowledgeNote;
-  if (saveAs || allowExternalOverwrite || !note?.filePath || !desktopKnowledgeFile?.read) return null;
+  if (saveAs || allowExternalOverwrite) return null;
+  const wasMissing = note?.documentState === "FILE_MISSING";
+  const missingFailure = {
+    success: false,
+    code: "FILE_MISSING_REQUIRES_RELOCATION",
+    message: "原文件不存在，请重新定位文件或使用另存为。",
+  };
+  if (!note?.filePath || !desktopKnowledgeFile?.read) return wasMissing ? missingFailure : null;
 
   let currentFile;
   try {
@@ -1446,7 +1453,10 @@ async function verifyKnowledgeFileBeforeSave(task, { saveAs = false, allowExtern
   } catch (error) {
     return { success: false, code: "FILE_READ_FAILED", message: error?.message || "无法读取当前知识笔记文件", error };
   }
-  if (!currentFile?.success) return currentFile || { success: false, code: "FILE_READ_FAILED" };
+  if (!currentFile?.success) {
+    if (wasMissing && ["ENOENT", "ENOTDIR"].includes(currentFile?.errorCode)) return missingFailure;
+    return currentFile || { success: false, code: "FILE_READ_FAILED" };
+  }
 
   if (!note.lastSavedHash || currentFile.lastSavedHash !== note.lastSavedHash) {
     await handleKnowledgeFileChange({ ...currentFile, type: "external-changed", noteId: note.noteId }, { duringSave: true });
@@ -1725,9 +1735,12 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
   }
 
   const note = task.knowledgeNote;
+  // A file that reappears at the bound path must pass the ordinary hash
+  // check, even when an earlier conflict action approved an overwrite.
+  const overwriteConfirmed = allowExternalOverwrite && note.documentState !== "FILE_MISSING";
   const saveDirectoryOwnerId = typeof knowledgeSaveOwner === 'function' ? knowledgeSaveOwner(task)?.id : '';
   const defaultSaveDirectory = typeof knowledgeSaveDirectory === 'function' ? knowledgeSaveDirectory(task, saveDirectoryOwnerId) : '';
-  if (note.documentState === "EXTERNAL_CHANGED" && !saveAs && !allowExternalOverwrite) {
+  if (note.documentState === "EXTERNAL_CHANGED" && !saveAs && !overwriteConfirmed) {
     const result = {
       success: false,
       code: "EXTERNAL_CHANGE_REQUIRES_CONFIRMATION",
@@ -1736,16 +1749,6 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
     showWorkspaceError(result.message);
     return result;
   }
-  if (note.documentState === "FILE_MISSING" && !saveAs) {
-    const result = {
-      success: false,
-      code: "FILE_MISSING_REQUIRES_RELOCATION",
-      message: "原文件不存在，请重新定位文件或使用另存为。",
-    };
-    showWorkspaceError(result.message);
-    return result;
-  }
-
   captureMountedMilkdownDrafts();
   flushNodeNoteDraft(noteDraftKey(task.id, ""), { persist: true });
   const lifecycleBeforeSave = typeof knowledgeGenerations !== "undefined" ? knowledgeGenerations.get(task.id) || 0 : 0;
@@ -1756,7 +1759,7 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
   const conflictBeforeSave = knowledgeExternalSnapshots.get(note.noteId);
   const taskUpdatedAtBeforeSave = task.updatedAt;
   try {
-    const fileCheck = await verifyKnowledgeFileBeforeSave(task, { saveAs, allowExternalOverwrite });
+    const fileCheck = await verifyKnowledgeFileBeforeSave(task, { saveAs, allowExternalOverwrite: overwriteConfirmed });
     if (fileCheck) {
       if (fileCheck.code === "EXTERNAL_CHANGE_REQUIRES_CONFIRMATION") {
         showWorkspaceError(fileCheck.message);
@@ -1783,7 +1786,7 @@ async function saveKnowledgeTask(taskId, { saveAs = false, allowExternalOverwrit
       content: contentToSave,
       assets: stagedAssets.assets,
       expectedLastSavedHash: saveAs ? null : sessionBeforeSave.lastSavedHash,
-      allowExternalOverwrite,
+      allowExternalOverwrite: overwriteConfirmed,
       boundPaths: boundKnowledgeFilePaths(task.id),
     });
     if (result?.canceled) return result;
