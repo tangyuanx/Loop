@@ -3,6 +3,7 @@ const { execFile, spawn } = require("node:child_process");
 const { EventEmitter, once } = require("node:events");
 const { createWriteStream } = require("node:fs");
 const fs = require("node:fs/promises");
+const os = require("node:os");
 const path = require("node:path");
 const { Transform } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
@@ -72,12 +73,26 @@ async function quarantineInstaller(file) {
   await run("/usr/bin/xattr", ["-w", "com.apple.quarantine", `0001;${timestamp};Loop;`, file]);
 }
 
+async function acknowledgeMacUpdate(argv = process.argv, temporaryDirectory = os.tmpdir()) {
+  const argument = argv.find(value => value.startsWith("--loop-update-ready="));
+  if (!argument) return;
+  const file = argument.slice("--loop-update-ready=".length);
+  const directory = path.dirname(file);
+  if (path.basename(file) !== ".loop-relaunch-ready" || !/^loop-mac-update-[a-z0-9]{6}$/i.test(path.basename(directory))) return;
+  const temporary = await fs.realpath(temporaryDirectory);
+  const actualDirectory = await fs.realpath(directory);
+  if (path.dirname(actualDirectory) !== temporary) return;
+  await fs.writeFile(path.join(actualDirectory, ".loop-relaunch-ready"), "ready\n", { flag: "wx", mode: 0o600 });
+}
+
 async function openInstallerAfterExit(file, {
   pid = process.pid, destination = "/Applications/Loop.app", profile = "",
 } = {}) {
   // Finder must start the handoff after the old app has released its handles.
   // Keep the path and PID as positional arguments instead of embedding them.
   const mount = path.join(path.dirname(file), "installer");
+  const receipt = path.join(path.dirname(file), ".loop-relaunch-ready");
+  await fs.rm(receipt, { force: true });
   await fs.mkdir(mount, { recursive: true });
   const child = spawn("/bin/sh", ["-c", `
     attempts=0
@@ -96,26 +111,37 @@ async function openInstallerAfterExit(file, {
     executable="$4/Contents/MacOS/Loop"
     attempts=0
     while [ -d "$source" ] && [ "$attempts" -lt 600 ]; do
-      # Finder may create the bundle before it finishes copying. Compare the
-      # entire app to the verified disk image before trying to launch it.
+      # Finder may create the bundle before it finishes copying. Compare file
+      # contents and symlinks without following framework symlink cycles.
       if [ -x "$executable" ] &&
          /usr/bin/cmp -s "$source/Contents/Info.plist" "$4/Contents/Info.plist" &&
-         /usr/bin/diff -qr "$source" "$4" >/dev/null 2>&1; then
-        if /usr/bin/hdiutil detach "$3"; then
-          /bin/rm -f "$2"
-          /bin/rmdir "$3" "$(/usr/bin/dirname "$2")" 2>/dev/null
-        fi
+         /usr/bin/codesign --verify --deep --strict "$4" >/dev/null 2>&1 &&
+         comparison=$(/usr/bin/rsync -rcln --delete --exclude='.DS_Store' --exclude='._*' --out-format='%i %n' "$source/" "$4/" 2>/dev/null) &&
+         [ -z "$comparison" ]; then
         if [ -n "$5" ]; then
-          /usr/bin/open -n "$4" --args "--user-data-dir=$5" || /usr/bin/open -R "$4"
+          /usr/bin/open -n "$4" --args "--user-data-dir=$5" "--loop-update-ready=$6"
         else
-          /usr/bin/open -n "$4" || /usr/bin/open -R "$4"
+          /usr/bin/open -n "$4" --args "--loop-update-ready=$6"
+        fi
+        attempts=0
+        while [ ! -f "$6" ] && [ "$attempts" -lt 120 ]; do
+          /bin/sleep 1
+          attempts=$((attempts + 1))
+        done
+        if [ -f "$6" ]; then
+          if /usr/bin/hdiutil detach "$3"; then
+            /bin/rm -f "$2" "$6"
+            /bin/rmdir "$3" "$(/usr/bin/dirname "$2")" 2>/dev/null
+          fi
+        else
+          /usr/bin/open -R "$4"
         fi
         exit
       fi
       /bin/sleep 1
       attempts=$((attempts + 1))
     done
-  `, "loop-open-update", String(pid), file, mount, destination, profile], { detached: true, stdio: "ignore" });
+  `, "loop-open-update", String(pid), file, mount, destination, profile, receipt], { detached: true, stdio: "ignore" });
   await once(child, "spawn");
   child.unref();
 }
@@ -193,4 +219,4 @@ function createMacInstallerUpdater({ app, fetch, request, profile = "", quaranti
   return updater;
 }
 
-module.exports = { createMacInstallerUpdater, openInstallerAfterExit };
+module.exports = { acknowledgeMacUpdate, createMacInstallerUpdater, openInstallerAfterExit };

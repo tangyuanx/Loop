@@ -7,7 +7,7 @@ const test = require("node:test");
 const { EventEmitter } = require("node:events");
 const { Readable } = require("node:stream");
 const { classifyUpdateError, createUpdateController } = require("../app/main/updater.cjs");
-const { createMacInstallerUpdater } = require("../app/main/mac-update.cjs");
+const { acknowledgeMacUpdate, createMacInstallerUpdater } = require("../app/main/mac-update.cjs");
 const { normalizeReleaseNotes, notesFromUpdateInfo, fetchUpdateReleaseNotes } = require("../app/main/update-release-notes.cjs");
 
 function createHarness({
@@ -89,6 +89,24 @@ function createHarness({
 }
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+test("Mac relaunch acknowledges a handoff only within its own temporary directory", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "loop-mac-startup-test-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const handoff = await fs.mkdtemp(path.join(root, "loop-mac-update-"));
+  const receipt = path.join(handoff, ".loop-relaunch-ready");
+  await acknowledgeMacUpdate([`--loop-update-ready=${receipt}`], root);
+  assert.equal(await fs.readFile(receipt, "utf8"), "ready\n");
+  await assert.rejects(acknowledgeMacUpdate([`--loop-update-ready=${receipt}`], root), { code: "EEXIST" });
+  const other = path.join(root, "unrelated.txt");
+  await acknowledgeMacUpdate([`--loop-update-ready=${other}`], root);
+  await assert.rejects(fs.stat(other), { code: "ENOENT" });
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), "loop-mac-update-"));
+  t.after(() => fs.rm(outside, { recursive: true, force: true }));
+  const outsideReceipt = path.join(outside, ".loop-relaunch-ready");
+  await acknowledgeMacUpdate([`--loop-update-ready=${outsideReceipt}`], root);
+  await assert.rejects(fs.stat(outsideReceipt), { code: "ENOENT" });
+});
 
 test("a failed download retries the download without losing the checked release", async (t) => {
   const h = createHarness();

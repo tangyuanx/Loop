@@ -81,6 +81,17 @@ jobs:
         run: ${{ matrix.script }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Verify macOS bundle signatures in update archives
+        if: matrix.platform == 'macOS'
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          for arch in arm64 x64; do
+            target="$RUNNER_TEMP/loop-signature-$arch"
+            mkdir -p "$target"
+            ditto -x -k "release/Loop-$version-$arch.zip" "$target"
+            codesign --verify --deep --strict --verbose=2 "$target/Loop.app"
+          done
       - name: Check native desktop behavior
         # Keep OS-dependent storage and window checks without repeating the
         # complete editor builds, service checks and source suite per platform.

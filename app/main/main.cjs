@@ -52,7 +52,7 @@ const { createRecentlyDeletedRetention } = require("./recently-deleted-retention
 const { createTodayWidgetController } = require("./today-widget.cjs");
 const { createDeadlineReminderController } = require("./deadline-reminders.cjs");
 const { createUpdateController } = require("./updater.cjs");
-const { createMacInstallerUpdater } = require("./mac-update.cjs");
+const { acknowledgeMacUpdate, createMacInstallerUpdater } = require("./mac-update.cjs");
 const { APP_DISPLAY_NAME, DESKTOP_APP_ID, configureDesktopIdentity } = require("./app-identity.cjs");
 const { createPointerContinuity } = require("./pointer-continuity.cjs");
 const {
@@ -166,7 +166,11 @@ function createWindow() {
  */
 
   window.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
-  window.once("ready-to-show", () => window.show());
+  window.once("ready-to-show", () => {
+    window.show();
+    if (isMac) void acknowledgeMacUpdate().catch(error =>
+      console.error("Unable to confirm Mac update startup.", error.code));
+  });
 /**
  * Register all IPC handlers for storage, clipboard, and export.
  */

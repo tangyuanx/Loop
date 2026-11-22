@@ -1,6 +1,6 @@
 {
   "name": "loop",
-  "version": "0.2.66",
+  "version": "0.2.67",
   "description": "Loop is a local-first personal task flow tracker for closing work from creation to completion.",
   "private": true,
   "license": "UNLICENSED",
@@ -92,7 +92,7 @@
       }
     ],
     "mac": {
-      "identity": null,
+      "identity": "-",
       "category": "public.app-category.productivity",
       "artifactName": "Loop-${version}-${arch}.${ext}",
       "target": [
