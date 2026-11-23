@@ -90,7 +90,7 @@ const isMac = process.platform === "darwin";
  */
 const HEADER_HEIGHT = 48;
 const WINDOW_HEADER_THEMES = {
-  light: { color: "#f4f4f4", symbolColor: "#1d1d1d" },
+  light: { color: process.platform === "win32" ? "#ffffff" : "#f4f4f4", symbolColor: "#1d1d1d" },
   dark: { color: "#242424", symbolColor: "#ededed" },
 };
 // Calibrated against the frozen Demo's Mac identity (probe/phase25/

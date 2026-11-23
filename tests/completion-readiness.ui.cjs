@@ -38,6 +38,12 @@ const {launchRepository, task} = require('./electron-ui-helpers.cjs');
         shellReviewOnly=theme==='dark'; shellHideCompletedNodes=theme==='dark';
         BRIEF21_EXPANDED.set('blocked',false); render();
       },theme);
+      if (process.platform === 'win32' && theme === 'light') {
+        for (const selector of ['.topbar', '.navigation', '.task-list-pane']) {
+          assert.equal(await p.locator(selector).evaluate(el => getComputedStyle(el).backgroundColor),
+            'rgb(255, 255, 255)', selector + ' has a white background');
+        }
+      }
       await complete('blocked');
       assert.equal(await button('conclusion').count(),1);
       assert.equal(await button('node').count(),1);
@@ -62,6 +68,14 @@ const {launchRepository, task} = require('./electron-ui-helpers.cjs');
       await p.locator('.flow-row[data-node-id="pending"] .node-status').click();
       await complete('blocked');
       assert.equal(await p.evaluate(()=>state.tasks.find(t=>t.id==='blocked').status),'done');
+      if (process.platform === 'win32' && theme === 'light') {
+        const ring = p.locator('[data-task-row="blocked"].done .task-check-ring');
+        assert.deepEqual(await ring.evaluate(el => {
+          const style = getComputedStyle(el);
+          return [style.backgroundColor, style.borderTopColor, style.color];
+        }), ['rgba(0, 0, 0, 0)', 'rgb(130, 130, 130)', 'rgb(119, 119, 119)'],
+        'The completed task keeps a neutral ring and check without a fill');
+      }
       await p.locator('[data-journey17="undo"]').click(); await settle();
       assert.equal(await p.evaluate(()=>state.tasks.find(t=>t.id==='blocked').status),'active');
       assert.equal(await p.evaluate(()=>state.tasks.find(t=>t.id==='blocked').conclusion),'本任务的处理结论');
