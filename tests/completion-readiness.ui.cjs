@@ -30,6 +30,7 @@ const {launchRepository, task} = require('./electron-ui-helpers.cjs');
     assert.equal(await app.evaluate(({app}) => app.getAppPath()), path.resolve(__dirname,'..'));
     console.log('Real Electron profile:', profile);
     for (const theme of ['light','dark']) {
+      const usesWhiteSurfaces = theme === 'light' && ['darwin', 'win32'].includes(process.platform);
       await p.evaluate(theme => {
         state.theme=theme; state.journeyReceipt=null; state.activeTaskId='blocked';
         state.selectedNodeId=''; state.taskPane='flow';
@@ -38,7 +39,7 @@ const {launchRepository, task} = require('./electron-ui-helpers.cjs');
         shellReviewOnly=theme==='dark'; shellHideCompletedNodes=theme==='dark';
         BRIEF21_EXPANDED.set('blocked',false); render();
       },theme);
-      if (process.platform === 'win32' && theme === 'light') {
+      if (usesWhiteSurfaces) {
         for (const selector of ['.topbar', '.navigation', '.task-list-pane']) {
           assert.equal(await p.locator(selector).evaluate(el => getComputedStyle(el).backgroundColor),
             'rgb(255, 255, 255)', selector + ' has a white background');
@@ -68,7 +69,7 @@ const {launchRepository, task} = require('./electron-ui-helpers.cjs');
       await p.locator('.flow-row[data-node-id="pending"] .node-status').click();
       await complete('blocked');
       assert.equal(await p.evaluate(()=>state.tasks.find(t=>t.id==='blocked').status),'done');
-      if (process.platform === 'win32' && theme === 'light') {
+      if (usesWhiteSurfaces) {
         const ring = p.locator('[data-task-row="blocked"].done .task-check-ring');
         assert.deepEqual(await ring.evaluate(el => {
           const style = getComputedStyle(el);

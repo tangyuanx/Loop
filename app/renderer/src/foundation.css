@@ -50,8 +50,8 @@
   --field22-focus: var(--input-focus);
 }
 
-/* Windows light: share a white background across the header and main panes. */
-:root[data-platform="win32"]:not([data-theme="dark"]) {
+/* macOS and Windows share a white header and main panes in light mode. */
+:root:is([data-platform="darwin"], [data-platform="win32"]):not([data-theme="dark"]) {
   --surface-navigation: #fff;
   --surface-task-list: #fff;
   --surface-navigation-hover: #ededed;
@@ -61,7 +61,7 @@
 }
 
 /* Use a quiet, unfilled completion mark on white and selected rows. */
-:root[data-platform="win32"]:not([data-theme="dark"]) .task-list-pane .task-item.done .task-check-ring {
+:root:is([data-platform="darwin"], [data-platform="win32"]):not([data-theme="dark"]) .task-list-pane .task-item.done .task-check-ring {
   background: transparent;
   border-color: #828282;
   color: #777;
