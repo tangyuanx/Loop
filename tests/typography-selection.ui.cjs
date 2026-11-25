@@ -67,7 +67,8 @@ async function verifySelection(page, dpr, theme) {
     assert.notEqual(row.fill, 'rgba(0, 0, 0, 0)');
     assert.equal(row.shadow, 'none');
     assert.equal(row.left, '0px');
-    assert.ok(Math.abs(row.width * dpr - Math.round(3 * dpr)) < 0.01, `${dpr}x: ${JSON.stringify(row)}`);
+    // Blink reports layout widths in 1/64 CSS-pixel increments.
+    assert.ok(Math.abs(row.width - Math.round(3 * dpr) / dpr) <= 1 / 64, `${dpr}x: ${JSON.stringify(row)}`);
   }
   for (const label of styles.labels) {
     assert.match(label.font, /Loop Windows Latin.*Loop Windows CJK/);
