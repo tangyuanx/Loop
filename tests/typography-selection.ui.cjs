@@ -27,15 +27,21 @@ async function screenshot(cdp, name) {
 async function verifySelection(page, dpr, theme) {
   await renderAt(page, theme);
   const first = page.locator('[data-task-row="first"]');
-  const second = page.locator('[data-task-row="second"]');
+  const secondRow = '[data-task-row="second"]';
+  async function titleX(row) {
+    // Resolve and measure in the same renderer turn. A task switch can replace
+    // even a recently resolved locator while the app restores list focus.
+    const position = await page.waitForFunction(row => {
+      const rect = document.querySelector(`${row} .task-item-title`)?.getBoundingClientRect();
+      return rect?.width > 0 && { x: rect.x };
+    }, row);
+    return (await position.jsonValue()).x;
+  }
   await first.locator('.task-select').click();
   await first.and(page.locator('.selected')).waitFor();
-  const titleX = element => element.getBoundingClientRect().x;
-  const x = await second.locator('.task-item-title').evaluate(titleX);
-  await second.locator('.task-select').click();
-  const selectedTitle = second.and(page.locator('.selected')).locator('.task-item-title');
-  await selectedTitle.waitFor();
-  assert.equal(await selectedTitle.evaluate(titleX), x, 'selecting a task keeps its title in place');
+  const x = await titleX(secondRow);
+  await page.locator(`${secondRow} .task-select`).click();
+  assert.equal(await titleX(`${secondRow}.selected`), x, 'selecting a task keeps its title in place');
   await page.locator('.node-title[data-node-id="node"]').click();
   await page.waitForSelector('.flow-row.selected');
   await page.mouse.move(1, 1);
