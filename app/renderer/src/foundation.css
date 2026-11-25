@@ -79,9 +79,9 @@
   --input-surface: #f0f2f6;
   --input-line: #d7dbe3;
   --input-hover: #b2b8c6;
-  --input-focus: #687082;
+  --input-focus: #6e6e6e;
   --focus-line: var(--input-focus);
-  --focus-line-strong: #525968;
+  --focus-line-strong: #585858;
   --input-selection: color-mix(in srgb, var(--workspace-text) 14%, transparent);
   --field22-bg: var(--input-surface);
   --field22-line: var(--input-line);
@@ -137,8 +137,8 @@
   --input-surface: #23262d;
   --input-line: #363b45;
   --input-hover: #525968;
-  --input-focus: #8c94a6;
-  --focus-line-strong: #a7afbf;
+  --input-focus: #969696;
+  --focus-line-strong: #b0b0b0;
 }
 
 /* Feature sheets are intentionally kept byte-identical to their frozen Demo
@@ -265,7 +265,7 @@ body :is(
   .control22-field
 ):is(:focus, :focus-visible) {
   border-color: var(--input-focus);
-  background-color: var(--canvas);
+  background-color: var(--input-surface);
   outline: none;
   box-shadow: none;
 }
@@ -324,7 +324,9 @@ body .list-search:focus-within {
 }
 
 body[data-foundation-enabled] :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search, .node-share-search-field) input,
-body[data-foundation-enabled] :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search, .node-share-search-field) input:is(:hover, :focus, :focus-visible) {
+body[data-foundation-enabled] :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search, .node-share-search-field) input:is(:hover, :focus, :focus-visible),
+body[data-foundation-enabled][data-controls22-enabled] :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search, .node-share-search-field) input.control22-field,
+body[data-foundation-enabled][data-controls22-enabled] :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search, .node-share-search-field) input.control22-field:is(:hover, :focus, :focus-visible) {
   border: 0;
   outline: none;
   box-shadow: none;

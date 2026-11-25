@@ -1134,11 +1134,11 @@ body .task-share-format-row > label { flex: 1 1 12em; min-width: 0; margin: 0; c
 #task-share-format-hint { display: block; margin-top: 2px; color: var(--secondary); font-size: var(--type-12); }
 body #task-share-format { flex: 0 1 12em; min-width: 0; }
 body .task-share-send :is(select, input:not([type="checkbox"])) { min-width: 0; font: inherit; border-radius: 6px; }
-body[data-controls22-enabled] .task-share-send .control22-field:focus {
+body[data-controls22-enabled] .task-share-send .control22-field:not(#task-share-reference-query):focus {
   border-color: var(--input-focus);
-  background-color: var(--input-surface);
+  background-color: var(--canvas);
   outline: none;
-  box-shadow: inset 0 -1px 0 var(--focus-line);
+  box-shadow: none;
 }
 .task-share-disclosure {
   display: flex;
@@ -1194,7 +1194,8 @@ body .task-share-note-search {
   padding-inline: 10px;
   border-radius: 6px;
 }
-body[data-controls22-enabled] .task-share-note-search input {
+body[data-controls22-enabled] .task-share-note-search input,
+body[data-controls22-enabled] .task-share-note-search input:is(:hover, :focus, :focus-visible) {
   flex: 1 1 auto;
   min-width: 0;
   border: 0;
