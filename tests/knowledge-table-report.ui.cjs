@@ -169,8 +169,13 @@ async function main() {
       const box = await locator.boundingBox();
       return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
     };
+    // Finish the text-selection gesture without leaving the cell editor. A
+    // drag starting on selected glyphs can become a native text drag instead.
+    await editorField.press('ArrowRight');
+    assert.ok(await editorField.evaluate(field => field.contains(document.activeElement) && getSelection().isCollapsed),
+      'the cell editor keeps focus after collapsing its text selection');
     await drag(await center(cell(0,0)), await center(cell(1,1)));
-    assert.equal(await table.locator('[data-table-range]').count(), 4);
+    assert.equal(await table.locator('[data-table-range]').count(), 4, 'drag from the active editor selects four cells');
     assert.equal(await editorField.count(), 0);
     await page.keyboard.press('Escape');
     assert.equal(await table.locator('[data-table-range]').count(), 0);
