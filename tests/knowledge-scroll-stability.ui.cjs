@@ -130,13 +130,19 @@ async function main(){
     await revealSource('const value0 = 20;');
     const code=page.locator('.kn-code').filter({hasText:'const value0 = 20;'});
     await code.scrollIntoViewIfNeeded();await settle();
+    const beforeCodeClick=await source();
     await observe(code,'code click',async()=>{
       const r=await code.locator('pre').boundingBox();await page.mouse.click(r.x+40,r.y+25);
     });
+    assert.equal(await source(),beforeCodeClick,'click keeps the rendered block and Markdown intact');
     await code.dblclick({position:{x:60,y:40}});
     await code.waitFor({state:'detached'});
+    const codeOffset=await page.evaluate(()=>knowledgeCurrentEntry().view.state.selection.main.head);
+    const codeStart=beforeCodeClick.indexOf('const value0 = 20;');
+    const codeEnd=beforeCodeClick.indexOf('```',codeStart);
+    assert.ok(codeOffset>=codeStart&&codeOffset<codeEnd,'double-click places the caret inside the code');
     await page.keyboard.type('X');
-    assert.ok((await source()).includes('X'));
+    assert.equal(await source(),beforeCodeClick.slice(0,codeOffset)+'X'+beforeCodeClick.slice(codeOffset));
     for(const mode of ['source','preview','edit']){
       await page.evaluate(mode=>knowledgeCurrentEntry().setMode(mode),mode);await settle();
       assert.equal(await page.locator('.kn-editor-host').getAttribute('data-mode'),mode);

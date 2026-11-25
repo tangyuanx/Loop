@@ -22,7 +22,6 @@ import {documentFormat,spacingAt,typedSpacing} from './knowledge-format.js';
 const core=window.LoopKnowledgeCore;
 const refreshEffect=StateEffect.define(),tableWidthsEffect=StateEffect.define(),tableHeightsEffect=StateEffect.define(),expandBlockEffect=StateEffect.define(),clearExpandedEffect=StateEffect.define();
 const instances=new WeakMap();
-const widgetClickScrollTargets=new WeakSet();
 const cellMarkdown=markdown({base:markdownLanguage,addKeymap:false,completeHTMLTags:false});
 function closedCodeFence(node) {
   if(node.name!=='FencedCode')return false;
@@ -86,8 +85,9 @@ class RenderWidget extends WidgetType {
       // An image inside a callout or embedded note must not unfold the entire
       // containing block and move the caret into unrelated reference syntax.
       if(event.target.closest('img')){event.preventDefault();event.stopPropagation();view.focus();return;}
-      if(event.target.closest('button,a,input,textarea')) return;
-      event.preventDefault(); let pos=Number(el.dataset.sourcePos);
+      if(event.button!==0||event.target.closest('button,a,input,textarea')) return;
+      event.preventDefault();event.stopPropagation();
+      let pos=Number(el.dataset.sourcePos);
       // A rendered code block is replaced by a single widget, so the caret must
       // be mapped back to the code line and column the user actually clicked.
       // Otherwise mousedown unfolds the fence at its first character and the
@@ -101,16 +101,16 @@ class RenderWidget extends WidgetType {
       }
       const scrollHost=this.owner.root.closest('.knowledge-body')||view.scrollDOM;
       const scrollTop=scrollHost.scrollTop;
-      // Measure the selection and focus together before painting the caret.
-      // The outer pane keeps its current position even if CodeMirror measures
-      // a new height for a virtualized line above this widget.
+      // The visual caret is inside the widget, while the native caret can
+      // only sit at its edge. Use the preceding edge and avoid a scroll
+      // target, which also changes how CodeMirror measures the viewport.
+      const selection=EditorSelection.create([EditorSelection.cursor(pos,this.kind==='block'?-1:0)]);
+      view.dispatch({selection,scrollIntoView:false,userEvent:'select.pointer'});
       view.focus();
-      const target=EditorSelection.cursor(pos);
-      widgetClickScrollTargets.add(target);
-      view.dispatch({selection:{anchor:pos},effects:EditorView.scrollIntoView(target)});
+      this.owner.showBlockCaret(el,event);
+      // Flush any pending viewport measurement before restoring the pane.
       view.elementAtHeight(scrollTop);
       if(scrollHost.scrollTop!==scrollTop)scrollHost.scrollTop=scrollTop;
-      this.owner.showBlockCaret(el,event);
     });
     if(this.kind==='block'&&this.nodeName!=='Table'){
       el.title='双击编辑源码';
@@ -497,7 +497,6 @@ class KnowledgeEditor {
       EditorView.atomicRanges.of(view=>view.state.field(this.decorations).update({filter:(_from,_to,value)=>value.spec.widget instanceof ImageWidget})),
       this.lineConfig.of(this.mode==='source'?[lineNumbers(),highlightActiveLine()]:[]),
       EditorView.contentAttributes.of({'aria-label':'Markdown 内容',spellcheck:'false'}),
-      EditorView.scrollHandler.of((_view,range)=>widgetClickScrollTargets.delete(range)),
       EditorView.updateListener.of(update=>this.onUpdate(update)),
       EditorView.domEventHandlers({paste:(event)=>this.paste(event),drop:(event,view)=>this.drop(event,view),dragover:event=>{
         if([...event.dataTransfer?.items||[]].some(i=>i.type.startsWith('image/'))) {event.preventDefault();return true;} return false;

@@ -42,7 +42,13 @@ function smallPDF(){
   await p.locator('.kn-external-link').filter({hasText:'网页'}).click({button:'right'});await p.locator('[data-resource-open-external]').click();assert.ok((await app.evaluate(()=>__external)).includes(url));
   await p.evaluate(()=>knowledgeOpenResource('./report.pdf'));await p.waitForFunction(()=>knowledgeActiveResource()?.kind==='pdf'&&knowledgeActiveResource()?.status==='ready');
   assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).contentView.children.some(v=>v.webContents&&v.webContents.getURL().endsWith('/report.pdf'))),true);
-  await p.locator('[data-kn-document="source"]').click();await p.evaluate(()=>knowledgeOpenResource('http://127.0.0.1:1/unavailable'));await p.waitForFunction(()=>knowledgeActiveResource()?.status==='failed');assert.ok((await p.locator('.kn-resource-message').innerText()).includes('无法在 Loop 中预览'));
+  await p.locator('[data-kn-document="source"]').click();
+  const unavailable='http://127.0.0.1:1/unavailable';
+  await p.evaluate(url=>knowledgeOpenResource(url),unavailable);
+  const failedPreview=p.locator('.kn-resource').filter({hasText:unavailable});
+  await failedPreview.getByRole('status').filter({hasText:'无法在 Loop 中预览'}).waitFor();
+  await failedPreview.getByRole('button',{name:'使用系统浏览器打开'}).click();
+  assert.ok((await app.evaluate(()=>__external)).includes(unavailable));
   await p.locator('[data-kn-document="source"]').click();
   await p.evaluate(()=>knowledgeOpenResource('./另一篇.md'));await p.waitForFunction(()=>knowledgeActiveDocument()?.knowledgeNote?.filePath?.endsWith('另一篇.md')&&knowledgeCurrentEntry()?.view);assert.ok(await p.evaluate(()=>knowledgeCurrentEntry().getMarkdown().includes('独立 Markdown 正文')));
   await p.locator('[data-kn-document="source"]').click();await p.evaluate(()=>knowledgeOpenResource('./文档.docx'));await p.locator('.kn-resource [data-resource-external]').click();assert.ok((await app.evaluate(()=>__external)).some(value=>value.endsWith('文档.docx')));
