@@ -586,26 +586,27 @@ test("Windows installer backs up before uninstall and preserves the legacy insta
   const packageJson = JSON.parse(await fs.readFile(path.join(__dirname, "..", "package.json"), "utf8"));
   assert.equal(packageJson.build.nsis.include, "build/installer.nsh");
   assert.match(installer, /!define APP_FILENAME "Personal Task Track"/);
-  assert.match(installer, /!macro customInit[\s\S]*backupLoopUpgradeDirectory/);
+  assert.match(installer, /!macro customInit[\s\S]*Call prepareLoopUpgrade/);
+  assert.match(installer, /Function prepareLoopInteractiveInstall[\s\S]*Call prepareLoopUpgrade/);
   assert.match(installer, /!macro customInstall[\s\S]*\$INSTDIR\\Loop Data Backups/);
-  assert.match(installer, /Abort/);
+  assert.match(installer, /Function stopLoopUpgrade[\s\S]*Quit/);
 });
 
 test("Windows installer never recursively wraps historical installation backups", async () => {
   const installer = await fs.readFile(path.join(__dirname, "..", "build", "installer.nsh"), "utf8");
-  const customInit = installer.match(/!macro customInit([\s\S]*?)!macroend/)?.[1] ?? "";
+  const prepareUpgrade = installer.match(/Function prepareLoopUpgrade([\s\S]*?)FunctionEnd/)?.[1] ?? "";
   const customInstall = installer.match(/!macro customInstall([\s\S]*?)!macroend/)?.[1] ?? "";
   const mirrorDirectory = installer.match(/!macro mirrorLoopUpgradeDirectory LABEL([\s\S]*?)!macroend/)?.[1] ?? "";
   const allowedLabels = ["Personal Task Track", "personal-task-track", "PersonalTaskTrack", "Loop"];
 
-  assert.notEqual(customInit, "");
+  assert.notEqual(prepareUpgrade, "");
   assert.notEqual(customInstall, "");
   assert.notEqual(mirrorDirectory, "");
   assert.equal(installer.includes("previous-install-backups"), false);
   assert.equal(installer.includes('$INSTDIR\\Loop Data Backups\\*.*'), false);
   assert.doesNotMatch(installer, /CopyFiles[^\r\n]*\$loopUpgradeBackupRoot\\\*\.\*/);
 
-  const backedUpLabels = [...customInit.matchAll(/!insertmacro backupLoopUpgradeDirectory "\$APPDATA\\[^"]+" "([^"]+)"/g)]
+  const backedUpLabels = [...prepareUpgrade.matchAll(/!insertmacro backupLoopUpgradeDirectory "\$APPDATA\\[^"]+" "([^"]+)"/g)]
     .map((match) => match[1]);
   const mirroredLabels = [...customInstall.matchAll(/!insertmacro mirrorLoopUpgradeDirectory "([^"]+)"/g)]
     .map((match) => match[1]);
@@ -613,27 +614,27 @@ test("Windows installer never recursively wraps historical installation backups"
   assert.deepEqual(mirroredLabels, allowedLabels);
 
   assert.match(mirrorDirectory, /CopyFiles \/SILENT "\$loopUpgradeBackupRoot\\\$\{LABEL\}\\\*\.\*"/);
-  assert.match(mirrorDirectory, /MessageBox MB_OK\|MB_ICONSTOP[\s\S]*Abort/);
-  assert.equal((customInstall.match(/verifyLoopUpgradeFile[^\r\n]*task-data\.json/g) ?? []).length, 4);
-  assert.match(installer, /!macro copyLoopUpgradeFile[\s\S]*task-data\.json[\s\S]*Abort/);
+  assert.doesNotMatch(mirrorDirectory, /Quit|Abort|stopLoopBackup/);
+  assert.match(installer, /!macro copyLoopUpgradeFile[\s\S]*?stopLoopBackup[\s\S]*?verifyLoopUpgradeFile/);
 });
 
 test("Windows installer quarantines legacy installation backups before invoking the old uninstaller", async () => {
   const installer = await fs.readFile(path.join(__dirname, "..", "build", "installer.nsh"), "utf8");
-  const quarantine = installer.match(/!macro quarantineLegacyInstallBackups([\s\S]*?)!macroend/)?.[1] ?? "";
-  const customInit = installer.match(/!macro customInit([\s\S]*?)!macroend/)?.[1] ?? "";
+  const quarantine = installer.match(/Function archiveLoopInstallBackups([\s\S]*?)FunctionEnd/)?.[1] ?? "";
+  const decision = installer.match(/Function confirmLoopBackupArchive([\s\S]*?)FunctionEnd/)?.[1] ?? "";
+  const preparation = installer.match(/Function prepareLoopUpgrade([\s\S]*?)FunctionEnd/)?.[1] ?? "";
 
   assert.notEqual(quarantine, "");
-  assert.match(customInit, /backupLoopUpgradeDirectory[\s\S]*quarantineLegacyInstallBackups/);
-  assert.match(quarantine, /ReadRegStr \$loopRegisteredInstallLocation SHELL_CONTEXT "\$\{INSTALL_REGISTRY_KEY\}" InstallLocation/);
-  assert.match(quarantine, /\$loopRegisteredInstallLocation != \$INSTDIR[\s\S]*Abort/);
-  assert.match(quarantine, /\$INSTDIR\\Loop\.exe/);
+  assert.match(preparation, /Call confirmLoopBackupArchive[\s\S]*CreateDirectoryW[\s\S]*backupLoopUpgradeDirectory[\s\S]*Call archiveLoopInstallBackups/);
+  assert.match(installer, /ReadRegStr \$loopRegisteredInstallLocation SHELL_CONTEXT "\$\{INSTALL_REGISTRY_KEY\}" InstallLocation/);
+  assert.match(decision, /\$loopRegisteredInstallLocation == ""[\s\S]*stopLoopBackup/);
+  assert.match(decision, /\$INSTDIR\\Uninstall Loop\.exe/);
   assert.match(quarantine, /\$INSTDIR\.legacy-loop-backups-pre-\$\{VERSION\}/);
   assert.match(quarantine, /Rename "\$loopLegacyInstallBackupsSource" "\$loopLegacyInstallBackupsQuarantine"/);
   assert.match(quarantine, /legacy-install-backups-location\.txt/);
   assert.doesNotMatch(quarantine, /CopyFiles|RMDir\s+\/r|robocopy|DeleteRegValue|DeleteRegKey/);
-  assert.match(quarantine, /同版本的历史升级备份隔离目录[\s\S]*Abort/);
-  assert.match(quarantine, /无法将旧版本的历史升级备份移出安装目录[\s\S]*Abort/);
+  assert.match(decision, /保留全部备份并继续[\s\S]*\/SD IDOK IDOK loopKeepAllBackups[\s\S]*Call stopLoopUpgrade/);
+  assert.match(quarantine, /loopFindArchivePath[\s\S]*MessageBox MB_RETRYCANCEL/);
 });
 
 test("settings and preload expose complete backup export plus file and directory restore actions", async () => {

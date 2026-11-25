@@ -58,11 +58,13 @@ function Reset-Fixture([string]$TargetVersion) {
     $quarantine = "$installDir.legacy-loop-backups-pre-$TargetVersion"
     Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $quarantine -Recurse -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -LiteralPath $fixtureRoot -Directory -Filter "PersonalTaskTrackInstall.legacy-loop-backups-pre-$TargetVersion-*" -ErrorAction SilentlyContinue |
+        Remove-Item -Recurse -Force
     Remove-Item -LiteralPath $userDataDir -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $installerBackup -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-function Test-InstalledUpgradeVerification([string]$Executable, [string]$ExpectedStatus) {
+function Test-InstalledUpgradeVerification([string]$Executable, [string]$ExpectedStatus, [string]$Attempt = "attempt-1") {
     $process = Start-Process -FilePath $Executable -PassThru
     try {
         $reportPath = Join-Path $userDataDir ".loop-upgrade-report.json"
@@ -70,7 +72,7 @@ function Test-InstalledUpgradeVerification([string]$Executable, [string]$Expecte
         do {
             if (Test-Path -LiteralPath $reportPath -PathType Leaf) {
                 $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
-                if ($report.status -ne "checked") {
+                if ($report.installerAttempt -eq $Attempt -and $report.status -ne "checked") {
                     if ($report.status -ne $ExpectedStatus -or $report.version -ne $expectedVersion) {
                         throw "Unexpected startup verification result: $($report.status) $($report.message)"
                     }
@@ -171,16 +173,18 @@ try {
                 throw "Recursive v0.1.151 backup content was not preserved in quarantine."
             }
         }
-        if (-not (Test-Path -LiteralPath (Join-Path $legacySource "installer-pre-$expectedVersion") -PathType Container)) {
+        $attempt = Join-Path $installerBackup "attempt-1"
+        $mirrorAttempt = Join-Path $legacySource "installer-pre-$expectedVersion\attempt-1"
+        if (-not (Test-Path -LiteralPath $mirrorAttempt -PathType Container)) {
             throw "The candidate did not create a fresh non-recursive installer backup for v$installedVersion."
         }
         if (Get-ChildItem -LiteralPath $legacySource -Directory -Recurse -Filter "previous-install-backups") {
             throw "The candidate copied historical installation backups into the fresh backup tree."
         }
-        $markerFile = Join-Path $env:APPDATA "Personal Task Track Upgrade Backups\installer-pre-$expectedVersion\legacy-install-backups-location.txt"
+        $markerFile = Join-Path $attempt "legacy-install-backups-location.txt"
         $profileLabel = Split-Path -Leaf $userDataDir
-        $stableBackup = Join-Path (Split-Path -Parent $markerFile) $profileLabel
-        $installedBackup = Join-Path $legacySource "installer-pre-$expectedVersion\$profileLabel"
+        $stableBackup = Join-Path $attempt $profileLabel
+        $installedBackup = Join-Path $mirrorAttempt $profileLabel
         foreach ($asset in $assetHashes.GetEnumerator()) {
             foreach ($root in @($userDataDir, $stableBackup, $installedBackup)) {
                 $saved = Join-Path $root $asset.Key
@@ -196,7 +200,7 @@ try {
             throw "The quarantine marker contains an unexpected path after upgrading v$installedVersion."
         }
 
-        $upgradeCheckMarker = Join-Path $installerBackup ".loop-install-check"
+        $upgradeCheckMarker = Join-Path $attempt ".loop-install-check"
         if (-not (Test-Path -LiteralPath $upgradeCheckMarker -PathType Leaf)) {
             throw "The installer did not mark the new upgrade snapshot."
         }
@@ -208,12 +212,48 @@ try {
             }
         } else {
             Test-InstalledUpgradeVerification -Executable $loopExecutable -ExpectedStatus "passed"
-            if ((Test-Path -LiteralPath $stableBackup) -or (Test-Path -LiteralPath $installedBackup)) {
-                throw "Verified duplicate payloads remained after the first launch."
+            if (-not (Test-Path -LiteralPath $stableBackup) -or (Test-Path -LiteralPath $installedBackup)) {
+                throw "First launch did not retain the AppData backup and clean its verified mirror."
             }
         }
         if (-not (Test-Path -LiteralPath $quarantine -PathType Container)) {
             throw "Startup verification touched historical backup quarantine."
+        }
+
+        if ($installedVersion -eq "0.1.153") {
+            $historyFile = Join-Path $quarantine "installer-pre-$installedVersion\Personal Task Track\task-data.json"
+            $historyHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $historyFile).Hash
+            $interrupted = Join-Path $installerBackup "attempt-3"
+            New-Item -ItemType Directory -Path $interrupted | Out-Null
+            Set-Content -LiteralPath (Join-Path $interrupted ".loop-install-pending") -Value "incomplete"
+
+            $retryData = @{ version = 4; marker = "changed before same-version retry"; tasks = @() } | ConvertTo-Json -Compress
+            [IO.File]::WriteAllText($taskDataPath, $retryData)
+            $retryHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $taskDataPath).Hash
+            Invoke-Installer -Path $candidate -ExtraArguments @("--updated")
+
+            $retryArchive = "$quarantine-1"
+            $archivedMirror = Join-Path $retryArchive "installer-pre-$expectedVersion\attempt-1\$profileLabel\task-data.json"
+            $retryAttempt = Join-Path $installerBackup "attempt-4"
+            $retryBackup = Join-Path $retryAttempt "$profileLabel\task-data.json"
+            $retryMarker = Join-Path $retryAttempt "legacy-install-backups-location.txt"
+            if ((Get-Content -LiteralPath $retryMarker -Raw).Trim() -ne $retryArchive) {
+                throw "The retry did not record its separate quarantine location."
+            }
+            if ((Get-FileHash -Algorithm SHA256 -LiteralPath $historyFile).Hash -ne $historyHash -or
+                (Get-FileHash -Algorithm SHA256 -LiteralPath $archivedMirror).Hash -ne $beforeHash -or
+                (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $stableBackup "task-data.json")).Hash -ne $beforeHash) {
+                throw "Same-version retry replaced historical backup contents."
+            }
+            if ((Get-FileHash -Algorithm SHA256 -LiteralPath $retryBackup).Hash -ne $retryHash -or
+                -not (Test-Path -LiteralPath (Join-Path $interrupted ".loop-install-pending") -PathType Leaf)) {
+                throw "Same-version retry did not preserve the interrupted attempt and create its own snapshot."
+            }
+            Test-InstalledUpgradeVerification -Executable $loopExecutable -ExpectedStatus "passed" -Attempt "attempt-4"
+            $retryReport = Get-Content -LiteralPath (Join-Path $userDataDir ".loop-upgrade-report.json") -Raw | ConvertFrom-Json
+            if ($retryReport.installerAttempt -ne "attempt-4" -or (Get-FileHash -Algorithm SHA256 -LiteralPath $taskDataPath).Hash -ne $retryHash) {
+                throw "First launch did not verify the new backup and preserve the active workspace."
+            }
         }
 
         Write-Host "Verified Windows installer upgrade v$installedVersion -> v$expectedVersion"

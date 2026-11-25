@@ -16,6 +16,7 @@ const REPORT = ".loop-upgrade-report.json";
 const ROLLBACK = ".loop-upgrade-rollback.json";
 const INSTALL_MARKER = ".loop-install-check";
 const versionPattern = /^\d+\.\d+\.\d+(?:-[a-z0-9][a-z0-9.-]*)?$/i;
+const installerAttemptPattern = /^attempt-([1-9][0-9]{0,9})$/;
 const backupPattern = /^pre-update-[a-z0-9.-]+-to-[a-z0-9.-]+-\d{8}T\d{9}Z-[a-f0-9]{8}$/i;
 const missing = error => error.code === "ENOENT" || error.code === "ENOTDIR";
 
@@ -104,11 +105,47 @@ function sourceLocation(options, source) {
   if ((source.kind === "installer" || source.kind === "mirror") && versionPattern.test(source.version)) {
     const backupRoot = source.kind === "mirror" && options.installDirectory
       ? path.join(options.installDirectory, INSTALL_BACKUP_DIRECTORY) : root;
-    const folder = path.join(backupRoot, "installer-pre-" + source.version);
+    const versionFolder = path.join(backupRoot, "installer-pre-" + source.version);
+    if (source.attempt !== undefined && !installerAttemptPattern.test(source.attempt)) {
+      throw new Error("升级备份标识无效。");
+    }
+    const folder = source.attempt ? path.join(versionFolder, source.attempt) : versionFolder;
     const data = path.join(folder, LEGACY_USER_DATA_DIRECTORY);
-    return { folder, data, parents: [backupRoot, folder] };
+    const parents = source.attempt ? [backupRoot, versionFolder, folder] : [backupRoot, folder];
+    return { folder, data, parents };
   }
   throw new Error("升级备份标识无效。");
+}
+
+async function readInstallerAttempt(options) {
+  if (!options.allowInstaller) return null;
+  const legacy = { kind: "installer", version: options.version };
+  const { folder, parents } = sourceLocation(options, legacy);
+  if (!(await realDirectories(...parents))) return null;
+  const attempts = (await fs.readdir(folder, { withFileTypes: true }))
+    .filter(entry => entry.isDirectory() && installerAttemptPattern.test(entry.name))
+    .map(entry => entry.name)
+    .sort((left, right) => Number(right.slice(8)) - Number(left.slice(8)));
+  for (const attempt of [...attempts, undefined]) {
+    const source = attempt ? { ...legacy, attempt } : legacy;
+    const location = sourceLocation(options, source);
+    if (!(await realDirectories(...location.parents))) continue;
+    const marker = path.join(location.folder, INSTALL_MARKER);
+    if (!(await stat(marker))?.isFile()) continue;
+    const contents = await fs.readFile(marker);
+    if (!attempt) {
+      const [format, previousVersion] = contents.toString("utf8").trimEnd().split(/\r?\n/);
+      if (format === "1") return { source, previousVersion, marker };
+      continue;
+    }
+    const [format, previousVersion, mode, payload, installDirectory] = contents.toString("utf16le").replace(/^\uFEFF/, "").trimEnd().split(/\r?\n/);
+    if (format === "2" && ["manual", "update"].includes(mode) && ["workspace", "empty"].includes(payload)
+      && options.installDirectory && installDirectory && path.isAbsolute(installDirectory)
+      && path.relative(options.installDirectory, installDirectory) === "") {
+      return { attempt, source: payload === "empty" ? null : source, previousVersion, mode };
+    }
+  }
+  return null;
 }
 
 async function inspectSource(options, source) {
@@ -188,34 +225,35 @@ async function removeVerifiedCopy(options, backup) {
   } else {
     await fs.rm(backup.data, { recursive: true });
     if (backup.source.kind === "mirror") {
+      for (const label of ["personal-task-track", "PersonalTaskTrack", "Loop"]) {
+        await fs.rmdir(path.join(backup.folder, label)).catch(() => {});
+      }
       await fs.rmdir(backup.folder).catch(() => {});
+      if (backup.source.attempt) await fs.rmdir(path.dirname(backup.folder)).catch(() => {});
       await fs.rmdir(path.join(options.installDirectory, INSTALL_BACKUP_DIRECTORY)).catch(() => {});
     }
   }
 }
 
 async function runUpgradeVerification(options, { retry = false } = {}) {
-  const { version, userDataPath, allowInstaller } = options;
+  const { version, userDataPath } = options;
   if (!versionPattern.test(version)) return null;
   const reportFile = path.join(userDataPath, REPORT);
   const last = await readJson(reportFile);
-  if (last?.version === version && (!retry || last.status !== "failed")) {
+  const installation = await readInstallerAttempt(options);
+  if (last?.version === version && last.installerAttempt === installation?.attempt && (!retry || last.status !== "failed")) {
     return last.status === "checked" ? { ...last, status: "warning", message: "升级自检已通过，备份清理曾中断，剩余文件已保留。" } : last;
   }
-  const pending = await readJson(path.join(userDataPath, PENDING));
+  const pending = installation?.mode === "manual" ? null : await readJson(path.join(userDataPath, PENDING));
   const appSource = pending?.version === version ? { kind: "app", name: pending.name } : null;
-  const installer = { kind: "installer", version };
-  const installerPaths = sourceLocation(options, installer);
-  const marker = allowInstaller && await realDirectories(...installerPaths.parents)
-    ? path.join(installerPaths.folder, INSTALL_MARKER) : "";
-  const [markerFormat, installerPreviousVersion] = marker && (await stat(marker))?.isFile()
-    ? (await fs.readFile(marker, "utf8")).trim().split(/\r?\n/) : [];
-  const installerSource = markerFormat === "1" ? installer : null;
+  const installerSource = installation?.source;
   if (!appSource && !installerSource) return null;
 
-  const previousVersion = (appSource && pending.previousVersion) || installerPreviousVersion;
+  const previousVersion = (installation?.attempt && installation.previousVersion)
+    || (appSource && pending.previousVersion) || installation?.previousVersion;
   const report = {
     version, previousVersion: versionPattern.test(previousVersion) ? previousVersion : "",
+    installerAttempt: installation?.attempt,
     status: "failed", source: null,
   };
   const save = async (status, message) => {
@@ -284,7 +322,7 @@ async function runUpgradeVerification(options, { retry = false } = {}) {
   await save("checked", "升级自检通过，正在清理本次升级的备份副本。");
   try {
     if (installerSource && options.installDirectory) {
-      const mirror = { kind: "mirror", version };
+      const mirror = { ...installerSource, kind: "mirror" };
       if (await stat(sourceLocation(options, mirror).data)) {
         const copy = await inspectSource(options, mirror);
         if (!isDeepStrictEqual(baseline.manifest, copy.manifest)) throw new Error("安装目录副本与升级前的数据不一致。");
@@ -295,18 +333,19 @@ async function runUpgradeVerification(options, { retry = false } = {}) {
       const rollbackFile = path.join(userDataPath, ROLLBACK);
       const previous = await readJson(rollbackFile);
       await writeDurableJson(rollbackFile, { source: baseline.source, manifest: baseline.manifest });
-      if (previous && !isDeepStrictEqual(previous.source, baseline.source)) {
+      if (!installation?.attempt && previous && !isDeepStrictEqual(previous.source, baseline.source)) {
         const old = await inspectSource(options, previous.source);
         if (isDeepStrictEqual(old.manifest, previous.manifest)) await removeVerifiedCopy(options, old);
       }
     }
     const redundant = copies.filter(copy => copy !== baseline);
     if (!converted) redundant.push(baseline);
-    for (const copy of redundant) {
+    for (const copy of redundant.filter(copy => !copy.source.attempt)) {
       await removeVerifiedCopy(options, copy);
     }
-    if (installerSource && (!converted || baseline.source !== installerSource)) {
-      await fs.rm(marker, { force: true });
+    if (installerSource && !installation.attempt && (!converted || baseline.source !== installerSource)) {
+      const installerPaths = sourceLocation(options, installerSource);
+      await fs.rm(installation.marker, { force: true });
       for (const label of ["personal-task-track", "PersonalTaskTrack", "Loop"]) {
         await fs.rmdir(path.join(installerPaths.folder, label)).catch(() => {});
       }
@@ -314,10 +353,12 @@ async function runUpgradeVerification(options, { retry = false } = {}) {
     }
     if (appSource) await fs.rm(path.join(userDataPath, PENDING), { force: true });
     if (!converted) {
-      report.source = null;
-      delete report.manifest;
+      const retained = copies.find(copy => copy.source.attempt);
+      report.source = retained?.source ?? null;
+      if (retained) report.manifest = retained.manifest;
+      else delete report.manifest;
     }
-    return save("passed", converted ? "升级自检通过，已保留一份迁移前的备份。" : "升级自检通过，本次升级备份已清理。");
+    return save("passed", converted || installerSource?.attempt ? "升级自检通过，已保留升级前的备份。" : "升级自检通过，本次升级备份已清理。");
   } catch {
     return save("warning", "升级自检通过，部分升级备份暂时无法安全清理，已保留。");
   }

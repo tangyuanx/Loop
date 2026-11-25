@@ -26,14 +26,17 @@ async function fixture(t, data = original) {
   };
   const writeData = value => write(taskFile, JSON.stringify(value));
   const prepare = () => prepareUpgradeVerification({ ...options, currentVersion: "0.2.69", targetVersion: options.version });
-  const installer = async () => {
-    const copied = path.join(backupRoot, "installer-pre-" + options.version, "Personal Task Track");
-    const mirrored = path.join(options.installDirectory, "Loop Data Backups", "installer-pre-" + options.version, "Personal Task Track");
+  const installer = async ({ attempt, complete = true, mode = "manual", payload = "workspace", installDirectory = options.installDirectory } = {}) => {
+    const folder = attempt ? path.join("installer-pre-" + options.version, `attempt-${attempt}`) : "installer-pre-" + options.version;
+    const copied = path.join(backupRoot, folder, "Personal Task Track");
+    const mirrored = path.join(options.installDirectory, "Loop Data Backups", folder, "Personal Task Track");
     await fs.mkdir(path.dirname(copied), { recursive: true });
     await fs.mkdir(path.dirname(mirrored), { recursive: true });
     await fs.cp(options.userDataPath, copied, { recursive: true, filter: source => !path.basename(source).startsWith(".loop-") });
     await fs.cp(copied, mirrored, { recursive: true });
-    await write(path.join(path.dirname(copied), ".loop-install-check"), "1\r\n");
+    const marker = complete ? ".loop-install-check" : ".loop-install-pending";
+    await write(path.join(path.dirname(copied), marker), attempt
+      ? Buffer.from(`\uFEFF2\r\n0.2.69\r\n${mode}\r\n${payload}\r\n${installDirectory}\r\n`, "utf16le") : "1\r\n");
     return { copied, mirrored };
   };
   await writeData(data);
@@ -126,4 +129,61 @@ test("an unrelated file in an upgrade directory prevents deleting that backup", 
   assert.equal(result.status, "warning");
   assert.equal(await fs.readFile(unexpected, "utf8"), "user file");
   assert.ok(await upgradeRecoveryPath(f.options, result));
+});
+
+test("a completed retry replaces the same-version result and keeps earlier and interrupted backups", async t => {
+  const f = await fixture(t);
+  const legacy = await f.installer();
+  const older = await f.installer({ attempt: 9 });
+  const first = await runUpgradeVerification(f.options);
+  assert.equal(first.installerAttempt, "attempt-9");
+  assert.equal(first.status, "passed", first.message);
+  assert.ok(await fs.stat(older.copied));
+
+  const changed = { ...original, tasks: [{ ...original.tasks[0], title: "重试前的新任务" }] };
+  await f.writeData(changed);
+  const latest = await f.installer({ attempt: 10 });
+  const interrupted = await f.installer({ attempt: 11, complete: false });
+  const otherInstall = await f.installer({ attempt: 12, installDirectory: path.join(f.root, "other-install") });
+  const retry = await runUpgradeVerification(f.options);
+  assert.equal(retry.installerAttempt, "attempt-10");
+  assert.equal(retry.status, "passed", retry.message);
+  assert.equal(await fs.readFile(path.join(older.copied, "task-data.json"), "utf8"), JSON.stringify(original));
+  assert.equal(await fs.readFile(path.join(legacy.copied, "task-data.json"), "utf8"), JSON.stringify(original));
+  assert.equal(await fs.readFile(path.join(latest.copied, "task-data.json"), "utf8"), JSON.stringify(changed));
+  assert.ok(await fs.stat(interrupted.copied));
+  assert.ok(await fs.stat(otherInstall.copied));
+  assert.equal(await fs.readFile(f.taskFile, "utf8"), JSON.stringify(changed));
+});
+
+test("same-version manual reinstall ignores an older pending in-app update and keeps its copy", async t => {
+  const f = await fixture(t);
+  await f.prepare();
+  const [appBackup] = await fs.readdir(f.backupRoot);
+  await f.writeData({ ...original, tasks: [] });
+  const current = await f.installer({ attempt: 1 });
+  const result = await runUpgradeVerification(f.options);
+  assert.equal(result.status, "passed", result.message);
+  assert.equal(await upgradeRecoveryPath(f.options, result), current.copied);
+  assert.ok(await fs.stat(path.join(f.backupRoot, appBackup, "data", "task-data.json")));
+});
+
+test("a complete empty attempt suppresses stale same-version installer verification", async t => {
+  const f = await fixture(t);
+  await f.installer();
+  await f.installer({ attempt: 1, payload: "empty" });
+  assert.equal(await runUpgradeVerification(f.options), null);
+});
+
+test("an in-app update detects data lost between the app snapshot and the installer snapshot", async t => {
+  const f = await fixture(t);
+  await f.prepare();
+  await f.writeData({ ...original, tasks: [] });
+  const snapshot = await f.installer({ attempt: 1, mode: "update" });
+  const result = await runUpgradeVerification(f.options);
+  assert.equal(result.status, "failed");
+  assert.equal(result.installerAttempt, "attempt-1");
+  assert.equal(result.source.kind, "app");
+  assert.ok(await upgradeRecoveryPath(f.options, result));
+  assert.ok(await fs.stat(snapshot.copied));
 });
