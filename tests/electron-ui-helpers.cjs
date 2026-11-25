@@ -5,7 +5,7 @@ const path = require('node:path');
 const { _electron: electron } = require('../tools/guarded-electron.cjs');
 const { assertElectronStartupAllowed } = require('../tools/electron-startup-guard.cjs');
 
-async function launchRepository(data, name = 'repository', executablePath = '') {
+async function launchRepository(data, name = 'repository', executablePath = '', launchArgs = []) {
   const root = path.resolve(__dirname, '..');
   await assertElectronStartupAllowed(root);
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), `loop-${name}-`));
@@ -15,7 +15,8 @@ async function launchRepository(data, name = 'repository', executablePath = '') 
   delete env.ELECTRON_RUN_AS_NODE;
   let app;
   try {
-    app = await electron.launch({ executablePath: executablePath || require('electron'), args: executablePath ? [] : [root], cwd: root, env });
+    const args = executablePath ? launchArgs : [...launchArgs, root];
+    app = await electron.launch({ executablePath: executablePath || require('electron'), args, cwd: root, env });
     const deadline = Date.now() + 15000;
     let page;
     while (!page && Date.now() < deadline) {

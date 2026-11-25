@@ -624,3 +624,127 @@ body :is(button[aria-busy="true"], button[data-loading="true"], [aria-busy="true
     transition: none;
   }
 }
+
+/* Windows system faces keep their original hinting. Map intermediate CJK
+ * requests to regular, and keep the bundled outlines as an offline fallback. */
+@font-face {
+  font-family: "Loop Windows Latin";
+  src: local("Segoe UI Variable Text"), local("Segoe UI"), local("SegoeUI");
+  font-weight: 1 549;
+  unicode-range: U+0000-024F, U+1E00-1EFF, U+2000-206F, U+20A0-20CF;
+}
+
+@font-face {
+  font-family: "Loop Windows Latin";
+  src: local("Segoe UI Variable Text Semibold"), local("Segoe UI Semibold"), local("SegoeUI-Semibold"), local("Segoe UI");
+  font-weight: 550 649;
+  unicode-range: U+0000-024F, U+1E00-1EFF, U+2000-206F, U+20A0-20CF;
+}
+
+@font-face {
+  font-family: "Loop Windows Latin";
+  src: local("Segoe UI Bold"), local("SegoeUI-Bold");
+  font-weight: 650 1000;
+  unicode-range: U+0000-024F, U+1E00-1EFF, U+2000-206F, U+20A0-20CF;
+}
+
+@font-face {
+  font-family: "Loop Windows CJK";
+  src: local("Microsoft YaHei UI"), local("MicrosoftYaHeiUI"), local("Microsoft YaHei"), url("assets/fonts/NotoSansCJKsc-Regular.otf") format("opentype");
+  font-weight: 1 649;
+  unicode-range: U+2E80-2FFF, U+3000-30FF, U+3100-312F, U+31A0-31BF, U+31F0-33FF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE10-FE1F, U+FE30-FE4F, U+FF00-FFEF, U+20000-323AF;
+}
+
+@font-face {
+  font-family: "Loop Windows CJK";
+  src: local("Microsoft YaHei UI Bold"), local("MicrosoftYaHeiUI-Bold"), local("Microsoft YaHei Bold"), url("assets/fonts/NotoSansCJKsc-Bold.otf") format("opentype");
+  font-weight: 650 1000;
+  unicode-range: U+2E80-2FFF, U+3000-30FF, U+3100-312F, U+31A0-31BF, U+31F0-33FF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE10-FE1F, U+FE30-FE4F, U+FF00-FFEF, U+20000-323AF;
+}
+
+html[data-os="windows"] {
+  --windows-heiti: "Loop Windows CJK", "Microsoft YaHei UI", "TaskTrack Chinese Heiti";
+  --windows-ui-sans: "Loop Windows Latin", "Loop Windows CJK", "Segoe UI", "Microsoft YaHei UI", "TaskTrack Chinese System", sans-serif;
+  --sans: var(--windows-ui-sans);
+  --font-mono: "Cascadia Mono", Consolas, "Loop Windows CJK", monospace;
+  --workspace-secondary: #4f5563;
+  --workspace-muted: #767d8b;
+  --ui-emphasis-weight: 400;
+}
+
+html[data-os="windows"][data-theme="dark"] {
+  --workspace-secondary: #afb5c3;
+  --workspace-muted: #828a9a;
+}
+
+html[data-os="windows"] body :is(.task-title, .task-title .title-edit, .settings-document h2,
+  .knowledge-pane .kn-rendered :is(h1, h2), .knowledge-pane .kn-heading:is(.kn-h1, .kn-h2)) {
+  font-weight: 700;
+}
+
+html[data-os="windows"] body :is(.topbar .brand strong, .list-heading h2, .pane-tab.active, .filter-tab.active) {
+  font-weight: 400;
+}
+
+html[data-os="windows"][data-density="standard"] {
+  --type-12: max(round(up, 12px, var(--text-pixel, 1px)),
+    round(nearest, calc(12px * var(--ui-scale)), var(--text-pixel, 1px)));
+  --type-11: var(--type-12);
+  --type-10: var(--type-12);
+}
+
+html[data-os="windows"][data-density="standard"] body :is(.nav-section-heading,
+  .task-row-pill, .record-save-state, .local-status, .draft-hint, .tabs-actions .text-button,
+  .global-search-result-heading, .global-search-result-copy > small) {
+  font-size: var(--type-12);
+}
+
+/* One row treatment for Windows and standard-density displays. The marker
+ * is out of the layout and yields to the existing flow drop indicators. */
+html:is([data-os="windows"], [data-density="standard"]) {
+  --hairline: round(nearest, 1px, var(--text-pixel, 1px));
+  --selection-indicator: round(nearest, 3px, var(--text-pixel, 1px));
+  --selection-fill: color-mix(in srgb, var(--workspace-text) 7%, transparent);
+  --selection-hover: color-mix(in srgb, var(--workspace-text) 4%, transparent);
+}
+
+html:is([data-os="windows"], [data-density="standard"])[data-theme="dark"] {
+  --selection-fill: color-mix(in srgb, var(--workspace-text) 9%, transparent);
+}
+
+:root:is([data-os="windows"], [data-density="standard"]) body .navigation .nav-button:is(.active, [data-value="today"].active),
+html:is([data-os="windows"], [data-density="standard"]) body .task-list-pane .task-item.selected,
+html:is([data-os="windows"], [data-density="standard"]) body .task-list-pane.today-clean .task-item.selected:hover {
+  position: relative;
+  background: var(--selection-fill);
+  box-shadow: none;
+}
+
+html:is([data-os="windows"], [data-density="standard"]) body .flow-row:hover:where(:not(.selected, .adding, [data-drop])) {
+  background: var(--selection-hover);
+}
+
+html:is([data-os="windows"], [data-density="standard"]) body .flow-row.selected:where(:not([data-drop])),
+html:is([data-os="windows"], [data-density="standard"]) body .flow-row.selected:hover:where(:not([data-drop])) {
+  background: var(--selection-fill);
+}
+
+html:is([data-os="windows"], [data-density="standard"]) body .flow-row:has(> .flow-node-main > .node-title:focus-visible) {
+  box-shadow: inset calc(2 * var(--hairline)) 0 0 var(--focus-line);
+}
+
+html:is([data-os="windows"], [data-density="standard"]) body :is(.navigation .nav-button.active,
+  .task-list-pane .task-item.selected, .flow-row.selected:where(:not([data-drop])))::before {
+  content: "";
+  display: block;
+  position: absolute;
+  inset: 8px auto 8px 0;
+  width: var(--selection-indicator);
+  border-radius: var(--selection-indicator);
+  background: var(--green);
+  pointer-events: none;
+}
+
+html:is([data-os="windows"], [data-density="standard"]) body .task-list-pane .task-item.selected::before {
+  inset-block: 10px;
+}

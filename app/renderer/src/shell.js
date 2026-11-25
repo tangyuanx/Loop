@@ -149,10 +149,14 @@ function applyLoopAppearance() {
   const root = document.documentElement;
   if (!root?.style?.setProperty) return;
   root.style.setProperty("--font-scale", shellFontScaleValue(state.fontScale));
-  root.style.setProperty(
-    "--sans",
-    `"TaskTrack English ${SHELL_EN_FAMILIES[state.enFont] || "Inter"}","TaskTrack Chinese ${SHELL_ZH_FAMILIES[state.zhFont] || "Heiti"}",-apple-system,BlinkMacSystemFont,sans-serif`,
-  );
+  const english = `"TaskTrack English ${SHELL_EN_FAMILIES[state.enFont] || "Inter"}"`;
+  const chinese = `"TaskTrack Chinese ${SHELL_ZH_FAMILIES[state.zhFont] || "Heiti"}"`;
+  const heiti = state.zhFont === "heiti";
+  const chineseStack = heiti ? `var(--windows-heiti, ${chinese})` : chinese;
+  const stack = `${english},${chineseStack},-apple-system,BlinkMacSystemFont,sans-serif`;
+  // The platform defaults follow the shared CSS even if the first render
+  // precedes the deferred platform and display probe.
+  root.style.setProperty("--sans", heiti && state.enFont === "times" ? `var(--windows-ui-sans, ${stack})` : stack);
 }
 
 // ------------------------------------------------------------

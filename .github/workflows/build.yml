@@ -52,6 +52,16 @@ jobs:
       - run: npm ci
       - run: npm run build:milkdown
       - run: npm run build:knowledge
+      - name: Verify desktop typography and selection
+        env:
+          LOOP_REVIEW_OUTPUT: ${{ runner.temp }}/loop-typography
+        run: node tests/typography-selection.ui.cjs
+      - name: Upload desktop typography screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: typography-${{ matrix.os }}
+          path: ${{ runner.temp }}/loop-typography/*.png
       - name: Verify knowledge emphasis glyphs
         run: npm run test:ui:knowledge-emphasis
       - name: Verify knowledge editing scroll stability
