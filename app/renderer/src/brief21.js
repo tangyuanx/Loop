@@ -35,7 +35,9 @@ function brief21IsBriefKey(key) {
 function brief21Resize(el) {
   const top = el.scrollTop;
   el.style.height = "0px";
-  el.style.height = `${Math.max(26, Math.min(160, el.scrollHeight))}px`;
+  const needed = Math.ceil(el.scrollHeight);
+  el.style.height = `${Math.max(26, Math.min(160, needed))}px`;
+  el.style.overflowY = needed > 160 ? "auto" : "hidden";
   el.scrollTop = top;
 }
 
@@ -49,7 +51,7 @@ function brief21ResizeAll() {
  */
 renderShellBrief = function brief21Brief(task) {
   return `<section class="brief" aria-label="任务简报">${shellBriefFields(task).map(({ field, label, placeholder, value }) => `
-    <div class="brief-row">
+    <div class="brief-row" data-brief-field="${field}" data-brief-filled="${value.trim() ? "1" : "0"}">
       <label for="brief21-${escAttr(task.id)}-${field}">${label}</label>
       <textarea id="brief21-${escAttr(task.id)}-${field}" class="brief21-input" rows="1" wrap="soft"
         data-brief21-key="${escAttr(`${task.id}:${field}`)}" data-edit-key="${escAttr(`${task.id}:${field}`)}"
@@ -71,6 +73,7 @@ function brief21Retain(el) {
     if (field === "conclusion" && el.value.trim()) clearConclusionNotice?.(task.id);
     save();                     // debounced real persistence
   }
+  el.closest?.(".brief-row")?.setAttribute?.("data-brief-filled", el.value.trim() ? "1" : "0");
   delete state.shellDrafts[key]; // the explicit-save draft path no longer owns this field
   brief21Resize(el);
 }
@@ -128,7 +131,12 @@ function brief21SetupFlowBrief() {
   toggle.setAttribute("aria-expanded", String(expanded));
   toggle.setAttribute("aria-controls", brief.id);
   toggle.title = expanded ? "收起背景、进展、结论" : "展开背景、进展、结论";
-  toggle.innerHTML = `${shellIcon(expanded ? "down" : "chevron")}任务简报`;
+  const active = shellActiveTask() || {};
+  const digestSource = !expanded
+    ? String(active.conclusion || active.hypothesis || active.description || "").trim().replace(/\s+/g, " ")
+    : "";
+  const digest = digestSource ? `<span class="brief21-digest" aria-hidden="true">${esc(digestSource)}</span>` : "";
+  toggle.innerHTML = `${shellIcon(expanded ? "down" : "chevron")}<span class="brief21-toggle-label">任务简报</span>${digest}`;
 }
 
 /** 补充结论／查看结果: expand the brief, then put the caret in the field. */

@@ -1,30 +1,38 @@
 /*
- * Loop shared foundation · stage 1
+ * Loop shared foundation · Graphite Logbook Design System
  *
- * This is the last stylesheet in all three renderer documents.  It owns the
- * semantic surface tokens, typography defaults, focus contract and the common
- * control states.  Feature sheets keep their geometry and data-specific
- * states; they do not add another global input or focus skin.
+ * This is the last stylesheet in all three renderer documents. It owns the
+ * three-plane surface tokens, monospace/emphasis tokens, neutral focus
+ * contract (strictly zero green focus borders/halos), and common controls.
  */
 
 :root {
   color-scheme: light;
-  /* Shared palette for migrated surfaces. Local aliases keep the legacy
-   * sheets scoped without repeating theme values in every workspace. */
-  --workspace-canvas: #fff;
-  --workspace-list: #f5f5f5;
-  --workspace-selected: #e8e8e8;
-  --workspace-hover: #f3f3f3;
-  --workspace-text: #1d1d1d;
-  --workspace-secondary: #606060;
-  --workspace-line: #e3e3e3;
-  --surface-navigation: #f4f4f4;
-  --surface-navigation-hover: #eaeaea;
-  --surface-navigation-selected: #dedede;
-  --surface-task-list: #fafafa;
-  --surface-task-hover: #f0f0f0;
-  --surface-task-selected: #e6e6e6;
-  /* Legacy and migrated surfaces share the same semantic palette. */
+  /* Three-plane architectural hierarchy:
+   * Plane 1 · Frame & Rail (Topbar + Primary Navigation): #f2f3f5
+   * Plane 2 · Queue Slate (Task List): #f7f8fa
+   * Plane 3 · Logbook Paper (Workspace & Popovers): #ffffff */
+  --workspace-canvas: #ffffff;
+  --workspace-list: #f3f4f7;
+  --workspace-selected: #e8ebf0;
+  --workspace-hover: #eff1f5;
+  --workspace-text: #15171c;
+  --workspace-secondary: #5a606d;
+  --workspace-muted: #8a909e;
+  --workspace-line: #e3e5ea;
+  --workspace-line-strong: #cfd4dd;
+  --surface-navigation: #f2f3f5;
+  --surface-navigation-hover: #e7e9ee;
+  --surface-navigation-selected: #ffffff;
+  --surface-task-list: #f7f8fa;
+  --surface-task-hover: #eef0f4;
+  --surface-task-selected: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-subtle: #f5f6f8;
+  --border-subtle: #eceef2;
+  --border-float: rgb(15 23 42 / 9%);
+
+  /* Legacy aliases */
   --canvas: var(--workspace-canvas);
   --nav: var(--surface-navigation);
   --list: var(--workspace-list);
@@ -33,67 +41,108 @@
   --text: var(--workspace-text);
   --secondary: var(--workspace-secondary);
   --line: var(--workspace-line);
-  --surface-raised: #fff;
-  --surface-shadow: 0 12px 32px rgb(0 0 0 / 10%), 0 2px 6px rgb(0 0 0 / 5%);
+
+  /* Semantic signals (strictly for status, never for focus or chrome fills) */
+  --status-done: #2b7a52;
+  --status-done-soft: #eaf5ef;
+  --status-warn: #b8621b;
+  --status-warn-soft: #fdf3ea;
+  --status-danger: #c23d35;
+  --status-danger-soft: #fdeeed;
+  --orange: var(--status-warn);
+  --danger: var(--status-danger);
+  --action-bg: #262a33;
+  --action-bg-hover: #343946;
+  --action-fg: #ffffff;
+  --action-border: transparent;
+  --switch-off-bg: #d3d7e0;
+  --switch-on-bg: #262a33;
+  --switch-on-thumb: #ffffff;
+  --dossier-bg: #f8f9fb;
+  --stage-card-bg: #fcfcfd;
+
+  /* Elevation & radii */
+  --radius-xs: 5px;
+  --radius-sm: 7px;
+  --radius-md: 9px;
+  --radius-lg: 12px;
+  --shadow-xs: 0 1px 2px rgb(15 23 42 / 5%), 0 0 0 1px rgb(15 23 42 / 6%);
+  --surface-shadow: 0 14px 36px -6px rgb(15 23 42 / 13%), 0 4px 12px -2px rgb(15 23 42 / 6%), 0 0 0 1px rgb(15 23 42 / 8%);
+
+  /* Typography roles */
+  --font-mono: "SF Mono", "JetBrains Mono", "Cascadia Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --ui-body-weight: 400;
-  --ui-emphasis-weight: 500;
-  --input-surface: color-mix(in srgb, var(--list) 97%, var(--text));
-  --input-line: #d8d8d8;
-  --input-hover: #aaa;
-  --input-focus: #808080;
+  --ui-medium-weight: 500;
+  --ui-emphasis-weight: 600;
+
+  /* Neutral input & focus contract */
+  --input-surface: #f0f2f6;
+  --input-line: #d7dbe3;
+  --input-hover: #b2b8c6;
+  --input-focus: #687082;
   --focus-line: var(--input-focus);
-  --focus-line-strong: #747474;
-  --input-selection: color-mix(in srgb, var(--text) 18%, transparent);
+  --focus-line-strong: #525968;
+  --input-selection: color-mix(in srgb, var(--workspace-text) 14%, transparent);
   --field22-bg: var(--input-surface);
   --field22-line: var(--input-line);
   --field22-hover: var(--input-hover);
   --field22-focus: var(--input-focus);
 }
 
-/* macOS and Windows share a white header and main panes in light mode. */
-:root:is([data-platform="darwin"], [data-platform="win32"]):not([data-theme="dark"]) {
-  --surface-navigation: #fff;
-  --surface-task-list: #fff;
-  --surface-navigation-hover: #ededed;
-  --surface-navigation-selected: #e2e2e2;
-  --surface-task-selected: #e9e9e9;
-  --workspace-text: #2a2a2a;
-}
-
-/* Use a quiet, unfilled completion mark on white and selected rows. */
-:root:is([data-platform="darwin"], [data-platform="win32"]):not([data-theme="dark"]) .task-list-pane .task-item.done .task-check-ring {
-  background: transparent;
-  border-color: #828282;
-  color: #777;
-}
-
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --workspace-canvas: #181818;
-  --workspace-list: #242424;
-  --workspace-selected: #333;
-  --workspace-hover: #282828;
-  --workspace-text: #ededed;
-  --workspace-secondary: #ababab;
-  --workspace-line: #363636;
-  --surface-navigation: #242424;
-  --surface-navigation-hover: #2e2e2e;
-  --surface-navigation-selected: #3a3a3a;
-  --surface-task-list: #1e1e1e;
-  --surface-task-hover: #282828;
-  --surface-task-selected: #343434;
-  --surface-raised: #252525;
-  --surface-shadow: 0 16px 44px rgb(0 0 0 / 30%), 0 2px 10px rgb(0 0 0 / 20%);
-  --ui-body-weight: 360;
-  --ui-emphasis-weight: 460;
-  --input-line: #484848;
-  --input-hover: #6b6b6b;
-  --input-focus: #8b8b8b;
-  --focus-line-strong: #aaa;
+  --workspace-canvas: #1c1e22;
+  --workspace-list: #24272d;
+  --workspace-selected: #2d3139;
+  --workspace-hover: #25282f;
+  --workspace-text: #eceef2;
+  --workspace-secondary: #9aa1ae;
+  --workspace-muted: #68707e;
+  --workspace-line: #2b2f37;
+  --workspace-line-strong: #3a404c;
+  --surface-navigation: #121316;
+  --surface-navigation-hover: #1b1d22;
+  --surface-navigation-selected: #23262d;
+  --surface-task-list: #17191c;
+  --surface-task-hover: #202329;
+  --surface-task-selected: #252830;
+  --surface-raised: #23262d;
+  --surface-subtle: #191b1f;
+  --border-subtle: #252930;
+  --border-float: rgb(255 255 255 / 10%);
+
+  --status-done: #4ca978;
+  --status-done-soft: rgb(76 169 120 / 15%);
+  --status-warn: #e08b44;
+  --status-warn-soft: rgb(224 139 68 / 15%);
+  --status-danger: #e56b63;
+  --status-danger-soft: rgb(229 107 99 / 15%);
+  --action-bg: #2e3440;
+  --action-bg-hover: #39404f;
+  --action-fg: #eceff4;
+  --action-border: rgb(255 255 255 / 12%);
+  --switch-off-bg: #363b45;
+  --switch-on-bg: #dce1ea;
+  --switch-on-thumb: #16181d;
+  --dossier-bg: #17191d;
+  --stage-card-bg: #202329;
+
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / 32%), 0 0 0 1px rgb(255 255 255 / 7%);
+  --surface-shadow: 0 18px 44px -6px rgb(0 0 0 / 55%), 0 4px 14px -2px rgb(0 0 0 / 35%), 0 0 0 1px rgb(255 255 255 / 10%);
+
+  --ui-body-weight: 400;
+  --ui-medium-weight: 500;
+  --ui-emphasis-weight: 600;
+
+  --input-surface: #23262d;
+  --input-line: #363b45;
+  --input-hover: #525968;
+  --input-focus: #8c94a6;
+  --focus-line-strong: #a7afbf;
 }
 
 /* Feature sheets are intentionally kept byte-identical to their frozen Demo
- * sources.  This body-scoped hand-off makes their existing field variables
+ * sources. This body-scoped hand-off makes their existing field variables
  * resolve to the shared neutral contract without changing their source order. */
 body[data-foundation-enabled] {
   --field22-bg: var(--input-surface);
@@ -116,6 +165,7 @@ body {
   font-weight: var(--ui-body-weight);
   font-synthesis: none;
   font-kerning: normal;
+  -webkit-font-smoothing: antialiased;
 }
 
 body :is(button, input, select, textarea) {
@@ -127,9 +177,13 @@ body :is(.task-title, .task-title .title-edit, .list-heading h2, .brand strong) 
   font-weight: var(--ui-emphasis-weight);
 }
 
-body :is(.count, .task-sequence, .workspace-foot, .list-foot, .flow-toolbar,
-  .property, .tag, .node-badge, .rhythm, time) {
+body :is(.count, .task-sequence, .task-row-progress, .pane-count, .search-shortcut,
+  .workspace-foot, .list-foot, .flow-toolbar, .property, .tag, .node-badge, .rhythm, time) {
   font-variant-numeric: tabular-nums;
+}
+
+body :is(.task-sequence, .task-row-progress, .pane-count, .search-shortcut, .count) {
+  font-family: var(--font-mono);
 }
 
 body :is(.property, .text-button, .button, .pane-tab, .breadcrumb,
@@ -142,7 +196,7 @@ body :is(.property, .text-button, .button, .pane-tab, .breadcrumb,
   color: var(--text);
 }
 
-/* Keyboard focus stays visible as a one-pixel inset line.  There is no outer
+/* Keyboard focus stays visible as a one-pixel inset line. There is no outer
  * ring here, so a parent focus-within cannot turn into a green halo. */
 body :is(button, [role="button"], a, summary):focus {
   outline: none;
@@ -211,9 +265,9 @@ body :is(
   .control22-field
 ):is(:focus, :focus-visible) {
   border-color: var(--input-focus);
-  background-color: var(--input-surface);
+  background-color: var(--canvas);
   outline: none;
-  box-shadow: inset 0 -1px 0 var(--focus-line);
+  box-shadow: none;
 }
 
 body :is(
@@ -238,30 +292,33 @@ body :is(
 }
 
 body :is(input, textarea, select)::placeholder {
-  color: var(--secondary);
+  color: var(--workspace-muted);
   opacity: 1;
 }
 
-/* Search fields are an inset surface.  The parent does not change fill when
- * focused; the one-pixel bottom line is the only focus cue. */
-body :is(.list-search, .kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search, .node-share-search-field) {
+/* Search fields use an inset surface in popovers/notes; the task-list search
+ * blends transparently into its column with a single bottom hairline. */
+body :is(.kn-find-field, .kn-switcher-search, .recovery26-search, .note23-find, .manual27-search, .node-share-search-field) {
   background: var(--input-surface);
   outline: none;
   box-shadow: none;
 }
 
 body .list-search {
-  border-color: var(--input-line);
-  background: var(--input-surface);
+  border: 0;
+  border-color: transparent;
+  background: color-mix(in srgb, var(--workspace-text) 4.2%, transparent);
+  outline: none;
+  box-shadow: none;
 }
 
 body .list-search:hover {
-  border-color: var(--input-hover);
+  background: color-mix(in srgb, var(--workspace-text) 6%, transparent);
 }
 
 body .list-search:focus-within {
-  border-color: var(--input-focus);
-  background: var(--input-surface);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--workspace-text) 5.5%, transparent);
   outline: none;
   box-shadow: inset 0 -1px 0 var(--focus-line);
 }
@@ -329,7 +386,7 @@ body[data-foundation-enabled] .widget-capture textarea:focus {
 }
 
 /* In-place names, briefs, records, rich text and table cells remain on their
- * content plane.  A focused editor gets only an inset neutral underline. */
+ * content plane. A focused editor gets only an inset neutral underline. */
 body :is(
   .manage24-title-input,
   .manage24-row-title-input,
@@ -392,16 +449,15 @@ body :is(.brief-row, .flow-row, .inspector, .knowledge-rich-host):focus-within {
 }
 
 body .brief-row:focus-within label {
-  color: var(--secondary);
+  color: var(--text);
 }
 
 body .brief-row:has(.brief21-input:focus-visible) label {
   text-decoration-color: var(--focus-line);
 }
 
-/* A document is not a single-line field: an inset bottom shadow spans the
- * editor's minimum height and looks like a rule inserted into the note.
- * CodeMirror's focused caret identifies the editing location instead. */
+/* A document is not a single-line field: CodeMirror's focused caret identifies
+ * the editing location instead of painting a bottom border across the editor. */
 body .knowledge-pane :is(.cm-editor.cm-focused, .cm-content:focus, .cm-content:focus-visible) {
   outline: none;
   box-shadow: none;
@@ -423,10 +479,9 @@ body .knowledge-rich-host .milkdown :is(input, textarea, [contenteditable="true"
   background: transparent;
 }
 
-/* Checkboxes/radios retain their semantic accent; their keyboard cue is
- * neutral and never a green outline. */
+/* Checkboxes/radios use a restrained graphite accent; keyboard cue stays neutral. */
 body :is(input[type="checkbox"], input[type="radio"], input[type="range"]) {
-  accent-color: var(--green);
+  accent-color: var(--action-bg);
 }
 
 body :is(input[type="checkbox"], input[type="radio"], input[type="range"]):focus-visible {
@@ -450,8 +505,8 @@ body .wb-menu button:focus-visible {
 }
 
 body .flow-row:has(> .node-title:focus-visible, > .flow-node-main > .node-title:focus-visible) {
-  background: color-mix(in srgb, var(--selected) 70%, var(--canvas));
-  box-shadow: inset 2px 0 var(--focus-line);
+  background: color-mix(in srgb, var(--selected) 72%, var(--canvas));
+  box-shadow: inset 2px 0 var(--focus-line-strong);
 }
 
 body .node-conclusion-text:focus-visible {
@@ -477,9 +532,6 @@ body .list-resizer:focus-visible::after {
   background: var(--focus-line-strong);
 }
 
-/* High-specificity legacy feature selectors receive the same contract here.
- * These are scoped exceptions for frozen sheets, rather than another global
- * focus layer. */
 body[data-foundation-enabled] :is(.widget12 .widget-title-input, .nav-group-editor input) {
   border-color: transparent;
   background: transparent;
@@ -496,8 +548,8 @@ body[data-foundation-enabled] :is(.widget12 .widget-title-input, .nav-group-edit
 }
 
 body[data-foundation-enabled][data-controls22-enabled] .list-search:focus-within {
-  border-color: var(--input-focus);
-  background: var(--input-surface);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--workspace-text) 5.5%, transparent);
   outline: none;
   box-shadow: inset 0 -1px 0 var(--focus-line);
 }
@@ -556,9 +608,7 @@ body[data-foundation-enabled] .recovery26-search:focus-within {
   box-shadow: inset 0 -1px 0 var(--focus-line);
 }
 
-/* Feedback keeps its semantic meaning.  Only confirmed, ordinary success
- * notices may be timed out by their existing lifecycle; errors and actions
- * remain visible until their owner resolves them. */
+/* Feedback keeps its semantic meaning. */
 body :is([role="alert"], .error, .range-error, .knowledge-inline-error, .knowledge-notice:not(.recovered)) {
   color: var(--orange);
 }

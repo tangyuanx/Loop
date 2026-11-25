@@ -276,8 +276,8 @@
     const appearance = snapshot.appearance && typeof snapshot.appearance === "object" ? snapshot.appearance : {};
     root.dataset.theme = appearance.theme === "dark" ? "dark" : "light";
     root.dataset.zhFont = appearance.zhFont || "heiti";
-    root.dataset.enFont = appearance.enFont || "times";
-    root.style.setProperty("--sans", appearance.sans || '"TaskTrack English Times","TaskTrack Chinese Heiti",-apple-system,BlinkMacSystemFont,sans-serif');
+    root.dataset.enFont = appearance.enFont || "inter";
+    root.style.setProperty("--sans", appearance.sans || '"TaskTrack English Inter","TaskTrack Chinese Heiti",-apple-system,BlinkMacSystemFont,sans-serif');
     root.style.setProperty("--font-scale", String(appearance.fontScale || "1"));
     root.style.setProperty("--widget-opacity", String(Math.max(70, Math.min(100, Number(prefs.opacity) || 100)) / 100));
     const panel = host.querySelector(".today-widget");

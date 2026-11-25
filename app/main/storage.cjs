@@ -586,7 +586,7 @@ function migrateLegacyFont(value) {
   if (value === "heiti") return { zhFont: "heiti", enFont: "inter" };
   if (value === "mono") return { zhFont: "yahei", enFont: "mono" };
   if (value === "system" || value === "yahei") return { zhFont: "system", enFont: "inter" };
-  return { zhFont: "heiti", enFont: "times" };
+  return { zhFont: "heiti", enFont: "inter" };
 }
 
 function isRecord(value) {

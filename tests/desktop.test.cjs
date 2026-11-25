@@ -3389,17 +3389,17 @@ test("Today widget lane orders are migration-safe in disk and renderer normaliza
   );
 });
 
-test("disk and renderer typography default to Heiti and Times while preserving explicit choices", async () => {
+test("disk and renderer typography default to Heiti and Inter while preserving explicit choices", async () => {
   const defaults = normalizeTaskData({});
   assert.equal(defaults.zhFont, "heiti");
-  assert.equal(defaults.enFont, "times");
+  assert.equal(defaults.enFont, "inter");
   const invalid = normalizeTaskData({ zhFont: "unknown", enFont: "unknown" });
   assert.equal(invalid.zhFont, "heiti");
-  assert.equal(invalid.enFont, "times");
+  assert.equal(invalid.enFont, "inter");
   const harness = await rendererHarness();
-  assert.deepEqual(harness.json(`loadBrowserTypography()`), { zhFont: "heiti", enFont: "times", fontScale: "larger" });
-  harness.evaluate(`localStorage.setItem(ZH_FONT_KEY, "system"); localStorage.setItem(EN_FONT_KEY, "inter");`);
-  assert.deepEqual(harness.json(`loadBrowserTypography()`), { zhFont: "system", enFont: "inter", fontScale: "larger" });
+  assert.deepEqual(harness.json(`loadBrowserTypography()`), { zhFont: "heiti", enFont: "inter", fontScale: "larger" });
+  harness.evaluate(`localStorage.setItem(ZH_FONT_KEY, "system"); localStorage.setItem(EN_FONT_KEY, "times");`);
+  assert.deepEqual(harness.json(`loadBrowserTypography()`), { zhFont: "system", enFont: "times", fontScale: "larger" });
   assert.deepEqual(harness.json(`migrateLegacyFont("mono")`), { zhFont: "yahei", enFont: "mono" });
   assert.deepEqual(harness.json(`migrateLegacyFont("system")`), { zhFont: "system", enFont: "inter" });
   const zhFonts = ["system", "noto", "yahei", "pingfang", "songti", "simsun", "fangsong", "heiti", "kaiti"];
@@ -4039,7 +4039,7 @@ test("Today widget appearance normalizes theme, fonts, and base font size", () =
   }), {
     theme: "light",
     zhFont: "heiti",
-    enFont: "times",
+    enFont: "inter",
     fontSize: 24,
     fontScale: 1,
     sans: "",

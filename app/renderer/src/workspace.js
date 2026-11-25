@@ -302,10 +302,13 @@ function renderShellFlowNode(task, node, depth = 0) {
   const selected = node.id === state.selectedNodeId;
   const key = shellConclusionKey(task.id, node.id);
   const displayCollapsed = node.collapsed && !shellReviewOnly;
-  const body = `<div class="flow-row ${node.status} ${selected ? "selected" : ""} ${shellExpandedTitles.has(key) ? "expanded-title" : ""} ${shellExpandedConclusions.has(key) ? "expanded-summary" : ""}" data-context="node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" data-flow-drag-source data-flow-drag-target>
+  const customState = state.nodeStates.find((item) => item.id === node.status);
+  const statusClass = customState ? `${node.status} custom-status` : node.status;
+  const statusStyle = customState ? ` style="--node-custom-color:${escAttr(customState.color)}"` : "";
+  const body = `<div class="flow-row ${statusClass} ${selected ? "selected" : ""} ${shellExpandedTitles.has(key) ? "expanded-title" : ""} ${shellExpandedConclusions.has(key) ? "expanded-summary" : ""}" data-context="node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" data-flow-drag-source data-flow-drag-target>
     <div class="flow-node-main">
       <button class="collapse ${hasChildren ? "" : "empty"}" type="button" data-action="toggle-node-collapse" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" aria-label="${displayCollapsed ? "展开" : "收起"} ${escAttr(node.title)}" aria-expanded="${!displayCollapsed}" ${hasChildren && !shellReviewOnly ? "" : "disabled"}>${shellIcon(displayCollapsed ? "chevron" : "down")}</button>
-      <span class="node-status-slot"><button class="node-status ${node.status}" type="button" data-action="cycle-node-status" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" title="${escAttr(shellNodeStatusLabel(node.status))} · 点击切换为${escAttr(shellNodeStatusLabel(nextNodeStatus(node.status)))}" aria-label="${escAttr(shellNodeStatusButtonLabel(node))}">${briefFieldIcon(node.status === "done" ? "check-circle" : node.status === "review" ? "help-circle" : "circle")}</button></span>
+      <span class="node-status-slot"><button class="node-status ${statusClass}"${statusStyle} type="button" data-action="cycle-node-status" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" title="${escAttr(shellNodeStatusLabel(node.status))} · 点击切换为${escAttr(shellNodeStatusLabel(nextNodeStatus(node.status)))}" aria-label="${escAttr(shellNodeStatusButtonLabel(node))}">${briefFieldIcon(node.status === "done" ? "check-circle" : node.status === "review" ? "help-circle" : "circle")}</button></span>
       ${renderShellNodeTitle(task, node, selected)}
     </div>
     ${renderShellNodeConclusion(task, node)}
@@ -331,10 +334,12 @@ function renderShellFlow(task) {
   const empty = !list.length || (list.length === 1 && list[0].id === state.focusNodeTitleId);
   const selected = list.find((node) => node.id === state.selectedNodeId);
   const roots = sort(task.nodes || []);
+  const doneCount = shellCountDoneNodes(task);
+  const ratio = list.length ? Math.round((doneCount / list.length) * 100) : 0;
   const addButton = `<button class="add-node" type="button" data-action="add-root-node" data-task-id="${escAttr(task.id)}"${empty ? ' aria-describedby="flow-start-hint"' : ""}>${shellIcon("plus")}${empty ? "添加第一个节点" : "添加节点"}</button>`;
   return `<section class="flow-pane${empty ? " flow-empty" : ""}" aria-label="层级处理流">
     <div class="flow-toolbar">
-      <span class="flow-progress">${shellCountDoneNodes(task)} / ${list.length} 已完成</span>
+      <span class="flow-progress"><span class="flow-progress-meter" aria-hidden="true"><i style="width:${ratio}%"></i></span>${doneCount} / ${list.length} 已完成</span>
       <div class="flow-context-bar" hidden>
         ${shellIcon("flowPath", "flow-path-icon")}
         <nav class="flow-breadcrumb" aria-label="当前节点层级" data-flow-breadcrumb></nav>

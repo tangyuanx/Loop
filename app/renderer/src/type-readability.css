@@ -1,8 +1,7 @@
-/* Production typography override. Frozen Demo styles remain byte-identical.
-   Keep the default blackface on the same bundled outlines on every OS.
-   Resolving Heiti to YaHei on Windows and Noto on macOS changes stroke
-   density and spacing despite identical sizes. System/YaHei remain explicit
-   native-font choices; legacy SimHei bitmap strikes are not used. */
+/* Production typography override · Graphite Logbook hierarchy.
+   Keep bundled Noto Sans CJK outlines consistent across platforms, physical-pixel
+   aligned sizes, and regular (400) weight on dense list/tree labels while
+   allowing structural headings and active tabs to carry clear hierarchy. */
 @font-face {
   font-family: "TaskTrack Chinese Heiti";
   src: url("assets/fonts/NotoSansCJKsc-Regular.otf") format("opentype");
@@ -13,41 +12,54 @@
 @font-face {
   font-family: "TaskTrack Chinese Heiti";
   src: url("assets/fonts/NotoSansCJKsc-Bold.otf") format("opentype");
-  font-weight: 700 900;
+  font-weight: 600 900;
   font-display: swap;
   unicode-range: U+2E80-2EFF, U+3000-303F, U+3040-30FF, U+3100-312F, U+31A0-31BF, U+3200-32FF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE10-FE1F, U+FE30-FE4F, U+FF00-FFEF;
 }
-/* Override the frozen font sheet's bold entry, which can resolve to a regular
-   native face registered at weight 700 and prevent synthesis. */
 @font-face {
   font-family: "TaskTrack Chinese System";
   src: local("PingFang SC Semibold"), local("PingFangSC-Semibold"), local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), url("assets/fonts/NotoSansCJKsc-Bold.otf") format("opentype");
-  font-weight: 700 900;
+  font-weight: 600 900;
   unicode-range: U+2E80-2EFF, U+3000-303F, U+3040-30FF, U+3100-312F, U+31A0-31BF, U+3200-32FF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE10-FE1F, U+FE30-FE4F, U+FF00-FFEF;
 }
 :root {
-  --type-11: round(nearest, calc(11px * var(--font-scale, 1)), var(--text-pixel, 1px));
-  --type-12: round(nearest, calc(12px * var(--font-scale, 1)), var(--text-pixel, 1px));
-  --type-13: round(nearest, calc(13px * var(--font-scale, 1)), var(--text-pixel, 1px));
-  --type-14: round(nearest, calc(14px * var(--font-scale, 1)), var(--text-pixel, 1px));
-  --type-17: round(nearest, calc(17px * var(--font-scale, 1)), var(--text-pixel, 1px));
-  --type-22: round(nearest, calc(22px * var(--font-scale, 1)), var(--text-pixel, 1px));
+  --ui-scale: calc(var(--font-scale, 1.08) / 1.04);
+  --type-10: round(nearest, calc(10px * var(--ui-scale)), var(--text-pixel, 1px));
+  --type-11: round(nearest, calc(11px * var(--ui-scale)), var(--text-pixel, 1px));
+  --type-12: round(nearest, calc(12px * var(--ui-scale)), var(--text-pixel, 1px));
+  --type-13: round(nearest, calc(13px * var(--ui-scale)), var(--text-pixel, 1px));
+  --type-14: round(nearest, calc(14px * var(--ui-scale)), var(--text-pixel, 1px));
+  --type-17: round(nearest, calc(17px * var(--ui-scale)), var(--text-pixel, 1px));
+  --type-22: round(nearest, calc(21px * var(--ui-scale)), var(--text-pixel, 1px));
 }
 body { font-size: var(--type-13); font-weight: 400; font-synthesis: none; }
 
-/* UI text uses the real regular face. Rich-document strong/emphasis, code,
-   icons, and theme contrast keep their own semantics and styles. The explicit
-   priority reconciles the opt-in Demo layers' more-specific active selectors. */
-body :is(button, input:where(:not(.kn-table-cell-editor)), select, textarea:where(:not(.kn-table-cell-editor)), .task-item-title, .nav-label,
-  .breadcrumb b, .brief-row label, .node-badge, .setting-label,
-  .settings-document h2, .settings-document h3, .page-heading h1,
-  .widget-header strong, .inspector-head) { font-weight: 400 !important; }
+/* Dense list, tree and input controls use the clean regular (400) face so
+   multi-DPI CJK glyphs never synthesize blurry strokes. Structural headings
+   (task-title, list-heading h2, page-heading h1, dialog titles) retain weight. */
+body :is(button:where(:not(.title-edit, .pane-tab.active, .filter-tab.active, .entry16-submit)),
+  input:where(:not(.kn-table-cell-editor, .manage24-title-input)),
+  select,
+  textarea:where(:not(.kn-table-cell-editor)),
+  .task-item-title,
+  .node-title,
+  .nav-button > span:first-of-type,
+  .nav-label,
+  .node-badge,
+  .inspector-head) { font-weight: 400 !important; }
+
+body :is(.brand strong, .list-heading h2, .breadcrumb > b, .page-heading h1,
+  .settings-document h2, .settings-document h3, .dialog-head h2) {
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
 
 body :is(.button, .text-button, .node-title, .node-title-input,
   .brief-row .brief-value, .pane-tab, .settings-nav button, .prefs-choice,
   .prefs-menu [role="menuitemradio"], .context-menu button,
   .widget12 .widget-title, .widget12 .widget-tabs button) { font-size: var(--type-12); }
-body :is(.task-item-title, .nav-button, .record-editor,
+body :is(.task-item-title, .nav-button) { font-size: var(--type-12); }
+body :is(.record-editor,
   .phase9 .setting-label, .phase9 .setting-row label,
   .phase9 .font-preview p) { font-size: var(--type-13); }
 body :is(.property, .tag, .node-badge, .flow-toolbar, .workspace-foot,
@@ -55,7 +67,7 @@ body :is(.property, .tag, .node-badge, .flow-toolbar, .workspace-foot,
 body .phase9 .setting-row p { font-size: var(--type-12); }
 body .settings-document h2 { font-size: var(--type-17); }
 body .task-title { font-size: var(--type-22); }
-body .navigation .nav-bottom .nav-button { font-size: var(--type-11); }
+body .navigation .nav-bottom .nav-button { font-size: var(--type-12); }
 body .inspector .record-editor {
   font-size: var(--type-13) !important;
   line-height: 1.85 !important;
@@ -63,8 +75,7 @@ body .inspector .record-editor {
 }
 
 /* Leave ink room above/below clipped single-line labels while preserving
-   their ellipsis and the existing row boxes. Multiline node titles and record
-   editors already have their own generous line-height/padding. */
+   their ellipsis and the existing row boxes. */
 body :is(.task-item-title, .nav-button > span:first-of-type,
   .scale20-list-title, .scale20-group-name, .breadcrumb > b) {
   line-height: 1.65;
@@ -74,49 +85,22 @@ body :is(.task-item-title, .nav-button > span:first-of-type,
 body :is(.button, .prefs-choice, .prefs-menu [role="menuitemradio"],
   .context-menu button) { line-height: 1.65; }
 
-/* Windows: give the compact shell a calmer text hierarchy without changing
-   font preferences, physical-pixel sizing, row geometry or semantic colors.
-   Supporting text stays above 4.5:1 on its light surface; dark mode uses its
-   own tones. Avoid opacity/filter-based thinning of small Chinese glyphs. */
+/* Windows supporting tone parity */
 body[data-window25="windows"] {
-  --windows-supporting: #67716b;
-  --windows-completed: #6b756f;
-}
-:root[data-platform="win32"]:not([data-theme="dark"]) body[data-window25="windows"] {
   --windows-supporting: var(--workspace-secondary);
-  --windows-completed: #686868;
+  --windows-completed: var(--workspace-muted);
 }
-:root[data-theme="dark"] body[data-window25="windows"] {
-  --windows-supporting: #a2afa7;
-  --windows-completed: #99a79e;
-}
-
-body[data-window25="windows"] .task-title {
-  font-weight: 400;
-  letter-spacing: -.01em;
-}
-body[data-window25="windows"] .list-heading h2 { font-weight: 500; }
-body[data-window25="windows"] .task-properties { font-weight: 400; }
-
 body[data-window25="windows"] :is(.task-properties, .nav-label,
   .nav-section-heading, .brief21-toggle, .flow-toolbar, .workspace-foot,
   .list-foot, .topbar .rhythm) {
   color: var(--windows-supporting);
 }
-body[data-window25="windows"] .brief-row:not(:focus-within) label {
-  color: var(--windows-supporting);
-}
-/* The selected group retains its green surface and marker. Its parent route
-   remains a quiet location cue rather than a second selected destination. */
 body[data-window25="windows"] .navigation .nav-button.parent-active {
   color: var(--windows-supporting);
 }
-
-/* Keep completed text readable; reduce the crossing line's ink separately.
-   Selected/bulk-selected tasks retain their existing emphasis and hit areas. */
 body[data-window25="windows"] .task-item.done:not(.selected):not(.bulk-selected) .task-item-title {
   color: var(--windows-completed);
-  text-decoration-color: color-mix(in srgb, var(--windows-completed) 62%, var(--list));
+  text-decoration-color: color-mix(in srgb, var(--windows-completed) 55%, var(--list));
   text-decoration-thickness: 1px;
 }
 body[data-window25="windows"] .flow-row.done:not(.selected):not(:hover) .node-title {

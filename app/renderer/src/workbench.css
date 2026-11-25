@@ -1,5 +1,5 @@
-/* Scoped refinement of the existing desktop workbench. */
-/* The final foundation layer owns the editor's neutral keyboard focus. */
+/* Scoped refinement of the desktop workbench & note menus (Graphite Logbook).
+ * Neutral hover/focus treatments; foundation.css remains the final focus owner. */
 .wb-task-context [data-wb-action=details]{padding:2px 5px;color:var(--secondary)}
 .wb-task-context [data-wb-action=details][aria-expanded=true] svg{transform:rotate(180deg)}
 .wb-task-details{padding:0 28px 18px;flex-shrink:0;max-height:40vh;overflow:auto}
@@ -15,11 +15,11 @@ body .workspace .knowledge-header .tabs-bar{border:0;padding:0;gap:22px;min-heig
 .kn-switch-note span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .knowledge-header .kn-switch-note svg,.knowledge-header .knowledge-viewbar svg{width:11px;height:11px}
 .knowledge-header [data-wb-action=mode]{padding:5px;color:var(--secondary);font-size:var(--type-12)}
-.knowledge-header [data-wb-action=focus][aria-pressed=true]{color:var(--green);background:var(--selected)}
+.knowledge-header [data-wb-action=focus][aria-pressed=true]{color:var(--text);background:var(--selected)}
 .knowledge-header .knowledge-header-actions [data-wb-action=more]{width:28px;height:28px;background:transparent;color:var(--secondary)}
-.knowledge-header .knowledge-header-actions [data-wb-action=more]:hover{background:transparent;color:var(--text)}
-.knowledge-header .knowledge-header-actions [data-wb-action=more]:active,.knowledge-header .knowledge-header-actions [data-wb-action=more][aria-expanded=true]{background:transparent;color:var(--green)}
-.knowledge-header [data-wb-action=more] svg{width:18px;height:18px;transform:rotate(90deg);stroke-width:3.4;stroke-linecap:round}
+.knowledge-header .knowledge-header-actions [data-wb-action=more]:hover{background:var(--hover);color:var(--text)}
+.knowledge-header .knowledge-header-actions [data-wb-action=more]:active,.knowledge-header .knowledge-header-actions [data-wb-action=more][aria-expanded=true]{background:var(--selected);color:var(--text)}
+.knowledge-header [data-wb-action=more] svg{width:18px;height:18px;transform:rotate(90deg);stroke-width:3;stroke-linecap:round}
 .knowledge-tools.knowledge-search-only{justify-content:flex-end;min-height:0;padding-block:4px;border:0}
 .knowledge-tools.knowledge-search-only:not(:has(.kn-find:not([hidden]))){display:none}
 .knowledge-pane .knowledge-page{margin-inline:auto}
@@ -29,30 +29,31 @@ body .workspace .knowledge-header .tabs-bar{border:0;padding:0;gap:22px;min-heig
 .knowledge-footer .wb-global-status:has([data-state=failed],[data-state=protected],[data-state=transferring],.workspace-feedback){display:flex;min-width:0}
 .knowledge-footer:has(.wb-global-status [data-state=failed],.wb-global-status [data-state=protected],.wb-global-status [data-state=transferring],.workspace-feedback) [data-kn-receipt]{display:none}
 .wb-more-menu{max-height:calc(100vh - 24px);overflow:auto}
-.wb-more-menu>.note-width-button{width:100%;min-height:28px;justify-content:flex-start;padding:6px 10px;font-size:var(--type-12)}
+.wb-more-menu>.note-width-button{width:100%;min-height:30px;justify-content:flex-start;padding:6px 10px;font-size:var(--type-12)}
 .wb-more-menu>.note-width-button svg:last-child{margin-left:auto}
-.wb-menu{width:224px!important;min-width:0!important;padding:5px!important;border:0!important;border-radius:8px!important;background:var(--canvas);box-shadow:0 8px 28px #0003,0 1px 5px #0001;z-index:1000;overflow:visible!important}
-.wb-submenu{width:196px!important;z-index:1001}
+.wb-menu{width:224px!important;min-width:0!important;padding:5px!important;border:1px solid var(--border-float)!important;border-radius:9px!important;background:var(--surface-raised);box-shadow:var(--surface-shadow);z-index:1000;overflow:visible!important}
+.wb-submenu{width:200px!important;z-index:1001}
 .wb-menu-list{max-height:calc(100vh - 30px);overflow:auto}
 .wb-menu:focus{outline:none}
-.wb-menu button[role=menuitem]{width:100%;display:flex;align-items:center;justify-content:flex-start;gap:8px;padding:5px 8px;min-height:28px;font:var(--type-13)/1.4 var(--sans);border:0;border-radius:4px;white-space:nowrap;background:transparent;color:var(--text)}
+.wb-menu button[role=menuitem]{width:100%;display:flex;align-items:center;justify-content:flex-start;gap:8px;padding:6px 9px;min-height:30px;font:var(--type-12)/1.45 var(--sans);border:0;border-radius:5px;white-space:nowrap;background:transparent;color:var(--text)}
 .wb-menu button>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.wb-menu button>svg{margin-left:auto;width:12px;height:12px}
-.wb-menu kbd{border:0;padding:0;margin-left:auto;font-size:var(--type-11);white-space:nowrap}
-.wb-menu button:not(:disabled):hover,.wb-menu button.submenu-open{background:var(--green);color:var(--canvas);outline:none}.wb-menu button:focus-visible{background:var(--hover);color:var(--text);outline:1px solid var(--focus-line-strong,var(--secondary));outline-offset:-2px}
-.wb-menu button:hover kbd,.wb-menu button:focus-visible kbd,.wb-menu button.submenu-open kbd{color:inherit}
-.wb-menu .menu-divider{margin:5px 7px}
+.wb-menu button>svg{margin-left:auto;width:13px;height:13px;color:var(--secondary)}
+.wb-menu kbd{border:0;padding:0;margin-left:auto;font-family:var(--font-mono);font-size:var(--type-11);color:var(--workspace-muted);white-space:nowrap}
+.wb-menu button:not(:disabled):hover,.wb-menu button.submenu-open{background:var(--hover);color:var(--text);outline:none}
+.wb-menu button:focus-visible{background:var(--hover);color:var(--text);outline:1px solid var(--focus-line-strong,var(--secondary));outline-offset:-2px}
+.wb-menu button:hover kbd,.wb-menu button:focus-visible kbd,.wb-menu button.submenu-open kbd{color:var(--secondary)}
+.wb-menu .menu-divider{margin:4px 6px;border-color:var(--border-subtle)}
 .wb-link-label{display:flex;flex-direction:column;gap:8px;font-size:var(--type-12)}
-.wb-link-label input{padding:8px;border:1px solid var(--line);background:var(--canvas);width:100%}
+.wb-link-label input{padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--canvas);width:100%}
 body .surface-popover.wb-document-rules {
-  display: grid; gap: 2px; padding: 6px; border: 1px solid var(--line); border-radius: 8px;
-  background: var(--surface-raised); box-shadow: 0 4px 14px rgb(0 0 0 / 12%);
+  display: grid; gap: 2px; padding: 6px; border: 1px solid var(--border-float); border-radius: 9px;
+  background: var(--surface-raised); box-shadow: var(--surface-shadow);
 }
-body .wb-document-rules label { display: flex; align-items: center; gap: 9px; min-height: 29px; padding: 3px 7px; margin: 0; border-radius: 4px; font-size: var(--type-12); cursor: pointer; }
+body .wb-document-rules label { display: flex; align-items: center; gap: 9px; min-height: 30px; padding: 3px 8px; margin: 0; border-radius: 5px; font-size: var(--type-12); cursor: pointer; }
 body .wb-document-rules label:hover { background: var(--hover); }
-body .wb-document-rules input[type="checkbox"] { flex: none; width: 15px; height: 15px; min-height: 0; margin: 0; padding: 0; accent-color: var(--text); }
+body .wb-document-rules input[type="checkbox"] { flex: none; width: 15px; height: 15px; min-height: 0; margin: 0; padding: 0; accent-color: var(--action-bg); }
 body .wb-document-rules input:focus-visible { outline: 1px solid var(--focus-line-strong); outline-offset: 2px; }
 body .wb-document-rules footer { position: static; justify-content: flex-end; margin: 2px 0 0; padding: 5px 2px 1px; background: transparent; }
-body .wb-document-rules .button { min-height: 26px; padding-inline: 10px; }
+body .wb-document-rules .button { min-height: 28px; padding-inline: 10px; border-radius: 6px; }
 body.wb-focus:has(.knowledge-pane) .navigation,body.wb-focus:has(.knowledge-pane) .task-list-pane,body.wb-focus:has(.knowledge-pane) .workspace>.task-heading,body.wb-focus:has(.knowledge-pane) .wb-task-details{display:none}
 @container(max-width:700px){body[data-notebook23-enabled] .knowledge-header{padding-inline:18px;gap:0 10px}.knowledge-header .kn-switch-note{max-width:120px}.wb-task-details{padding-inline:22px}.knowledge-header .knowledge-header-actions{gap:2px}body .workspace .knowledge-header .tabs-bar{gap:16px}}

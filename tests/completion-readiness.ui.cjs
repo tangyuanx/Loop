@@ -30,7 +30,7 @@ const {launchRepository, task} = require('./electron-ui-helpers.cjs');
     assert.equal(await app.evaluate(({app}) => app.getAppPath()), path.resolve(__dirname,'..'));
     console.log('Real Electron profile:', profile);
     for (const theme of ['light','dark']) {
-      const usesWhiteSurfaces = theme === 'light' && ['darwin', 'win32'].includes(process.platform);
+      const usesThreePlaneLight = theme === 'light' && ['darwin', 'win32'].includes(process.platform);
       await p.evaluate(theme => {
         state.theme=theme; state.journeyReceipt=null; state.activeTaskId='blocked';
         state.selectedNodeId=''; state.taskPane='flow';
@@ -39,10 +39,15 @@ const {launchRepository, task} = require('./electron-ui-helpers.cjs');
         shellReviewOnly=theme==='dark'; shellHideCompletedNodes=theme==='dark';
         BRIEF21_EXPANDED.set('blocked',false); render();
       },theme);
-      if (usesWhiteSurfaces) {
-        for (const selector of ['.topbar', '.navigation', '.task-list-pane']) {
+      if (usesThreePlaneLight) {
+        for (const [selector, expected] of [
+          ['.topbar', 'rgb(242, 243, 245)'],
+          ['.navigation', 'rgb(242, 243, 245)'],
+          ['.task-list-pane', 'rgb(247, 248, 250)'],
+          ['.workspace', 'rgb(255, 255, 255)'],
+        ]) {
           assert.equal(await p.locator(selector).evaluate(el => getComputedStyle(el).backgroundColor),
-            'rgb(255, 255, 255)', selector + ' has a white background');
+            expected, selector + ' matches the three-plane light hierarchy');
         }
       }
       await complete('blocked');
@@ -69,12 +74,12 @@ const {launchRepository, task} = require('./electron-ui-helpers.cjs');
       await p.locator('.flow-row[data-node-id="pending"] .node-status').click();
       await complete('blocked');
       assert.equal(await p.evaluate(()=>state.tasks.find(t=>t.id==='blocked').status),'done');
-      if (usesWhiteSurfaces) {
+      if (usesThreePlaneLight) {
         const ring = p.locator('[data-task-row="blocked"].done .task-check-ring');
         assert.deepEqual(await ring.evaluate(el => {
           const style = getComputedStyle(el);
           return [style.backgroundColor, style.borderTopColor, style.color];
-        }), ['rgba(0, 0, 0, 0)', 'rgb(130, 130, 130)', 'rgb(119, 119, 119)'],
+        }), ['rgba(0, 0, 0, 0)', 'rgb(138, 144, 158)', 'rgb(138, 144, 158)'],
         'The completed task keeps a neutral ring and check without a fill');
       }
       await p.locator('[data-journey17="undo"]').click(); await settle();

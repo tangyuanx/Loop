@@ -175,7 +175,7 @@ function renderShellReview() {
               return `<tr>
                 <td><button class="review-task-title" type="button" data-action="open-review-task" data-task-id="${escAttr(task.id)}">${esc(task.title || "未命名任务")}</button>${shellTemporalSummary(task.conclusion || task.hypothesis || task.description || "尚未记录处理过程")}</td>
                 <td class="muted">${esc(group?.title || "未分组")}</td>
-                <td><span class="badge ${done ? "green" : ""}">${done ? "已完成" : task.tags?.blocked ? "卡住" : task.tags?.later ? "暂缓" : "未完成"}</span>${shellReviewNodeProgress(task)}</td>
+                <td><span class="badge ${done ? "green is-done" : task.tags?.blocked ? "orange is-blocked" : task.tags?.later ? "is-later" : "is-open"}">${done ? "已完成" : task.tags?.blocked ? "卡住" : task.tags?.later ? "暂缓" : "未完成"}</span>${shellReviewNodeProgress(task)}</td>
                 <td class="date">${esc(shellReviewDateText(date))}</td>
               </tr>`;
             }).join("")}</tbody>

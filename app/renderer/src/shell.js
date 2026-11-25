@@ -151,7 +151,7 @@ function applyLoopAppearance() {
   root.style.setProperty("--font-scale", shellFontScaleValue(state.fontScale));
   root.style.setProperty(
     "--sans",
-    `"TaskTrack English ${SHELL_EN_FAMILIES[state.enFont] || "Times"}","TaskTrack Chinese ${SHELL_ZH_FAMILIES[state.zhFont] || "Heiti"}",-apple-system,BlinkMacSystemFont,sans-serif`,
+    `"TaskTrack English ${SHELL_EN_FAMILIES[state.enFont] || "Inter"}","TaskTrack Chinese ${SHELL_ZH_FAMILIES[state.zhFont] || "Heiti"}",-apple-system,BlinkMacSystemFont,sans-serif`,
   );
 }
 
@@ -354,6 +354,20 @@ function shellListFoot() {
   return shellGroupTitle(state.activeGroupId);
 }
 
+function shellTaskRowSignals(task) {
+  if (task.status === "done" || shellTaskIsNote(task)) return "";
+  const deadline = typeof shellDeadlineProperty === "function" ? shellDeadlineProperty(task) : { classes: "" };
+  const tags = normalizeTaskTags(task.tags);
+  const priority = normalizePriority(task.priority);
+  if (deadline.classes.includes("overdue") || tags.blocked) {
+    return '<span class="task-row-meta" aria-hidden="true"><span class="task-priority-dot is-danger"></span></span>';
+  }
+  if (deadline.classes.includes("time18-soon") || priority === "high") {
+    return '<span class="task-row-meta" aria-hidden="true"><span class="task-priority-dot is-high"></span></span>';
+  }
+  return "";
+}
+
 function renderShellTaskRow(task, displayOrder) {
   const selected = task.id === state.activeTaskId;
   const done = task.status === "done";
@@ -365,7 +379,7 @@ function renderShellTaskRow(task, displayOrder) {
         <button class="task-complete" type="button" data-action="toggle-task-done" data-task-id="${escAttr(task.id)}" aria-label="${done ? "恢复任务" : "完成任务"}：${escAttr(task.title)}" aria-pressed="${done}" title="${done ? "恢复任务" : "完成任务"}"><span class="task-check-ring">${shellIcon("check")}</span></button>
       </span>
       <button class="task-select" type="button" data-task-id="${escAttr(task.id)}" aria-pressed="${selected}" title="${escAttr(task.title)}">
-        <span class="task-item-title">${esc(task.title || "未命名任务")}</span>
+        <span class="task-item-title">${esc(task.title || "未命名任务")}</span>${shellTaskRowSignals(task)}
       </button>
     </li>`;
 }
@@ -416,14 +430,6 @@ function renderShellTaskList(list) {
   return `
     <aside id="task-list-panel" class="task-list-pane ${shellRoute() === "today" ? "today-clean " : ""}" aria-label="任务列表">
       <span class="list-resizer" data-action="resize-list-column" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整任务列表宽度" aria-valuemin="230" aria-valuemax="460" aria-valuenow="${normalizeSidebarWidth(state.sidebarWidth)}" title="拖动调整任务列表宽度"></span>
-      <div class="list-search" role="search">
-        ${shellIcon("search")}
-        <input id="search" type="search" placeholder="搜索" aria-label="搜索${escAttr(shellListTitle())}中的任务、节点、速记" aria-controls="task-results" autocomplete="off" value="${escAttr(state.query)}" />
-        <span class="list-search-end">
-          <kbd class="search-shortcut" aria-hidden="true">${desktopPlatform === "darwin" ? "⌘" : "Ctrl"} K</kbd>
-          <button class="search-clear" type="button" data-action="clear-search" aria-label="清空搜索" title="清空搜索" ${state.query ? "" : "hidden"}>${shellIcon("close")}</button>
-        </span>
-      </div>
       <div class="list-heading">
         <div class="list-heading-label">
           <h2 title="${escAttr(shellListTitle())}"><span class="list-title">${esc(shellListTitle())}</span><span class="count" role="status" aria-live="polite">${list.length}</span></h2>
@@ -433,6 +439,14 @@ function renderShellTaskList(list) {
           <button class="icon-button scope-filter ${filters.length ? "has-filters" : ""}" type="button" data-action="open-combined-filter" aria-label="筛选记录" aria-haspopup="dialog" title="${filters.length ? escAttr(`筛选记录：${filters.join(" · ")}`) : "筛选记录"}">${shellIcon("filter")}</button>
           <button class="icon-button" type="button" data-action="add-task" aria-label="新建${note ? "速记" : "任务"}" title="新建${note ? "速记" : "任务"}（${desktopPlatform === "darwin" ? "⌘" : "Ctrl"} + N）">${shellIcon("plus")}</button>
         </div>
+      </div>
+      <div class="list-search" role="search">
+        ${shellIcon("search")}
+        <input id="search" type="search" placeholder="搜索" aria-label="搜索${escAttr(shellListTitle())}中的任务、节点、速记" aria-controls="task-results" autocomplete="off" value="${escAttr(state.query)}" />
+        <span class="list-search-end">
+          <kbd class="search-shortcut" aria-hidden="true">${desktopPlatform === "darwin" ? "⌘" : "Ctrl"} K</kbd>
+          <button class="search-clear" type="button" data-action="clear-search" aria-label="清空搜索" title="清空搜索" ${state.query ? "" : "hidden"}>${shellIcon("close")}</button>
+        </span>
       </div>
       ${renderShellListFilter()}
       ${filters.length ? `<div class="active-list-filters"><span title="${escAttr(filters.join(" · "))}">${esc(filters.join(" · "))}</span><button class="icon-button" type="button" data-action="clear-list-filters" aria-label="清除筛选" title="清除筛选">${shellIcon("close")}</button></div>` : ""}

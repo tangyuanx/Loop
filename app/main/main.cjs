@@ -90,8 +90,8 @@ const isMac = process.platform === "darwin";
  */
 const HEADER_HEIGHT = 48;
 const WINDOW_HEADER_THEMES = {
-  light: { color: process.platform === "win32" ? "#ffffff" : "#f4f4f4", symbolColor: "#1d1d1d" },
-  dark: { color: "#242424", symbolColor: "#ededed" },
+  light: { color: "#f2f3f5", symbolColor: "#15171c" },
+  dark: { color: "#121316", symbolColor: "#eceef2" },
 };
 // Calibrated against the frozen Demo's Mac identity (probe/phase25/
 // calibrate-traffic.cjs, measured on the real window image): macOS draws 14px
@@ -143,7 +143,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 680,
     title: APP_DISPLAY_NAME,
-    backgroundColor: "#ffffff",
+    backgroundColor: "#f2f3f5",
     show: false,
     autoHideMenuBar: true,
     ...windowChromeOptions(),

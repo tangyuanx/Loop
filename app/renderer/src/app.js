@@ -290,7 +290,7 @@ let state = {
   markdownMode: "edit",
   theme: "light",
   zhFont: "heiti",
-  enFont: "times",
+  enFont: "inter",
   fontScale: "large",
   settingsOpen: false,
   calendarOpen: false,
@@ -1009,7 +1009,7 @@ function normalizeZhFont(value) {
 }
 
 function normalizeEnFont(value) {
-  return Object.hasOwn(enFontLabels, value) ? value : "times";
+  return Object.hasOwn(enFontLabels, value) ? value : "inter";
 }
 
 function normalizeFontScale(value) {
@@ -1030,7 +1030,7 @@ function migrateLegacyFont(value) {
   if (value === "heiti") return { zhFont: "heiti", enFont: "inter" };
   if (value === "mono") return { zhFont: "yahei", enFont: "mono" };
   if (value === "system" || value === "yahei") return { zhFont: "system", enFont: "inter" };
-  return { zhFont: "heiti", enFont: "times" };
+  return { zhFont: "heiti", enFont: "inter" };
 }
 
 function loadBrowserTheme() {

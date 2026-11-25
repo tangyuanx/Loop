@@ -1,5 +1,6 @@
-/* Stage 2: navigation and repository geometry. Shared fields and focus remain
-   owned by foundation.css, loaded after this feature sheet. */
+/* Stage 2 · Graphite Logbook Navigation & Task Queue
+   Owns Plane 1 (Frame/Navigation), Topbar chrome, and Plane 2 (Task Queue).
+   Shared field and focus contracts remain in foundation.css. */
 :root {
   --repository-nav: var(--surface-navigation);
   --repository-list: var(--surface-task-list);
@@ -12,109 +13,385 @@ body .navigation {
   background: var(--repository-nav);
   border-right: 0;
   box-shadow: none;
-  padding-inline: 12px;
+  padding-inline: 10px;
+  padding-top: 4px;
 }
 
-/* One outline owns the boundary of the list and workspace together. Keeping
-   it outside both retained regions prevents seams and doubled top rules. */
+/* Single continuous inset frame around Queue + Workspace. */
 body[data-window25] .app { position: relative; background: var(--repository-nav); }
-body[data-window25] .app::before { content: ""; position: absolute; z-index: 10; pointer-events: none; top: 48px; left: var(--nav-width); right: 0; bottom: 0; border: 1px solid var(--workspace-line); border-right: 0; border-bottom: 0; border-radius: 12px 0 0 0; }
-body .app:is(.list-collapsed,.app-wide) > .workspace { border-top-left-radius: 12px; }
+body[data-window25] .app::before {
+  content: "";
+  position: absolute;
+  z-index: 10;
+  pointer-events: none;
+  top: 48px;
+  left: var(--nav-width);
+  right: 0;
+  bottom: 0;
+  border: 1px solid var(--workspace-line);
+  border-right: 0;
+  border-bottom: 0;
+  border-radius: 12px 0 0 0;
+}
+body .app:is(.list-collapsed, .app-wide) > .workspace { border-top-left-radius: 12px; }
 
+/* Integrated Topbar */
 body[data-window25] .topbar {
   background: var(--repository-nav);
   border-bottom: 0;
   box-shadow: none;
 }
+body[data-window25] .topbar .brand {
+  flex-basis: var(--shell-expanded-nav-width, 184px);
+  width: var(--shell-expanded-nav-width, 184px);
+  justify-content: flex-start;
+  padding-inline: 10px;
+  gap: 7px;
+  background: var(--repository-nav);
+}
+body[data-window25] .topbar .brand .brand-mark { width: 20px; height: 20px; border-radius: 5px; }
+body[data-window25] .topbar .brand strong {
+  display: block;
+  font-size: var(--type-13);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--workspace-text);
+}
+body[data-window25] .topbar .brand .nav-toggle {
+  display: inline-flex;
+  width: 26px;
+  height: 28px;
+  margin-left: auto;
+  padding: 5px;
+}
 
-body[data-window25] .topbar .brand { background: var(--repository-nav); }
-body[data-window25] .breadcrumb { min-width: 0; max-width: none; flex: 1 1 auto; padding-right: 12px; font-size: var(--type-11); }
-body[data-window25] .breadcrumb b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-body[data-window25] .breadcrumb > svg { flex-shrink: 0; }
-/* Topbar slots follow the expanded columns. Folding either column only
-   changes the grid below the titlebar. Reserve space for the title and caption
-   at high zoom before using the full list width for the header. */
 body .shell-list-header {
   --list-header-width: clamp(40px, calc(100% - var(--shell-expanded-nav-width, 184px) - var(--window25-native-caption-width, 0px) - 188px), var(--list-width));
-  display: flex; align-items: center; justify-content: flex-end;
-  flex: 0 0 var(--list-header-width); width: var(--list-header-width); height: 48px;
-  padding: 0 12px; box-sizing: border-box; position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 var(--list-header-width);
+  width: var(--list-header-width);
+  height: 48px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  position: relative;
 }
-body .shell-list-header::after { content: ""; position: absolute; right: 0; top: 15px; width: 1px; height: 18px; background: var(--workspace-line); }
+body .shell-list-header::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 15px;
+  width: 1px;
+  height: 18px;
+  background: var(--workspace-line);
+}
 body .app.app-wide .shell-list-header { display: none; }
-body .shell-pane-toggle { width: 28px; height: 28px; padding: 6px; flex-shrink: 0; border-radius: 6px; color: var(--secondary); background: transparent; }
-body .shell-pane-toggle svg { width: 16px; height: 16px; }
-body .shell-pane-toggle:hover { background: var(--surface-navigation-hover); color: var(--workspace-text); }
-body .shell-pane-toggle[aria-expanded="false"] { color: var(--workspace-text); background: var(--workspace-selected); }
-body[data-window25] .topbar .brand { flex-basis: var(--shell-expanded-nav-width, 184px); width: var(--shell-expanded-nav-width, 184px); justify-content: flex-start; padding-inline: 10px; gap: 6px; }
-body[data-window25] .topbar .brand strong { display: block; }
-body[data-window25] .topbar .brand .nav-toggle { display: inline-flex; width: 26px; height: 28px; margin-left: auto; padding: 5px; }
-body[data-window25] .breadcrumb { gap: 8px; padding-left: 16px; margin-left: 0; }
-body .shell-route-name { white-space: nowrap; flex-shrink: 0; }
-body .shell-task-path { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 45%; color: var(--workspace-secondary); font-size: var(--type-11); }
-body .shell-task-path > svg { width: 12px; height: 12px; flex-shrink: 0; }
-body .shell-group-context { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--workspace-secondary); font-size: var(--type-11); }
-body .shell-group-context > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-body .shell-group-context svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--workspace-secondary); }
-body[data-window25] .breadcrumb .task-title { display: flex; align-items: center; flex: 0 1 auto; min-width: 50px; max-width: 100%; height: 32px; margin: 0; font-size: var(--type-13); line-height: 24px; letter-spacing: 0; }
-body .breadcrumb .title-edit { display: flex; align-items: center; justify-content: flex-start; gap: 6px; width: 100%; min-width: 0; height: 32px; padding: 4px 5px; line-height: 24px; color: var(--workspace-text); border-radius: 5px; text-align: left; }
-body .breadcrumb .title-edit > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-body .breadcrumb .title-edit svg { width: 12px; height: 12px; flex-shrink: 0; opacity: 0; }
-body .breadcrumb .title-edit:is(:hover,:focus-visible) { background: var(--surface-navigation-hover); }
-body .breadcrumb .title-edit:is(:hover,:focus-visible) svg { opacity: .7; }
-body[data-window25] .breadcrumb .manage24-title-input { display: block; width: 100%; min-width: 0; height: 32px; min-height: 32px; max-height: 32px; margin: 0; padding: 4px 5px; border: 0; border-radius: 0; font: inherit; line-height: 24px; color: var(--workspace-text); background: transparent; }
-body .breadcrumb .manage24-inline-error { position: fixed; top: 48px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--canvas); z-index: 90; }
-body .breadcrumb .manage24-inline-error:empty { display: none; }
-body .shell-actions { gap: 8px; flex-shrink: 0; padding: 0 24px 0 12px; }
-body .preview-date { font-size: var(--type-11); color: var(--workspace-secondary); margin-right: 10px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-/* Keep the list mounted when hidden, so queries, scroll and row bindings live
-   through a visibility change. Full-width pages retain their existing layout. */
-body .app.list-collapsed:not(.app-wide) { grid-template-columns: var(--nav-width) minmax(0,1fr); }
+body .shell-pane-toggle {
+  width: 28px;
+  height: 28px;
+  padding: 6px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  color: var(--workspace-secondary);
+  background: transparent;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+body .shell-pane-toggle svg { width: 15px; height: 15px; }
+body .shell-pane-toggle:hover { background: var(--surface-navigation-hover); color: var(--workspace-text); }
+body .shell-pane-toggle[aria-expanded="false"] {
+  color: var(--workspace-text);
+  background: var(--surface-navigation-selected);
+  box-shadow: var(--shadow-xs);
+}
+
+/* Breadcrumb & Inline Editable Task Title */
+body[data-window25] .breadcrumb {
+  min-width: 0;
+  max-width: none;
+  flex: 1 1 auto;
+  gap: 7px;
+  padding-left: 16px;
+  padding-right: 12px;
+  margin-left: 0;
+  font-size: var(--type-12);
+}
+body[data-window25] .breadcrumb b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-13);
+  color: var(--workspace-text);
+}
+body[data-window25] .breadcrumb > svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: var(--workspace-muted);
+}
+body .shell-route-name { white-space: nowrap; flex-shrink: 0; }
+body .shell-task-path {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 42%;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--workspace-text) 5%, transparent);
+  color: var(--workspace-secondary);
+  font-size: var(--type-11);
+}
+body .shell-task-path > svg { width: 12px; height: 12px; flex-shrink: 0; }
+body .shell-group-context {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--workspace-secondary);
+  font-size: var(--type-11);
+}
+body .shell-group-context > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body .shell-group-context svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--workspace-muted); }
+
+/* Keep .title-edit and #manage24-title identical in box geometry (32px height, 4px 5px padding). */
+body[data-window25] .breadcrumb .task-title {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 50px;
+  max-width: 100%;
+  height: 32px;
+  margin: 0;
+  font-size: var(--type-13);
+  font-weight: 600;
+  line-height: 24px;
+  letter-spacing: -0.01em;
+}
+body .breadcrumb .title-edit {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 4px 5px;
+  line-height: 24px;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  color: var(--workspace-text);
+  border-radius: 5px;
+  text-align: left;
+}
+body .breadcrumb .title-edit > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+body .breadcrumb .title-edit svg { width: 12px; height: 12px; flex-shrink: 0; opacity: 0; color: var(--workspace-muted); }
+body .breadcrumb .title-edit:is(:hover, :focus-visible) { background: var(--surface-navigation-hover); }
+body .breadcrumb .title-edit:is(:hover, :focus-visible) svg { opacity: 0.75; }
+body[data-window25] .breadcrumb .manage24-title-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
+  margin: 0;
+  padding: 4px 5px;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  line-height: 24px;
+  color: var(--workspace-text);
+  background: transparent;
+}
+body .breadcrumb .manage24-inline-error {
+  position: fixed;
+  top: 48px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  box-shadow: var(--surface-shadow);
+  z-index: 90;
+}
+body .breadcrumb .manage24-inline-error:empty { display: none; }
+
+body .shell-actions { gap: 8px; flex-shrink: 0; padding: 0 20px 0 12px; }
+body .preview-date {
+  font-family: var(--font-mono);
+  font-size: var(--type-11);
+  color: var(--workspace-muted);
+  margin-right: 6px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Column visibility transitions */
+body .app.list-collapsed:not(.app-wide) { grid-template-columns: var(--nav-width) minmax(0, 1fr); }
 body .app.list-collapsed .task-list-pane { display: none; }
 body .app.list-collapsed:not(.app-wide) > .workspace { grid-column: 2; grid-row: 2; }
 
+/* Primary Navigation Rail — Calm, Breathing Proportions */
 body .navigation .nav-button {
-  min-height: 38px;
-  margin-block: 3px;
+  min-height: 33px;
+  height: 33px;
+  margin-block: 2px;
   padding-inline: 10px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
-  color: var(--secondary);
+  color: var(--workspace-secondary);
+  box-shadow: none;
+  transition: background-color 100ms ease, color 100ms ease;
+}
+body .navigation .nav-button svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.55;
+  color: var(--workspace-muted);
+  transition: color 100ms ease;
+}
+body .navigation .nav-button:hover {
+  color: var(--workspace-text);
+  background: var(--surface-navigation-hover);
   box-shadow: none;
 }
+body .navigation .nav-button:hover svg { color: var(--workspace-secondary); }
 
-body .navigation .nav-button svg { width: 16px; height: 16px; stroke-width: 1.55; }
-body .navigation .nav-button:hover { color: var(--text); background: var(--surface-navigation-hover); box-shadow: none; }
+/* Unified restrained active pill across ALL routes */
 body .navigation .nav-button.active,
-body .navigation .nav-button.active:not(:disabled):hover { color: var(--text); background: var(--surface-navigation-selected); box-shadow: none; }
-body .navigation .nav-button.active::before { display: none; }
+body .navigation .nav-button.active:not(:disabled):hover,
 body .navigation .nav-button[data-value="today"].active,
-body .navigation .nav-button[data-value="today"].active:not(:disabled):hover { background: #365b48; color: #f3f4ed; }
-body .navigation .nav-button[data-value="today"].active :is(svg, .count) { color: inherit; background: transparent; }
-body .nav-groups { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-body .nav-section-heading { padding-inline: 2px; gap: 2px; }
+body .navigation .nav-button[data-value="today"].active:not(:disabled):hover {
+  color: var(--workspace-text);
+  background: var(--surface-navigation-selected);
+  box-shadow: 0 1px 1.5px rgb(0 0 0 / 5%), 0 0 0 1px rgb(0 0 0 / 4%);
+}
+:root[data-theme="dark"] body .navigation .nav-button.active,
+:root[data-theme="dark"] body .navigation .nav-button[data-value="today"].active {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 6%);
+}
+body .navigation .nav-button.active svg,
+body .navigation .nav-button[data-value="today"].active svg {
+  color: var(--workspace-text);
+}
+body .navigation .nav-button.active::before { display: none; }
+body .navigation .nav-button.parent-active {
+  color: var(--workspace-text);
+  background: transparent;
+}
+body .navigation .nav-button .count {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--workspace-muted);
+  background: transparent;
+}
+body .navigation .nav-button.active .count,
+body .navigation .nav-button[data-value="today"].active .count {
+  color: var(--workspace-secondary);
+  background: transparent;
+}
+
+/* Task Groups Section */
+body .nav-groups {
+  min-height: 0;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+body .nav-section-heading {
+  padding: 4px 6px 6px 10px;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--workspace-muted);
+  letter-spacing: 0.02em;
+}
 body .nav-section-heading > span:first-child { white-space: nowrap; }
-body .nav-section-heading .icon-button { width: 20px; height: 24px; flex-shrink: 0; }
-body .navigation .group-nav-row .nav-button { min-height: 34px; font-size: var(--type-12); }
-body .nav-groups .count { font-size: var(--type-11); }
-body .navigation .nav-bottom { border: 0; height: auto; min-height: 0; padding: 12px 0 8px; margin-inline: 0; flex-shrink: 0; flex-direction: column; align-items: stretch; gap: 0; }
-body .navigation .nav-bottom .nav-button { width: 100%; min-height: 34px; margin: 0; padding-inline: 10px; }
+body .nav-section-heading .icon-button {
+  width: 22px;
+  height: 22px;
+  padding: 4px;
+  border-radius: 5px;
+  color: var(--workspace-muted);
+  flex-shrink: 0;
+}
+body .nav-section-heading .icon-button:hover {
+  background: var(--surface-navigation-hover);
+  color: var(--workspace-text);
+}
+body .navigation .group-nav-row { margin-block: 1.5px; }
+body .navigation .group-nav-row .nav-button {
+  min-height: 31px;
+  height: 31px;
+  font-size: var(--type-12);
+}
+body .group-mark {
+  width: 5.5px;
+  height: 5.5px;
+  border-radius: 1.5px;
+  border: 1.25px solid var(--workspace-muted);
+  background: transparent;
+  opacity: 0.8;
+}
+body .navigation .group-nav-row .nav-button.active .group-mark {
+  border-color: var(--workspace-text);
+  background: var(--workspace-text);
+  opacity: 1;
+}
+body .nav-groups .count { font-size: 10.5px; }
+
+/* Navigation Bottom (Settings + Update slot) */
+body .navigation .nav-bottom {
+  border-top: 1px solid color-mix(in srgb, var(--workspace-line) 65%, transparent);
+  height: auto;
+  min-height: 0;
+  padding: 6px 0 6px;
+  margin-inline: 0;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+body .navigation .nav-bottom .nav-button {
+  width: 100%;
+  min-height: 29px;
+  height: 29px;
+  margin: 0;
+  padding-inline: 9px;
+}
 body .nav-bottom-actions { display: flex; align-items: center; gap: 4px; }
 body .navigation .nav-bottom-actions .nav-button { width: auto; flex: 1; min-width: 0; }
 body .nav-bottom-actions .brand-update-slot { display: flex; flex: 0 0 auto; }
 body .nav-bottom-actions .brand-update-slot:empty { display: none; }
-body .nav-bottom-actions .brand-update { display: inline-flex; width: 30px; height: 30px; padding: 7px; color: var(--secondary); border-radius: 6px; }
-body .nav-bottom-actions .brand-update:hover { background: var(--surface-navigation-hover); color: var(--text); }
+body .nav-bottom-actions .brand-update {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  padding: 6px;
+  color: var(--status-warn);
+  border-radius: 5px;
+}
+body .nav-bottom-actions .brand-update:hover { background: var(--surface-navigation-hover); color: var(--workspace-text); }
 body .nav-collapsed .nav-bottom-actions { flex-direction: column; }
 body .nav-collapsed .nav-bottom-actions .nav-button { width: 100%; }
 
+/* ============================================================
+ * Plane 2 · Task Queue Pane (Quiet Controls & Dense Queue Rows)
+ * ============================================================ */
 body .task-list-pane {
   --list: var(--repository-list);
   --hover: var(--repository-hover);
   --selected: var(--repository-selected);
-  --input-surface: var(--workspace-list);
+  --input-surface: color-mix(in srgb, var(--workspace-text) 4%, var(--repository-list));
   --field22-bg: var(--input-surface);
   min-width: 0;
   background: var(--list);
@@ -124,74 +401,311 @@ body .task-list-pane {
   overflow: hidden;
 }
 
-body .task-list-pane .list-search {
-  margin: 16px 16px 7px;
-  min-height: 36px;
-  height: 36px;
-  padding-inline: 11px;
-  border-radius: 8px;
-}
-
-body .list-search input { font-size: var(--type-11); }
-body .list-search kbd { border: 0; background: transparent; color: var(--secondary); }
-body .list-search-end { display: grid; place-items: center; flex: none; min-inline-size: 23px; }
-body .list-search-end > * { grid-area: 1 / 1; }
-body .list-search:has(input:not(:placeholder-shown)) .search-shortcut { visibility: hidden; }
-body .task-list-pane .list-heading { padding: 15px 20px 17px; border: 0; gap: 6px; }
-body .list-heading-label { display: flex; align-items: center; gap: 3px; min-width: 0; }
-body .list-heading h2 { min-width: 0; font-size: var(--type-13); gap: 9px; }
-body .list-heading .list-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-body .list-heading h2 .count { flex-shrink: 0; color: var(--secondary); background: transparent; font-size: var(--type-11); }
-body .list-more-button { width: 24px; height: 28px; padding: 0; color: var(--secondary); }
-body .list-more-button svg { width: 14px; height: 14px; }
-body .list-more-button[aria-expanded="true"] { color: var(--text); background: var(--hover); }
-body .heading-list-actions { gap: 3px; flex-shrink: 0; }
-body .heading-list-actions :is(.scope-filter, .icon-button) {
-  min-height: 28px;
+/* 1. Breathing List Heading — Plumb-aligned at x = 18px */
+body .task-list-pane .list-heading {
+  padding: 15px 12px 9px 18px;
   border: 0;
+  gap: 6px;
+}
+body .list-heading-label { display: flex; align-items: center; gap: 3px; min-width: 0; }
+body .list-heading h2 {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  font-size: var(--type-13);
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: var(--workspace-text);
+  gap: 6px;
+}
+body .list-heading .list-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body .list-heading h2 .count {
+  flex-shrink: 0;
+  color: var(--workspace-muted);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 400;
+}
+body .list-more-button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 4px;
+  color: var(--workspace-muted);
+  opacity: 0.55;
+  transition: opacity 100ms ease, background-color 100ms ease, color 100ms ease;
+}
+body .list-heading:hover .list-more-button,
+body .list-more-button:is(:hover, :focus-visible, [aria-expanded="true"]) { opacity: 1; }
+body .list-more-button svg { width: 13px; height: 13px; }
+body .list-more-button:hover,
+body .list-more-button[aria-expanded="true"] { color: var(--workspace-text); background: var(--hover); }
+
+body .heading-list-actions { gap: 2px; flex-shrink: 0; }
+body .heading-list-actions :is(.scope-filter, .icon-button) {
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  border: 0;
+  border-radius: 6px;
   background: transparent;
   box-shadow: none;
-  color: var(--secondary);
+  color: var(--workspace-secondary);
+}
+body .heading-list-actions :is(.scope-filter, .icon-button):hover { background: var(--hover); color: var(--workspace-text); }
+body .heading-list-actions .scope-filter { padding: 0; }
+body .heading-list-actions .scope-filter svg { width: 14px; height: 14px; }
+body .heading-list-actions .scope-filter.has-filters {
+  color: var(--workspace-text);
+  background: color-mix(in srgb, var(--workspace-text) 8%, transparent);
+}
+body .heading-list-actions > [data-action="add-task"] {
+  background: transparent;
+  color: var(--workspace-secondary);
+  border: 0;
+}
+body .heading-list-actions > [data-action="add-task"]:hover {
+  background: var(--hover);
+  color: var(--workspace-text);
+}
+body .heading-list-actions > [data-action="add-task"] svg { width: 14.5px; height: 14.5px; stroke-width: 1.7; }
+
+/* 2. Soft Borderless Search Slot — Outer 10px matches task cards, inner icon aligns at x = 18px */
+body .task-list-pane .list-search {
+  margin: 0 10px 4px;
+  min-height: 31px;
+  height: 31px;
+  padding-inline: 8px 9px;
+  border: 0;
+  border-radius: 7px;
+}
+body .list-search > svg { width: 13px; height: 13px; color: var(--workspace-muted); flex-shrink: 0; }
+body .list-search input { font-size: var(--type-12); }
+body .list-search kbd {
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--workspace-muted) 72%, transparent);
+  font-size: 10px;
+  line-height: 1.3;
+}
+body .list-search-end { display: grid; place-items: center; flex: none; min-inline-size: 22px; }
+body .list-search-end > * { grid-area: 1 / 1; }
+body .list-search:has(input:not(:placeholder-shown)) .search-shortcut { visibility: hidden; }
+
+/* 3. Horizon Underline Tabs — Matches right workspace tabs, plumb-aligned at x = 18px */
+body .list-filter {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  margin: 0 0 6px;
+  padding: 0 18px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--workspace-line) 75%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+body .list-filter .filter-tab {
+  position: relative;
+  justify-content: center;
+  min-height: 31px;
+  height: 31px;
+  padding: 0 1px;
+  border: 0;
+  border-radius: 0;
+  font-size: var(--type-11);
+  color: var(--workspace-muted);
+  background: transparent;
+  box-shadow: none;
+  transition: color 100ms ease;
+}
+body .list-filter .filter-tab:hover:not(.active) {
+  color: var(--workspace-text);
+  background: transparent;
+}
+body .list-filter .filter-tab.active {
+  color: var(--workspace-text);
+  font-weight: 500;
+  background: transparent;
+  box-shadow: none;
+}
+body .list-filter .filter-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1.5px;
+  border-radius: 2px 2px 0 0;
+  background: var(--workspace-text);
 }
 
-body .heading-list-actions :is(.scope-filter, .icon-button):hover { background: var(--hover); color: var(--text); }
-body .heading-list-actions .scope-filter { padding: 0; }
-body .heading-list-actions .scope-filter svg { width: 16px; height: 16px; }
-body .heading-list-actions .scope-filter.has-filters { color: var(--text); background: var(--selected); }
-body .heading-list-actions > [data-action="add-task"] { background: var(--hover); color: var(--text); }
-body .heading-list-actions > [data-action="add-task"]:hover { background: var(--selected); }
-body .task-list-pane .tasks-scroll { padding: 2px 12px 20px; }
-body .repository-empty { padding: 12px 8px; color: var(--secondary); font-size: var(--type-12); overflow-wrap: anywhere; }
-body .repository-empty .text-button { display: flex; margin-block-start: 4px; }
-body .task-list-pane .task-item { height: 44px; min-height: 44px; margin: 4px 0; border-radius: 8px; gap: 7px; padding-inline: 9px; }
+/* Active filter chips */
+body .active-list-filters,
+body .scope-chip {
+  margin: 0 10px 6px;
+  padding: 4px 8px 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--workspace-line);
+  background: var(--surface-raised);
+  color: var(--workspace-secondary);
+  font-size: var(--type-11);
+}
+
+/* 4. Breathing Task Queue Rows — Outer 10px, inner icon at x = 18px, soft borderless selection */
+body .task-list-pane .tasks-scroll { padding: 3px 10px 20px; }
+body .repository-empty { padding: 18px 8px; color: var(--workspace-secondary); font-size: var(--type-12); overflow-wrap: anywhere; }
+body .repository-empty .text-button { display: flex; margin-block-start: 6px; }
+
+body .task-list-pane .task-item {
+  height: 38px;
+  min-height: 38px;
+  margin: 2px 0;
+  border-radius: 7px;
+  gap: 7px;
+  padding-inline: 8px 10px;
+  border: 0;
+  transition: background-color 90ms ease, box-shadow 90ms ease;
+}
 body .task-item.selected::before { display: none; }
+body .task-list-pane .task-item:hover { background: var(--hover); }
 body .task-list-pane .task-item.selected,
-body .task-list-pane .task-item.selected:hover { background: var(--selected); }
-body .task-item.selected .task-item-title { color: var(--text); }
-body .task-item-title { font-size: var(--type-12); }
-body .task-sequence-action { width: 20px; flex-basis: 20px; }
-body .task-sequence { font-size: var(--type-11); }
-body .task-item.selected .task-complete { color: var(--secondary); }
-body .list-filter { border: 0; padding-inline: 18px; }
-body .active-list-filters { margin: 0 16px 7px; color: var(--secondary); background: transparent; border: 0; padding-inline: 4px; }
-body .list-foot { min-height: 38px; padding-inline: 20px; border: 0; background: transparent; font-size: var(--type-11); }
+body .task-list-pane .task-item.selected:hover,
+body .task-list-pane.today-clean .task-item.selected,
+body .task-list-pane.today-clean .task-item.selected:hover {
+  background: var(--selected);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 5%);
+}
+:root[data-theme="dark"] body .task-list-pane .task-item.selected,
+:root[data-theme="dark"] body .task-list-pane.today-clean .task-item.selected {
+  box-shadow: none;
+}
+body .task-item .task-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 0;
+  min-width: 0;
+  padding-block: 3px;
+}
+body .task-item-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-12);
+  color: var(--workspace-text);
+}
+body .task-item.selected .task-item-title { color: var(--workspace-text); }
+body .task-item.done:not(.selected) .task-item-title {
+  color: var(--workspace-muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--workspace-muted) 45%, transparent);
+}
+
+/* Sequence number <-> hover completion check ring */
+body .task-sequence-action { width: 18px; flex-basis: 18px; }
+body .task-sequence {
+  font-size: 10px;
+  color: var(--workspace-muted);
+  letter-spacing: -0.02em;
+}
+body .task-item.selected .task-sequence { color: var(--workspace-secondary); }
+body .task-check-ring {
+  width: 13px;
+  height: 13px;
+  border-width: 1.25px;
+  border-color: color-mix(in srgb, var(--workspace-muted) 82%, transparent);
+}
+body .task-complete:hover .task-check-ring {
+  border-color: var(--workspace-text);
+}
+body .task-item.done .task-check-ring {
+  background: transparent;
+  border-color: var(--workspace-muted);
+  color: var(--workspace-muted);
+}
+body .task-item.selected .task-complete { color: var(--workspace-secondary); }
+
+/* Right-aligned telemetry signals */
+body .task-row-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+body .task-priority-dot.is-high {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--status-warn);
+  opacity: 0.85;
+}
+body .task-priority-dot.is-danger {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--status-danger);
+  opacity: 0.9;
+}
+body .task-row-pill {
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 9.5px;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+body .task-row-pill.is-overdue,
+body .task-row-pill.is-blocked {
+  color: var(--status-danger);
+  background: var(--status-danger-soft);
+}
+body .task-row-pill.is-soon {
+  color: var(--status-warn);
+  background: var(--status-warn-soft);
+}
+body .task-row-progress {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--workspace-muted);
+  font-variant-numeric: tabular-nums;
+}
+body .task-item.selected .task-row-progress { color: var(--workspace-secondary); }
+
+/* 5. List Footer */
+body .list-foot {
+  min-height: 32px;
+  padding-inline: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--workspace-line) 60%, transparent);
+  background: transparent;
+  color: var(--workspace-muted);
+  font-size: var(--type-11);
+}
+body .list-foot .text-button {
+  min-height: 24px;
+  padding: 2px 6px;
+  font-size: var(--type-11);
+  color: var(--workspace-secondary);
+}
 body .task-list-pane .empty { overflow-wrap: anywhere; }
+body .task-list-context-menu { width: max-content; min-width: 128px; }
 
-/* The blank-area menu has one short action; fit it to that action. */
-body .task-list-context-menu { width: max-content; min-width: 124px; }
-
-/* Keep the icon rail and all group names reachable when many groups exist. */
+/* Collapsed icon rail */
 body .nav-collapsed .navigation { padding-inline: 8px; }
 body .nav-collapsed .nav-groups .nav-button { padding-inline: 0; }
 body .nav-collapsed .nav-bottom .nav-button { padding-inline: 0; }
-body .nav-collapsed .nav-section-heading { justify-content: center; margin-inline: 0; }
+body .nav-collapsed .nav-section-heading { justify-content: center; margin-inline: 0; padding-inline: 0; }
 body .nav-collapsed .nav-section-heading > span:first-child { display: none; }
+
 @media (max-width: 1100px) {
   body .shell-actions .preview-date { display: none; }
   body .shell-route-name, body .shell-route-name + svg { display: none; }
   body .shell-pane-controls { margin-inline: 8px; }
-  body .shell-actions { gap: 4px; padding-inline: 8px 20px; }
-  body .shell-group-context { max-width: 160px; }
+  body .shell-actions { gap: 4px; padding-inline: 8px 16px; }
+  body .shell-group-context { max-width: 150px; }
   body .shell-actions .task-share-action > span { display: none; }
 }
 @media (max-width: 760px) {
