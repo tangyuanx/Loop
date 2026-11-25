@@ -26,12 +26,16 @@ async function screenshot(cdp, name) {
 
 async function verifySelection(page, dpr, theme) {
   await renderAt(page, theme);
-  const title = page.locator('[data-task-row="second"] .task-item-title');
-  const first = page.locator('[data-task-row="first"] .task-select');
-  await first.click();
-  const x = (await title.boundingBox()).x;
-  await page.locator('[data-task-row="second"] .task-select').click();
-  assert.equal((await title.boundingBox()).x, x, 'selecting a task keeps its title in place');
+  const first = page.locator('[data-task-row="first"]');
+  const second = page.locator('[data-task-row="second"]');
+  await first.locator('.task-select').click();
+  await first.and(page.locator('.selected')).waitFor();
+  const titleX = element => element.getBoundingClientRect().x;
+  const x = await second.locator('.task-item-title').evaluate(titleX);
+  await second.locator('.task-select').click();
+  const selectedTitle = second.and(page.locator('.selected')).locator('.task-item-title');
+  await selectedTitle.waitFor();
+  assert.equal(await selectedTitle.evaluate(titleX), x, 'selecting a task keeps its title in place');
   await page.locator('.node-title[data-node-id="node"]').click();
   await page.waitForSelector('.flow-row.selected');
   await page.mouse.move(1, 1);
@@ -104,8 +108,14 @@ async function verifyDesktop(dpr) {
   const windows = process.platform === 'win32';
   const args = windows ? [`--force-device-scale-factor=${dpr}`] : [];
   const fixture = await launchRepository(data, 'typography-selection', '', args);
-  const { page } = fixture;
+  const { app, page } = fixture;
   try {
+    if (windows) {
+      await app.evaluate(({ BrowserWindow }) => {
+        const window = BrowserWindow.getAllWindows().find(win => win.webContents.getURL().endsWith('/app/renderer/index.html'));
+        window.setContentSize(1240, 820);
+      });
+    }
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.os));
     const cdp = await page.context().newCDPSession(page);
     async function emulate(scale) {
