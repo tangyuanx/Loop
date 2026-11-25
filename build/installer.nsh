@@ -23,7 +23,7 @@ Var loopInstalledExe
   System::Call 'kernel32::GetFileAttributesW(w "${DIRECTORY}") i .r4'
   ; Require a normal directory, including when the path already existed.
   IntOp $R5 $4 & 0x410
-  ${If} $R5 != 0x10
+  ${If} $R5 <> 0x10
     !insertmacro stopLoopBackup "无法在 AppData 中验证升级备份目录。"
   ${EndIf}
 !macroend

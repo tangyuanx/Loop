@@ -626,6 +626,7 @@ test("Windows installer quarantines legacy installation backups before invoking 
 
   assert.notEqual(quarantine, "");
   assert.match(preparation, /Call confirmLoopBackupArchive[\s\S]*CreateDirectoryW[\s\S]*backupLoopUpgradeDirectory[\s\S]*Call archiveLoopInstallBackups/);
+  assert.match(installer, /IntOp \$R5 \$4 & 0x410\r?\n\s*\$\{If\} \$R5 <> 0x10/);
   assert.match(installer, /ReadRegStr \$loopRegisteredInstallLocation SHELL_CONTEXT "\$\{INSTALL_REGISTRY_KEY\}" InstallLocation/);
   assert.match(decision, /\$loopRegisteredInstallLocation == ""[\s\S]*stopLoopBackup/);
   assert.match(decision, /\$INSTDIR\\Uninstall Loop\.exe/);
