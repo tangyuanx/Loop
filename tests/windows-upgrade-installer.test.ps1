@@ -227,7 +227,9 @@ try {
             New-Item -ItemType Directory -Path $interrupted | Out-Null
             Set-Content -LiteralPath (Join-Path $interrupted ".loop-install-pending") -Value "incomplete"
 
-            $retryData = @{ version = 4; marker = "changed before same-version retry"; tasks = @() } | ConvertTo-Json -Compress
+            $retryNode = @{ id = "node-same-version-retry"; title = "Keep this step"; note = "Step notes before retry" }
+            $retryTask = @{ id = "task-same-version-retry"; title = "Keep this task"; notes = "Task notes before retry"; nodes = @($retryNode) }
+            $retryData = @{ version = 4; tasks = @($retryTask) } | ConvertTo-Json -Depth 8 -Compress
             [IO.File]::WriteAllText($taskDataPath, $retryData)
             $retryHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $taskDataPath).Hash
             Invoke-Installer -Path $candidate -ExtraArguments @("--updated")
@@ -245,15 +247,24 @@ try {
                 (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $stableBackup "task-data.json")).Hash -ne $beforeHash) {
                 throw "Same-version retry replaced historical backup contents."
             }
-            if ((Get-FileHash -Algorithm SHA256 -LiteralPath $retryBackup).Hash -ne $retryHash -or
+            if ((Get-FileHash -Algorithm SHA256 -LiteralPath $taskDataPath).Hash -ne $retryHash -or
+                (Get-FileHash -Algorithm SHA256 -LiteralPath $retryBackup).Hash -ne $retryHash -or
                 -not (Test-Path -LiteralPath (Join-Path $interrupted ".loop-install-pending") -PathType Leaf)) {
-                throw "Same-version retry did not preserve the interrupted attempt and create its own snapshot."
+                throw "Same-version retry did not preserve the workspace and interrupted attempt and create its own snapshot."
             }
             Test-InstalledUpgradeVerification -Executable $loopExecutable -ExpectedStatus "passed" -Attempt "attempt-4"
-            $retryReport = Get-Content -LiteralPath (Join-Path $userDataDir ".loop-upgrade-report.json") -Raw | ConvertFrom-Json
-            if ($retryReport.installerAttempt -ne "attempt-4" -or (Get-FileHash -Algorithm SHA256 -LiteralPath $taskDataPath).Hash -ne $retryHash) {
-                throw "First launch did not verify the new backup and preserve the active workspace."
+            # Graceful shutdown can rewrite the JSON with normalized defaults and formatting.
+            $workspace = Get-Content -LiteralPath $taskDataPath -Raw | ConvertFrom-Json
+            if (@($workspace.tasks).Count -ne 1 -or $workspace.tasks[0].id -ne $retryTask.id -or
+                $workspace.tasks[0].title -ne $retryTask.title -or $workspace.tasks[0].notes -ne $retryTask.notes -or
+                @($workspace.tasks[0].nodes).Count -ne 1 -or $workspace.tasks[0].nodes[0].id -ne $retryNode.id -or
+                $workspace.tasks[0].nodes[0].title -ne $retryNode.title -or $workspace.tasks[0].nodes[0].note -ne $retryNode.note) {
+                throw "First launch and shutdown did not preserve the task, step and notes from the retried workspace."
             }
+            if ((Get-FileHash -Algorithm SHA256 -LiteralPath $retryBackup).Hash -ne $retryHash) {
+                throw "First launch did not retain the original bytes of the new AppData backup."
+            }
+            Write-Host "Verified same-version retry, preserved historical copies, and verified first launch against attempt-4."
         }
 
         Write-Host "Verified Windows installer upgrade v$installedVersion -> v$expectedVersion"
