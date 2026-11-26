@@ -1422,7 +1422,8 @@ function shellUpdatePanelBody() {
     checking: "正在连接 GitHub Release。",
     unsupported: "当前运行环境暂不支持应用内更新，可在设置中查看详情。",
   };
-  const version = update.version ? ` · 新版本 v${update.version}` : "";
+  const retryCheck = update.status === "error" && update.retryAction === "check";
+  const version = update.version && update.status !== "checking" && !retryCheck ? ` · 新版本 v${update.version}` : "";
   const progress = ["downloading", "preparing", "installing"].includes(update.status)
     ? `<div class="update-progress" role="progressbar" aria-label="更新下载进度" aria-valuenow="${Math.round(update.percent || 0)}" aria-valuemin="0" aria-valuemax="100"><span style="width:${Math.max(4, Math.round(update.percent || 0))}%"></span></div>`
     : "";
@@ -1430,12 +1431,14 @@ function shellUpdatePanelBody() {
       <h2>${esc(titles[update.status] || "软件更新")}</h2>
       <p>当前 v${esc(update.currentVersion || APP_VERSION || "")}${esc(version)}</p>
       <p>${esc(bodies[update.status] || "暂无可用更新。")}</p>
+      <div role="status">${update.status === "available" && update.sameVersionOnRecheck ? `<p>${UPDATE_SAME_VERSION_MESSAGE}</p>` : ""}</div>
       ${progress}
       ${renderUpdateReleaseNotes(update)}
       <footer>
         <button type="button" class="text-button" data-action="close-dialog">稍后</button>
-        ${["idle", "latest"].includes(update.status) && update.supported ? '<button type="button" class="button primary" data-update-action="check">检查更新</button>' : ""}
-        ${["available", "error"].includes(update.status) ? `<button type="button" class="button primary" data-update-action="${update.status === "error" ? update.retryAction : "download"}">${update.status === "error" ? (update.retryAction === "check" ? "重新检查" : update.retryAction === "install" ? "重试安装" : "重试下载") : "下载更新"}</button>` : ""}
+        ${renderUpdateCheckButton(update, { primary: ["idle", "latest"].includes(update.status) || retryCheck })}
+        ${update.status === "available" ? '<button type="button" class="button primary" data-update-action="download">下载更新</button>' : ""}
+        ${update.status === "error" && !retryCheck ? `<button type="button" class="button primary" data-update-action="${update.retryAction}">${update.retryAction === "install" ? "重试安装" : "重试下载"}</button>` : ""}
         ${update.status === "downloaded" ? '<button type="button" class="button primary" data-update-action="install">安装并重启</button>' : ""}
       </footer>`;
 }

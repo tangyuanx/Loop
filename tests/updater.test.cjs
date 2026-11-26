@@ -216,6 +216,66 @@ test("an availability check or unapproved downloaded event never starts installa
   await fs.rm(harness.userData, { recursive: true, force: true });
 });
 
+test("manual rechecks distinguish the same release, a higher release, and no available release", async () => {
+  const h = createHarness();
+  await h.controller.checkForUpdates("automatic");
+  assert.equal(h.controller.getState().sameVersionOnRecheck, false);
+  const same = await h.controller.checkForUpdates();
+  assert.equal(same.status, "available");
+  assert.equal(same.version, "0.1.110");
+  assert.equal(same.sameVersionOnRecheck, true);
+  assert.equal(h.checkCount(), 2);
+  assert.equal((await h.controller.checkForUpdates("automatic")).sameVersionOnRecheck, false);
+
+  h.updates.checkForUpdates = async () => h.updates.emit("update-available", {
+    version: "0.1.111",
+    releaseNotes: "New update notes",
+    files: [{ size: 40_000_000 }],
+  });
+  const higher = await h.controller.checkForUpdates();
+  assert.equal(higher.status, "available");
+  assert.equal(higher.version, "0.1.111");
+  assert.equal(higher.releaseNotes[0].notes, "New update notes");
+  assert.equal(higher.size, 40_000_000);
+  assert.equal(higher.sameVersionOnRecheck, false);
+
+  h.updates.checkForUpdates = async () => h.updates.emit("update-not-available");
+  const withdrawn = await h.controller.checkForUpdates();
+  assert.equal(withdrawn.status, "latest");
+  assert.equal(withdrawn.version, "");
+  assert.deepEqual(withdrawn.releaseNotes, []);
+  assert.equal(h.downloadCount(), 0);
+});
+
+test("automatic and manual checks cannot overlap, including after a provider emits availability", async () => {
+  const h = createHarness();
+  let calls = 0;
+  let finishCheck;
+  h.updates.checkForUpdates = () => {
+    calls++;
+    return new Promise((resolve) => { finishCheck = resolve; });
+  };
+  const automatic = h.controller.checkForUpdates("automatic");
+  const manual = await h.controller.checkForUpdates();
+  assert.equal(manual.status, "checking");
+  assert.equal(manual.checkSource, "automatic");
+  h.updates.emit("update-available", { version: "0.1.110" });
+  await h.controller.checkForUpdates();
+  assert.equal(calls, 1);
+  finishCheck();
+  await automatic;
+
+  const recheck = h.controller.checkForUpdates();
+  assert.equal(calls, 2);
+  h.updates.emit("update-available", { version: "0.1.110" });
+  finishCheck();
+  assert.equal((await recheck).sameVersionOnRecheck, true);
+
+  await h.controller.downloadUpdate();
+  assert.equal((await h.controller.checkForUpdates()).status, "downloaded");
+  assert.equal(calls, 2);
+});
+
 test("failed pre-install persistence keeps the app open and the downloaded update retryable", async () => {
   const harness = createHarness({ prepareInstallResult: false });
   await harness.controller.start({ schedule: false });

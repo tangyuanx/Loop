@@ -319,23 +319,22 @@ function shellSettingsUpdateCardBody() {
     idle: checkedLabel,
     unsupported: update.unsupportedReason === "development" ? "" : "请从发布页获取安装包。",
   };
-  const busy = ["checking", "downloading", "preparing", "installing"].includes(status);
   const percent = Math.max(0, Math.min(100, Math.round(Number(update.percent) || 0)));
   const progress = status === "downloading"
     ? `<div class="prefs-update-progress" role="progressbar" aria-label="更新下载进度" aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100"><span style="width:${percent}%"></span></div>`
     : "";
-  // One entry point. What it does follows the state, so it is never a no-op:
-  // checking while busy is disabled, otherwise it offers the only useful action.
-  const actions = status === "available" ? `<button class="button primary" type="button" data-update-action="download">${update.macInstaller ? "下载并更新" : "下载更新"}</button>`
+  const retryCheck = status === "error" && update.retryAction === "check";
+  const upgradeAction = status === "available" ? `<button class="button primary" type="button" data-update-action="download">${update.macInstaller ? "下载并更新" : "下载更新"}</button>`
     : status === "downloaded" ? `<button class="button primary" type="button" data-update-action="install">${update.macInstaller ? "备份并退出" : "安装并重启"}</button>`
-      : status === "error" ? `<button class="button primary" type="button" data-update-action="${update.retryAction}">${update.retryAction === "check" ? "重新检查" : update.retryAction === "install" ? "重试安装" : "重试下载"}</button>`
-        : `<button class="button" type="button" data-update-action="check" ${busy || !update.supported ? "disabled" : ""}>${status === "checking" ? "检查中…" : "检查更新"}</button>`;
+      : status === "error" && !retryCheck ? `<button class="button primary" type="button" data-update-action="${update.retryAction}">${update.retryAction === "install" ? "重试安装" : "重试下载"}</button>`
+        : "";
   const currentVersion = String(update.currentVersion || APP_VERSION || "");
   const hasTarget = ["available", "downloading", "downloaded", "preparing", "installing"].includes(status)
     || (status === "error" && update.retryAction !== "check");
   const targetVersion = hasTarget && update.version && update.version !== currentVersion ? String(update.version) : "";
   const versions = `<div class="prefs-update-version"><span aria-label="${escAttr(`当前版本 v${currentVersion}`)}">v${esc(currentVersion)}</span>${targetVersion ? `<span class="prefs-version-arrow" aria-hidden="true">→</span><strong aria-label="${escAttr(`更新版本 v${targetVersion}`)}">v${esc(targetVersion)}</strong>` : ""}</div>`;
-  return `<div class="prefs-update-heading"><div><span class="setting-label">${esc(titles[status] || "当前版本")}</span>${versions}</div><div class="prefs-update-actions">${actions}</div></div>
+  return `<div class="prefs-update-heading"><div><span class="setting-label">${esc(titles[status] || "当前版本")}</span>${versions}</div><div class="prefs-update-actions">${renderUpdateCheckButton(update, { primary: retryCheck })}${upgradeAction}</div></div>
+      ${status === "available" && update.sameVersionOnRecheck ? `<p>${UPDATE_SAME_VERSION_MESSAGE}</p>` : ""}
       ${bodies[status] ? `<p>${esc(bodies[status])}</p>` : ""}
       ${progress}${renderUpdateReleaseNotes(update)}`;
 }

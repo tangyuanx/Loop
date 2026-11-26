@@ -412,7 +412,7 @@ body .inspector.inspector-record-only .record-editor { background:transparent; }
 .prefs-update-version { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-top:7px; color:var(--secondary); font-size:calc(13px * var(--font-scale,1)); font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
 .prefs-update-version strong { color:var(--text); font-weight:400; }
 .prefs-version-arrow { color:var(--secondary); }
-.prefs-update-actions { flex-shrink:0; }
+.prefs-update-actions { display:flex; flex-wrap:wrap; gap:8px; }
 .prefs-update-detail>p { margin:12px 0 0; max-width:65ch; }
 .prefs-update-options { margin-top:28px; }
 .phase9 .prefs-update-options>.setting-row { border-top:1px solid var(--line); border-bottom:0; }

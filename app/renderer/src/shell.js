@@ -166,9 +166,9 @@ function applyLoopAppearance() {
 function renderShellBrandUpdate() {
   const update = appUpdateState;
   const detected = ["available", "downloading", "downloaded", "preparing", "installing"].includes(update.status)
-    || (update.status === "error" && update.version && ["download", "install"].includes(update.retryAction));
+    || (update.version && ["checking", "error"].includes(update.status));
   if (!detected) return "";
-  const busy = ["downloading", "preparing", "installing"].includes(update.status);
+  const busy = ["checking", "downloading", "preparing", "installing"].includes(update.status);
   const labels = {
     idle: "软件更新",
     unsupported: "软件更新",

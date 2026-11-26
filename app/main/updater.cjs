@@ -54,6 +54,7 @@ function createUpdateController({
     total: 0,
     bytesPerSecond: 0,
     lastCheckedAt: "",
+    sameVersionOnRecheck: false,
     errorCode: "",
     retryAction: "check",
     preferenceError: "",
@@ -62,6 +63,7 @@ function createUpdateController({
   let intervalTimer = null;
   let started = false;
   let userApprovedInstall = false;
+  let checkInFlight = false;
   let installInFlight = null;
   let preferenceQueue = Promise.resolve();
   let notesRequest = 0;
@@ -155,7 +157,8 @@ function createUpdateController({
   }
 
   async function checkForUpdates(source = "manual") {
-    if (!supported || ["checking", "downloading", "downloaded", "preparing", "installing"].includes(state.status)) return getState();
+    if (!supported || checkInFlight || ["checking", "downloading", "downloaded", "preparing", "installing"].includes(state.status)) return getState();
+    checkInFlight = true;
     notesRequest += 1;
     updateState({
       status: "checking",
@@ -165,6 +168,7 @@ function createUpdateController({
       total: 0,
       bytesPerSecond: 0,
       checkSource: source === "automatic" ? "automatic" : "manual",
+      sameVersionOnRecheck: false,
       retryAction: "check",
       releaseNotes: [],
       releaseNotesStatus: "idle",
@@ -173,6 +177,8 @@ function createUpdateController({
       await autoUpdater.checkForUpdates();
     } catch (error) {
       setError(error);
+    } finally {
+      checkInFlight = false;
     }
     return getState();
   }
@@ -256,9 +262,11 @@ function createUpdateController({
     const request = ++notesRequest;
     const releaseNotes = notesFromUpdateInfo(info, state.currentVersion);
     const file = Array.isArray(info?.files) ? info.files[0] : null;
+    const version = sanitizeVersion(info?.version);
     updateState({
       status: "available",
-      version: sanitizeVersion(info?.version),
+      version,
+      sameVersionOnRecheck: state.checkSource === "manual" && Boolean(version) && state.version === version,
       releaseDate: sanitizeDate(info?.releaseDate),
       releaseNotes,
       releaseNotesStatus: fetchReleaseNotes ? "loading" : "partial",
@@ -281,6 +289,7 @@ function createUpdateController({
     updateState({
       status: "latest",
       version: "",
+      sameVersionOnRecheck: false,
       releaseDate: "",
       releaseNotes: [],
       releaseNotesStatus: "idle",

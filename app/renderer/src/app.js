@@ -5036,10 +5036,20 @@ function normalizeAppUpdateState(value) {
     total: safeNumber(raw.total),
     bytesPerSecond: safeNumber(raw.bytesPerSecond),
     lastCheckedAt: String(raw.lastCheckedAt || "").slice(0, 64),
+    sameVersionOnRecheck: raw.sameVersionOnRecheck === true,
     errorCode: String(raw.errorCode || "").replace(/[^0-9A-Z_.-]/gi, "").slice(0, 64),
     retryAction: ["check", "download", "install"].includes(raw.retryAction) ? raw.retryAction : (raw.version ? "download" : "check"),
     preferenceError: String(raw.preferenceError || "").replace(/[^0-9A-Z_.-]/gi, "").slice(0, 64),
   };
+}
+
+const UPDATE_SAME_VERSION_MESSAGE = "已重新检查，可用版本未变化。";
+
+function renderUpdateCheckButton(update, { primary = false } = {}) {
+  const disabled = !update.supported || ["checking", "downloading", "downloaded", "preparing", "installing"].includes(update.status);
+  const label = update.status === "checking" ? "检查中…"
+    : update.status === "error" && update.retryAction === "check" ? "重新检查" : "检查更新";
+  return `<button class="button${primary ? " primary" : ""}" type="button" data-update-action="check" ${disabled ? "disabled" : ""}>${label}</button>`;
 }
 
 function renderUpdateReleaseNotes(update = appUpdateState) {

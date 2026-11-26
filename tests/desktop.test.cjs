@@ -4448,11 +4448,12 @@ test("production Today widget uses its dedicated frontend and a sandboxed Electr
   assert.match(rendererApp, /function mainWindowShowsSelection\(\)[\s\S]*document\.hasFocus\(\)[\s\S]*visibilityState/);
   assert.match(rendererApp, /activeTaskId: mainWindowShowsSelection\(\) \? state\.activeTaskId \|\| "" : ""/);
   assert.match(rendererApp, /window\.addEventListener\("blur", \(\) => \{[\s\S]*publishTodayWidgetSnapshot\(\)/);
-  // - one update entry, one delegated handler, an immediate state and a live card
+  // - the live update card uses the shared check action and one delegated handler
   assert.match(settingsSource, /function shellSettingsInfo\(label, description, value\)/);
   assert.match(settingsSource, /data-shell-update-detail/);
   assert.match(settingsSource, /function shellSettingsSyncUpdateCard\(\)/);
-  assert.match(settingsSource, /update\.retryAction === "check" \? "重新检查"/);
+  assert.match(settingsSource, /renderUpdateCheckButton\(update, \{ primary: retryCheck \}\)/);
+  assert.match(rendererApp, /update\.retryAction === "check" \? "重新检查"/);
   assert.match(rendererApp, /function bindUpdateActionDelegation\(\)/);
   assert.match(rendererApp, /let lastUpdateAction = "check"/);
   assert.match(rendererApp, /const effective = action === "download" && status !== "available"/);
