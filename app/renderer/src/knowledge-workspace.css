@@ -159,19 +159,22 @@ body.wb-focus:has(.knowledge-pane) .task-info-card { display: none; }
 .knowledge-pane :is(.kn-reading, .cm-content) ::selection { background: var(--kn-selection); color: inherit; }
 .knowledge-pane .kn-table-controls-layer [data-drop-target] { background: var(--kn-selection); }
 
-/* Floating Note Footer */
+/* Unified 36px Knowledge Footer aligned with nav-bottom and list-foot */
 body[data-notebook23-enabled] .knowledge-footer {
-  position: absolute;
-  inset: auto 18px 10px;
+  position: relative;
+  inset: auto;
   z-index: 7;
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 0;
-  padding: 0;
+  height: var(--footer-height, 36px);
+  min-height: var(--footer-height, 36px);
+  flex-shrink: 0;
+  padding: 0 18px;
   border: 0;
-  background: transparent;
-  pointer-events: none;
+  border-top: 1px solid var(--workspace-line);
+  background: var(--canvas);
+  pointer-events: auto;
 }
 .knowledge-footer > * { pointer-events: auto; }
 .knowledge-footer .knowledge-footer-meta {
@@ -241,15 +244,15 @@ body[data-notebook23-enabled] .knowledge-footer {
   flex: 0 0 var(--kn-tab-width, var(--kn-tab-max-width));
   width: var(--kn-tab-width, var(--kn-tab-max-width));
   min-width: 0;
-  border: 1px solid transparent;
-  border-bottom: 0;
-  border-radius: 8px 8px 0 0;
+  height: 28px;
+  margin-block: 4px;
+  border: 0;
+  border-radius: 6px;
   transition: background-color 100ms ease;
 }
 .kn-document-tab:has([aria-selected="true"]) {
-  border-color: var(--line);
-  background: var(--canvas);
-  box-shadow: 0 1px 0 var(--canvas);
+  background: var(--selected);
+  box-shadow: none;
 }
 .kn-document-tab:not(:has([aria-selected="true"])):hover { background: var(--hover); }
 body .kn-document-bar .kn-document-tab > button { border: 0; background: transparent; color: var(--secondary); cursor: pointer; }

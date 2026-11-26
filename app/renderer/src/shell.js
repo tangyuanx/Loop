@@ -56,6 +56,10 @@ const SHELL_ICON_PATHS = {
   repeat: "M20 7v5h-5M4 17v-5h5M6 9a7 7 0 0 1 12-2l2 2M4 15l2 2a7 7 0 0 0 12-2",
   expandRecord: "M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5",
   restoreRecord: "M3 8h5V3m8 0v5h5M8 21v-5H3m18 0h-5v5",
+  share: "M4.5 13v5.5a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V13M16 7.5l-4-4-4 4M12 3.5V15",
+  taskList: "M3 4h18v16H3zM9 4v16M15 4v16",
+  listMore: "M5 12h.01M12 12h.01M19 12h.01",
+  bolt: "M13 3.5L5 13.5h6l-1 7 8-10h-6z",
 };
 
 const SHELL_NODE_STATUS_LABELS = { todo: "未完成", done: "已完成", review: "待确认" };
@@ -63,7 +67,7 @@ const SHELL_TASK_TAG_LABELS = { blocked: "卡住", later: "稍后" };
 const SHELL_WEEKDAY_NAMES = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
 function shellIcon(name, className = "") {
-  const sprite = { taskList: "columns", share: "share-2", listMore: "more-horizontal", nodeTodo: "square", nodeDone: "check", flowPath: "git-branch" }[name];
+  const sprite = { nodeTodo: "square", nodeDone: "check", flowPath: "git-branch" }[name];
   if (sprite) return `<svg${className ? ` class="${escAttr(className)}"` : ""} viewBox="0 0 24 24" aria-hidden="true"><use href="./src/assets/feather/feather-sprite.svg#${sprite}"></use></svg>`;
   const path = SHELL_ICON_PATHS[name] || SHELL_ICON_PATHS.circle;
   return `<svg${className ? ` class="${escAttr(className)}"` : ""} viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"></path></svg>`;
@@ -205,7 +209,11 @@ function shellNavButton(route, text, image) {
         : route === "review"
           ? 'data-action="toggle-review"'
           : 'data-action="toggle-settings"';
-  const count = route === "today" ? `<span class="count">${shellTodayCount()}</span>` : "";
+  const count = route === "today"
+    ? `<span class="count">${shellTodayCount()}</span>`
+    : route === "tasks"
+      ? `<span class="count">${shellGroupOpenCount(ALL_TASKS_GROUP_ID)}</span>`
+      : "";
   return `<button class="nav-button ${active ? (scoped ? "parent-active" : "active") : ""}" type="button" ${attributes} title="${escAttr(text)}" aria-label="${escAttr(text)}" aria-current="${active && !scoped ? "page" : "false"}">${shellIcon(image)}<span>${esc(text)}</span>${count}</button>`;
 }
 
@@ -235,6 +243,8 @@ function renderShellGroupNavigation() {
         ${state.navCollapsed ? shellIcon("folder") : '<i class="group-mark"></i>'}<span>未分组</span><span class="count">${shellGroupOpenCount(UNGROUPED_TASKS_GROUP_ID)}</span>
       </button>
     </div>`;
+  const trashCount = Array.isArray(state.recentlyDeleted) ? state.recentlyDeleted.length : 0;
+  const trashBtn = `<div class="nav-trash-slot"><button class="nav-button" type="button" data-recovery26="open" title="最近删除" aria-label="最近删除">${shellIcon("trash")}<span>最近删除</span><span class="count">${trashCount}</span></button></div>`;
   return `
     <div class="nav-groups" data-context="task-list">
       <div class="nav-section-heading">
@@ -244,6 +254,7 @@ function renderShellGroupNavigation() {
       ${rows}
       ${editing && !editingGroup ? draft : ""}
       ${ungrouped}
+      ${trashBtn}
     </div>`;
 }
 
@@ -284,7 +295,7 @@ function renderShellTopbar(task = shellActiveTask()) {
       </div>
       <div class="breadcrumb">
         ${route === "tasks" && state.globalListReturn ? `<button class="text-button" type="button" data-action="return-global-page">返回${state.globalListReturn.route === "calendar" ? "日历" : "回顾"}</button>${shellIcon("chevron")}` : ""}
-        ${workspaceTask ? `<span class="shell-task-path" aria-label="任务分组：${escAttr(groupTitle)}" title="${escAttr(groupTitle)}"><span class="shell-group-context">${shellIcon("folder")}<span>${esc(groupTitle)}</span></span></span>${shellIcon("chevron")}${renderShellTaskTitle(workspaceTask)}` : `<b>${esc(crumb)}</b>`}
+        ${workspaceTask ? `<span class="shell-task-path" aria-label="任务分组：${escAttr(groupTitle)}" title="${escAttr(groupTitle)}"><span class="shell-group-context">${shellIcon("folder")}<span>${esc(groupTitle)}</span></span></span><span class="topbar-focus-title">${shellIcon("chevron")}${renderShellTaskTitle(workspaceTask)}</span>` : `<b>${esc(crumb)}</b>`}
       </div>
       <div class="shell-actions">
         <span class="preview-date">${esc(shellDateLabel())}，${SHELL_WEEKDAY_NAMES[loopNow().getDay()]}</span>
@@ -354,22 +365,40 @@ function shellListFoot() {
   if (shellRoute() === "today") {
     return state.captureSourceFilter === "quick" ? "随手记录，稍后整理" : "";
   }
-  if (state.activeGroupId === ALL_TASKS_GROUP_ID) return "全部分组与未分组";
-  return shellGroupTitle(state.activeGroupId);
+  return "";
+}
+
+function shellTaskRowMeta(task) {
+  if (shellTaskIsNote(task)) return "";
+  const parts = [];
+  if (task.status === "done") {
+    if (task.resolvedAt) parts.push(`<span class="task-meta-due">${esc(shellDisplayDate(task.resolvedAt))} 完成</span>`);
+    if (task.conclusion) parts.push(`<span class="task-meta-concl">${esc(task.conclusion)}</span>`);
+    return parts.length ? `<span class="task-row-sub">${parts.join("")}</span>` : "";
+  }
+  if (state.activeGroupId === ALL_TASKS_GROUP_ID || shellRoute() === "today") {
+    parts.push(`<span class="task-meta-group">${esc(shellGroupTitle(task.groupId))}</span>`);
+  }
+  if (task.deadlineAt && typeof shellDeadlineProperty === "function") {
+    const dl = shellDeadlineProperty(task);
+    parts.push(`<span class="task-meta-due ${dl.classes}">${esc(dl.text)}</span>`);
+  }
+  const tags = normalizeTaskTags(task.tags);
+  if (tags.blocked) parts.push('<span class="task-meta-tag is-blocked">卡住</span>');
+  if (tags.later) parts.push('<span class="task-meta-tag is-later">稍后</span>');
+  const nodes = typeof shellNodeList === "function" ? shellNodeList(task) : [];
+  if (nodes.length) {
+    const doneN = typeof shellCountDoneNodes === "function" ? shellCountDoneNodes(task) : 0;
+    parts.push(`<span class="task-row-progress">${doneN}/${nodes.length}</span>`);
+  }
+  return parts.length ? `<span class="task-row-sub">${parts.join("")}</span>` : "";
 }
 
 function shellTaskRowSignals(task) {
   if (task.status === "done" || shellTaskIsNote(task)) return "";
-  const deadline = typeof shellDeadlineProperty === "function" ? shellDeadlineProperty(task) : { classes: "" };
-  const tags = normalizeTaskTags(task.tags);
-  const priority = normalizePriority(task.priority);
-  if (deadline.classes.includes("overdue") || tags.blocked) {
-    return '<span class="task-row-meta" aria-hidden="true"><span class="task-priority-dot is-danger"></span></span>';
-  }
-  if (deadline.classes.includes("time18-soon") || priority === "high") {
-    return '<span class="task-row-meta" aria-hidden="true"><span class="task-priority-dot is-high"></span></span>';
-  }
-  return "";
+  const p = normalizePriority(task.priority);
+  const rank = p === "high" ? 3 : p === "medium" ? 2 : 1;
+  return `<span class="task-pri-bars p${rank}" aria-hidden="true" title="优先级 ${p === "high" ? "高" : p === "medium" ? "中" : "低"}"><i></i><i></i><i></i></span>`;
 }
 
 function renderShellTaskRow(task, displayOrder) {
@@ -383,7 +412,7 @@ function renderShellTaskRow(task, displayOrder) {
         <button class="task-complete" type="button" data-action="toggle-task-done" data-task-id="${escAttr(task.id)}" aria-label="${done ? "恢复任务" : "完成任务"}：${escAttr(task.title)}" aria-pressed="${done}" title="${done ? "恢复任务" : "完成任务"}"><span class="task-check-ring">${shellIcon("check")}</span></button>
       </span>
       <button class="task-select" type="button" data-task-id="${escAttr(task.id)}" aria-pressed="${selected}" title="${escAttr(task.title)}">
-        <span class="task-item-title">${esc(task.title || "未命名任务")}</span>${shellTaskRowSignals(task)}
+        <span class="task-select-main"><span class="task-item-title">${esc(task.title || "未命名任务")}</span>${shellTaskRowSignals(task)}</span>${shellTaskRowMeta(task)}
       </button>
     </li>`;
 }
@@ -417,7 +446,7 @@ function renderShellTaskRows(list) {
 
 function renderShellListFilter() {
   if (shellRoute() === "today") return "";
-  const options = [["active", "未完成"], ["all", "全部"], ["done", "已完成"]];
+  const options = [["active", "进行中"], ["all", "全部"], ["done", "已完成"]];
   return `<div class="list-filter">${options.map(([value, text]) => `<button class="filter-tab ${state.taskFilter === value ? "active" : ""}" type="button" data-setting-button="task-filter" data-value="${value}" aria-pressed="${state.taskFilter === value}">${text}</button>`).join("")}</div>`;
 }
 
@@ -431,26 +460,28 @@ function renderShellScopeChip() {
 function renderShellTaskList(list) {
   const note = state.captureSourceFilter === "quick";
   const filters = shellActiveFilterLabels();
+  const searching = Boolean(state.searchOpen || state.query.trim());
   return `
     <aside id="task-list-panel" class="task-list-pane ${shellRoute() === "today" ? "today-clean " : ""}" aria-label="任务列表">
       <span class="list-resizer" data-action="resize-list-column" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整任务列表宽度" aria-valuemin="230" aria-valuemax="460" aria-valuenow="${normalizeSidebarWidth(state.sidebarWidth)}" title="拖动调整任务列表宽度"></span>
-      <div class="list-heading">
+      <div class="list-heading ${searching ? "is-searching" : ""}">
         <div class="list-heading-label">
           <h2 title="${escAttr(shellListTitle())}"><span class="list-title">${esc(shellListTitle())}</span><span class="count" role="status" aria-live="polite">${list.length}</span></h2>
           ${shellRoute() === 'tasks' && window.personalTaskTrack?.taskShare ? `<button class="icon-button list-more-button" type="button" data-action="open-task-list-menu" aria-label="任务列表更多操作" title="更多操作" aria-haspopup="menu" aria-expanded="${state.contextMenu?.kind === 'task-list-more'}">${shellIcon('listMore')}</button>` : ''}
         </div>
+        <div class="list-search" role="search">
+          ${shellIcon("search")}
+          <input id="search" type="search" placeholder="搜索" aria-label="搜索${escAttr(shellListTitle())}中的任务、节点、速记" aria-controls="task-results" autocomplete="off" value="${escAttr(state.query)}" />
+          <span class="list-search-end">
+            <kbd class="search-shortcut" aria-hidden="true">${desktopPlatform === "darwin" ? "⌘" : "Ctrl"} K</kbd>
+            <button class="search-clear" type="button" data-action="clear-search" aria-label="关闭搜索" title="关闭搜索（Esc）">${shellIcon("close")}</button>
+          </span>
+        </div>
         <div class="heading-list-actions">
+          <button class="icon-button list-search-trigger" type="button" data-action="open-list-search" aria-label="搜索任务" title="搜索任务（${desktopPlatform === "darwin" ? "⌘" : "Ctrl"} K）">${shellIcon("search")}</button>
           <button class="icon-button scope-filter ${filters.length ? "has-filters" : ""}" type="button" data-action="open-combined-filter" aria-label="筛选记录" aria-haspopup="dialog" title="${filters.length ? escAttr(`筛选记录：${filters.join(" · ")}`) : "筛选记录"}">${shellIcon("filter")}</button>
           <button class="icon-button" type="button" data-action="add-task" aria-label="新建${note ? "速记" : "任务"}" title="新建${note ? "速记" : "任务"}（${desktopPlatform === "darwin" ? "⌘" : "Ctrl"} + N）">${shellIcon("plus")}</button>
         </div>
-      </div>
-      <div class="list-search" role="search">
-        ${shellIcon("search")}
-        <input id="search" type="search" placeholder="搜索" aria-label="搜索${escAttr(shellListTitle())}中的任务、节点、速记" aria-controls="task-results" autocomplete="off" value="${escAttr(state.query)}" />
-        <span class="list-search-end">
-          <kbd class="search-shortcut" aria-hidden="true">${desktopPlatform === "darwin" ? "⌘" : "Ctrl"} K</kbd>
-          <button class="search-clear" type="button" data-action="clear-search" aria-label="清空搜索" title="清空搜索" ${state.query ? "" : "hidden"}>${shellIcon("close")}</button>
-        </span>
       </div>
       ${renderShellListFilter()}
       ${filters.length ? `<div class="active-list-filters"><span title="${escAttr(filters.join(" · "))}">${esc(filters.join(" · "))}</span><button class="icon-button" type="button" data-action="clear-list-filters" aria-label="清除筛选" title="清除筛选">${shellIcon("close")}</button></div>` : ""}
@@ -464,18 +495,43 @@ function renderShellTaskList(list) {
 
 /** Bind each retained search node once. IME drafts are applied on commit. */
 function shellBindRepository() {
+  const heading = document.querySelector(".task-list-pane .list-heading");
+  const trigger = document.querySelector(".task-list-pane .list-search-trigger");
   const input = document.querySelector(".list-search #search");
+  if (trigger && trigger.dataset.searchTriggerBound !== "1") {
+    trigger.dataset.searchTriggerBound = "1";
+    trigger.addEventListener("click", () => {
+      state.searchOpen = true;
+      heading?.classList.add("is-searching");
+      input?.focus({ preventScroll: true });
+    });
+  }
   if (input && input.dataset.repositoryBound !== "1") {
     input.dataset.repositoryBound = "1";
     let composing = false;
+    const closeIfEmpty = () => {
+      if (!input.value.trim()) {
+        state.searchOpen = false;
+        heading?.classList.remove("is-searching");
+      }
+    };
     const update = () => {
       if (state.query === input.value) return;
       state.query = input.value;
-      state.searchOpen = false;
+      state.searchOpen = true;
       state.searchCursor = input.selectionStart ?? input.value.length;
       state.focusSearch = true;
       render();
     };
+    input.addEventListener("focus", () => {
+      state.searchOpen = true;
+      heading?.classList.add("is-searching");
+    });
+    input.addEventListener("blur", () => {
+      setTimeout(() => {
+        if (document.activeElement !== input && !input.value.trim()) closeIfEmpty();
+      }, 120);
+    });
     input.addEventListener("compositionstart", () => { composing = true; });
     input.addEventListener("compositionend", () => { composing = false; update(); });
     input.addEventListener("input", (event) => { if (!composing && !event.isComposing) update(); });
@@ -486,7 +542,9 @@ function shellBindRepository() {
         event.preventDefault();
         event.stopPropagation();
         if (input.value) { input.value = ""; update(); }
-        else document.querySelector(".task-rows .task-select")?.focus();
+        state.searchOpen = false;
+        heading?.classList.remove("is-searching");
+        document.querySelector(".task-rows .task-select")?.focus();
       } else if (["ArrowDown", "Enter"].includes(event.key)) {
         event.preventDefault();
         document.querySelector(".task-rows .task-select")?.focus();

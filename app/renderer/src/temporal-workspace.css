@@ -477,8 +477,8 @@ body .calendar-day.selected:not(.today) .day-number {
 }
 body .calendar-day.today .day-number,
 body .calendar-day.today.selected .day-number {
-  background: var(--action-bg);
-  color: var(--action-fg);
+  background: var(--accent-position);
+  color: var(--accent-position-ink);
   font-weight: var(--ui-emphasis-weight);
   text-decoration: none;
 }
@@ -762,8 +762,8 @@ body .review-table .badge.is-done {
 }
 body .review-table .badge.orange,
 body .review-table .badge.is-blocked {
-  background: var(--status-warn-soft);
-  color: var(--status-warn);
+  background: var(--status-danger-soft);
+  color: var(--status-danger);
 }
 body .review-table td > .muted {
   display: block;

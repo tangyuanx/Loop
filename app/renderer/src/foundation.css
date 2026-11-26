@@ -8,29 +8,31 @@
 
 :root {
   color-scheme: light;
-  /* Three-plane architectural hierarchy:
-   * Plane 1 · Frame & Rail (Topbar + Primary Navigation): #f2f3f5
-   * Plane 2 · Queue Slate (Task List): #f7f8fa
+  /* Three-plane architectural hierarchy (Loop Redesign v2):
+   * Plane 1 · Frame & Rail (Primary Navigation): #f7f7f8
+   * Plane 2 · Queue Slate (Task List): #fbfbfc
    * Plane 3 · Logbook Paper (Workspace & Popovers): #ffffff */
   --workspace-canvas: #ffffff;
-  --workspace-list: #f3f4f7;
-  --workspace-selected: #e8ebf0;
-  --workspace-hover: #eff1f5;
-  --workspace-text: #15171c;
-  --workspace-secondary: #5a606d;
-  --workspace-muted: #8a909e;
-  --workspace-line: #e3e5ea;
-  --workspace-line-strong: #cfd4dd;
-  --surface-navigation: #f2f3f5;
-  --surface-navigation-hover: #e7e9ee;
+  --workspace-list: #f7f7f9;
+  --workspace-selected: rgba(24, 26, 32, 0.065);
+  --workspace-hover: rgba(24, 26, 32, 0.04);
+  --workspace-text: #1b1c20;
+  --workspace-secondary: #44454b;
+  --workspace-muted: #76777e;
+  --workspace-faint: #a4a5ab;
+  --workspace-line: #ececef;
+  --workspace-line-strong: #dfe0e5;
+  --surface-navigation: #f7f7f8;
+  --surface-navigation-hover: rgba(24, 26, 32, 0.04);
   --surface-navigation-selected: #ffffff;
-  --surface-task-list: #f7f8fa;
-  --surface-task-hover: #eef0f4;
+  --surface-task-list: #fbfbfc;
+  --surface-task-hover: rgba(24, 26, 32, 0.04);
   --surface-task-selected: #ffffff;
   --surface-raised: #ffffff;
-  --surface-subtle: #f5f6f8;
-  --border-subtle: #eceef2;
-  --border-float: rgb(15 23 42 / 9%);
+  --surface-subtle: #f7f7f9;
+  --border-subtle: #ececef;
+  --border-float: rgb(0 0 0 / 10%);
+  --footer-height: 36px;
 
   /* Legacy aliases */
   --canvas: var(--workspace-canvas);
@@ -42,47 +44,57 @@
   --secondary: var(--workspace-secondary);
   --line: var(--workspace-line);
 
+  /* Position accent (cobalt blue — strictly for current position, never focus) */
+  --accent-position: #3651d4;
+  --accent-position-ink: #ffffff;
+  --accent-position-soft: rgba(54, 81, 212, 0.08);
+
   /* Semantic signals (strictly for status, never for focus or chrome fills) */
-  --status-done: #2b7a52;
-  --status-done-soft: #eaf5ef;
-  --status-warn: #b8621b;
-  --status-warn-soft: #fdf3ea;
-  --status-danger: #c23d35;
-  --status-danger-soft: #fdeeed;
-  --orange: var(--status-warn);
+  --status-done: #3b7a60;
+  --status-done-soft: rgba(59, 122, 96, 0.11);
+  --status-review: #d8bb52;
+  --status-review-border: #c0a23a;
+  --status-review-ink: #8d7423;
+  --status-review-soft: rgba(216, 187, 82, 0.15);
+  --status-warn: var(--status-review-ink);
+  --status-warn-soft: var(--status-review-soft);
+  --status-danger: #b6402e;
+  --status-danger-soft: rgba(182, 64, 46, 0.09);
+  --orange: var(--status-danger);
   --danger: var(--status-danger);
-  --action-bg: #262a33;
-  --action-bg-hover: #343946;
+  --action-bg: #1b1c20;
+  --action-bg-hover: #2d2f36;
   --action-fg: #ffffff;
   --action-border: transparent;
-  --switch-off-bg: #d3d7e0;
-  --switch-on-bg: #262a33;
+  --switch-off-bg: #d7d8de;
+  --switch-on-bg: #44454b;
   --switch-on-thumb: #ffffff;
-  --dossier-bg: #f8f9fb;
-  --stage-card-bg: #fcfcfd;
+  --dossier-bg: #f7f7f9;
+  --stage-card-bg: #ffffff;
 
   /* Elevation & radii */
   --radius-xs: 5px;
   --radius-sm: 7px;
   --radius-md: 9px;
   --radius-lg: 12px;
-  --shadow-xs: 0 1px 2px rgb(15 23 42 / 5%), 0 0 0 1px rgb(15 23 42 / 6%);
-  --surface-shadow: 0 14px 36px -6px rgb(15 23 42 / 13%), 0 4px 12px -2px rgb(15 23 42 / 6%), 0 0 0 1px rgb(15 23 42 / 8%);
+  --shadow-xs: 0 1px 1.5px rgb(0 0 0 / 4%), 0 0 0 0.5px var(--workspace-line-strong);
+  --surface-shadow: 0 0 0 0.5px rgb(0 0 0 / 11%), 0 10px 30px -8px rgb(0 0 0 / 15%);
 
   /* Typography roles */
-  --font-mono: "SF Mono", "JetBrains Mono", "Cascadia Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-mono: "JetBrains Mono", "SF Mono", "Cascadia Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-serif: "Songti SC", "Noto Serif SC", "Source Han Serif SC", "STSong", "SimSun", serif;
   --ui-body-weight: 400;
   --ui-medium-weight: 500;
   --ui-emphasis-weight: 600;
 
   /* Neutral input & focus contract */
-  --input-surface: #f0f2f6;
-  --input-line: #d7dbe3;
-  --input-hover: #b2b8c6;
-  --input-focus: #6e6e6e;
+  --input-surface: rgba(24, 26, 32, 0.04);
+  --input-line: #dfe0e5;
+  --input-hover: #b8bac2;
+  --input-focus: #8e8f95;
   --focus-line: var(--input-focus);
-  --focus-line-strong: #585858;
-  --input-selection: color-mix(in srgb, var(--workspace-text) 14%, transparent);
+  --focus-line-strong: #72737a;
+  --input-selection: var(--accent-position-soft);
   --field22-bg: var(--input-surface);
   --field22-line: var(--input-line);
   --field22-hover: var(--input-hover);
@@ -91,54 +103,63 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --workspace-canvas: #1c1e22;
-  --workspace-list: #24272d;
-  --workspace-selected: #2d3139;
-  --workspace-hover: #25282f;
-  --workspace-text: #eceef2;
-  --workspace-secondary: #9aa1ae;
-  --workspace-muted: #68707e;
-  --workspace-line: #2b2f37;
-  --workspace-line-strong: #3a404c;
-  --surface-navigation: #121316;
-  --surface-navigation-hover: #1b1d22;
-  --surface-navigation-selected: #23262d;
-  --surface-task-list: #17191c;
-  --surface-task-hover: #202329;
-  --surface-task-selected: #252830;
-  --surface-raised: #23262d;
-  --surface-subtle: #191b1f;
-  --border-subtle: #252930;
+  --workspace-canvas: #18191c;
+  --workspace-list: #1f2024;
+  --workspace-selected: rgba(255, 255, 255, 0.08);
+  --workspace-hover: rgba(255, 255, 255, 0.045);
+  --workspace-text: #e7e7ea;
+  --workspace-secondary: #bebfc5;
+  --workspace-muted: #8c8d94;
+  --workspace-faint: #5e5f66;
+  --workspace-line: #2a2b30;
+  --workspace-line-strong: #37383e;
+  --surface-navigation: #1d1e21;
+  --surface-navigation-hover: rgba(255, 255, 255, 0.045);
+  --surface-navigation-selected: rgba(255, 255, 255, 0.08);
+  --surface-task-list: #1a1b1e;
+  --surface-task-hover: rgba(255, 255, 255, 0.045);
+  --surface-task-selected: rgba(255, 255, 255, 0.08);
+  --surface-raised: #26272b;
+  --surface-subtle: #1f2024;
+  --border-subtle: #2a2b30;
   --border-float: rgb(255 255 255 / 10%);
 
-  --status-done: #4ca978;
-  --status-done-soft: rgb(76 169 120 / 15%);
-  --status-warn: #e08b44;
-  --status-warn-soft: rgb(224 139 68 / 15%);
-  --status-danger: #e56b63;
-  --status-danger-soft: rgb(229 107 99 / 15%);
-  --action-bg: #2e3440;
-  --action-bg-hover: #39404f;
-  --action-fg: #eceff4;
-  --action-border: rgb(255 255 255 / 12%);
-  --switch-off-bg: #363b45;
-  --switch-on-bg: #dce1ea;
-  --switch-on-thumb: #16181d;
-  --dossier-bg: #17191d;
-  --stage-card-bg: #202329;
+  --accent-position: #8395f3;
+  --accent-position-ink: #11121c;
+  --accent-position-soft: rgba(131, 149, 243, 0.13);
 
-  --shadow-xs: 0 1px 2px rgb(0 0 0 / 32%), 0 0 0 1px rgb(255 255 255 / 7%);
-  --surface-shadow: 0 18px 44px -6px rgb(0 0 0 / 55%), 0 4px 14px -2px rgb(0 0 0 / 35%), 0 0 0 1px rgb(255 255 255 / 10%);
+  --status-done: #6fb393;
+  --status-done-soft: rgba(111, 179, 147, 0.13);
+  --status-review: #dec66b;
+  --status-review-border: #dec66b;
+  --status-review-ink: #dec66b;
+  --status-review-soft: rgba(222, 198, 107, 0.14);
+  --status-warn: var(--status-review-ink);
+  --status-warn-soft: var(--status-review-soft);
+  --status-danger: #e2735f;
+  --status-danger-soft: rgba(226, 115, 95, 0.12);
+  --action-bg: #e7e7ea;
+  --action-bg-hover: #d4d5da;
+  --action-fg: #18191c;
+  --action-border: transparent;
+  --switch-off-bg: #37383e;
+  --switch-on-bg: #bebfc5;
+  --switch-on-thumb: #18191c;
+  --dossier-bg: #1f2024;
+  --stage-card-bg: #232428;
+
+  --shadow-xs: 0 0 0 0.5px rgb(255 255 255 / 8%);
+  --surface-shadow: 0 0 0 0.5px rgb(255 255 255 / 10%), 0 12px 32px -6px rgb(0 0 0 / 60%);
 
   --ui-body-weight: 400;
   --ui-medium-weight: 500;
   --ui-emphasis-weight: 600;
 
-  --input-surface: #23262d;
-  --input-line: #363b45;
-  --input-hover: #525968;
-  --input-focus: #969696;
-  --focus-line-strong: #b0b0b0;
+  --input-surface: rgba(255, 255, 255, 0.05);
+  --input-line: #37383e;
+  --input-hover: #52545d;
+  --input-focus: #8c8d94;
+  --focus-line-strong: #a8a9b0;
 }
 
 /* Feature sheets are intentionally kept byte-identical to their frozen Demo

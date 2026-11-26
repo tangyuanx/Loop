@@ -259,6 +259,8 @@
           ${state.navCollapsed ? shellIcon("folder") : '<i class="group-mark"></i>'}<span>未分组</span><span class="count">${shellGroupOpenCount(UNGROUPED_TASKS_GROUP_ID)}</span>
         </button>
       </div>`;
+    const trashCount = Array.isArray(state.recentlyDeleted) ? state.recentlyDeleted.length : 0;
+    const trashBtn = `<div class="nav-trash-slot"><button class="nav-button" type="button" data-recovery26="open" title="最近删除" aria-label="最近删除">${shellIcon("trash")}<span>最近删除</span><span class="count">${trashCount}</span></button></div>`;
     return `
       <div class="nav-groups" data-context="task-list">
         <div class="nav-section-heading">
@@ -268,6 +270,7 @@
         ${rows}
         ${editingId && !editingGroup ? draft : ""}
         ${ungrouped}
+        ${trashBtn}
       </div>`;
   };
 
