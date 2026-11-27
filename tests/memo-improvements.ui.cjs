@@ -32,12 +32,19 @@ const {launchRepository,task}=require('./electron-ui-helpers.cjs');
     assert.equal(path.dirname(options[1].defaultPath),directory);
     assert.equal(await p.locator('.kn-document-close[data-unsaved]').count(),0);
     assert.equal(await p.locator('[data-kn-receipt]').isVisible(),false);
-    assert.equal(await p.locator('.knowledge-footer').evaluate(el=>getComputedStyle(el).position),'absolute');
+    const footer=await p.locator('.knowledge-footer').evaluate(el=>{
+      const surface=el.closest('.knowledge-note-surface');
+      const bounds=el.getBoundingClientRect();
+      return {top:bounds.top,bottom:bounds.bottom,bodyBottom:surface.querySelector('.knowledge-body').getBoundingClientRect().bottom,
+        surfaceBottom:surface.getBoundingClientRect().bottom};
+    });
+    assert.ok(Math.abs(footer.top-footer.bodyBottom)<1,'the footer sits below the note body');
+    assert.ok(Math.abs(footer.bottom-footer.surfaceBottom)<1,'the footer stays at the bottom of the note pane');
     await p.evaluate(()=>{knowledgeDetach(knowledgeActiveDocument().id);delete state.knowledgeWorkspace.saveDirectoriesByTask.memo;});
     assert.equal(await p.evaluate(()=>knowledgeSaveDirectory(knowledgeActiveDocument())),secondDirectory,'closed notes created by this task still supply the latest saved directory for old profiles');
     await p.evaluate(()=>flushSave());await p.reload();await p.waitForFunction(()=>knowledgeCurrentEntry()?.view);
     assert.equal(await p.evaluate(()=>knowledgeSaveDirectory(knowledgeActiveDocument())),secondDirectory);
     assert.deepEqual(h.errors,[]);
-    console.log('memo stage 1: real Electron tabs, independent panels, successful-save directory, reload, floating footer passed');
+    console.log('memo stage 1: real Electron tabs, independent panels, successful-save directory, reload and bottom footer passed');
   }finally{await h.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});
