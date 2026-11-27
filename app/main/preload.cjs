@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld("personalTaskTrack", {
   platform: process.platform,
   appVersion: ipcRenderer.sendSync("app:version"),
   environment: ipcRenderer.sendSync("app:environment"),
+  loginStartup: enabled => ipcRenderer.invoke("app:login-startup", enabled),
+  openLogs: () => ipcRenderer.invoke("app:open-logs"),
   storage: {
     read: () => ipcRenderer.invoke("task-data:read"),
     write: (data, revision) => ipcRenderer.invoke("task-data:write", data, revision),
@@ -32,10 +34,12 @@ contextBridge.exposeInMainWorld("personalTaskTrack", {
     export: (password) => ipcRenderer.invoke("data-backup:export", { password }),
     importFile: (password) => ipcRenderer.invoke("data-backup:import", { selectionType: "file", password }),
     importDirectory: () => ipcRenderer.invoke("data-backup:import", { selectionType: "directory" }),
-    importRecent: () => ipcRenderer.invoke("data-backup:import", { selectionType: "recent" }),
+    importRecent: (snapshotId) => ipcRenderer.invoke("data-backup:import", { selectionType: "recent", snapshotId }),
     importUpgrade: (forDowngrade) => ipcRenderer.invoke("data-backup:import", { selectionType: "upgrade", forDowngrade }),
     upgradeAction: (action) => ipcRenderer.invoke("data-backup:upgrade-action", action),
     overview: () => ipcRenderer.invoke("data-backup:overview"),
+    reveal: () => ipcRenderer.invoke("data-backup:reveal"),
+    setAutomatic: enabled => ipcRenderer.invoke("data-backup:automatic", enabled),
   },
   recentlyDeletedRetention: {
     status: () => ipcRenderer.invoke("recently-deleted:retention", { action: "status" }),
@@ -52,6 +56,7 @@ contextBridge.exposeInMainWorld("personalTaskTrack", {
     onQuitCanceled: (callback) => subscribe("knowledge-recovery:quit-canceled", callback),
   },
   knowledgeFile: {
+    reveal: filePath => ipcRenderer.invoke("knowledge-document:reveal", filePath),
     save: (payload) => ipcRenderer.invoke("knowledge-document:save", payload),
     rename: (payload) => ipcRenderer.invoke("knowledge-document:rename", payload),
     stageAssets: (payload) => ipcRenderer.invoke("knowledge-document:stage-assets", payload),

@@ -6,7 +6,14 @@ body :is(.today-widget, #surface-host) {
   color: var(--text);
 }
 body .today-widget { background: var(--canvas); border-color: var(--line); box-shadow: var(--surface-shadow); }
-body .today-widget.widget12 .widget-header { padding: 11px 14px 9px; }
+body .today-widget.widget12 .widget-header { padding: 8px 10px; gap: 4px; }
+body .widget12 .widget-header .icon-button { width: 22px; min-width: 22px; height: 24px; padding: 4px; }
+body .widget12 .widget-header [data-action="widget-pin"][aria-pressed="true"] { color: var(--accent-position); }
+body .widget12 .widget-deadline { flex: none; color: var(--workspace-muted); font: 10.5px var(--font-mono); }
+body .widget-completed-row > button { width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 10px; text-align: left; color: var(--workspace-muted); }
+body .widget-completed-row svg { width: 14px; height: 14px; flex: none; color: var(--status-done); }
+body .widget-completed-row span { flex: 1; min-width: 0; text-decoration: line-through; }
+body .widget-completed-row time { font: 10.5px var(--font-mono); }
 body .widget12 .widget-tabs { gap: 20px; }
 body .widget12 .widget-tabs button.active { border-bottom-color: var(--text); color: var(--text); font-weight: var(--ui-emphasis-weight); }
 body .widget12 .widget-body { padding: 6px 8px; }

@@ -88,7 +88,7 @@ const { _electron: electron } = require("../tools/guarded-electron.cjs");
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert.equal(await readDraft(), "", "an explicit clear must still reach the widget");
 
-    const field = widget.getByPlaceholder("添加速记…");
+    const field = widget.getByRole("textbox", { name: "快速记录内容" });
     assert.equal(await widget.getByText("暂无速记", { exact: true }).count(), 0);
     await field.click();
     await widget.keyboard.insertText("点击提示直接输入");

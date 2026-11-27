@@ -9,8 +9,7 @@
 //   state.reviewPreset / reviewDateField / reviewStartDate / reviewEndDate
 // ============================================================
 
-const SHELL_REVIEW_FIELD_LABELS = { updated: "更新日期", created: "创建日期", resolved: "解决日期" };
-const SHELL_REVIEW_PRESETS = [["week", "本周"], ["month", "本月"], ["year", "今年"], ["all", "全部"], ["custom", "自定义"]];
+const SHELL_REVIEW_PRESETS = [["week", "本周"], ["month", "本月"], ["quarter", "近 90 天"], ["custom", "自定义…"]];
 
 function shellPageHeading(title, description, actions = "") {
   return `<header class="page-heading"><div><h1>${esc(title)}</h1>${description ? `<p>${esc(description)}</p>` : ""}</div>${actions ? `<div class="heading-actions">${actions}</div>` : ""}</header>`;
@@ -25,79 +24,87 @@ function shellCalendarMonth() {
   return parsed || loopNow();
 }
 
-function shellCalendarDateKey(date) {
-  return localDateKey(date);
+function shellCalendarOccurrences(date, now = loopNow()) {
+  const key = localDateKey(date);
+  if (key < localDateKey(now)) return [];
+  const evening = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59);
+  return state.tasks.filter(task => !shellTaskIsNote(task) && localDateKey(task.deadlineAt) !== key
+    && isRecurringTaskDue(task, evening));
 }
 
 function renderShellCalendar() {
   ensureCalendarState();
   const month = shellCalendarMonth();
   const todayKey = loopTodayKey();
-  const selectedKey = state.calendarSelectedDate || todayKey;
-  const selected = safeDate(`${selectedKey}T12:00:00`) || loopNow();
+  const selectedKey = state.calendarSelectedDate;
+  const selected = parseDateInput(selectedKey) || loopNow();
+  const week = state.calendarView === "week";
+  const anchor = week ? selected : new Date(month.getFullYear(), month.getMonth(), 1);
+  const start = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() - (anchor.getDay() + 6) % 7);
+  const weeks = week ? 1 : 6;
   const agenda = calendarTasksForDate(selectedKey);
-  const first = new Date(month.getFullYear(), month.getMonth(), 1);
-  const offset = (first.getDay() + 6) % 7;
-  const start = new Date(first.getFullYear(), first.getMonth(), 1 - offset);
-  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
-  const weeks = Math.ceil((offset + daysInMonth) / 7);
-  const focusKey = selectedKey.slice(0, 7) === localDateKey(first).slice(0, 7) ? selectedKey : localDateKey(first);
-
+  const now = loopNow();
+  const cycles = shellCalendarOccurrences(selected, now);
   const days = Array.from({ length: weeks * 7 }, (_, index) => {
     const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
-    const key = shellCalendarDateKey(date);
-    const items = calendarTasksForDate(key);
-    const outside = date.getMonth() !== month.getMonth();
-    const boundary = outside || date.getDate() === 1;
-    const label = `${date.getFullYear()} 年 ${date.getMonth() + 1} 月 ${date.getDate()} 日，${items.length ? `${items.length} 个任务截止` : "无截止任务"}`;
-    const nowMs = loopNow().getTime();
-    const previewChips = items.slice(0, 2).map((task) => {
-      const done = task.status === "done";
-      const dl = safeDate(task.deadlineAt);
-      const overdue = !done && dl && dl.getTime() < nowMs;
-      const tone = done ? "is-done" : overdue ? "is-overdue" : "is-open";
-      return `<span class="cal-ev ${tone}" title="${escAttr(task.title || "未命名任务")}">${esc(task.title || "未命名任务")}</span>`;
+    const key = localDateKey(date);
+    const dueItems = calendarTasksForDate(key);
+    const items = [...dueItems, ...shellCalendarOccurrences(date, now)];
+    const weekend = date.getDay() === 0 || date.getDay() === 6;
+    const previewChips = items.slice(0, 3).map(task => {
+      const tone = task.status === "done" ? "is-done" : Date.parse(task.deadlineAt) < +now ? "is-overdue" : "is-open";
+      const repeat = normalizeTaskRecurrence(task.recurrence).frequency !== "none";
+      return `<span class="cal-ev ${tone}" title="${escAttr(task.title)}"><span>${esc(task.title)}</span>${repeat ? shellIcon("repeat") : ""}</span>`;
     }).join("");
-    const extraChip = items.length > 2 ? `<span class="cal-ev-more">+${items.length - 2}</span>` : "";
-    return `<button class="calendar-day ${outside ? "outside " : ""}${key === todayKey ? "today " : ""}${key === selectedKey ? "selected" : ""}" type="button" data-action="select-calendar-date" data-date="${key}" tabindex="${key === focusKey ? "0" : "-1"}" aria-label="${escAttr(label)}" aria-pressed="${key === selectedKey}" ${key === todayKey ? 'aria-current="date"' : ""}>
-      <span class="day-number ${boundary ? "month-boundary" : ""}">${boundary ? `${date.getMonth() + 1}月 ${date.getDate()}` : date.getDate()}</span>
-      ${items.length ? `<span class="cal-day-events">${previewChips}${extraChip}</span><span class="day-count sr-only">${items.length} 个任务</span>` : ""}
+    const label = `${key} · ${dueItems.length} 项截止${items.length > dueItems.length ? ` · ${items.length - dueItems.length} 项循环` : ""}`;
+    return `<button class="calendar-day ${date.getMonth() !== month.getMonth() ? "outside" : ""} ${weekend ? "weekend" : ""} ${key === todayKey ? "today" : ""} ${key === selectedKey ? "selected" : ""}" type="button" data-action="select-calendar-date" data-date="${key}" tabindex="${key === selectedKey ? "0" : "-1"}" aria-label="${label}" aria-pressed="${key === selectedKey}" ${key === todayKey ? 'aria-current="date"' : ""}>
+      <span class="day-number">${date.getDate()}</span>
+      <span class="cal-day-events">${previewChips}${items.length > 3 ? `<span class="cal-ev-more">还有 ${items.length - 3} 项</span>` : ""}</span>
     </button>`;
   }).join("");
 
-  const agendaBody = agenda.length
-    ? `<ol class="agenda-items">${agenda.map((task) => {
-      const deadline = safeDate(task.deadlineAt);
-      const done = task.status === "done";
-      const group = state.taskGroups.find((item) => item.id === task.groupId);
-      return `<li class="agenda-item">
-        <button class="agenda-task" type="button" data-action="open-calendar-task" data-task-id="${escAttr(task.id)}">${esc(task.title || "未命名任务")}</button>
-        <div class="agenda-meta">${shellIcon(done ? "done" : "circle")}${done ? "已完成" : "未完成"}<span>·</span><time>${esc(shellTimeLabel(deadline))}</time><span>·</span><span>${esc(group?.title || "未分组")}</span></div>
-        ${normalizeTaskRecurrence(task.recurrence).frequency !== "none" ? `<p class="agenda-cycle">循环 · ${esc(recurrenceSummaryLabel(task.recurrence))}</p>` : ""}
-        ${shellTemporalSummary(task.hypothesis || task.description || "尚未记录进展")}
-      </li>`;
-    }).join("")}</ol>
-    <button class="button" type="button" data-action="apply-calendar-date">在任务中查看${shellIcon("arrow")}</button>`
-    : '<p class="agenda-empty">当天暂无任务截止。<br>可选择其他日期查看。</p>';
-
-  return `<div class="calendar-layout calendar-v2">
+  const navigation = normalizeCurrentWorkNavigation();
+  const phases = state.uiPreferences.workNavigationEnabled && navigation.config.workdays.includes(selected.getDay())
+    ? workNavigationModel.phasesForDate(navigation, selected).filter(phase => phase.type !== "break") : [];
+  const hourStart = 8, hourEnd = 21, rowHeight = 38;
+  const from = hourStart * 60, to = hourEnd * 60;
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const timeTop = minute => (minute - from) / 60 * rowHeight;
+  const shownPhases = phases.filter(phase => workNavigationModel.minutes(phase.end) > from && workNavigationModel.minutes(phase.start) < to);
+  return `<div class="month-controls calendar-header">
+      <h2>${month.getFullYear()}年${month.getMonth() + 1}月</h2>
+      <button class="icon-button" type="button" data-action="shift-calendar-month" data-direction="-1" aria-label="上一${week ? "周" : "个月"}" style="transform:rotate(180deg)">${shellIcon("chevron")}</button>
+      <button class="icon-button" type="button" data-action="shift-calendar-month" data-direction="1" aria-label="下一${week ? "周" : "个月"}">${shellIcon("chevron")}</button>
+      <button class="button" type="button" data-action="calendar-today" title="回到今天">今天</button>
+      <div class="segmented calendar-view-picker" aria-label="日历视图">${[["month", "月"], ["week", "周"]].map(([value, text]) => `<button class="${value === state.calendarView ? "active" : ""}" type="button" data-action="set-calendar-view" data-value="${value}" aria-pressed="${value === state.calendarView}">${text}</button>`).join("")}</div>
+    </div>
+    <div class="calendar-layout calendar-v2">
       <section class="calendar-main" aria-label="截止日期日历">
-        <div class="month-controls">
-          <h2>${month.getFullYear()} 年 ${month.getMonth() + 1} 月</h2>
-          <button class="icon-button" type="button" data-action="shift-calendar-month" data-direction="-1" aria-label="上个月"><svg viewBox="0 0 24 24" aria-hidden="true" style="transform:rotate(180deg)"><path d="${SHELL_ICON_PATHS.chevron}"></path></svg></button>
-          <button class="icon-button" type="button" data-action="shift-calendar-month" data-direction="1" aria-label="下个月">${shellIcon("chevron")}</button>
-          <button class="button" type="button" data-action="calendar-today">回到今天</button>
-        </div>
-        <div class="calendar-weekdays" aria-hidden="true">${["一", "二", "三", "四", "五", "六", "日"].map((day) => `<span>周${day}</span>`).join("")}</div>
+        <div class="calendar-weekdays" aria-hidden="true">${["一", "二", "三", "四", "五", "六", "日"].map(day => `<span>周${day}</span>`).join("")}</div>
         <div class="calendar-grid" style="--calendar-weeks:${weeks}">${days}</div>
-        <div class="calendar-legend">任务显示在截止日 · 循环任务按当前截止日显示</div>
       </section>
-      <aside class="agenda" aria-label="当天截止任务">
-        <div class="agenda-head">
-          <h2>${esc(shellDisplayDate(selectedKey))}</h2>
-          <p>${SHELL_WEEKDAY_NAMES[selected.getDay()]}${selectedKey === todayKey ? " · 今天" : ""}${agenda.length ? ` · ${agenda.length} 个任务截止` : ""}</p>
+      <aside class="agenda" aria-label="当天截止与日程">
+        <div class="agenda-head"><h2>${shellDisplayDate(selected).replaceAll(" ", "")}${selectedKey === todayKey ? " · 今天" : ""}</h2>
+          <p>${agenda.length} 项截止 · ${shownPhases.length} 段日程</p></div>
+        <div class="agenda-scroll">
+          <h3>截止</h3>
+          ${agenda.length ? agenda.map(task => `<button class="agenda-item" type="button" data-action="open-calendar-task" data-task-id="${escAttr(task.id)}">
+            <time>${esc(shellTimeLabel(task.deadlineAt))}</time><span>${esc(task.title)}<small>${esc(task.status === "done" && task.conclusion ? task.conclusion : shellGroupTitle(task.groupId))}</small></span>
+          </button>`).join("") : '<p class="agenda-empty">当天没有截止的任务</p>'}
+          ${cycles.length ? `<h3>循环</h3>${cycles.map(task => `<button class="agenda-item" type="button" data-action="open-calendar-task" data-task-id="${escAttr(task.id)}">
+            <time>${esc(normalizeTaskRecurrence(task.recurrence).time)}</time><span>${esc(task.title)}<small>${esc(shellGroupTitle(task.groupId))}</small></span>
+          </button>`).join("")}` : ""}
+          <h3>日程</h3>
+          <div class="agenda-timeline" aria-label="08:00 至 21:00">
+            ${Array.from({ length: hourEnd - hourStart + 1 }, (_, index) => `<div class="agenda-hour"><span>${String(index + hourStart).padStart(2, "0")}:00</span></div>`).join("")}
+            ${shownPhases.map(phase => {
+              const top = timeTop(Math.max(from, workNavigationModel.minutes(phase.start)));
+              const end = timeTop(Math.min(to, workNavigationModel.minutes(phase.end)));
+              return `<div class="agenda-block" style="top:${top}px;height:${Math.max(1, end - top - 3)}px">${esc(phase.label)}<small>${esc(phase.start)} – ${esc(phase.end)}</small></div>`;
+            }).join("")}
+            ${selectedKey === todayKey && minutes >= from && minutes <= to ? `<div class="agenda-now" style="top:${timeTop(minutes)}px" title="${escAttr(shellTimeLabel(now))}"></div>` : ""}
+          </div>
         </div>
-        ${agendaBody}
       </aside>
     </div>`;
 }
@@ -106,49 +113,23 @@ function renderShellCalendar() {
 // Review
 // ------------------------------------------------------------
 
-function shellReviewItems() {
-  const range = reviewRange();
-  const items = reviewTasks(range);
-  return { range, items };
-}
-
 function shellReviewRangeLabel(range) {
-  if (state.reviewPreset === "all") return "全部时间";
   if (range.error) return "日期范围无效";
-  if (!range.start || !range.end) return "选择日期范围";
-  const inclusiveEnd = new Date(range.end.getFullYear(), range.end.getMonth(), range.end.getDate() - 1);
-  // Keep calendar dates local; reparsing a YYYY-MM-DD key treats it as UTC.
-  return `${shellDisplayDate(range.start)} — ${shellDisplayDate(inclusiveEnd)}`;
+  if (!range.start || !range.end) return "全部时间";
+  const end = new Date(range.end);
+  end.setDate(end.getDate() - 1);
+  const dateText = date => `${date.getMonth() + 1}/${date.getDate()}`;
+  return `${dateText(range.start)} – ${dateText(end)}`;
 }
 
-/** Same value the range filter used, so the column never disagrees with the range. */
-function shellReviewDateText(date) {
-  if (!date) return "—";
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-/** Node progress is a project feature the Demo's table does not show; it goes
- *  into the existing 状态 cell as a muted suffix rather than a new column. */
-function shellReviewNodeProgress(task) {
-  const total = shellNodeList(task).length;
-  if (!total) return "";
-  const done = shellCountDoneNodes(task);
-  return `<span class="muted">${done}/${total} 节点</span>`;
-}
-
-function shellTemporalSummary(value) {
-  const text = String(value).trim();
-  if (text.length <= 180) return `<p class="summary">${esc(text)}</p>`;
-  return `<details class="temporal-summary"><summary><span class="temporal-summary-preview">${esc(text.slice(0, 180))}…</span><span class="temporal-summary-label">完整摘要</span></summary><p class="summary">${esc(text)}</p></details>`;
-}
-
-function renderShellReviewSummary(items) {
-  const tasksInScope = items.map(({ task }) => task);
-  const doneTasks = tasksInScope.filter((t) => t.status === "done");
-  const doneNodesCount = tasksInScope.reduce((acc, t) => acc + shellCountDoneNodes(t), 0);
+function renderShellReviewSummary(doneTasks, openTasks, range) {
+  const doneNodesCount = state.tasks.reduce((count, task) => count + shellNodeList(task).filter(node => {
+    const date = safeDate(node.completedAt || node.statusChangedAt || node.updatedAt);
+    return node.status === "done" && date && !range.error && isWithinRange(date, range);
+  }).length, 0);
   const conclCount = doneTasks.filter((t) => String(t.conclusion || "").trim()).length;
   const conclPct = doneTasks.length ? Math.round((conclCount / doneTasks.length) * 100) : 0;
-  const blockedCount = tasksInScope.filter((t) => t.status !== "done" && normalizeTaskTags(t.tags).blocked).length;
+  const blockedCount = openTasks.filter(task => normalizeTaskTags(task.tags).blocked).length;
 
   // 13-week (91-day) activity heatmap from real task/node timestamps
   const today = loopNow();
@@ -160,10 +141,8 @@ function renderShellReviewSummary(items) {
     countsByDay.set(k, (countsByDay.get(k) || 0) + 1);
   };
   for (const t of state.tasks) {
-    if (t.resolvedAt) bump(t.resolvedAt);
-    else if (t.updatedAt) bump(t.updatedAt);
     for (const n of shellNodeList(t)) {
-      if (n.status === "done" && (n.updatedAt || n.createdAt)) bump(n.updatedAt || n.createdAt);
+      if (n.status === "done") bump(n.completedAt || n.statusChangedAt || n.updatedAt);
     }
   }
   const cells = [];
@@ -179,19 +158,30 @@ function renderShellReviewSummary(items) {
     <div class="review-kpis">
       <div class="review-kpi"><b>${doneTasks.length}</b><span>个任务闭环</span></div>
       <div class="review-kpi"><b>${doneNodesCount}</b><span>个节点完成</span></div>
-      <div class="review-kpi"><b>${conclCount}</b><span>条结论写下${doneTasks.length ? ` · ${conclPct}%` : ""}</span></div>
+      <div class="review-kpi"><b>${conclCount}</b><span>条结论写下${doneTasks.length ? ` · ${conclPct}% 有结论` : ""}</span></div>
       <div class="review-kpi"><b>${blockedCount}</b><span>个任务仍卡住</span></div>
     </div>
     <div class="review-heat-block">
       <div class="review-heat-head"><b>节点活动</b><span>近 13 周 · 每格一天</span></div>
-      <div class="review-heat-grid" aria-hidden="true">${cells.join("")}</div>
+      <div class="review-heat-grid" aria-hidden="true">${cells.join("")}</div><p class="review-heat-legend">颜色越深，当天完成的节点越多</p>
     </div>
   </div>`;
 }
 
 function renderShellReview() {
-  const { range, items } = shellReviewItems();
-  const invalid = Boolean(range.error);
+  const range = reviewRange();
+  const invalid = shellReviewRangeError(range);
+  const tasks = state.tasks.filter(task => !shellTaskIsNote(task));
+  const done = invalid ? [] : tasks.filter(task => {
+    const date = taskReviewDate(task, "resolved");
+    return date && isWithinRange(date, range);
+  }).sort((a, b) => +taskReviewDate(b, "resolved") - +taskReviewDate(a, "resolved"));
+  const open = tasks.filter(task => task.status !== "done");
+  const pending = open.map(task => {
+    const review = shellNodeList(task).filter(node => node.status === "review").length;
+    const why = [normalizeTaskTags(task.tags).blocked && "卡住", review && `${review} 个待确认`, !task.conclusion?.trim() && "缺结论"].filter(Boolean);
+    return { task, why };
+  }).filter(item => item.why.length);
   return `<div class="review-v2-head">
       <h1>回顾</h1>
       <span class="review-v2-range">${esc(shellReviewRangeLabel(range))}</span>
@@ -199,11 +189,6 @@ function renderShellReview() {
       <div class="segmented" aria-label="回顾时间范围">
         ${SHELL_REVIEW_PRESETS.map(([value, label]) => `<button class="${state.reviewPreset === value ? "active" : ""}" type="button" data-action="set-review-preset" data-preset="${value}" aria-pressed="${state.reviewPreset === value}">${label}</button>`).join("")}
       </div>
-      <label class="field-select">依据
-        <select data-review-date-field aria-label="回顾日期依据">
-          ${Object.entries(SHELL_REVIEW_FIELD_LABELS).map(([value, label]) => `<option value="${value}" ${state.reviewDateField === value ? "selected" : ""}>${label}</option>`).join("")}
-        </select>
-      </label>
       ${state.reviewPreset === "custom" ? `<div class="review-range">
         <label for="review-start">从</label>
         <input class="range-input" type="date" id="review-start" data-review-date-bound="start" aria-label="开始日期" aria-invalid="${invalid}" ${invalid ? 'aria-describedby="review-range-error"' : ""} value="${escAttr(state.reviewStartDate)}" />
@@ -213,39 +198,25 @@ function renderShellReview() {
       </div>` : ""}
       </div>
     </div>
-    ${renderShellReviewSummary(items)}
-    <section class="review-content">
-      <div class="review-caption">
-        <span><b>${esc(shellReviewRangeLabel(range))}</b> · ${SHELL_REVIEW_FIELD_LABELS[state.reviewDateField] || "更新日期"}</span>
-        <span>${items.length} 个任务 · ${items.filter(({ task }) => task.status === "done").length} 已完成</span>
-      </div>
-      ${items.length
-        ? `<table class="review-table">
-            <caption class="temporal-table-caption">${esc(shellReviewRangeLabel(range))} · ${SHELL_REVIEW_FIELD_LABELS[state.reviewDateField] || "更新日期"}</caption>
-            <thead><tr>
-              <th class="review-title-col" scope="col">任务与处理摘要</th>
-              <th class="review-group-col" scope="col">分组</th>
-              <th class="review-state-col" scope="col">状态</th>
-              <th class="review-date-col" scope="col">${SHELL_REVIEW_FIELD_LABELS[state.reviewDateField] || "更新日期"}</th>
-            </tr></thead>
-            <tbody>${items.map(({ task, date }) => {
-              const group = state.taskGroups.find((item) => item.id === task.groupId);
-              const done = task.status === "done";
-              return `<tr>
-                <td><button class="review-task-title" type="button" data-action="open-review-task" data-task-id="${escAttr(task.id)}">${esc(task.title || "未命名任务")}</button>${shellTemporalSummary(task.conclusion || task.hypothesis || task.description || "尚未记录处理过程")}</td>
-                <td class="muted">${esc(group?.title || "未分组")}</td>
-                <td><span class="badge ${done ? "green is-done" : task.tags?.blocked ? "orange is-blocked" : task.tags?.later ? "is-later" : "is-open"}">${done ? "已完成" : task.tags?.blocked ? "卡住" : task.tags?.later ? "暂缓" : "未完成"}</span>${shellReviewNodeProgress(task)}</td>
-                <td class="date">${esc(shellReviewDateText(date))}</td>
-              </tr>`;
-            }).join("")}</tbody>
-          </table>`
-        : `<div class="empty"><p>${shellReviewRangeError() ? "调整日期范围后查看任务。" : "这个范围内还没有任务记录。"}</p><button class="button" type="button" data-action="set-review-preset" data-preset="all">查看全部时间</button></div>`}
+    <section class="review-content review-loop">
+      ${renderShellReviewSummary(done, open, range)}
+      <h2>已闭环 <small>${done.length} 个 · 按完成时间</small></h2>
+      ${done.length ? done.map(task => {
+        const date = taskReviewDate(task, "resolved");
+        return `<button class="review-closed" type="button" data-action="open-review-task" data-task-id="${escAttr(task.id)}">
+          <time>${date.getMonth() + 1}/${date.getDate()}</time><span>${esc(task.title)}</span><small>${shellCountDoneNodes(task)} 节点 · ${esc(shellGroupTitle(task.groupId))}</small>
+          ${task.conclusion?.trim() ? `<p><small>结论</small> ${esc(task.conclusion)}</p>` : ""}
+        </button>`;
+      }).join("") : '<p class="review-heat-legend">这个范围内还没有闭环任务</p>'}
+      <h2>尚未闭环 <small>有阻塞、待确认或缺结论</small></h2>
+      ${pending.map(({ task, why }) => `<button class="review-pending" type="button" data-action="open-review-task" data-task-id="${escAttr(task.id)}">
+        ${shellTaskRowSignals(task)}<span>${esc(task.title)}</span><small>${esc(why.join(" · "))}</small>
+      </button>`).join("")}
     </section>`;
 }
 
-function shellReviewRangeError() {
-  if (state.reviewPreset !== "custom") return false;
-  return customReviewRange().error;
+function shellReviewRangeError(range = reviewRange()) {
+  return Boolean(range.error);
 }
 
 // A single keyboard stop for the calendar; native Tab still reaches the agenda.

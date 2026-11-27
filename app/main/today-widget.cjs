@@ -27,7 +27,7 @@ const SURFACE_KINDS = new Set(["settings", "row-menu", "promote", "delete"]);
 // `.widget12.compact{width:254px}`). The renderer measures the panel height from
 // its content; the width is a function of the mode, so deriving it from a panel
 // that the window itself constrains would feed the window its own width back.
-const WIDGET_WIDTHS = { expanded: 360, compact: 254 };
+const WIDGET_WIDTHS = { expanded: 296, compact: 254 };
 const SURFACE_FALLBACK_HEIGHTS = { settings: 430, "row-menu": 200, promote: 190, delete: 200 };
 const DEFAULT_PREFERENCES = Object.freeze({
   position: "top-right",
@@ -205,7 +205,7 @@ function createTodayWidgetController({ app, BrowserWindow, globalShortcut, ipcMa
   let snapshot = { date: "", items: [] };
   // The window is the rendered panel plus the ring that carries the Demo's own
   // drop shadow; `currentContent` is the panel box the renderer measured.
-  let currentContent = { width: 360, height: DEFAULT_PREFERENCES.height };
+  let currentContent = { width: WIDGET_WIDTHS.expanded, height: DEFAULT_PREFERENCES.height };
   let currentSize = windowSizeForContent(currentContent);
   let firstFitPending = true;
   let showFallbackTimer = null;
@@ -1249,6 +1249,11 @@ function normalizeSnapshot(value) {
     // Phase18: how much of today is already finished decides the widget's empty
     // copy ("今日任务已完成" instead of "暂无今日任务").
     completedToday: Math.max(0, Math.floor(Number(raw.completedToday) || 0)),
+    completedItems: (Array.isArray(raw.completedItems) ? raw.completedItems : []).map(item => ({
+      taskId: normalizeTaskId(item?.taskId),
+      title: String(item?.title || "未命名任务").slice(0, 240),
+      time: /^\d{2}:\d{2}$/.test(item?.time || "") ? item.time : "",
+    })).filter(item => item.taskId),
     // the Demo marks the row open in the main window with .current
     activeTaskId: normalizeTaskId(raw.activeTaskId),
     appearance: normalizeTodayWidgetAppearance(raw.appearance),
@@ -1258,6 +1263,7 @@ function normalizeSnapshot(value) {
       // An empty next step is meaningful: the Demo renders the line only when the
       // record actually has one, which is what decides the row height.
       nextText: String(item?.nextText || "").slice(0, 500),
+      deadline: /^\d{2}:\d{2}$/.test(item?.deadline || "") ? item.deadline : "",
       kind: ["normal", "high", "blocked"].includes(item?.kind) ? item.kind : "normal",
     })).filter((item) => item.taskId),
     quickCaptures: (Array.isArray(raw.quickCaptures) ? raw.quickCaptures : []).map((item) => ({

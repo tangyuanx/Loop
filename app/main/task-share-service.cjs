@@ -86,10 +86,11 @@ function registerTaskShare({ ipcMain, dialog, shell, app, getWindow, store, expo
   function exportSummary(lease) {
     const { pack, assets, issues, localPaths, references } = lease.prepared;
     const files = [...assets.values()].map(({ name, size, type }) => ({ name, size, type }));
-    const preview = markdownDocuments(pack)[0].bytes.toString('utf8');
+    const options = { statusMarkers: lease.source.statusMarkers !== false };
+    const preview = markdownDocuments(pack, options)[0].bytes.toString('utf8');
     return { success: true, token: lease.token, files, localPaths, references,
       issues: issues.map(({ id, name, context, owner, reason }) => ({ id, name, context, owner, reason })),
-      bytes: files.reduce((sum, file) => sum + file.size, Buffer.byteLength(preview)), preview: preview.slice(0, 64000), document: staticDocument(pack) };
+      bytes: files.reduce((sum, file) => sum + file.size, Buffer.byteLength(preview)), preview: preview.slice(0, 64000), document: staticDocument(pack, options) };
   }
 
   async function prepare(lease) {
@@ -128,14 +129,15 @@ function registerTaskShare({ ipcMain, dialog, shell, app, getWindow, store, expo
     const lease = getLease(win, token, 'export');
     const { pack, assets, issues } = lease.prepared;
     assertShare(!issues.length || allowIncomplete === true, 'SHARE_RESOURCES', '请重新选择缺失附件，或确认排除后继续。');
-    if (format === 'pdf' || format === 'html') {
+    const options = { statusMarkers: lease.source.statusMarkers !== false };
+    if (format === 'pdf' || format === 'html' || format === 'png') {
       assertShare(!assets.size || allowIncomplete === true, 'SHARE_RESOURCES', '请先确认保留附件说明。');
-      const markdown = markdownDocuments(pack)[0].bytes.toString('utf8');
+      const markdown = markdownDocuments(pack, options)[0].bytes.toString('utf8');
       return exportDocument({ taskTitle: pack.task.title, format, markdown,
         documentKind: pack.scope === 'notes' ? 'note' : 'task', html: typeof html === 'string' ? html : '' });
     }
     assertShare(format === 'md' || format === 'pack', 'SHARE_FORMAT', '请选择支持的分享格式。');
-    const documents = format === 'md' ? markdownDocuments(pack) : [];
+    const documents = format === 'md' ? markdownDocuments(pack, options) : [];
     const extension = format === 'pack' ? 'looptask' : documents.length > 1 || assets.size ? 'zip' : 'md';
     const chosen = await dialog.showSaveDialog(win, { title: '保存分享文件', defaultPath: `${safeName(pack.task.title, 'Loop 任务')}.${extension}`,
       filters: [{ name: { looptask: 'Loop 任务包', md: 'Markdown', zip: 'Markdown ZIP' }[extension], extensions: [extension] }],

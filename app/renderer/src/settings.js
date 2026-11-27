@@ -9,12 +9,10 @@
 // ============================================================
 
 const SHELL_SETTINGS_CATEGORIES = [
+  ["tasks", "通用", "settings"],
   ["appearance", "外观", "sun"],
-  ["tasks", "任务与浮窗", "tasks"],
-  ["knowledge", "知识笔记", "note"],
-  ["data", "数据", "folder"],
-  ["updates", "软件更新", "arrow"],
-  ["advanced", "高级功能", "settings"],
+  ["data", "数据与备份", "folder"],
+  ["updates", "软件更新", "download"],
   ["help", "帮助与反馈", "note"],
 ];
 
@@ -23,6 +21,25 @@ const SHELL_RETENTION_CHOICES = { 0: "永久保留", 7: "7 天", 30: "30 天", 9
 let recentlyDeletedRetentionDays = null;
 let recentlyDeletedRetentionBusy = false;
 let recentlyDeletedRetentionMessage = "";
+let loginStartupStatus = null;
+let loginStartupBusy = false;
+
+async function refreshLoginStartup(enabled) {
+  if (loginStartupBusy || !window.personalTaskTrack?.loginStartup) return;
+  loginStartupBusy = true;
+  try {
+    loginStartupStatus = await window.personalTaskTrack.loginStartup(enabled);
+    const control = document.querySelector('[data-action="toggle-login-startup"]');
+    if (control) {
+      control.disabled = !loginStartupStatus.supported;
+      control.setAttribute("aria-checked", String(loginStartupStatus.enabled));
+    }
+  } catch {
+    showWorkspaceError("无法更新开机启动设置");
+  } finally {
+    loginStartupBusy = false;
+  }
+}
 
 function syncRecentlyDeletedRetentionControls() {
   const choice = document.querySelector('.prefs-choice[data-key="recently-deleted-retention"]');
@@ -199,8 +216,8 @@ function shellSettingsGroup(id, title, rows) {
 }
 
 function shellSettingsAppearance() {
-  const dark = state.theme === "dark";
-  const theme = `<div class="prefs-theme" role="group" aria-label="主题">${["light", "dark"].map((value) => `<button class="theme-option ${(dark ? "dark" : "light") === value ? "active" : ""}" type="button" data-setting-button="theme" data-value="${value}" aria-pressed="${(dark ? "dark" : "light") === value}"><span class="theme-mini ${value}" aria-hidden="true"><i></i><b></b><span></span></span><span>${shellIcon(value === "light" ? "sun" : "moon")}${value === "light" ? "浅色" : "深色"}</span></button>`).join("")}</div>`;
+  const themes = [["light", "浅色", "sun"], ["dark", "深色", "moon"], ["system", "跟随系统", "panel"]];
+  const theme = `<div class="prefs-theme" role="group" aria-label="主题">${themes.map(([value, title, icon]) => `<button class="theme-option ${state.theme === value ? "active" : ""}" type="button" data-setting-button="theme" data-value="${value}" aria-pressed="${state.theme === value}"><span class="theme-mini ${value}" aria-hidden="true"><i></i><b></b><span></span></span><span>${shellIcon(icon)}${title}</span></button>`).join("")}</div>`;
   const interaction = window.LoopContinuity28?.settings() || "";
   return `<h2>外观</h2><div class="prefs-group-stack">
     ${shellSettingsGroup("theme", "主题", theme)}
@@ -209,7 +226,13 @@ function shellSettingsAppearance() {
       ${shellSettingsChoice("zh-font", "自选字体需先在系统中安装。", shellSettingsChoiceOptions("zh-font"), state.zhFont)}
       ${shellSettingsChoice("en-font", "", shellSettingsChoiceOptions("en-font"), state.enFont)}
       <div class="font-preview"><b>字体预览</b><p>记录任务与笔记 · Task notes 0123456789</p></div>`)}
-    ${interaction ? shellSettingsGroup("interaction", "界面切换", interaction) : ""}
+    ${shellSettingsGroup("reading", "阅读", `
+      ${shellSettingsToggle("简报正文使用衬线字体", "背景、进展与结论采用宋体。", state.uiPreferences.briefSerif, 'data-action="toggle-brief-serif"')}
+      ${shellSettingsChoice("knowledge-width", "", shellSettingsChoiceOptions("knowledge-width"), shellNoteWidth())}`)}
+    <details class="prefs-advanced"><summary>更多外观与编辑选项</summary>
+      ${shellSettingsKnowledge()}
+      ${interaction ? shellSettingsGroup("interaction", "界面切换", interaction) : ""}
+    </details>
     <footer class="settings-footer"><button class="button" type="button" data-action="reset-appearance">恢复默认外观</button></footer>
   </div>`;
 }
@@ -217,12 +240,20 @@ function shellSettingsAppearance() {
 function shellSettingsTasks() {
   const modifier = desktopPlatform === "darwin" ? "⌘" : "Ctrl";
   const reminders = typeof desktopReminderSettingsRow === "function" ? desktopReminderSettingsRow() : "";
-  return `<h2>任务与浮窗</h2><div class="prefs-group-stack">
+  const groups = [["", "跟随当前分组"], [UNGROUPED_TASKS_GROUP_ID, "未分组"],
+    ...sort(state.taskGroups).map(group => [group.id, group.title])];
+  return `<h2>通用与任务</h2><div class="prefs-group-stack">
+    ${shellSettingsGroup("startup", "启动", shellSettingsToggle("开机时启动 Loop",
+      loginStartupStatus?.supported === false ? "当前运行环境不可用" : "", loginStartupStatus?.enabled === true,
+      `data-action="toggle-login-startup" ${loginStartupStatus?.supported ? "" : "disabled"}`))}
     ${shellSettingsGroup("task-lists", "任务列表", `
       ${shellSettingsChoice("task-filter", "", shellSettingsChoiceOptions("task-filter"), state.taskFilter)}
       ${shellSettingsChoice("priority-filter", "", shellSettingsChoiceOptions("priority-filter"), state.priorityFilter)}`)}
     ${shellSettingsGroup("task-creation", "新建任务",
-      shellSettingsChoice("new-task-priority", "", shellSettingsChoiceOptions("new-task-priority"), state.newTaskPriority))}
+      `
+        ${shellSettingsRow("新任务默认分组", "", `<select aria-label="新任务默认分组" data-new-task-group>${groups.map(([id, title]) => shellOption(id, title, state.uiPreferences.newTaskGroup)).join("")}</select>`)}
+        ${shellSettingsChoice("new-task-priority", "", shellSettingsChoiceOptions("new-task-priority"), state.newTaskPriority)}
+        ${shellSettingsAction("节点状态", "", "管理状态", 'data-action="manage-node-states"')}`)}
     ${shellSettingsGroup("today-widget", "今日浮窗", `
       ${shellSettingsToggle("显示今日浮窗", "", todayWidgetWindowState.visible === true, `data-action="toggle-today-widget-visibility" ${desktopTodayWidget ? "" : "disabled"}`)}
       ${shellSettingsToggle("始终置顶", "", todayWidgetWindowState.alwaysOnTop === true, `data-action="toggle-today-widget-always-on-top" ${desktopTodayWidget ? "" : "disabled"}`)}
@@ -232,10 +263,9 @@ function shellSettingsTasks() {
 }
 
 function shellSettingsKnowledge() {
-  return `<h2>知识笔记</h2><div class="prefs-group-stack">
+  return `<div class="prefs-group-stack">
     ${shellSettingsGroup("note-layout", "阅读与布局", `
-      ${shellSettingsChoice("knowledge-mode", "", shellSettingsChoiceOptions("knowledge-mode"), shellKnowledgeMode())}
-      ${shellSettingsChoice("knowledge-width", "", shellSettingsChoiceOptions("knowledge-width"), shellNoteWidth())}`)}
+      ${shellSettingsChoice("knowledge-mode", "", shellSettingsChoiceOptions("knowledge-mode"), shellKnowledgeMode())}`)}
     ${shellSettingsGroup("note-editing", "编辑", shellSettingsToggle(
       "中英文自动加空格", "", state.uiPreferences.knowledgeAutoSpacing, 'data-action="toggle-knowledge-auto-spacing"'))}
     ${shellSettingsGroup("note-links", "链接", shellSettingsChoice(
@@ -257,39 +287,80 @@ function shellSettingsData() {
         ${retention}
       </section>`
     : "";
-  return `<h2>数据</h2><div class="data-settings">
+  return `<h2>数据与备份</h2><div class="data-settings">
+    <p>任务、笔记和附件保存在本机。</p>
     <section class="data-settings-summary" aria-labelledby="data-summary-heading">
       <h3 id="data-summary-heading">数据概况</h3>
       <p data-backup-usage>正在统计本机用量…</p>
-      <p class="prefs-native-caption">外部笔记、应用和下载包另计。</p>
+      ${shellSettingsAction("数据位置", "", "在文件夹中显示", `data-action="reveal-workspace" ${desktopDataBackup?.reveal ? "" : "disabled"}`)}
     </section>
     <section class="data-settings-section" aria-labelledby="data-export-heading">
       <h3 id="data-export-heading">备份与迁移</h3>
-      ${shellSettingsRow("导出密码", "请妥善保管密码。", renderBackupPassword("export"))}
-      ${shellSettingsAction("工作区备份", "包含任务、笔记和附件。", "导出备份", `data-backup-action="export" ${desktopDataBackup ? "" : "disabled"}`)}
+      ${shellSettingsAction("加密备份", "包含任务、笔记和附件。", "导出备份…", `data-action="open-encrypted-backup" ${desktopDataBackup ? "" : "disabled"}`)}
+      ${shellSettingsAction("从备份恢复", "恢复前自动备份当前数据。", "选择备份文件…", 'data-action="open-backup-restore"')}
       <div class="data-settings-automatic">
-        <span class="setting-label">本机自动备份</span>
-        <p data-backup-overview>正在读取备份状态…</p>
+        ${shellSettingsToggle("自动快照", "", dataBackupOverview?.automatic?.enabled !== false,
+          'data-action="toggle-auto-snapshots" data-backup-automatic disabled')}
+        <p data-backup-overview>正在读取备份状态…</p><div data-verified-snapshots></div>
       </div>
       ${renderUpgradeVerification()}
       <p class="prefs-transfer-status" data-backup-status="export" role="status"></p>
     </section>
     ${recoveryEntry}
-    <section class="data-settings-section data-settings-restore" aria-labelledby="data-restore-heading">
-      <h3 id="data-restore-heading">恢复整个工作区</h3>
+    <details class="data-settings-section data-settings-restore" aria-labelledby="data-restore-heading">
+      <summary id="data-restore-heading">更多恢复选项</summary>
       <p class="data-settings-impact">替换当前工作区并重启，恢复前自动备份。</p>
       ${shellSettingsRow("解锁密码", "", renderBackupPassword("import"))}
       ${shellSettingsAction("备份文件", ".loopbackup 文件", "选择文件", `data-backup-action="import-file" ${desktopDataBackup ? "" : "disabled"}`)}
       ${shellSettingsAction("备份目录", "历史版本或升级备份。", "选择目录", `data-backup-action="import-directory" ${desktopDataBackup ? "" : "disabled"}`)}
       ${shellSettingsAction("最近本机备份", "", "恢复…", `data-backup-action="import-recent" ${desktopDataBackup ? "" : "disabled"}`)}
       <p class="prefs-transfer-status" data-backup-status="restore" role="status"></p>
-    </section>
+    </details>
   </div>`;
 }
 
 function shellSettingsInfo(label, description, value) {
   return shellSettingsRow(label, description, `<span class="prefs-info-value">${esc(value)}</span>`);
 }
+
+function shellOpenEncryptedBackup() {
+  if (!desktopDataBackup || dataBackupOperation.busy) return;
+  shellKnowledgeDialog("导出加密备份", `<form id="encrypted-backup-fields" class="prefs-backup-fields">
+    <p>设置备份密码。恢复此备份时需要相同密码。</p>
+    <label>备份密码<input type="password" name="password" autocomplete="new-password" required></label>
+    <label>再次输入<input type="password" name="confirmation" autocomplete="new-password" required></label>
+    <p role="alert" data-backup-validation></p><p role="status" data-backup-status="export"></p></form>`,
+    '<button type="button" class="button" data-action="close-dialog">取消</button><button type="submit" form="encrypted-backup-fields" class="button primary">导出</button>', 420, '[data-action="open-encrypted-backup"]');
+  const form = document.querySelector("#encrypted-backup-fields");
+  form.elements.password.focus();
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    const password = form.elements.password.value;
+    const mismatch = password !== form.elements.confirmation.value;
+    form.querySelector("[data-backup-validation]").textContent = mismatch ? "两次输入的密码不一致。" : "";
+    if (mismatch || !password) return;
+    await runDataBackupAction("export", { password });
+    if (form.isConnected) form.reset();
+  });
+}
+
+function shellOpenBackupRestore() {
+  if (!desktopDataBackup || dataBackupOperation.busy) return;
+  shellKnowledgeDialog("从备份恢复", `<form id="backup-restore-fields" class="prefs-backup-fields">
+    <p>恢复前会自动备份当前工作区。加密备份需要解锁密码。</p>
+    <label>解锁密码<input type="password" name="password" autocomplete="off"></label>
+    <p role="status" data-backup-status="restore"></p></form>`,
+    '<button type="button" class="button" data-action="close-dialog">取消</button><button type="submit" form="backup-restore-fields" class="button primary">选择备份文件…</button>', 420, '[data-action="open-backup-restore"]');
+  const form = document.querySelector("#backup-restore-fields");
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+    void runDataBackupAction("import-file", { password: form.elements.password.value });
+  });
+}
+
+document.addEventListener("change", event => {
+  if (event.target.matches?.("[data-new-task-group]")) LoopUiPreferences.update({ newTaskGroup: event.target.value });
+});
 
 /** The changing part of 软件更新, re-rendered in place on every state change. */
 function shellSettingsUpdateCardBody() {
@@ -366,13 +437,14 @@ function shellSettingsUpdates() {
     ${shellSettingsGroup("version", "版本与更新", `<div class="prefs-update-detail" data-shell-update-detail aria-live="polite">${shellSettingsUpdateCardBody()}</div>`)}
     ${shellSettingsGroup("update-preferences", "更新偏好", `${options}
       <p class="prefs-transfer-status" data-update-preference-status role="status">${esc(shellSettingsUpdatePreferenceMessage())}</p>`)}
+    ${shellSettingsAdvanced()}
   </div>`;
 }
 
 function shellSettingsAdvanced() {
   const navigation = globalThis.LoopWork?.settingsBody() || "";
   const previewActive = loopClockIsPreview();
-  return `<h2>高级功能</h2><div class="prefs-group-stack">
+  return `<div class="prefs-group-stack">
     ${navigation ? shellSettingsGroup("work-navigation", "工作与成长", navigation) : ""}
     ${shellSettingsGroup("time-preview", "时间预览", `
       ${shellSettingsAction("界面时间", previewActive ? loopStamp() : "仅用于 Loop 内预览。", "设置预览", 'data-action="time18-clock" aria-haspopup="dialog" aria-expanded="false"')}
@@ -407,12 +479,49 @@ function shellSettingsHelp() {
   </ul>`;
   return `<h2>帮助与反馈</h2><div class="prefs-group-stack">
     ${manual ? shellSettingsGroup("guide", "使用指南", manual) : ""}
-    ${shellSettingsGroup("questions", "常见问题", topics)}
-    ${shellSettingsGroup("feedback", "反馈与版本", `
+    ${shellSettingsGroup("feedback", "反馈", `<form class="prefs-feedback-form" data-issue-draft>
+      <label>一句话描述<input name="title" maxlength="100" value="${escAttr(state.feedbackDraft.title)}" required></label>
+      <label>类型<select name="category">${Object.entries(bugCategoryLabels).map(([value, label]) => shellOption(value, label, state.feedbackDraft.category)).join("")}</select></label>
+      <label>描述<textarea rows="5" name="description" maxlength="5000" required>${esc(state.feedbackDraft.description)}</textarea></label>
+      <label class="node-share-check"><input name="includeEnvironment" type="checkbox" ${state.feedbackDraft.includeEnvironment ? "checked" : ""}>附带应用版本和系统信息</label>
+      <div class="prefs-feedback-actions">
+        <button class="button primary" type="submit">生成 Issue 草稿</button>
+        <button class="button" type="button" data-action="open-log-folder">打开日志文件夹</button>
+      </div>
+      <p role="status" data-issue-status></p>
+    </form>`)}
+    <details class="prefs-advanced"><summary>常见问题与提交反馈</summary>${topics}
       ${shellSettingsAction("问题与建议", "", "提交反馈", 'data-action="open-help-feedback"')}
-      ${shellSettingsInfo("Loop 版本", "", `v${APP_VERSION}`)}`)}
+      ${shellSettingsInfo("Loop 版本", "", `v${APP_VERSION}`)}
+    </details>
   </div>`;
 }
+
+document.addEventListener("input", event => {
+  const field = event.target;
+  if (!field.closest?.("[data-issue-draft]")) return;
+  if (["title", "category", "description", "includeEnvironment"].includes(field.name)) {
+    state.feedbackDraft[field.name] = field.type === "checkbox" ? field.checked : field.value;
+  }
+});
+
+document.addEventListener("submit", async event => {
+  if (!event.target.matches?.("[data-issue-draft]")) return;
+  event.preventDefault();
+  const form = event.target;
+  const values = new FormData(form);
+  const title = String(values.get("title")).trim();
+  const description = String(values.get("description")).trim();
+  const status = form.querySelector("[data-issue-status]");
+  if (!title || !description) { status.textContent = "请填写标题和描述。"; return; }
+  const environment = values.has("includeEnvironment")
+    ? `\n\n## 环境\nLoop ${APP_VERSION} · ${desktopPlatform || "Web"}` : "";
+  const category = bugCategoryLabels[values.get("category")] || "问题与建议";
+  try {
+    await navigator.clipboard.writeText(`# ${title}\n\n类型：${category}\n\n${description}${environment}`);
+    status.textContent = "Issue 草稿已复制。";
+  } catch { status.textContent = "无法写入剪贴板。"; }
+});
 
 function shellHelpFeedbackField(key, label, optional = false, textarea = false, rows = 3) {
   const draft = state.feedbackDraft;
@@ -499,16 +608,10 @@ function shellHelpFeedbackDialog() {
 // ------------------------------------------------------------
 
 function renderShellSettings() {
-  const page = SHELL_SETTINGS_CATEGORIES.some(([value]) => value === activeSettingsPage) ? activeSettingsPage : "appearance";
-  const body = page === "appearance" ? shellSettingsAppearance()
-    : page === "tasks" ? shellSettingsTasks()
-      : page === "knowledge" ? shellSettingsKnowledge()
-      : page === "data" ? shellSettingsData()
-        : page === "updates" ? shellSettingsUpdates()
-          : page === "advanced" ? shellSettingsAdvanced()
-            : shellSettingsHelp();
-  return `${shellPageHeading("设置", "")}
-    <div class="settings-layout phase9">
+  const page = SHELL_SETTINGS_CATEGORIES.some(([value]) => value === activeSettingsPage) ? activeSettingsPage : "data";
+  const body = { appearance: shellSettingsAppearance, tasks: shellSettingsTasks, data: shellSettingsData,
+    updates: shellSettingsUpdates, help: shellSettingsHelp }[page]();
+  return `<div class="settings-layout phase9">
       <nav class="settings-nav" aria-label="设置分类">
         ${SHELL_SETTINGS_CATEGORIES.map(([value, label, image]) => `<button class="${page === value ? "active" : ""}" type="button" data-action="set-settings-page" data-page="${value}" aria-current="${page === value ? "page" : "false"}">${shellIcon(image)}${label}</button>`).join("")}
       </nav>

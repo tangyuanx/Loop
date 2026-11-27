@@ -113,6 +113,7 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
   let prepareTimer;
   let displayed = null;
   let referenceQuery = '';
+  let statusMarkers = resume?.statusMarkers !== false;
   const available = () => LoopTaskShare.candidates(snapshot.task, snapshot.documents, snapshot.tabIds);
   const startPreset = preset => {
     if (preset === 'custom' && selection) { selection = { ...selection, preset }; return; }
@@ -129,6 +130,7 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
     md: { label: 'Markdown', hint: '用文本编辑器阅读', action: '导出 Markdown…' },
     pack: { label: 'Loop 任务包', hint: '可在另一台设备的 Loop 中导入并编辑', action: '导出任务包…' },
     pdf: { label: 'PDF', hint: '以固定版式阅读和打印', action: '导出 PDF…' },
+    png: { label: 'PNG 图片', hint: '将预览内容导出为图片', action: '导出图片…' },
   };
   const formatOptions = Object.fromEntries(Object.entries(formats).map(([key, format]) => [key, format.label]));
   const depthOptions = { all: '全部', 0: '不包含', 1: '1 层', 2: '2 层', 3: '3 层' };
@@ -136,25 +138,28 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
     : noteId ? available().find(note => note.id === noteId)?.title : snapshot.task.title;
   const initialFormat = resume?.format ?? 'md';
   const disclosure = (label, meta = '') => `<summary class="task-share-disclosure" tabindex="0"><span>${label}</span>${meta}${shellIcon('down')}</summary>`;
-  shellKnowledgeDialog(nodeId ? '分享节点' : noteId ? '分享当前笔记' : '分享任务', `
+  shellKnowledgeDialog(`分享「${sourceTitle || "未命名"}」`, `
     <div class="task-share-dialog-body task-share-send" data-task-share-dialog>
-      <div class="task-share-source">
-        <h3>${esc(sourceTitle || (nodeId ? '未命名节点' : noteId ? '未命名笔记' : '未命名任务'))}</h3>
+      <div class="task-share-quick">
+        <label><input type="checkbox" id="task-share-conclusions" checked> 包含节点结论</label>
+        <label><input type="checkbox" id="task-share-status-markers" ${statusMarkers ? "checked" : ""}> 包含状态标记</label>
+        <label><input type="checkbox" id="task-share-include-notes" ${selection.noteIds.length ? "checked" : ""}> 包含知识笔记</label>
+      </div>
+      <details id="task-share-preview-details" class="task-share-preview" open>
+        ${disclosure('Markdown 预览', '<span id="task-share-size" class="task-share-meta"></span>')}
         <p id="task-share-summary" role="status" aria-live="polite"></p>
-      </div>
-      <div class="task-share-format-row">
-        <label for="task-share-format">导出格式<span id="task-share-format-hint"></span></label>
-        <select id="task-share-format" aria-describedby="task-share-format-hint">${taskShareOptions(formatOptions, initialFormat)}</select>
-      </div>
+        <pre id="task-share-preview"></pre>
+        <div id="task-share-preview-lists"></div>
+      </details>
       <details id="task-share-adjust" ${resume ? 'open' : ''}>
-        ${disclosure('调整分享内容', '<span id="task-share-scope-label" class="task-share-meta"></span>')}
+        ${disclosure('更多范围与格式', '<span id="task-share-scope-label" class="task-share-meta"></span>')}
         <div class="task-share-settings">
+          <div class="task-share-format-row">
+            <label for="task-share-format">导出格式<span id="task-share-format-hint"></span></label>
+            <select id="task-share-format" aria-describedby="task-share-format-hint">${taskShareOptions(formatOptions, initialFormat)}</select>
+          </div>
           <label class="task-share-field">范围<select id="task-share-scope">${taskShareOptions(scopes, selection.preset)}</select></label>
           <div id="task-share-options"></div>
-          <details id="task-share-preview-details" class="task-share-preview" hidden>
-            ${disclosure('查看导出预览', '<span id="task-share-size" class="task-share-meta"></span>')}
-            <div id="task-share-preview-lists"></div><pre id="task-share-preview"></pre>
-          </details>
           <div class="task-share-tools">
             <button class="text-button" id="task-share-refresh" type="button">刷新内容</button>
             ${nodeId ? '<button class="text-button" id="task-share-relations" type="button">维护后续关联</button>' : ''}
@@ -168,7 +173,7 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
         <p id="task-share-receipt" role="status" hidden></p>
         <button class="text-button" id="task-share-reveal" type="button" hidden>在文件夹中显示</button>
       </div>
-    </div>`, '<button class="button" data-action="close-dialog" type="button">取消</button><button class="button primary" id="task-share-export" type="button" disabled></button>', 500, returnFocus);
+    </div>`, '<button class="button" id="task-share-image" type="button" disabled>导出为图片</button><button class="button" id="task-share-export" type="button" disabled></button><button class="button primary" id="task-share-copy" type="button" disabled>复制 Markdown</button>', 554, returnFocus);
   const dialog = document.querySelector('[data-task-share-dialog]').closest('[role="dialog"]');
   dialog.classList.add('task-share-send-dialog');
   const get = suffix => dialog.querySelector(`#task-share-${suffix}`);
@@ -184,6 +189,9 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
     get('scope-label').textContent = scopes[selection.preset];
     get('format-hint').textContent = formats[get('format').value].hint;
     get('options').querySelector('[data-share-field="records"]').disabled = !selection.flow;
+    get('include-notes').checked = Boolean(selection.noteIds.length);
+    get('conclusions').disabled = !selection.flow;
+    get('conclusions').checked = selection.nodeConclusions !== false;
     if (nodeId) get('depth').hidden = !selection.nodeId || !selection.flow;
     get('title-field').hidden = get('format').value !== 'pack' || selection.preset === 'full';
     const selectedNotes=available().filter(note=>selection.noteIds.includes(note.id));
@@ -235,9 +243,14 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
   }
 
   function updateExportButton() {
-    const incomplete = (preview?.issues.length || get('format').value === 'pdf' && preview?.files.length) && !get('allow-incomplete')?.checked;
+    const approved = get('allow-incomplete')?.checked === true;
+    const missing = Boolean(preview?.issues.length) && !approved;
+    const attachments = Boolean(preview?.files.length) && !approved;
+    const incomplete = missing || ['pdf', 'png'].includes(get('format').value) && attachments;
     get('export').disabled = Boolean(busy || !preview || incomplete);
-    get('export').textContent = busy === 'export' ? '正在导出…' : formats[get('format').value].action;
+    get('image').disabled = Boolean(busy || !preview || missing || attachments);
+    get('copy').disabled = Boolean(busy || !preview || missing);
+    get('export').textContent = busy === 'export' ? '正在导出…' : get('format').value === 'md' ? '导出 .md' : formats[get('format').value].action;
     get('format').disabled=Boolean(busy);
     get('adjust').inert=Boolean(busy);
     get('issues').inert=Boolean(busy);
@@ -283,7 +296,7 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
           <ul>${issues.map(item=>`<li><span>${esc(item.name)}<small>${esc(item.reason||'附件文件已移动或无法读取。')}</small></span><button type="button" class="button" data-share-locate="${escAttr(item.id)}">重新选择</button></li>`).join('')}</ul>
         </details>`).join('')}</div>
         <label class="node-share-check"><input type="checkbox" id="task-share-allow-incomplete">排除这些附件并保留说明</label>
-      </details>` : get('format').value === 'pdf' && result.files.length ? '<label class="node-share-check"><input type="checkbox" id="task-share-allow-incomplete">PDF 中保留附件说明，继续导出</label>' : ''}`;
+      </details>` : result.files.length ? '<label class="node-share-check"><input type="checkbox" id="task-share-allow-incomplete">图片和 PDF 中保留附件说明</label>' : ''}`;
     get('issues').hidden = !get('issues').childElementCount;
     updateExportButton();
   }
@@ -298,7 +311,6 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
     setError('');
     get('issues').replaceChildren();
     get('issues').hidden = true;
-    get('preview-details').hidden = true;
     get('preview').textContent = '';
     const project = LoopTaskShare.project(snapshot, {
       ...selection,
@@ -311,7 +323,7 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
     get('summary').textContent = '正在准备分享内容…';
     prepareTimer = setTimeout(async () => {
       try {
-        const result = await taskShareBridge.prepare({ source: { taskId, ...project, redactPaths } });
+        const result = await taskShareBridge.prepare({ source: { taskId, ...project, redactPaths, statusMarkers } });
         if (!dialog.isConnected || sequence !== revision) { if (result?.token) void taskShareBridge.cancel(result.token); return; }
         if (!result.success) throw new Error(result.message);
         showPrepared(result, project);
@@ -327,6 +339,14 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
     startPreset(get('scope').value);
     showOptions();
     if (selection.preset === 'notes' && !noteId && get('notes')) get('notes').open = true;
+    queuePreview();
+  };
+  get('status-markers').onchange = () => { statusMarkers = get('status-markers').checked; queuePreview(); };
+  get('conclusions').onchange = () => { selection.nodeConclusions = get('conclusions').checked; queuePreview(); };
+  get('include-notes').onchange = () => {
+    selection.noteIds = get('include-notes').checked ? available().filter(note => note.defaultSelected || note.id === noteId).map(note => note.id) : [];
+    selection.preset = 'custom';
+    showOptions();
     queuePreview();
   };
   get('format').onchange = () => {
@@ -392,19 +412,18 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
     queuePreview();
   };
   if (nodeId) get('relations').onclick = () => {
-    const settings = { selection, format: get('format').value, redactPaths };
+    const settings = { selection, format: get('format').value, redactPaths, statusMarkers };
     openNodeShare(taskId, nodeId, trigger, { onReturn: () => openTaskShare(taskId, { nodeId, trigger, resume: settings }) });
   };
-  get('export').onclick = async () => {
+  const exportShare = async (format) => {
     if (!preview || busy) return;
     const token = preview.token;
-    const format = get('format').value;
     busy = 'export';
     clearReceipt();
     updateExportButton();
     setError('');
     try {
-      const html = format === 'pdf' ? renderMarkdown(preview.document) : '';
+      const html = ['pdf', 'png'].includes(format) ? renderMarkdown(preview.document) : '';
       const result = await taskShareBridge.export({ token, format, allowIncomplete: Boolean(get('allow-incomplete')?.checked), html });
       if (!dialog.isConnected || result.canceled) return;
       if (!result.success && !result.filePath) throw new Error(result.message);
@@ -414,6 +433,16 @@ function openTaskShare(taskId, { nodeId = '', noteId = '', trigger, resume } = {
       get('reveal').onclick = () => void taskShareBridge.reveal({ token });
     } catch (error) { if (dialog.isConnected) setError(taskShareFailure(error)); }
     finally { busy = ''; if (dialog.isConnected) updateExportButton(); }
+  };
+  get('export').onclick = () => void exportShare(get('format').value);
+  get('image').onclick = () => void exportShare('png');
+  get('copy').onclick = async () => {
+    if (!preview || get('copy').disabled) return;
+    try {
+      await navigator.clipboard.writeText(preview.document);
+      get('receipt').hidden = false;
+      get('receipt').textContent = '已复制 Markdown';
+    } catch (error) { setError(taskShareFailure(error)); }
   };
   taskShareCloseObserver(dialog, () => { clearTimeout(prepareTimer); if (preview?.token) void taskShareBridge.cancel(preview.token); });
   showOptions();

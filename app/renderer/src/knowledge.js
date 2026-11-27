@@ -43,9 +43,10 @@ Object.assign(SHELL_ICON_PATHS, {
   noteWidth: "M3 4h18v16H3zM8 8v8M16 8v8M10 12h4",
 });
 
-const SHELL_NOTE_WIDTH_NAMES = { default: "默认", wide: "较宽", full: "全宽" };
+const SHELL_NOTE_WIDTH_NAMES = { narrow: "窄", default: "标准", wide: "宽", full: "全宽" };
 const SHELL_NOTE_MODE_NAMES = { edit: "编辑", source: "源码", preview: "阅读" };
 const SHELL_NOTE_WIDTH_DESCRIPTIONS = {
+  narrow: "更短的正文行宽",
   default: "适合阅读与日常记录",
   wide: "适合代码与多列表格",
   full: "使用工作台的可用空间",
@@ -103,10 +104,19 @@ function renderKnowledgeTabs(task,side='') {
   const notes=(split?split[side+'Tabs']:state.knowledgeWorkspace.openIds).map(knowledgeFindDocument).filter(note=>note&&!note.knowledgeNote?.isDeleted);
   if(active&&!notes.some(note=>note.id===active.id))notes.unshift(active);
   const scrollButton=(direction,label)=>`<button type="button" class="kn-document-scroll" data-kn-scroll="${direction}" aria-label="${label}" title="${label}" hidden>${shellIcon('chevron')}</button>`;
-  return `<div class="kn-document-bar" data-kn-tab-side="${side}"><div class="kn-document-tabs" role="tablist" aria-label="${side?(side==='left'?'左侧':'右侧'):''}已打开的笔记">${notes.map(note=>`<div class="kn-document-tab"><button type="button" role="tab" tabindex="${!resource&&active?.id===note.id?0:-1}" aria-selected="${!resource&&active?.id===note.id}" aria-label="${escAttr(LoopKnowledgeCore.noteTitle(note))}" aria-keyshortcuts="F2" data-kn-document="${escAttr(note.id)}" title="${escAttr(knowledgeTabTitle(note))}"><span>${esc(LoopKnowledgeCore.noteTitle(note))}</span></button><button type="button" class="kn-document-close" data-kn-detach="${escAttr(note.id)}" aria-label="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}" title="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}（草稿仍保留）">${shellIcon('close')}</button></div>`).join('')}${(!side||side==='left')&&typeof renderKnowledgeResourceTabs==='function'?renderKnowledgeResourceTabs(task):''}</div>
+  return `<div class="kn-document-bar" data-kn-tab-side="${side}"><div class="kn-document-tabs" role="tablist" aria-label="${side?(side==='left'?'左侧':'右侧'):''}已打开的笔记">${notes.map(note=>`<div class="kn-document-tab"><button type="button" role="tab" tabindex="${!resource&&active?.id===note.id?0:-1}" aria-selected="${!resource&&active?.id===note.id}" aria-label="${escAttr(LoopKnowledgeCore.noteTitle(note))}" aria-keyshortcuts="F2" data-kn-document="${escAttr(note.id)}" title="${escAttr(knowledgeTabTitle(note))}">${shellIcon("note")}<span>${esc(LoopKnowledgeCore.noteTitle(note))}</span></button><button type="button" class="kn-document-close" data-kn-detach="${escAttr(note.id)}" aria-label="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}" title="关闭笔记：${escAttr(LoopKnowledgeCore.noteTitle(note))}（草稿仍保留）">${shellIcon('close')}</button></div>`).join('')}${(!side||side==='left')&&typeof renderKnowledgeResourceTabs==='function'?renderKnowledgeResourceTabs(task):''}</div>
     ${scrollButton(-1,'向左滚动页签')}${scrollButton(1,'向右滚动页签')}
     <button type="button" class="kn-document-new" data-kn-action="new-note" aria-label="新建笔记" title="新建笔记">${shellIcon('plus')}</button>
   </div>`;
+}
+
+function knowledgeMetadata(note) {
+  const title = LoopKnowledgeCore.noteTitle(note);
+  const path = note.knowledgeNote?.filePath || `${title}.md`;
+  const date = safeDate(note.updatedAt || note.knowledgeNote?.updatedAt);
+  const modified = date ? ` · ${localDateKey(date) === loopTodayKey() ? "今天" : shellDisplayDate(date).replaceAll(" ", "")} ${shellTimeLabel(date)} 修改` : "";
+  const text = nodeNoteDrafts.get(noteDraftKey(note.id, ""))?.markdown ?? note.notes ?? "";
+  return `${path} · ${[...text].length} 字符${modified}`;
 }
 
 function knowledgeTabTitle(note) {
@@ -147,6 +157,7 @@ function renderKnowledgeDocument(task, owner, tabs = true) {
         ${renderKnowledgeToolbar(task)}
         <div class="knowledge-body" data-knowledge-scroll data-knowledge-view="${escAttr(JSON.stringify([task.id,'notes',typeof knowledgeGenerations !== 'undefined' ? knowledgeGenerations.get(task.id)||0 : 0]))}">
           <div class="knowledge-page width-${width} ${mode === "source" ? "source-page" : ""}">
+            <p class="knowledge-document-meta" data-note-metadata title="${escAttr(knowledgeMetadata(task))}">${esc(knowledgeMetadata(task))}</p>
             <div ${tabs ? 'id="knowledge-rich-host"' : ''} class="knowledge-rich-host milkdown-editor-host" data-editor-kind="knowledge" data-task-id="${escAttr(task.id)}" aria-label="笔记编辑器：${escAttr(LoopKnowledgeCore.noteTitle(task))}"><p class="knowledge-loading">正在打开笔记…</p></div>
           </div>
         </div>
@@ -254,7 +265,7 @@ function shellKnowledgeFileMenu(trigger) {
       <div class="menu-divider"></div>
       <button class="button" type="button" role="menuitem" data-wb-action="format">格式与插入…</button>
       <button class="button" type="button" role="menuitem" data-wb-action="format-document">格式化文档…</button>
-      <button class="button" type="button" role="menuitem" data-kn-action="panels" aria-pressed="${knowledgePanels.has(task.id)}">笔记大纲</button>
+      <button class="button" type="button" role="menuitem" data-kn-action="panels" aria-pressed="${Boolean(knowledgePane(task.id)?.querySelector('.kn-side-panel[aria-label="笔记大纲"]'))}">显示大纲</button>
       <button class="button" type="button" role="menuitem" data-kn-action="backlinks" aria-pressed="${knowledgeBacklinkPanels.has(task.id)}">反向链接</button>
       ${renderShellKnowledgeWidthButton()}
       <button class="button" type="button" role="menuitem" data-action="open-knowledge-settings">全局笔记设置…</button>
@@ -268,6 +279,7 @@ function shellKnowledgeFileMenu(trigger) {
       <div class="note23-menu-label">当前笔记</div>
       <button class="button" type="button" role="menuitem" data-action="knowledge-file-info" data-task-id="${escAttr(task.id)}">文件信息</button>
       ${bound ? `<button class="button" type="button" role="menuitem" data-action="remove-knowledge-binding" data-task-id="${escAttr(task.id)}">解除文件关联…</button>` : ""}
+      ${bound && desktopKnowledgeFile?.reveal ? `<button class="button" type="button" role="menuitem" data-action="reveal-knowledge-file">${desktopPlatform === "darwin" ? "在 Finder 中显示" : "在文件夹中显示"}</button>` : ""}
       <button class="button" type="button" role="menuitem" data-action="close-knowledge-editor" data-task-id="${escAttr(task.id)}">关闭笔记</button>
       <div class="menu-divider"></div>
       <div class="note23-menu-label">导出</div>

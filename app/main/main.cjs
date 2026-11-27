@@ -100,7 +100,7 @@ const WINDOW_HEADER_THEMES = {
 // centre, and y=17 puts it at 23.5px, the centre of the 47px content row. The
 // remaining 2px size and 6px spacing of the last control are macOS's own drawing
 // and cannot be changed from Electron (see the phase25 report).
-const MAC_TRAFFIC_LIGHT_POSITION = { x: 9, y: 17 };
+const MAC_TRAFFIC_LIGHT_POSITION = { x: 16, y: 18 };
 const WINDOW_STATE_EVENTS = [
   "maximize",
   "unmaximize",
@@ -126,6 +126,7 @@ let recoveryShutdownRequest = 0;
 let workspaceProtection = null;
 let workspaceUpgradeResult = null;
 let automaticBackupController = null;
+let automaticBackupEnabled = true;
 const RECOVERY_SHUTDOWN_TIMEOUT_MS = 10000;
 let updateInstallPreparation = null;
 const UPDATE_INSTALL_PREPARATION_TIMEOUT_MS = 10_000;
@@ -555,16 +556,44 @@ function registerStorageHandlers() {
   ipcMain.handle("task-history:read", (_event, taskId, beforeId) => taskStore.historyFor(taskId, beforeId));
   ipcMain.handle("task-history:restore", (_event, payload) => taskStore.restoreHistory(payload));
   ipcMain.handle("data-backup:overview", async () => {
-    await automaticBackupController?.refresh();
+    const snapshots = await automaticBackupController?.refresh() || [];
     const usage = await workspaceDiskUsage(app.getPath("userData"),
       path.join(workspaceBackupAppDataPath(), "Personal Task Track Upgrade Backups"));
     const upgrade = workspaceUpgradeResult;
-    return { automatic: automaticBackupController?.status() || null, usage, upgrade: upgrade ? {
+    return { automatic: automaticBackupController ? { ...automaticBackupController.status(), enabled: automaticBackupEnabled } : null,
+      snapshots: snapshots.map(snapshot => ({ id: path.basename(snapshot.path), at: snapshot.at, bytes: snapshot.bytes })),
+      usage, upgrade: upgrade ? {
       status: upgrade.status,
       message: upgrade.message,
       canRestore: Boolean(upgrade.source),
       canRetry: upgrade.status === "failed",
     } : null };
+  });
+  ipcMain.handle("data-backup:automatic", async (event, enabled) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWindow || workspaceProtection || typeof enabled !== "boolean") return { enabled: automaticBackupEnabled };
+    const file = path.join(app.getPath("userData"), "automatic-backup-preferences.json");
+    await atomicOutput(file, temporary => fs.writeFile(temporary, JSON.stringify({ enabled }), { mode: 0o600 }));
+    automaticBackupEnabled = enabled;
+    if (enabled) automaticBackupController?.start();
+    else automaticBackupController?.stop();
+    return { enabled };
+  });
+  ipcMain.handle("app:login-startup", (event, enabled) => {
+    const supported = app.isPackaged && !desktopIdentity.usesExplicitProfile && (isMac || process.platform === "win32");
+    if (!supported || BrowserWindow.fromWebContents(event.sender) !== mainWindow) return { supported: false, enabled: false };
+    if (typeof enabled === "boolean") app.setLoginItemSettings({ openAtLogin: enabled });
+    return { supported: true, enabled: app.getLoginItemSettings().openAtLogin };
+  });
+  ipcMain.handle("app:open-logs", async (event) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWindow) return false;
+    const directory = app.getPath("logs");
+    await fs.mkdir(directory, { recursive: true });
+    return !(await shell.openPath(directory));
+  });
+  ipcMain.handle("data-backup:reveal", (event) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWindow) return false;
+    shell.showItemInFolder(app.getPath("userData"));
+    return true;
   });
   ipcMain.handle("data-backup:upgrade-action", (event, action) => {
     if (BrowserWindow.fromWebContents(event.sender) !== mainWindow || !workspaceUpgradeResult) return;
@@ -625,8 +654,9 @@ function registerStorageHandlers() {
     const selectionType = upgradeRestore || value?.selectionType === "directory" ? "directory" : "file";
     let recentPath = "";
     if (localRestore) {
-      await automaticBackupController?.refresh();
-      recentPath = automaticBackupController?.status().latestPath || "";
+      const snapshots = await automaticBackupController?.refresh() || [];
+      recentPath = (value.snapshotId
+        ? snapshots.find(snapshot => path.basename(snapshot.path) === value.snapshotId) : snapshots[0])?.path || "";
       if (!recentPath) throw new Error("当前没有可用的本机自动备份。");
     }
     if (upgradeRestore) {
@@ -751,6 +781,14 @@ function registerStorageHandlers() {
   ipcMain.handle("knowledge-document:read", async (_event, payload) => {
     if (!(await knowledgeGate.isAllowed(payload?.filePath))) return deniedPathResult(payload?.filePath, "read");
     return readKnowledgeDocument(payload?.filePath);
+  });
+  ipcMain.handle("knowledge-document:reveal", async (event, filePath) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWindow || !(await knowledgeGate.isAllowed(filePath))) return false;
+    try {
+      if (!(await fs.stat(filePath)).isFile()) return false;
+      shell.showItemInFolder(filePath);
+      return true;
+    } catch { return false; }
   });
   ipcMain.handle("knowledge-document:choose", async (event, payload) => {
     const parent = BrowserWindow.fromWebContents(event.sender);
@@ -906,11 +944,12 @@ function platformName(platform) {
 async function exportTaskDocument(payload) {
   const safePayload = payload && typeof payload === "object" ? payload : {};
   const taskTitle = String(safePayload.taskTitle || "未命名任务").trim() || "未命名任务";
-  const format = ["md", "html", "pdf"].includes(safePayload.format) ? safePayload.format : "";
+  const format = ["md", "html", "pdf", "png"].includes(safePayload.format) ? safePayload.format : "";
   const formats = {
     md: { name: "Markdown", extensions: ["md"] },
     html: { name: "HTML", extensions: ["html"] },
     pdf: { name: "PDF", extensions: ["pdf"] },
+    png: { name: "PNG 图片", extensions: ["png"] },
   };
   const { canceled, filePath } = await dialog.showSaveDialog({
     title: safePayload.documentKind === "note" ? "导出笔记" : "导出任务",
@@ -926,7 +965,7 @@ async function exportTaskDocument(payload) {
  * @param {object} payload - { nodeTitle, taskTitle, status, updatedAt, html }
  * @returns {Promise<{ canceled: boolean, filePath?: string }>}
  */
-  if (format === "pdf" || (!format && exportPath.toLowerCase().endsWith(".pdf"))) {
+  if (format === "png" || format === "pdf" || (!format && exportPath.toLowerCase().endsWith(".pdf"))) {
     const window = new BrowserWindow({
       width: 900,
       height: 1200,
@@ -935,6 +974,7 @@ async function exportTaskDocument(payload) {
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
+        backgroundThrottling: format !== "png",
       },
     });
 
@@ -946,6 +986,16 @@ async function exportTaskDocument(payload) {
       await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
       if (safePayload.documentKind === "note") {
         await window.webContents.executeJavaScript(`(${readyNoteDocument.toString()})()`);
+      }
+      if (format === "png") {
+        const height = await window.webContents.executeJavaScript("document.fonts.ready.then(() => document.documentElement.scrollHeight)");
+        if (!Number.isFinite(height) || height > 9000) throw new Error("内容太长，请缩小分享范围后导出图片。");
+        window.setContentSize(900, Math.ceil(height));
+        await window.webContents.executeJavaScript("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+        const image = await window.capturePage({ x: 0, y: 0, width: 900, height: Math.ceil(height) }, { stayHidden: true });
+        if (image.isEmpty()) throw new Error("未能生成图片，请重试。");
+        await fs.writeFile(exportPath, image.toPNG());
+        return { canceled: false, filePath: exportPath };
       }
       const pdf = await window.webContents.printToPDF({
         printBackground: true,
@@ -1203,7 +1253,16 @@ app.whenReady().then(async () => {
     appVersion: app.getVersion(),
     runExclusive: serializeProfileBackup,
   });
-  if (!workspaceProtection) automaticBackupController.start();
+  try {
+    const file = path.join(userDataPath, "automatic-backup-preferences.json");
+    automaticBackupEnabled = JSON.parse(await fs.readFile(file, "utf8")).enabled !== false;
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      automaticBackupEnabled = false;
+      console.warn("Could not read the automatic backup preference.", error.code || error.name);
+    }
+  }
+  if (!workspaceProtection && automaticBackupEnabled) automaticBackupController.start();
   registerWindowChromeHandlers();
   pointerContinuity = createPointerContinuity({ app, ipcMain, screen, getMainWindow: () => mainWindow });
   pointerContinuity.register();

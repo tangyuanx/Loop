@@ -898,7 +898,8 @@ class KnowledgeEditor {
       if(node.name==='Blockquote'){for(let n=state.doc.lineAt(node.from).number;n<=state.doc.lineAt(node.to).number;n++){const l=state.doc.line(n);add(l.from,l.from,Decoration.line({class:'kn-quote'}));}}
       if(/^(?:HeaderMark|EmphasisMark|CodeMark|StrikethroughMark|QuoteMark)$/.test(node.name)) {
         const parent=node.node.parent;
-        if(parent&&!selected(state,parent.from,parent.to)){
+        const hideInactiveHeading = node.name === 'HeaderMark' && !this.view?.hasFocus;
+        if(parent&&(hideInactiveHeading||!selected(state,parent.from,parent.to))){
           const space=node.name==='HeaderMark'&&parent.name.startsWith('ATXHeading')
             ?state.doc.sliceString(node.to,Math.min(parent.to,node.to+32)).match(/^[ \t]+/)?.[0].length||0:0;
           add(node.from,node.to+space,Decoration.replace({inclusive:false,knHiddenSyntax:true}));
@@ -990,6 +991,9 @@ class KnowledgeEditor {
     return changes.length?[tr,{changes,sequential:true}]:tr;
   }
   onUpdate(update) {
+    if (update.focusChanged && this.mode === 'edit') queueMicrotask(() => {
+      if (!this.destroyed) this.view.dispatch({ effects: refreshEffect.of(null) });
+    });
     if(update.geometryChanged||update.viewportChanged)this.queueTableHeaders();
     if((update.docChanged||update.selectionSet||update.viewportChanged)&&this.blockCaret)this.clearBlockCaret();
     if(update.transactions.some(tr=>tr.effects.some(effect=>effect.is(tableWidthsEffect)))){

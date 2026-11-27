@@ -199,7 +199,7 @@ const ALL_TASKS_GROUP_ID = "group_all";
 const UNGROUPED_TASKS_GROUP_ID = "group_ungrouped";
 // The Demo's task-list column is 270px (--list-width). The persisted sidebar
 // width preference now drives that column; existing wider values are kept.
-const defaultSidebarWidth = 296;
+const defaultSidebarWidth = 318;
 const sidebarWidthLimits = [230, 460];
 const defaultDetailHeight = 58;
 const detailHeightLimits = [50, 82];
@@ -250,6 +250,7 @@ const editFieldLabels = {
 const reviewPresetLabels = {
   week: "本周",
   month: "本月",
+  quarter: "近 90 天",
   year: "今年",
   custom: "自定义",
   all: "全部",
@@ -281,6 +282,9 @@ let state = {
   recordDraft: "",
   query: "",
   taskFilter: "active",
+  taskListSort: "deadline",
+  taskListTag: "",
+  quickInboxOpen: false,
   taskDateFilter: "",
   taskDeadlineFilter: "all",
   priorityFilter: "all",
@@ -293,7 +297,10 @@ let state = {
   enFont: "inter",
   fontScale: "large",
   settingsOpen: false,
+  trashOpen: false,
+  taskFocus: false,
   calendarOpen: false,
+  calendarView: "month",
   reviewOpen: false,
   feedbackOpen: false,
   feedbackDraft: createEmptyFeedbackDraft(),
@@ -378,7 +385,7 @@ let dataBackupOverviewTimer = 0;
 let updatePreferenceInFlight = false;
 let saveTimer = 0;
 let nodeDetailSaveFeedbackTimer = 0;
-let activeSettingsPage = "appearance";
+let activeSettingsPage = "data";
 let settingsMotion = "none";
 let pendingPayload = null;
 // Phase C: fingerprint of the payload already queued, and of the last payload
@@ -974,7 +981,11 @@ function normalizeLoadedFlowWidths(value) {
 }
 
 function normalizeTheme(value) {
-  return value === "dark" ? "dark" : "light";
+  return ["dark", "system"].includes(value) ? value : "light";
+}
+
+function effectiveTheme() {
+  return state.theme === "system" ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : state.theme;
 }
 
 function normalizeTaskFilter(value) {
@@ -1018,7 +1029,7 @@ function normalizeFontScale(value) {
 }
 
 function normalizeKnowledgeWidth(value) {
-  return ["default", "wide", "full"].includes(value) ? value : "default";
+  return ["narrow", "default", "wide", "full"].includes(value) ? value : "default";
 }
 
 function normalizeKnowledgeMode(value) {
@@ -1049,7 +1060,8 @@ function loadBrowserTypography() {
 function normalizeUiPreferences(value) {
   return { continuous: value?.continuous !== false, follow: value?.follow !== false,
     workNavigationEnabled: value?.workNavigationEnabled === true, nodeConclusionHintSeen: value?.nodeConclusionHintSeen === true,
-    knowledgeAutoSpacing: value?.knowledgeAutoSpacing === true };
+    knowledgeAutoSpacing: value?.knowledgeAutoSpacing === true, briefSerif: value?.briefSerif !== false,
+    newTaskGroup: typeof value?.newTaskGroup === "string" ? value.newTaskGroup.slice(0, 128) : "" };
 }
 
 function loadBrowserUiPreferences() {
@@ -2140,7 +2152,7 @@ function save() {
       localStorage.setItem(NEW_TASK_PRIORITY_KEY, state.newTaskPriority);
       localStorage.setItem(KNOWLEDGE_WIDTH_KEY, payload.knowledgeWidth);
       localStorage.setItem(KNOWLEDGE_MODE_KEY, payload.markdownMode);
-      localStorage.setItem("loop.interaction28", JSON.stringify({ continuous: state.uiPreferences.continuous, follow: state.uiPreferences.follow, nodeConclusionHintSeen: state.uiPreferences.nodeConclusionHintSeen, knowledgeAutoSpacing: state.uiPreferences.knowledgeAutoSpacing }));
+      localStorage.setItem("loop.interaction28", JSON.stringify(state.uiPreferences));
       localStorage.setItem("loop-work-rhythm-v1:enabled", state.uiPreferences.workNavigationEnabled ? "1" : "0");
       localStorage.setItem(INSTALLATION_ID_KEY, state.installationId);
       localStorage.setItem(WORK_NAVIGATION_KEY, JSON.stringify(state.workNavigation));
@@ -2548,6 +2560,10 @@ function render() {
   if (typeof shellBeforeRender === "function") shellBeforeRender();
   reconcileWorkNavigationRuntime();
   const task = activeTask();
+  const draftField = document.activeElement?.matches?.("[data-shell-node-draft]") ? document.activeElement : null;
+  const draftSelection = draftField && draftField.dataset.nodeId === state.focusNodeTitleId
+    ? { id: draftField.dataset.nodeId, start: draftField.selectionStart, end: draftField.selectionEnd, direction: draftField.selectionDirection }
+    : null;
   if(task&&state.taskPane==='notes'){
     const before=JSON.stringify(state.knowledgeWorkspace);
     knowledgeActiveDocument(task);
@@ -2583,7 +2599,8 @@ function render() {
   captureMountedMilkdownDrafts();
   flushNodeNoteDrafts({ persist: false });
   save();
-  document.documentElement.dataset.theme = state.theme;
+  document.documentElement.dataset.theme = effectiveTheme();
+  document.documentElement.toggleAttribute?.("data-brief-sans", state.uiPreferences.briefSerif === false);
   document.documentElement.dataset.zhFont = state.zhFont;
   document.documentElement.dataset.enFont = state.enFont;
   document.documentElement.dataset.fontScale = state.fontScale;
@@ -2602,7 +2619,7 @@ function render() {
   const topbarMarkup = renderShellTopbar(task);
   const visibleTasks = shellWide ? [] : filteredTasks();
   const listMarkup = shellWide ? "" : renderShellTaskList(visibleTasks);
-  let workspaceBody = state.calendarOpen ? renderShellCalendar() : state.reviewOpen ? renderShellReview() : state.settingsOpen ? renderShellSettings() : renderShellWorkspace(task, visibleTasks.length);
+  let workspaceBody = state.trashOpen ? renderShellTrash() : state.calendarOpen ? renderShellCalendar() : state.reviewOpen ? renderShellReview() : state.settingsOpen ? renderShellSettings() : renderShellWorkspace(task, visibleTasks.length);
   if (!workspaceBody.includes("data-workspace-status")) workspaceBody += renderShellWorkspaceFooter();
   const workspaceMarkup = `<section data-region="workspace" class="workspace ${shellWide ? "workspace-wide" : ""}${!shellWide && task && state.taskPane === "notes" && !shellTaskIsNote(task) ? " knowledge-workspace" : ""}" data-task-id="${escAttr(task?.id || "")}" aria-label="${shellWide ? "全屏页面" : "任务工作台"}">
     ${workspaceBody}
@@ -2617,7 +2634,7 @@ function render() {
   cachedKnowledgePanes.forEach((_pane, taskId) => preservedEditors.add(noteDraftKey(taskId, "")));
   destroyMilkdownEditors(preservedEditors);
   document.querySelector("#root").innerHTML = `
-    <main class="app ${state.navCollapsed ? "nav-collapsed " : ""}${state.taskListCollapsed ? "list-collapsed " : ""}${shellWide ? "app-wide" : ""}" style="--list-width:${normalizeSidebarWidth(state.sidebarWidth)}px">
+    <main class="app ${state.navCollapsed ? "sidebar-hidden " : ""}${state.taskListCollapsed ? "list-collapsed " : ""}${shellWide ? "app-wide" : state.taskFocus ? "task-focus" : ""}" style="--list-width:${normalizeSidebarWidth(state.sidebarWidth)}px">
       <div data-region="navigation"></div>
       <div data-region="topbar"></div>
       ${shellWide ? "" : '<div data-region="task-list"></div>'}
@@ -2685,7 +2702,7 @@ function render() {
   // original sequence is cheaper than re-deriving that rule.
   restoreGroupScroll();
   restoreRenderViewports();
-  focusPendingElement();
+  focusPendingElement(draftSelection);
   restoreGroupScroll();
   restoreRenderViewports();
   publishTodayWidgetSnapshot();
@@ -4050,13 +4067,16 @@ function renderContextMenu() {
   if (!node) return "";
   return `
     <div class="context-menu node-context-menu" role="menu" aria-label="${escAttr(node.title || "未命名节点")}的操作" style="left:${menu.x}px; top:${menu.y}px">
-      <button type="button" role="menuitem" data-action="edit-node-conclusion" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("edit")}<span>${shellNodeConclusionValue(node).trim() ? "编辑结论" : "添加结论"}</span></button>
       <div role="group" aria-label="添加节点">
         <button type="button" role="menuitem" data-action="add-sibling-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("plus")}<span>添加同级节点</span></button>
         <button type="button" role="menuitem" data-action="add-child-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("indent")}<span>添加子节点</span></button>
       </div>
       <hr role="separator" />
+      <button type="button" role="menuitem" data-action="rename-context-node" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("edit")}<span>重命名</span></button>
+      <button type="button" role="menuitem" data-action="open-node-status" data-node-id="${escAttr(menu.nodeId)}" aria-haspopup="menu">${shellIcon("circle")}<span>状态</span></button>
+      <button type="button" role="menuitem" data-action="edit-node-conclusion" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("edit")}<span>${shellNodeConclusionValue(node).trim() ? "编辑结论" : "添加结论"}</span></button>
       <button type="button" role="menuitem" aria-haspopup="dialog" data-action="share-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("share")}<span>分享此节点…</span></button>
+      <button type="button" role="menuitem" data-action="copy-node-markdown" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("note")}<span>复制为 Markdown</span></button>
       <hr role="separator" />
       <button type="button" role="menuitem" aria-haspopup="dialog" class="danger" data-action="delete-node" data-task-id="${escAttr(menu.taskId)}" data-node-id="${escAttr(menu.nodeId)}">${shellIcon("trash")}<span>删除节点…</span></button>
     </div>
@@ -4144,7 +4164,7 @@ function clearFilteredTasksCache() {
 function filteredTasksCacheKey(at) {
   return `${state.query}\u0001${state.taskFilter}\u0001${state.todayFilter}\u0001`
     + `${state.taskDeadlineFilter}\u0001${state.taskDateFilter}\u0001${state.priorityFilter}\u0001`
-    + `${state.captureSourceFilter}\u0001${state.activeGroupId}\u0001${state.tasks.length}\u0001`
+    + `${state.captureSourceFilter}\u0001${state.activeGroupId}\u0001${state.taskListSort}\u0001${state.taskListTag}\u0001${state.quickInboxOpen}\u0001${state.tasks.length}\u0001`
     + `${Math.floor(at.getTime() / 60000)}`;
 }
 
@@ -4159,14 +4179,20 @@ function filteredTasks({ includeQuery = true, at = loopNow() } = {}) {
 
 function computeFilteredTasks({ includeQuery = true, at = loopNow() } = {}) {
   const q = state.query.trim().toLowerCase();
-  const deadlineScoped = state.taskDeadlineFilter !== "all" || Boolean(state.taskDateFilter);
+  if (state.quickInboxOpen) {
+    return state.tasks.filter(task => shellTaskIsNote(task) && task.status !== "done"
+      && (!includeQuery || !q || `${task.title} ${task.description}`.toLowerCase().includes(q)))
+      .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
+  }
   const repositoryTypes = repositoryTypeSelection();
   // Only the blocked/later filters need the node tree walked, and only the
   // blocked filter needs the tag set. Computing both for every task made the
   // common "all"/"active" filters pay for a scan they never used.
-  const filterNeedsBlocked = state.taskFilter === "blocked";
-  const filterNeedsLater = state.taskFilter === "later";
+  const filterNeedsBlocked = state.taskFilter === "blocked" || state.taskListTag === "blocked";
+  const filterNeedsLater = state.taskFilter === "later" || state.taskListTag === "later";
   const filterNeedsTags = filterNeedsBlocked || filterNeedsLater;
+  const today = state.taskFilter === "today";
+  const completedToday = today && state.todayFilter !== "active" ? new Set(shellCompletedToday(at)) : null;
   return taskListScopeTasks()
     .filter((task) => {
       const tags = filterNeedsTags ? normalizeTaskTags(task.tags) : null;
@@ -4174,18 +4200,15 @@ function computeFilteredTasks({ includeQuery = true, at = loopNow() } = {}) {
         && flatten(task.nodes).some((node) => node.status === "blocked");
       const hasLater = filterNeedsLater
         && flatten(task.nodes).some((node) => node.status === "later");
-      if (state.taskFilter === "today") {
-        // The Today route switches between the active list and today's
-        // completions; anything else keeps the phase17 scope.
-        if (state.todayFilter === "done") return shellCompletedToday().includes(task);
-        // The frozen Demo's Today scope is scheduled && !done: a finished task
-        // leaves the active list and moves to today's completions.
-        if (task.status === "done" || !isTaskScheduledForToday(task)) return false;
+      if (today) {
+        if (task.status === "done") {
+          if (!completedToday?.has(task)) return false;
+        } else if (state.todayFilter === "done" || !isTaskScheduledForToday(task, at)) return false;
       }
       if (state.taskFilter === "active" && task.status === "done") return false;
       if (state.taskFilter === "done" && task.status !== "done") return false;
-      if (state.taskFilter === "blocked" && !tags.blocked && !hasBlocked) return false;
-      if (state.taskFilter === "later" && !tags.later && !hasLater) return false;
+      if (filterNeedsBlocked && !tags.blocked && !hasBlocked) return false;
+      if (filterNeedsLater && !tags.later && !hasLater) return false;
       if (!matchesTaskDeadlineFilter(task, at)) return false;
       if (state.priorityFilter !== "all" && task.priority !== state.priorityFilter) return false;
       const isNote = task.captureSource === "today-widget";
@@ -4198,7 +4221,7 @@ function computeFilteredTasks({ includeQuery = true, at = loopNow() } = {}) {
       }
       return true;
     })
-    .sort(deadlineScoped ? compareTasksByDeadline : (a, b) => a.order - b.order);
+    .sort(compareTaskListRows);
 }
 
 function taskListScopeTasks() {
@@ -4251,6 +4274,21 @@ function compareTasksByDeadline(a, b) {
   const aTime = safeDate(a.deadlineAt)?.getTime() ?? Number.POSITIVE_INFINITY;
   const bTime = safeDate(b.deadlineAt)?.getTime() ?? Number.POSITIVE_INFINITY;
   return aTime - bTime || a.order - b.order;
+}
+
+function compareTaskListRows(a, b) {
+  const aDone = a.status === "done";
+  const bDone = b.status === "done";
+  if (aDone !== bDone) return Number(aDone) - Number(bDone);
+  if (aDone) return (Date.parse(b.resolvedAt) || 0) - (Date.parse(a.resolvedAt) || 0) || a.order - b.order;
+  if (state.taskListSort === "manual") return a.order - b.order;
+  const priority = { low: 1, medium: 2, high: 3 };
+  const priorityDifference = (priority[b.priority] || 0) - (priority[a.priority] || 0);
+  const aDeadline = safeDate(a.deadlineAt)?.getTime() ?? Infinity;
+  const bDeadline = safeDate(b.deadlineAt)?.getTime() ?? Infinity;
+  const deadlineDifference = aDeadline - bDeadline || 0;
+  return (state.taskListSort === "priority" ? priorityDifference || deadlineDifference : deadlineDifference || priorityDifference)
+    || a.order - b.order;
 }
 
 function tasksInActiveGroup() {
@@ -4708,7 +4746,7 @@ globalThis.LoopWorkNavigationBridge = Object.freeze({
   importTaskBatch,
   importLearningPlan,
   openSettings() {
-    activeSettingsPage = "advanced";
+    activeSettingsPage = "updates";
     state.settingsOpen = true;
     state.calendarOpen = false;
     state.reviewOpen = false;
@@ -4773,8 +4811,8 @@ function isTaskScheduledForToday(task, at = loopNow()) {
  * occurrence a recurring task completed. It keeps today's completions reachable
  * after they leave the active Today list.
  */
-function shellCompletedToday() {
-  const today = loopTodayKey();
+function shellCompletedToday(at = loopNow()) {
+  const today = localDateKey(at);
   return state.tasks.filter((task) => task.status === "done"
     && !shellTaskIsNote(task)
     && (localDateKey(task.resolvedAt) === today
@@ -5478,6 +5516,7 @@ function refreshDataBackupOverview(force = false) {
 
 function bindDataBackupControls() {
   syncDataBackupControls();
+  if (document.querySelector('[data-action="toggle-login-startup"]') && loginStartupStatus === null) void refreshLoginStartup();
   syncRecentlyDeletedRetentionControls();
   refreshDataBackupOverview();
   document.querySelectorAll("[data-upgrade-action]").forEach(button => {
@@ -5488,72 +5527,75 @@ function bindDataBackupControls() {
     button.dataset.backupBound = "1";
     button.addEventListener("click", async (event) => {
       event.stopPropagation();
-      if (!desktopDataBackup || dataBackupOperation.busy || dataTransferInProgress) return;
-      const action = event.currentTarget.dataset.backupAction;
-      const isUpgradeRestore = action === "import-upgrade" || action === "upgrade-downgrade";
-      const scope = action === "export" ? "export" : isUpgradeRestore ? "upgrade" : "restore";
-      const passwordScope = action === "export" ? "export" : "import";
-      const passwordInput = document.querySelector(`[data-backup-password="${passwordScope}"]`);
-      const password = passwordInput?.value || "";
-      const canRestoreProtected = action !== "export" && protectedWorkspaceAtStartup?.restoreAllowed;
-      if (dataProtectionMessage && !canRestoreProtected) return;
-      dataBackupOperation = { busy: true, scope, message: action === "export" ? "正在保存并生成工作区备份…" : "正在保存当前数据并校验所选备份…" };
-      syncDataBackupControls();
-      try {
-        if (!canRestoreProtected) await flushAllDataForTransfer();
-        // An import replaces the whole data set in place, so stop accepting
-        // further renderer writes until the app restarts.
-        const isImport = action !== "export";
-        if (isImport) dataTransferInProgress = true;
-        let result;
-        try {
-          result = action === "export"
-            ? await desktopDataBackup.export(password)
-            : action === "import-directory"
-              ? await desktopDataBackup.importDirectory()
-              : action === "import-recent"
-                ? await desktopDataBackup.importRecent()
-                : isUpgradeRestore
-                  ? await desktopDataBackup.importUpgrade(action === "upgrade-downgrade")
-                  : await desktopDataBackup.importFile(password);
-        } catch (error) {
-          if (isImport && !/IMPORT_ROLLBACK_FAILED|自动回滚未能完成/.test(`${error?.code} ${error?.message}`)) dataTransferInProgress = false;
-          throw error;
-        }
-        if (result?.canceled && isImport) dataTransferInProgress = false;
-        if (result?.canceled) {
-          dataBackupOperation.message = "操作已取消，当前数据未发生变化。";
-          if (isImport) save();
-        } else if (action === "export") {
-          const summary = result.inventory;
-          const scope = summary ? `便携笔记 ${summary.includedNotes} 篇，未带入 ${summary.missingNotes + summary.excludedNotes} 篇，不可迁移资源 ${summary.missingResources} 项。` : "";
-          dataBackupOperation.message = `${result.encrypted ? "加密备份" : "工作区备份"}已保存。${scope}${result.destinationPath || "所选位置"}`;
-          if (passwordInput) passwordInput.value = "";
-        } else if (result.downgradePrepared) {
-          dataBackupOperation.message = "已恢复并校验升级前的数据。Loop 将退出并打开旧版下载页。";
-        } else {
-          dataBackupOperation.message = "数据已恢复并校验成功，Loop 正在重新启动…";
-        }
-      } catch (error) {
-        console.error("Loop data backup operation failed.", error);
-        const detail = String(error?.message || "").split("Error: ").pop().trim();
-        const rollbackFailed = /IMPORT_ROLLBACK_FAILED|自动回滚未能完成/.test(`${error?.code} ${detail}`);
-        const rolledBack = /IMPORT_ROLLED_BACK|Import failed and the previous data was restored\./.test(`${error?.code} ${detail}`);
-        if (rollbackFailed) {
-          dataProtectionMessage = `恢复未完成，已暂停写入。${detail}`;
-          dataTransferInProgress = true;
-        }
-        dataBackupOperation.message = rollbackFailed ? dataProtectionMessage
-          : rolledBack ? "导入未完成，已回滚到操作前的数据，任务与笔记恢复内容均保留。请检查磁盘空间或目录权限后重试。"
-              : `操作未完成。${detail && /回滚|备份/.test(detail) ? detail : "请检查文件、磁盘空间或目录权限后重试，当前工作空间已保留。"}`;
-      } finally {
-        dataBackupOperation.busy = false;
-        syncDataBackupControls();
-        refreshDataBackupOverview(true);
-        updateLocalSaveReceipt();
-      }
+      await runDataBackupAction(event.currentTarget.dataset.backupAction);
     });
   });
+}
+
+async function runDataBackupAction(action, options = {}) {
+  if (!desktopDataBackup || dataBackupOperation.busy || dataTransferInProgress) return;
+  const isUpgradeRestore = action === "import-upgrade" || action === "upgrade-downgrade";
+  const scope = action === "export" ? "export" : isUpgradeRestore ? "upgrade" : "restore";
+  const passwordScope = action === "export" ? "export" : "import";
+  const passwordInput = document.querySelector(`[data-backup-password="${passwordScope}"]`);
+  const password = options.password ?? passwordInput?.value ?? "";
+  const canRestoreProtected = action !== "export" && protectedWorkspaceAtStartup?.restoreAllowed;
+  if (dataProtectionMessage && !canRestoreProtected) return;
+  dataBackupOperation = { busy: true, scope, message: action === "export" ? "正在保存并生成工作区备份…" : "正在保存当前数据并校验所选备份…" };
+  syncDataBackupControls();
+  try {
+    if (!canRestoreProtected) await flushAllDataForTransfer();
+    // An import replaces the whole data set in place, so stop accepting
+    // further renderer writes until the app restarts.
+    const isImport = action !== "export";
+    if (isImport) dataTransferInProgress = true;
+    let result;
+    try {
+      result = action === "export"
+        ? await desktopDataBackup.export(password)
+        : action === "import-directory"
+          ? await desktopDataBackup.importDirectory()
+          : action === "import-recent"
+            ? await desktopDataBackup.importRecent(options.snapshotId)
+            : isUpgradeRestore
+              ? await desktopDataBackup.importUpgrade(action === "upgrade-downgrade")
+              : await desktopDataBackup.importFile(password);
+    } catch (error) {
+      if (isImport && !/IMPORT_ROLLBACK_FAILED|自动回滚未能完成/.test(`${error?.code} ${error?.message}`)) dataTransferInProgress = false;
+      throw error;
+    }
+    if (result?.canceled && isImport) dataTransferInProgress = false;
+    if (result?.canceled) {
+      dataBackupOperation.message = "操作已取消，当前数据未发生变化。";
+      if (isImport) save();
+    } else if (action === "export") {
+      const summary = result.inventory;
+      const scope = summary ? `便携笔记 ${summary.includedNotes} 篇，未带入 ${summary.missingNotes + summary.excludedNotes} 篇，不可迁移资源 ${summary.missingResources} 项。` : "";
+      dataBackupOperation.message = `${result.encrypted ? "加密备份" : "工作区备份"}已保存。${scope}${result.destinationPath || "所选位置"}`;
+      if (passwordInput) passwordInput.value = "";
+    } else if (result.downgradePrepared) {
+      dataBackupOperation.message = "已恢复并校验升级前的数据。Loop 将退出并打开旧版下载页。";
+    } else {
+      dataBackupOperation.message = "数据已恢复并校验成功，Loop 正在重新启动…";
+    }
+  } catch (error) {
+    console.error("Loop data backup operation failed.", error);
+    const detail = String(error?.message || "").split("Error: ").pop().trim();
+    const rollbackFailed = /IMPORT_ROLLBACK_FAILED|自动回滚未能完成/.test(`${error?.code} ${detail}`);
+    const rolledBack = /IMPORT_ROLLED_BACK|Import failed and the previous data was restored\./.test(`${error?.code} ${detail}`);
+    if (rollbackFailed) {
+      dataProtectionMessage = `恢复未完成，已暂停写入。${detail}`;
+      dataTransferInProgress = true;
+    }
+    dataBackupOperation.message = rollbackFailed ? dataProtectionMessage
+      : rolledBack ? "导入未完成，已回滚到操作前的数据，任务与笔记恢复内容均保留。请检查磁盘空间或目录权限后重试。"
+          : `操作未完成。${detail && /回滚|备份/.test(detail) ? detail : "请检查文件、磁盘空间或目录权限后重试，当前工作空间已保留。"}`;
+  } finally {
+    dataBackupOperation.busy = false;
+    syncDataBackupControls();
+    refreshDataBackupOverview(true);
+    updateLocalSaveReceipt();
+  }
 }
 
 function renderUpgradeVerification() {
@@ -5586,6 +5628,23 @@ function syncDataBackupControls() {
   const overview = document.querySelector("[data-backup-overview]");
   if (overview && dataBackupOverview) {
     const { automatic, usage, upgrade } = dataBackupOverview;
+    const automaticSwitch = document.querySelector("[data-backup-automatic]");
+    if (automaticSwitch) {
+      automaticSwitch.disabled = !desktopDataBackup?.setAutomatic || !automatic || Boolean(dataProtectionMessage) || dataBackupOperation.busy;
+      automaticSwitch.setAttribute("aria-checked", String(automatic?.enabled === true));
+    }
+    const snapshots = document.querySelector("[data-verified-snapshots]");
+    if (snapshots) {
+      const markup = (dataBackupOverview.snapshots || []).map(snapshot =>
+        `<div class="prefs-snapshot"><time>${esc(r26Stamp(snapshot.at))}</time><span>自动</span><small>${esc(formatBackupBytes(snapshot.bytes))}</small><button class="button" data-action="restore-auto-snapshot" data-id="${escAttr(snapshot.id)}" ${dataBackupOperation.busy || dataTransferInProgress ? "disabled" : ""}>恢复</button></div>`).join("");
+      if (snapshots.dataset.markup !== markup) {
+        snapshots.dataset.markup = markup;
+        snapshots.innerHTML = markup;
+        snapshots.querySelectorAll("button").forEach(button => {
+          button.onclick = () => void runDataBackupAction("import-recent", { snapshotId: button.dataset.id });
+        });
+      }
+    }
     const upgradePanel = document.querySelector("[data-upgrade-verification]");
     if (upgradePanel && upgrade) {
       upgradePanel.hidden = false;
@@ -5601,7 +5660,7 @@ function syncDataBackupControls() {
         year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
       })}`
       : "尚无备份";
-    const backup = `${last} · 每日备份 · 最多 3 份 · 约 512 MiB 轮转`;
+    const backup = `${last} · ${automatic?.enabled === false ? "已暂停" : "每日备份"} · 最多 3 份 · 约 512 MiB 轮转`;
     const space = usage
       ? `任务数据 ${formatBackupBytes(usage.taskDataBytes)} · 笔记与附件 ${formatBackupBytes(usage.recoveryBytes + usage.imageBytes + usage.sharedAssetBytes + usage.restoredNoteBytes)} · 备份 ${formatBackupBytes(usage.backupBytes)}`
       : "";
@@ -6026,6 +6085,11 @@ function reviewRange() {
   const nowDate = loopNow();
   if (state.reviewPreset === "all") return { start: null, end: null, label: "全部任务" };
   if (state.reviewPreset === "custom") return customReviewRange();
+  if (state.reviewPreset === "quarter") {
+    const start = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() - 89);
+    const end = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + 1);
+    return { start, end, label: "近 90 天" };
+  }
   if (state.reviewPreset === "year") {
     const start = new Date(nowDate.getFullYear(), 0, 1);
     const end = new Date(nowDate.getFullYear() + 1, 0, 1);
@@ -6973,6 +7037,7 @@ function bindTaskRepositoryRows(scope = document) {
         state.activeGroupId = ALL_TASKS_GROUP_ID;
         state.priorityFilter = "all";
         state.captureSourceFilter = "all";
+        state.taskListTag = "";
         state.taskDeadlineFilter = "all";
         state.taskDateFilter = "";
       }
@@ -7432,6 +7497,8 @@ function applySetting(key, value) {
     state.calendarOpen = false;
     state.reviewOpen = false;
     state.settingsOpen = false;
+    state.trashOpen = false;
+    state.quickInboxOpen = false;
   }
   if (key === "priority-filter") state.priorityFilter = normalizePriorityFilter(value);
   if (key === "capture-source-filter") state.captureSourceFilter = normalizeCaptureSourceFilter(value);
@@ -7767,7 +7834,7 @@ function handleFlowTitleKeydown(event) {
   }
 }
 
-function focusPendingElement() {
+function focusPendingElement(draftSelection = null) {
   if (state.focusSearch) {
     const input = document.querySelector("#search");
     state.focusSearch = false;
@@ -7792,7 +7859,14 @@ function focusPendingElement() {
   if (state.focusNodeTitleId) {
     const draft = document.querySelector("[data-shell-node-draft]");
     if (draft) {
-      draft.focus({ preventScroll: true });
+      if (draft !== document.activeElement) {
+        draft.focus({ preventScroll: true });
+        if (draftSelection?.id === draft.dataset.nodeId) {
+          draft.setSelectionRange(draftSelection.start, draftSelection.end, draftSelection.direction);
+        } else {
+          draft.setSelectionRange(draft.value.length, draft.value.length);
+        }
+      }
       draft.scrollIntoView({ block: "nearest", inline: "nearest" });
       return;
     }
@@ -8432,12 +8506,15 @@ async function action(data, event = null) {
   const nodeShareTrigger = data.action === "share-node" ? event?.currentTarget : null;
   const cycleTrigger = data.action === "cycle-node-status" && event?.currentTarget?.matches(".node-status")
     ? event.currentTarget : null;
-  if (["toggle-calendar", "toggle-review", "toggle-settings"].includes(data.action)) state.globalListReturn = null;
+  if (["toggle-calendar", "toggle-review", "toggle-settings"].includes(data.action)) {
+    state.globalListReturn = null;
+    state.trashOpen = false;
+  }
   // The three-column shell owns the Demo's action vocabulary; anything it
   // recognises is executed there and re-rendered, the legacy chain below
   // keeps handling the remaining project commands.
   if (typeof shellAction === "function" && await shellAction(data, event)) {
-    if (!["note-format", "note-heading", "toggle-task-list", "toggle-task-info", "edit-node-conclusion", "toggle-node-conclusion", "select-flow-node", "read-node-conclusion"].includes(data.action)) render();
+    if (!["note-format", "note-heading", "toggle-nav", "toggle-task-list", "toggle-task-info", "edit-node-conclusion", "toggle-node-conclusion", "select-flow-node", "read-node-conclusion"].includes(data.action)) render();
     return;
   }
   state.contextMenu = null;
@@ -8642,7 +8719,7 @@ async function action(data, event = null) {
       state.feedbackOpen = false;
     }
   }
-  if (data.action === "toggle-theme") state.theme = state.theme === "dark" ? "light" : "dark";
+  if (data.action === "toggle-theme") state.theme = effectiveTheme() === "dark" ? "light" : "dark";
   if (data.action === "close-settings") state.settingsOpen = false;
   if (data.action === "toggle-task-group-select") {
     const task = state.tasks.find((item) => item.id === data.taskId);
@@ -8747,7 +8824,13 @@ async function action(data, event = null) {
     state.taskPane = "flow";
     state.activeTaskId = calendarTasksForDate(state.taskDateFilter)[0]?.id || "";
   }
-  if (data.action === "shift-calendar-month") {
+  if (data.action === "set-calendar-view") state.calendarView = data.value === "week" ? "week" : "month";
+  if (data.action === "shift-calendar-month" && state.calendarView === "week") {
+    const selected = parseDateInput(state.calendarSelectedDate) || loopNow();
+    selected.setDate(selected.getDate() + 7 * Number(data.direction || 0));
+    state.calendarSelectedDate = localDateKey(selected);
+    state.calendarMonth = `${state.calendarSelectedDate.slice(0, 7)}-01`;
+  } else if (data.action === "shift-calendar-month") {
     const month = calendarMonthDate();
     month.setMonth(month.getMonth() + Number(data.direction || 0));
     state.calendarMonth = localDateKey(new Date(month.getFullYear(), month.getMonth(), 1));
@@ -8908,6 +8991,10 @@ async function action(data, event = null) {
     else addSiblingNode(data.taskId, data.nodeId);
   }
   if (data.action === "toggle-node-done") toggleNodeDone(data.taskId, data.nodeId);
+  if (data.action === "rename-context-node") {
+    shellTitleEditor(document.querySelector(`.node-title[data-node-id="${CSS.escape(data.nodeId)}"]`), data.nodeId);
+    return;
+  }
   if (data.action === "toggle-node-collapse") toggleNodeCollapse(data.taskId, data.nodeId);
   if (data.action === "toggle-all-nodes") toggleAllNodes(data.taskId);
   if (data.action === "mark-node-status") markNodeStatus(data.taskId, data.nodeId, data.status);
@@ -9111,6 +9198,8 @@ function rememberGlobalListReturn(focusSelector) {
 function openTaskFromGlobalList(taskId, nodeId = "", options = {}) {
   const task = state.tasks.find((item) => item.id === taskId);
   if (!task) return;
+  state.trashOpen = false;
+  state.quickInboxOpen = false;
   const fromPage = state.calendarOpen || state.reviewOpen;
   const fromSettings = state.settingsOpen;
   if (fromPage) {
@@ -9369,10 +9458,7 @@ function selectGroup(groupId) {
 }
 
 function addGroup() {
-  if (state.navCollapsed) {
-    state.navCollapsed = false;
-    try { localStorage.setItem(NAV_COLLAPSED_KEY, "0"); } catch {}
-  }
+  shellSetNavCollapsed(false);
   const group = {
     id: id("group"),
     title: `分组 ${state.taskGroups.length + 1}`,
@@ -9496,6 +9582,7 @@ function reorderTasks(sourceId, targetId, placement = "before") {
   const visibleQueue = [...orderedVisible];
   const nextScope = orderedScope.map((task) => (visibleIds.has(task.id) ? visibleQueue.shift() : task));
   reorder(nextScope);
+  state.taskListSort = "manual";
   state.activeTaskId = sourceId;
   save();
 }
@@ -9944,11 +10031,15 @@ function toggleAllNodes(taskId) {
   const task = state.tasks.find((item) => item.id === taskId);
   if (!task) return;
   const nodes = flatten(task.nodes).filter((node) => node.children.length);
-  const shouldCollapse = !nodes.every((node) => node.collapsed);
-  nodes.forEach((node) => {
-    node.collapsed = shouldCollapse;
-  });
-  task.updatedAt = now();
+  setAllNodesCollapsed(taskId, nodes.some(node => !node.collapsed));
+}
+
+function setAllNodesCollapsed(taskId, collapsed) {
+  const task = state.tasks.find(item => item.id === taskId);
+  if (!task) return;
+  for (const node of flatten(task.nodes)) {
+    if (node.children?.length && node.id !== state.focusNodeTitleId) node.collapsed = collapsed;
+  }
 }
 
 function markNodeStatus(taskId, nodeId, status) {
@@ -10148,6 +10239,7 @@ function renderMarkdown(value) {
   let listType = "";
   let listItems = [];
   let inCode = false;
+  let codeLanguage = "";
   let codeLines = [];
 
   function flushParagraph() {
@@ -10168,8 +10260,9 @@ function renderMarkdown(value) {
   }
 
   function flushCode() {
-    html.push(`<pre><code>${esc(codeLines.join("\n"))}</code></pre>`);
+    html.push(`<pre${codeLanguage ? ` data-code-language="${escAttr(codeLanguage)}"` : ""}><code>${esc(codeLines.join("\n"))}</code></pre>`);
     codeLines = [];
+    codeLanguage = "";
   }
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -10184,6 +10277,7 @@ function renderMarkdown(value) {
         flushParagraph();
         flushList();
         inCode = true;
+        codeLanguage = trimmed.slice(3).trim().split(/\s+/)[0].slice(0, 32);
       }
       continue;
     }
@@ -10580,14 +10674,14 @@ let cachedTodayWidgetAppearanceKey = "";
  * state values it is derived from changes.
  */
 function todayWidgetAppearance() {
-  const key = `${state.theme}\u0003${state.zhFont}\u0003${state.enFont}\u0003${state.fontScale}`;
+  const key = `${effectiveTheme()}\u0003${state.zhFont}\u0003${state.enFont}\u0003${state.fontScale}`;
   if (cachedTodayWidgetAppearance && cachedTodayWidgetAppearanceKey === key) {
     return cachedTodayWidgetAppearance;
   }
   const computed = window.getComputedStyle?.(document.documentElement);
   const rootFontSize = Number.parseFloat(computed?.fontSize);
   cachedTodayWidgetAppearance = {
-    theme: state.theme,
+    theme: effectiveTheme(),
     zhFont: state.zhFont,
     enFont: state.enFont,
     fontSize: Number.isFinite(rootFontSize) ? rootFontSize : 16.5,
@@ -10618,7 +10712,7 @@ function todayWidgetSignature() {
     loopTodayKey(),
     persistedStateRevision(),
     mainWindowShowsSelection() ? state.activeTaskId || "" : "",
-    state.theme,
+    effectiveTheme(),
     state.zhFont,
     state.enFont,
     state.fontScale,
@@ -10627,10 +10721,14 @@ function todayWidgetSignature() {
 
 function todayWidgetSnapshot(appearance = todayWidgetAppearance()) {
   const quickCaptures = todayQuickCaptureItems().filter((item) => item.status !== "done");
+  const completed = shellCompletedToday();
   return {
     date: loopTodayKey(),
     // Phase18: "今日任务已完成" instead of "暂无今日任务" once today's work is done.
-    completedToday: shellCompletedToday().length,
+    completedToday: completed.length,
+    completedItems: completed.map(task => ({
+      taskId: task.id, title: task.title || "未命名任务", time: task.resolvedAt ? shellTimeLabel(task.resolvedAt) : "",
+    })),
     appearance,
     // the Demo marks the row open in the main window with .current. The widget
     // is a separate always-on window, so a stale selection there would keep one
@@ -10641,6 +10739,7 @@ function todayWidgetSnapshot(appearance = todayWidgetAppearance()) {
       taskId: task.id,
       title: task.title || "未命名任务",
       nextText,
+      deadline: task.deadlineAt ? shellTimeLabel(task.deadlineAt) : "",
       kind,
     })),
     quickCaptures,
@@ -11033,6 +11132,12 @@ window.addEventListener("keydown", (event) => {
 
   if (event.key !== "Escape" && isEditableTarget(event.target)) return;
   if (event.key === "Escape") {
+    if (state.taskFocus && !shellOverlayIsOpen() && !state.taskMenuOpen) {
+      event.preventDefault();
+      state.taskFocus = false;
+      render();
+      return;
+    }
     if (state.searchOpen) {
       event.preventDefault();
       closeGlobalSearch();
@@ -11043,10 +11148,11 @@ window.addEventListener("keydown", (event) => {
       closeContextMenu(true);
       return;
     }
-    if (state.selectedNodeId || state.settingsOpen || state.calendarOpen || state.reviewOpen || state.feedbackOpen || recurrencePopoverTaskId || taskGroupSelectTaskId || deadlinePopoverTaskId || repositoryGroupPickerOpen || repositoryFilterMenuOpen || taskPriorityMenu) {
+    if (state.selectedNodeId || state.trashOpen || state.settingsOpen || state.calendarOpen || state.reviewOpen || state.feedbackOpen || recurrencePopoverTaskId || taskGroupSelectTaskId || deadlinePopoverTaskId || repositoryGroupPickerOpen || repositoryFilterMenuOpen || taskPriorityMenu) {
       event.preventDefault();
       exitNodeDetail({ restoreFocus: true });
       state.settingsOpen = false;
+      state.trashOpen = false;
       state.calendarOpen = false;
       state.reviewOpen = false;
       recurrencePopoverTaskId = "";
@@ -11063,20 +11169,24 @@ window.addEventListener("keydown", (event) => {
     }
   }
   if (!(event.metaKey || event.ctrlKey)) return;
+  if (event.shiftKey && !event.altKey && event.key.toLowerCase() === "l" && !shellOverlayIsOpen()) {
+    event.preventDefault();
+    void action({ action: "toggle-theme" });
+    return;
+  }
   if (event.key.toLowerCase() === "n" && !event.altKey && !event.shiftKey && !shellOverlayIsOpen()) {
     event.preventDefault();
     shellOpenCreateDialog();
     return;
   }
-  if (event.key.toLowerCase() !== "k") return;
+  if (event.key.toLowerCase() !== "k" || event.shiftKey || event.altKey) return;
   const target = event.target;
   if (target instanceof HTMLTextAreaElement || target?.isContentEditable) return;
   event.preventDefault();
-  shellSetTaskListCollapsed(false);
-  state.searchOpen = true;
-  state.focusSearch = true;
-  state.searchCursor = state.query.length;
-  render();
+  shellOpenCommandPalette();
 });
 
+window.matchMedia?.("(prefers-color-scheme: dark)")?.addEventListener("change", () => {
+  if (state.theme === "system") render();
+});
 bootstrap();

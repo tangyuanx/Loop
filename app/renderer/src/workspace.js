@@ -180,14 +180,15 @@ function renderShellTabs(task, flowToolbar = "") {
   const nodes = shellNodeList(task);
   const total = nodes.length;
   const doneCount = shellCountDoneNodes(task);
-  const noteCount = Array.isArray(state.knowledgeDocuments)
-    ? state.knowledgeDocuments.filter((doc) => doc && doc.taskId === task.id).length
-    : 0;
+  const noteCount = (state.knowledgeWorkspace.tabsByTask[task.id] || []).filter((id) => {
+    const note = knowledgeFindDocument(id);
+    return note && !note.knowledgeNote?.isDeleted;
+  }).length;
   const historyCount = Array.isArray(task.history) ? task.history.length : 0;
   const panes = [
     ["flow", "处理流", total ? `${doneCount}/${total}` : "0"],
     ["notes", "知识笔记", noteCount ? String(noteCount) : ""],
-    ["history", "历史处理", historyCount ? String(historyCount) : ""],
+    ["history", "处理历史", historyCount ? String(historyCount) : ""],
   ];
   return `<div class="tabs-bar">
     <nav class="pane-tabs" aria-label="任务内容">
@@ -232,7 +233,7 @@ function shellFormatNodePath(path) {
 
 function renderShellNodeDraft(task, depth = 0) {
   const parentId = state.focusNodeTitleId ? shellParentIdOf(task, state.focusNodeTitleId) : null;
-  return `<li class="flow-item node-draft" style="${shellFlowIndentStyle(depth)}"><div class="flow-row adding"><div class="flow-node-main"><span class="draft-spacer"></span><span class="node-status-slot"><span class="node-status todo" role="img" aria-label="未完成">${briefFieldIcon('circle')}</span></span><textarea class="node-title-input" id="node-title-draft" rows="1" aria-label="${parentId ? "子节点标题" : "节点标题"}" placeholder="输入节点标题" maxlength="160" autocomplete="off" data-shell-node-draft="1">${esc(shellNodeTitle(task,state.focusNodeTitleId))}</textarea></div></div></li>`;
+  return `<li class="flow-item node-draft" style="${shellFlowIndentStyle(depth)}"><div class="flow-row adding"><div class="flow-node-main"><span class="draft-spacer"></span><span class="node-status-slot"><span class="node-status todo" role="img" aria-label="未完成">${briefFieldIcon('circle')}</span></span><textarea class="node-title-input" id="node-title-draft" rows="1" aria-label="${parentId ? "子节点标题" : "节点标题"}" placeholder="输入节点标题" maxlength="160" autocomplete="off" data-shell-node-draft="1" data-node-id="${escAttr(state.focusNodeTitleId)}">${esc(shellNodeTitle(task,state.focusNodeTitleId))}</textarea></div></div></li>`;
 }
 
 function shellNodeTitle(task, nodeId) {
@@ -343,10 +344,16 @@ function renderShellFlowNode(task, node, depth = 0, path = "") {
   const body = `<div class="flow-row ${statusClass} ${hasChildren ? "is-parent" : ""} ${selected ? "selected" : ""} ${shellExpandedTitles.has(key) ? "expanded-title" : ""} ${shellExpandedConclusions.has(key) ? "expanded-summary" : ""}" data-context="node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" data-flow-drag-source data-flow-drag-target>
     <div class="flow-node-main">
       <span class="node-gutter${gutterCompact ? " is-compact" : ""}"${gutterCompact ? ` title="层级 ${escAttr(path)}"` : ""} aria-hidden="true">${esc(gutterText)}</span>
+      <span class="flow-grip" title="拖动调整节点位置" aria-hidden="true">${shellIcon("grip")}</span>
       <button class="collapse ${hasChildren ? "" : "empty"}" type="button" data-action="toggle-node-collapse" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" aria-label="${displayCollapsed ? "展开" : "收起"} ${escAttr(node.title)}" aria-expanded="${!displayCollapsed}" ${hasChildren && !shellReviewOnly ? "" : "disabled"}>${shellIcon(displayCollapsed ? "chevron" : "down")}</button>
       <span class="node-status-slot"><button class="node-status ${statusClass}"${statusStyle} type="button" data-action="cycle-node-status" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" title="${escAttr(shellNodeStatusLabel(node.status))} · 点击切换为${escAttr(shellNodeStatusLabel(nextNodeStatus(node.status)))}" aria-label="${escAttr(shellNodeStatusButtonLabel(node))}"><span class="st-dot" aria-hidden="true">${node.status === "done" ? shellIcon("check") : ""}</span></button></span>
       ${renderShellNodeTitle(task, node, selected)}
       ${collapsedSummary}${statusTag}
+      <div class="flow-row-actions">
+        <button class="icon-button" type="button" data-action="edit-node-conclusion" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" aria-label="编辑结论" title="编辑结论">${shellIcon("note")}</button>
+        <button class="icon-button" type="button" data-action="add-child-node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" aria-label="新增下级节点" title="新增下级节点">${shellIcon("indent")}</button>
+        <button class="icon-button" type="button" data-action="open-node-operations" data-node-id="${escAttr(node.id)}" aria-label="节点操作" title="节点操作" aria-haspopup="menu">${shellIcon("more")}</button>
+      </div>
     </div>
     ${renderShellNodeConclusion(task, node)}
     </div>`;
@@ -375,7 +382,8 @@ function renderShellFlow(task) {
   const ratio = list.length ? Math.round((doneCount / list.length) * 100) : 0;
   const addButton = `<button class="add-node" type="button" data-action="add-root-node" data-task-id="${escAttr(task.id)}"${empty ? ' aria-describedby="flow-start-hint"' : ""}>${shellIcon("plus")}${empty ? "添加第一个节点" : "添加节点"}</button>`;
   const maxDepth = shellFlowDepth(task.nodes || []);
-  const toolbar = `<div class="flow-toolbar"${empty ? " hidden" : ""}>
+  const branches = list.filter((node) => node.children?.length && node.id !== state.focusNodeTitleId);
+  const toolbar = `<div class="flow-toolbar">
       <span class="flow-progress"><span class="flow-progress-meter" aria-hidden="true"><i style="width:${ratio}%"></i></span>${doneCount} / ${list.length} 已完成</span>
       <div class="flow-context-bar" hidden>
         ${shellIcon("flowPath", "flow-path-icon")}
@@ -383,7 +391,10 @@ function renderShellFlow(task) {
       </div>
       <div class="flow-tools">
         <button class="icon-button" type="button" data-action="open-flow-locator" aria-label="定位处理流节点" title="定位节点" aria-haspopup="dialog">${shellIcon("search")}</button>
-        <button class="icon-button flow-options-trigger" type="button" data-action="open-flow-options" aria-haspopup="dialog" aria-expanded="false" aria-label="${escAttr(optionsLabel)}" title="${escAttr(optionsLabel)}" ${filters.length ? 'data-filter-active' : ''}>${shellIcon("more")}</button>
+        <button class="icon-button flow-options-trigger" type="button" data-action="open-flow-options" aria-haspopup="dialog" aria-expanded="false" aria-label="${escAttr(optionsLabel)}" title="${escAttr(optionsLabel)}" ${filters.length ? 'data-filter-active' : ''}>${shellIcon("filter")}</button>
+        <button class="icon-button" type="button" data-action="set-all-nodes-collapsed" data-value="false" aria-label="展开全部" title="展开全部" ${branches.some(node => node.collapsed) && !shellReviewOnly ? "" : "disabled"}>${shellIcon("expandBranches")}</button>
+        <button class="icon-button" type="button" data-action="set-all-nodes-collapsed" data-value="true" aria-label="折叠全部" title="折叠全部" ${branches.some(node => !node.collapsed) && !shellReviewOnly ? "" : "disabled"}>${shellIcon("collapseBranches")}</button>
+        <button class="icon-button flow-toolbar-add" type="button" data-action="add-root-node" data-task-id="${escAttr(task.id)}" aria-label="新增节点" title="新增节点">${shellIcon("plus")}<span>节点</span></button>
       </div>
     </div>`;
   const content = `<section class="flow-pane${empty ? " flow-empty" : ""}" aria-label="层级处理流">
@@ -527,7 +538,9 @@ function shellAnimateBranches(previous, animate) {
   if (!animate || !previous.size) return;
   for (const branch of document.querySelectorAll(".flow-branch")) {
     const before = previous.get(branch.dataset.branchNode);
-    if (!before) continue;
+    // A draft inside a reopening branch must have stable layout before the
+    // first keystroke, including when Chromium inserts text through an IME.
+    if (!before || branch.querySelector("[data-shell-node-draft]")) continue;
     const expanded = branch.dataset.expanded === "true";
     const rows = branch.querySelectorAll(".flow-row").length;
     if (Math.max(before.rows, rows) > SHELL_BRANCH_ANIMATION_LIMIT || !rows) continue;
@@ -650,7 +663,7 @@ function shellResizeRecordWindow(rect, edge, dx, dy) {
 window.addEventListener("resize", () => shellLayoutRecordWindow());
 
 function shellAfterRender() {
-  shellSyncTaskListVisibility();
+  shellSyncPaneVisibility();
   window.requestAnimationFrame(shellLayoutTaskMenu);
   const task = shellActiveTask();
   if (shellConclusionDraft) {
@@ -697,7 +710,7 @@ function shellAfterRender() {
     if (current) shellRecordModels.set(current, model);
   }
   if (shellFlowFocus) {
-    const target = document.querySelector(shellFlowFocus);
+    const target = document.querySelector(`${shellFlowFocus}:not([hidden])`);
     if (target && !target.disabled && !target.closest("[inert]") && target.getClientRects().length) target.focus({ preventScroll: true });
   }
   if (shellRecordCursor && shellRecordCursor.task === task?.id && shellRecordCursor.node === state.selectedNodeId) {
@@ -726,12 +739,31 @@ function shellBindFlowKeyboard() {
     if (event.isComposing) return;
     if (shellOverlayIsOpen?.()) return;
     const title = event.target.closest?.(".node-title");
-    if (!title || !["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    if (!title || event.ctrlKey || event.metaKey || event.altKey) return;
     const task = shellActiveTask();
     if (!task) return;
+    const nodeId = title.dataset.nodeId;
+    if (event.key === "F2") {
+      event.preventDefault();
+      shellStartNodeTitleEdit(title);
+      return;
+    }
+    if (state.selectedNodeId === nodeId && !state.contextMenu && ["Enter", "Tab", " "].includes(event.key)) {
+      const { index, parent } = shellNodeSiblings(task, nodeId);
+      if (event.key === "Tab" && (event.shiftKey ? !parent : index <= 0)) return;
+      event.preventDefault();
+      if (event.repeat) return;
+      if (event.key === "Enter") void action({ action: "add-sibling-node", taskId: task.id, nodeId });
+      else if (event.key === " ") void action({ action: "cycle-node-status", taskId: task.id, nodeId });
+      else void action({ action: "move-node", nodeId, direction: event.shiftKey ? "out" : "in" }).then(() => {
+        document.querySelector(`.node-title[data-node-id="${CSS.escape(nodeId)}"]`)?.focus({ preventScroll: true });
+      });
+      return;
+    }
+    if (!["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    const path = shellNodePath(task, title.dataset.nodeId);
+    const path = shellNodePath(task, nodeId);
     const node = path.at(-1);
     const visible = [...document.querySelectorAll(".flow-scroll .node-title")].filter(el => !el.closest("[inert]") && el.getClientRects().length);
     const index = visible.indexOf(title);
@@ -762,14 +794,21 @@ function shellBindFlowKeyboard() {
 // ------------------------------------------------------------
 
 function renderShellHistory(task) {
-  const entries = Array.isArray(task.history) ? task.history : [];
-  const legacy = entries.map(([time, text]) => `<div class="history-line"><time>${esc(time)}</time><span>${esc(text)}</span></div>`).join("");
-  const available = window.personalTaskTrack?.taskHistory?.read;
-  return `<section class="article-pane task-activity-pane" data-task-activity="${escAttr(task.id)}" aria-label="历史处理">
-    ${available ? '<div data-task-activity-events></div><p data-task-activity-status role="status">正在读取历史…</p><button class="button" type="button" data-task-activity-more hidden>加载更早记录</button>' : ""}
-    ${legacy ? `<details class="task-activity-legacy" open><summary>简报编辑摘要</summary>${legacy}</details>` : ""}
-    ${available || legacy ? "" : "<p>暂无历史记录</p>"}
+  const filters = [["all", "全部"], ["task", "任务"], ["node", "节点"], ["brief", "简报与结论"]];
+  return `<section class="task-activity-pane" data-task-activity="${escAttr(task.id)}" aria-label="处理历史">
+    <div class="task-activity-sidebar">
+      <div class="segmented" aria-label="事件类型">${filters.map(([kind, label]) => `<button type="button" data-activity-filter="${kind}" class="${kind === "all" ? "active" : ""}" aria-pressed="${kind === "all"}">${label}</button>`).join("")}</div>
+      <div data-task-activity-events></div>
+      <p data-task-activity-status role="status"></p>
+      <button class="button" type="button" data-task-activity-more hidden>加载更早记录</button>
+    </div>
+    <div class="task-activity-detail" data-activity-detail></div>
   </section>`;
+}
+
+function taskActivityCategory(event) {
+  return event.legacy || event.changes?.some(item => ["description", "hypothesis", "conclusion"].includes(item.field))
+    ? "brief" : event.targetKind;
 }
 
 const taskActivityFields = {
@@ -796,10 +835,10 @@ function taskActivityValue(field, value, targetKind) {
   return Array.isArray(value) ? value.join("、") || "空" : typeof value === "string" && value ? value : "空";
 }
 
-function renderTaskActivityEvent(event, task) {
-  const { targetKind, targetId, changes = [] } = event;
+function taskActivityHeading(event) {
+  if (event.legacy) return event.title;
+  const { targetKind, changes = [] } = event;
   const targetLabel = { task: "任务", node: "节点", note: "笔记" }[targetKind] || "内容";
-  const time = taskActivityDate.format(new Date(event.at));
   let action = { created: "创建", imported: "导入", deleted: "删除", restored: "恢复", "restored-version": "恢复版本" }[event.kind];
   if (!action) {
     const fields = changes.map(item => item.field);
@@ -811,32 +850,40 @@ function renderTaskActivityEvent(event, task) {
     } else if (fields.includes("placement") || fields.includes("group")) action = "移动";
     else action = fields.length === 1 ? `更新${taskActivityFields[fields[0]] || "内容"}` : "更新";
   }
-  const heading = `${action} · ${targetLabel}「${event.title || "未命名"}」`;
-  const canRestore = Boolean(window.personalTaskTrack?.taskHistory?.restore
-    && (targetKind === "task" || targetKind === "node" && findNode(task.nodes, targetId)));
-  const date = `<time datetime="${escAttr(event.at)}">${esc(time)}</time>`;
-  if (!changes.length) return `<div class="history-line task-activity-row">${date}<span>${esc(heading)}</span></div>`;
-  return `<div class="history-line task-activity-row">${date}<details>
-    <summary>${esc(heading)}</summary>
-    ${changes.map(change => {
-      const restorable = canRestore && (targetKind === "task" && change.field === "conclusion"
-        || targetKind === "node" && ["note", "conclusion"].includes(change.field));
-      return `<div class="task-activity-change">
-        <span class="task-activity-field">${esc(taskActivityFields[change.field] || "内容")}</span>
-        ${(event.kind === "deleted" ? ["before"] : ["before", "after"]).map(side => {
-          const label = event.kind === "deleted" ? "删除前" : side === "before" ? "变更前" : "变更后";
-          return `<div class="task-activity-version"><span>${label}</span><pre>${esc(taskActivityValue(change.field, change[side], targetKind))}</pre>
-            ${restorable ? `<button class="button" type="button" data-task-activity-restore="${escAttr(event.id)}" data-field="${escAttr(change.field)}" data-side="${side}">恢复${label}版本</button>` : ""}</div>`;
-        }).join("")}
-      </div>`;
-    }).join("")}
-  </details></div>`;
+  return `${action} · ${targetLabel}「${event.title || "未命名"}」`;
+}
+
+function renderTaskActivityDetail(event, task, compareCurrent = false) {
+  if (!event) return '<p class="task-activity-empty">选择一条记录查看变更</p>';
+  const { targetKind, targetId, changes = [] } = event;
+  const heading = taskActivityHeading(event);
+  const target = targetKind === "task" ? task : targetKind === "node" ? findNode(task.nodes, targetId) : null;
+  const restorableFields = targetKind === "task" ? ["description", "hypothesis", "conclusion"] : ["note", "conclusion"];
+  const canRestore = Boolean(target && window.personalTaskTrack?.taskHistory?.restore);
+  const canCompare = canRestore && changes.some(change => restorableFields.includes(change.field));
+  const time = event.legacy ? event.at : taskActivityDate.format(new Date(event.at));
+  return `<header><h3>${esc(heading)}</h3><time>${esc(time)}</time></header>
+    ${canCompare ? `<button class="button" type="button" data-activity-compare aria-pressed="${compareCurrent}">${compareCurrent ? "查看原始变更" : "与当前版本对比"}</button>` : ""}
+    ${changes.length ? changes.map(change => {
+      const restorable = canRestore && restorableFields.includes(change.field);
+      const current = restorable && compareCurrent;
+      const version = (side, label, value, cssClass) => `<div class="task-activity-version ${cssClass}"><span>${label}</span>
+        <pre>${taskActivityValue(change.field, value, targetKind).split("\n").map(line => `<span data-diff-mark="${cssClass === "version-before" ? "−" : "+"}">${esc(line) || " "}</span>`).join("")}</pre>
+        ${restorable && side ? `<button class="button" type="button" data-task-activity-restore="${escAttr(event.id)}" data-field="${escAttr(change.field)}" data-side="${side}">恢复到此版本</button>` : ""}</div>`;
+      return `<section class="task-activity-change">
+        <h4 class="task-activity-field">${esc(taskActivityFields[change.field] || "内容")}</h4>
+        ${current
+          ? version("after", "历史版本", change.after, "version-before") + version("", "当前版本", target[change.field], "version-after")
+          : version("before", event.kind === "deleted" ? "删除前" : "上一版本", change.before, "version-before")
+            + (event.kind === "deleted" ? "" : version("after", "变更后", change.after, "version-after"))}
+      </section>`;
+    }).join("") : `<p class="task-activity-empty">${event.legacy ? "此记录只有编辑摘要" : "此事件没有文本变更"}</p>`}`;
 }
 
 function bindTaskActivityPane() {
   const pane = document.querySelector("[data-task-activity]");
   const bridge = window.personalTaskTrack?.taskHistory;
-  if (!pane || pane.dataset.historyBound || !bridge?.read) return;
+  if (!pane || pane.dataset.historyBound) return;
   const taskId = pane.dataset.taskActivity;
   const events = pane.querySelector("[data-task-activity-events]");
   const status = pane.querySelector("[data-task-activity-status]");
@@ -846,9 +893,33 @@ function bindTaskActivityPane() {
   let cursor = null;
   let loading = false;
   let restoring = false;
+  let filter = "all";
+  let selectedId = "";
+  let compareCurrent = false;
+  let loaded = [];
+  const detail = pane.querySelector("[data-activity-detail]");
+  const task = () => state.tasks.find(item => item.id === taskId);
+  const legacy = (task()?.history || []).map(([at, title], i) => ({ id: `summary-${i}`, at, title, legacy: true }));
+  function draw() {
+    const record = task();
+    if (!record) return;
+    const visible = [...loaded, ...legacy].filter(event => filter === "all" || taskActivityCategory(event) === filter);
+    const selected = visible.find(event => event.id === selectedId) || visible[0];
+    selectedId = selected?.id || "";
+    let previousDay;
+    events.innerHTML = visible.map(event => {
+      const date = event.legacy ? null : safeDate(event.at);
+      const day = date ? shellDisplayDate(date).replaceAll(" ", "") : "简报编辑摘要";
+      const heading = day !== previousDay ? `<h4 class="task-activity-day">${day}</h4>` : "";
+      previousDay = day;
+      return `${heading}<button class="task-activity-event" type="button" data-activity-event="${escAttr(event.id)}" data-kind="${escAttr(taskActivityCategory(event))}" aria-pressed="${selectedId === event.id}">
+        <span>${esc(taskActivityHeading(event))}</span><time>${esc(date ? shellTimeLabel(date) : event.at)}</time></button>`;
+    }).join("");
+    detail.innerHTML = renderTaskActivityDetail(selected, record, compareCurrent);
+  }
 
   async function load(reset = false) {
-    if (loading || restoring) return;
+    if (loading || restoring || !bridge?.read) return;
     loading = true;
     more.disabled = true;
     status.textContent = "正在读取历史…";
@@ -856,14 +927,11 @@ function bindTaskActivityPane() {
       const saved = !reset || await flushSave();
       const result = await bridge.read(taskId, reset ? null : cursor);
       if (!pane.isConnected) return;
-      const task = state.tasks.find(item => item.id === taskId);
-      if (!task) return;
       const list = Array.isArray(result?.events) ? result.events : [];
-      const html = list.map(event => renderTaskActivityEvent(event, task)).join("");
-      if (reset) events.innerHTML = html;
-      else events.insertAdjacentHTML("beforeend", html);
+      loaded = reset ? list : [...loaded, ...list];
+      draw();
       cursor = result?.beforeId || null;
-      status.textContent = !saved && !dataProtectionMessage ? "显示已保存的记录，当前修改尚未写入" : events.childElementCount ? "" : "暂无历史记录";
+      status.textContent = !saved && !dataProtectionMessage ? "显示已保存的记录，当前修改尚未写入" : "";
       more.hidden = !cursor;
       more.textContent = "加载更早记录";
     } catch (error) {
@@ -879,6 +947,32 @@ function bindTaskActivityPane() {
 
   more.addEventListener("click", () => void load(!cursor));
   pane.addEventListener("click", async (event) => {
+    const filterButton = event.target.closest("[data-activity-filter]");
+    if (filterButton) {
+      filter = filterButton.dataset.activityFilter;
+      pane.querySelectorAll("[data-activity-filter]").forEach(button => {
+        const active = button === filterButton;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", String(active));
+      });
+      compareCurrent = false;
+      draw();
+      return;
+    }
+    const row = event.target.closest("[data-activity-event]");
+    if (row) {
+      selectedId = row.dataset.activityEvent;
+      compareCurrent = false;
+      draw();
+      events.querySelector(`[data-activity-event="${CSS.escape(selectedId)}"]`)?.focus({ preventScroll: true });
+      return;
+    }
+    if (event.target.closest("[data-activity-compare]")) {
+      compareCurrent = !compareCurrent;
+      draw();
+      detail.querySelector("[data-activity-compare]")?.focus({ preventScroll: true });
+      return;
+    }
     const button = event.target.closest?.("[data-task-activity-restore]");
     if (!button || loading || restoring || taskShareCommitBusy || dataTransferInProgress || dataProtectionMessage) return;
     restoring = true;
@@ -904,6 +998,7 @@ function bindTaskActivityPane() {
         if (target) {
           target[receipt.field] = receipt.value;
           target.updatedAt = receipt.updatedAt;
+          if (target === task && receipt.field === "hypothesis") task.hypothesisUpdatedAt = receipt.updatedAt;
           task.updatedAt = receipt.updatedAt;
         }
       } finally {
@@ -922,6 +1017,7 @@ function bindTaskActivityPane() {
       button.disabled = false;
     }
   });
+  draw();
   void load(true);
 }
 
@@ -1005,6 +1101,8 @@ function renderShellWorkspaceHead(task) {
   const deadline = shellDeadlineProperty(task);
   const recurrence = normalizeTaskRecurrence(task.recurrence);
   const pri = SHELL_PRIORITY_LABELS[normalizePriority(task.priority)];
+  const dueDate = safeDate(task.deadlineAt);
+  const dueText = dueDate ? `${dueDate.getMonth() + 1}/${dueDate.getDate()} ${shellTimeLabel(dueDate)} 截止` : "截止";
   return `<header class="ws-task-head">
     <div class="ws-title-row">
       <button class="ws-complete-check ${done ? "done" : ""}" type="button" data-action="toggle-task-done" data-task-id="${escAttr(task.id)}" aria-label="${done ? "恢复任务" : "完成任务"}" aria-pressed="${done}" title="${done ? "已完成，点击恢复" : "完成任务"}">${done ? shellIcon("check") : ""}</button>
@@ -1012,8 +1110,8 @@ function renderShellWorkspaceHead(task) {
     </div>
     <div class="ws-props-row" role="group" aria-label="任务属性">
       <button class="ws-prop" type="button" data-action="toggle-task-priority-menu" data-task-id="${escAttr(task.id)}" aria-haspopup="menu" title="修改优先级">${shellIcon("flag")}<span>优先级 ${esc(pri.replace("优先", ""))}</span></button>
-      <button class="ws-prop ${deadline.classes}" type="button" data-action="toggle-deadline-picker" data-task-id="${escAttr(task.id)}" aria-haspopup="dialog" title="${escAttr(deadline.title)}">${shellIcon("clock")}<span>${task.deadlineAt ? esc(deadline.text) : "截止"}</span></button>
-      <button class="ws-prop ${tags.blocked ? "is-blocked" : ""}" type="button" data-action="toggle-task-tag" data-tag="blocked" data-task-id="${escAttr(task.id)}" aria-pressed="${Boolean(tags.blocked)}" title="${tags.blocked ? "取消卡住" : "标记卡住"}">${shellIcon("blocked")}<span>${tags.blocked ? "卡住" : "标记卡住"}</span></button>
+      <button class="ws-prop ${deadline.classes}" type="button" data-action="toggle-deadline-picker" data-task-id="${escAttr(task.id)}" aria-haspopup="dialog" title="${escAttr(deadline.title)}">${shellIcon("clock")}<span>${esc(dueText)}</span></button>
+      <button class="ws-prop ${tags.blocked ? "is-blocked" : ""}" type="button" data-action="open-task-tags" aria-haspopup="dialog" title="标记">${shellIcon(tags.blocked ? "blocked" : "flag")}<span>${tags.blocked ? "卡住" : tags.later ? "稍后" : "标记"}</span></button>
       <button class="ws-prop ${tags.today ? "is-today" : ""}" type="button" data-action="toggle-task-tag" data-tag="today" data-task-id="${escAttr(task.id)}" aria-pressed="${Boolean(tags.today)}" title="今日安排">${shellIcon("sun")}<span>${tags.today ? "在今日" : "今日"}</span></button>
       <button class="ws-prop" type="button" data-action="open-task-recurrence" data-task-id="${escAttr(task.id)}" aria-haspopup="dialog" title="设置循环">${shellIcon("repeat")}<span>${recurrence.frequency === "none" ? "循环" : esc(shellRecurrenceLabel(recurrence))}</span></button>
     </div>
@@ -1044,7 +1142,7 @@ function renderShellWorkspaceFooter(pane = "") {
     ? knowledgeSavePresentation(task).shortcut : '⌘ / Ctrl + S 保存笔记';
   return `<footer class="workspace-foot">
     <div data-workspace-status>${renderWorkspaceStatus()}</div>
-    ${pane ? `<span class="foot-shortcut">${pane === "notes" ? shortcut : "双击标题或结论编辑 · 拖动调整层级"}</span>` : ""}
+    ${pane === "flow" ? `<span class="foot-shortcut"><span><kbd>↵</kbd> 同级</span><span><kbd>Tab</kbd> 下级</span><button type="button" data-action="open-command-palette"><kbd>${desktopPlatform === "darwin" ? "⌘K" : "Ctrl K"}</kbd> 命令</button></span>` : pane === "notes" ? `<span class="foot-shortcut">${shortcut}</span>` : ""}
   </footer>`;
 }
 

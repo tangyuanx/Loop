@@ -23,6 +23,7 @@
     close: "m6 6 12 12M6 18 18 6",
     note: "M5 3h14v18H5zM8 8h8M8 12h8M8 16h5",
     minus: "M5 12h14",
+    pin: "M9 3h6m-5 0v7l-3 3v2h10v-2l-3-3V3m-2 12v6",
     // A compact window returns to its normal size; this is not full screen.
     expandRecord: "M5 8h14v12H5zM8 8V4h14v12h-3",
     plus: "M12 5v14M5 12h14",
@@ -120,7 +121,8 @@
     const month = Number(parts[1]);
     const day = Number(parts[2]);
     if (!Number.isFinite(month) || !Number.isFinite(day)) return "";
-    return `${month} 月 ${day} 日`;
+    const weekday = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][new Date(`${key}T12:00:00`).getDay()];
+    return `${month}/${day} ${weekday || ""}`.trim();
   }
 
   // ---------- markup (ported 1:1 from loop-widget-phase13.js) ----------
@@ -132,7 +134,7 @@
   // quick note (the Demo asks the task itself; the snapshot is already split).
   function row(t) {
     const quick = isQuickLane();
-    const next = quick ? t.description : t.nextText;
+    const next = quick ? t.description : "";
     // snapshot.items[].kind is "blocked" | "high" | "normal" (app.js todayFocusItems)
     const blocked = !quick && t.kind === "blocked";
     return '<li class="widget-row ' + (String(t.taskId) === String(snapshot.activeTaskId) ? "current" : "") + '" data-widget-row="' + esc(t.taskId) + '">'
@@ -146,6 +148,7 @@
         : titleButton(t))
       + (next ? "<small>" + (blocked ? icon("blocked") : "") + "<span>" + esc(next) + "</span></small>" : "")
       + "</div>"
+      + (t.deadline ? '<time class="widget-deadline">' + esc(t.deadline) + "</time>" : "")
       + '<button class="widget-open" data-widget-open="' + esc(t.taskId) + '" aria-label="在主窗口打开：' + esc(t.title) + '" title="在主窗口打开">' + icon("arrow") + "</button>"
       + '<button class="widget13-more" data-widget12="row-menu" data-widget-id="' + esc(t.taskId) + '" aria-haspopup="menu" aria-label="记录操作：' + esc(t.title) + '" title="更多操作">' + icon("more") + "</button>"
       + "</li>";
@@ -157,10 +160,11 @@
     const counts = laneCounts();
     const quickEmpty = lane === "quick" && !items.length;
     const header = '<header class="widget-header" tabindex="0" aria-label="移动浮窗" aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight" title="拖动移动 · 聚焦后方向键微调">'
-      + '<img class="widget-logo" src="./src/assets/loop-icon.png" alt="Loop" draggable="false"><strong>今日</strong>'
+      + '<strong>今日</strong>'
       + (prefs.compact
         ? '<span class="widget-count">' + counts[0] + " 项</span>"
-        : '<span class="widget-date">' + esc(formatDate(snapshot.date)) + "</span>")
+        : '<span class="widget-date">' + esc(formatDate(snapshot.date)) + " · " + counts[0] + " 项</span>")
+      + '<button class="icon-button" data-action="widget-pin" aria-label="始终置顶" title="始终置顶" aria-pressed="' + prefs.alwaysOnTop + '">' + icon("pin") + "</button>"
       + '<button class="icon-button" data-action="compact-widget" aria-label="' + (prefs.compact ? "展开浮窗" : "收起浮窗") + '">' + icon(prefs.compact ? "expandRecord" : "minus") + "</button>"
       + '<button class="icon-button" data-action="widget-preferences" aria-label="浮窗设置" aria-haspopup="dialog" aria-expanded="' + String(surfaceKind === "settings") + '">' + icon("settings") + "</button>"
       + '<button class="icon-button" data-action="toggle-widget" aria-label="关闭今日浮窗">' + icon("close") + "</button></header>";
@@ -168,13 +172,16 @@
       + [["task", "今日任务", counts[0]], ["quick", "速记", counts[1]]].map(([value, label, count]) =>
         '<button data-widget-type="' + value + '" class="' + (lane === value ? "active" : "") + '" aria-pressed="' + (lane === value) + '">' + label + "<small>" + count + "</small></button>").join("")
       + "</nav>";
-    const body = '<div class="widget-body' + (!items.length ? ' widget-body-empty' : '') + '"><ol class="widget-rows">' + items.map(row).join("") + "</ol>"
-      + (lane === "task" && !items.length
+    const completed = lane === "task" ? (snapshot.completedItems || []) : [];
+    const completedRows = completed.map(item => '<li class="widget-completed-row"><button type="button" data-widget-open="' + esc(item.taskId) + '">'
+      + icon("circle") + '<span>' + esc(item.title) + '</span><time>' + esc(item.time) + '</time></button></li>').join("");
+    const body = '<div class="widget-body' + (!items.length && !completed.length ? ' widget-body-empty' : '') + '"><ol class="widget-rows">' + items.map(row).join("") + completedRows + "</ol>"
+      + (lane === "task" && !items.length && !completed.length
         ? '<p class="widget-empty">' + (snapshot.completedToday ? "今日任务已完成" : "暂无今日任务") + "</p>"
         : "")
       + "</div>";
     const capture = '<section class="widget-compose" aria-label="添加速记"><div class="widget-capture">'
-      + '<textarea id="widget-capture" rows="1" maxlength="4000" aria-label="快速记录内容" aria-describedby="widget-feedback" placeholder="添加速记…">' + esc(captureDraft()) + "</textarea>"
+      + '<textarea id="widget-capture" rows="1" maxlength="4000" aria-label="快速记录内容" aria-describedby="widget-feedback" placeholder="速记，回车保存到收件箱">' + esc(captureDraft()) + "</textarea>"
       + '<button data-widget12="submit" aria-label="保存速记" title="保存速记" ' + (captureDraft().trim() ? "" : "disabled") + ">" + icon("arrow") + "</button>"
       + '</div>'
       + '<div class="widget-compose-foot" '+(feedback?'':'hidden')+'><span id="widget-feedback" class="widget-input-status ' + feedbackType + '" role="status" aria-live="polite">' + esc(feedback) + '</span></div>'
@@ -182,7 +189,7 @@
     const resize = (edge) => '<div class="widget13-resize ' + edge + '" data-widget-resize="' + edge + '" role="separator" tabindex="0" aria-orientation="horizontal" aria-valuemin="180" aria-valuemax="720" aria-label="从' + (edge === "top" ? "顶部" : "底部") + '调整浮窗高度" title="拖动调整高度 · ↑ / ↓ 微调"></div>';
     return '<aside class="today-widget widget12 widget13 ' + (prefs.compact ? "compact" : quickEmpty ? "widget-quick-empty" : "") + '" data-widget-lane="' + lane + '" data-position="' + esc(prefs.position) + '" aria-label="今日任务浮窗">'
       + header
-      + (prefs.compact ? "" : tabs + body + (lane === "quick" ? capture : "") + resize("top") + resize("bottom"))
+      + (prefs.compact ? "" : body + tabs + capture + resize("top") + resize("bottom"))
       + "</aside>"
       + (surfaceKind === "delete" ? '<div class="dialog-backdrop" data-surface-barrier></div>' : "");
   }
@@ -357,10 +364,11 @@
           if (element) element.textContent = nextHeader.querySelector(selector)?.textContent || "";
         }
         currentHeader.querySelector('[data-action="widget-preferences"]')?.setAttribute("aria-expanded", String(surfaceKind === "settings"));
+        currentHeader.querySelector('[data-action="widget-pin"]')?.setAttribute("aria-pressed", String(prefs.alwaysOnTop));
       } else currentHeader?.replaceWith(nextHeader);
       for (const selector of [".widget-tabs", ".widget-body", ".widget-compose", '[data-widget-resize="top"]', '[data-widget-resize="bottom"]']) {
         const current = currentWidget.querySelector(selector), next = nextWidget.querySelector(selector);
-        if (selector === ".widget-compose" && composer && lane === "quick" && !prefs.compact) continue;
+        if (selector === ".widget-compose" && composer && !prefs.compact) continue;
         if (selector.startsWith("[data-widget-resize") && current && next) continue;
         if (selector === ".widget-tabs" && current && next) {
           for (const button of current.querySelectorAll("[data-widget-type]")) {
@@ -456,7 +464,7 @@
   }
 
   async function submit(forceToday = false) {
-    if (!bridge || prefs.compact || !isQuickLane() || submitting || composing) return;
+    if (!bridge || prefs.compact || submitting || composing) return;
     if (toastTimer) {
       window.clearTimeout(toastTimer);
       toastTimer = 0;
@@ -805,6 +813,10 @@
       return;
     }
     if (button.dataset.action === "toggle-widget") { void bridge.hide(); return; }
+    if (button.dataset.action === "widget-pin") {
+      void bridge.setPreferences({ alwaysOnTop: !prefs.alwaysOnTop });
+      return;
+    }
     if (button.dataset.action === "widget-preferences") {
       event.preventDefault();
       event.stopImmediatePropagation();

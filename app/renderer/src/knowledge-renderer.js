@@ -223,7 +223,7 @@ export function createRenderer(options) {
     // Mermaid is commonly written as `mermaid`; accept the short `mmd` alias
     // as well so imported notes keep their diagram semantics.
     if(language==='mermaid' || language==='mmd') return `<div class="kn-mermaid" role="img" aria-label="Mermaid 图表"><pre><code>${escape(t.content)}</code></pre></div>`;
-    return `<div class="kn-code"><button type="button" class="kn-code-copy" aria-label="复制代码">复制</button>${defaultFence(tokens,i,o,env,self)}</div>`;
+    return `<div class="kn-code">${language ? `<span class="kn-code-language">${escape(language)}</span>` : ""}<button type="button" class="kn-code-copy" aria-label="复制代码">复制</button>${defaultFence(tokens,i,o,env,self)}</div>`;
   };
   const defaultLink=md.renderer.rules.link_open || ((ts,i,o,_e,s)=>s.renderToken(ts,i,o));
   md.renderer.rules.link_open=(tokens,i,o,env,self)=>{
@@ -300,10 +300,12 @@ export function createRenderer(options) {
       if(signal?.aborted)throw new DOMException('导出已取消','AbortError');
       node.dataset.rendering='true';
       const diagramSource=node.querySelector('code')?.textContent || '';
+      const implicitFlow = /^\s*[\w-]+(?:\[[^\]\n]*\]|\([^\n]*\)|\{[^\n]*\})?\s*(?:-->|---|==>|-\.->)/u.test(diagramSource);
+      const diagram = implicitFlow ? `flowchart LR\n${diagramSource}` : diagramSource;
       let timer;
       try {
         const {svg}=await Promise.race([
-          mermaid.render('loopDiagram'+(++graphId),diagramSource,node),
+          mermaid.render('loopDiagram'+(++graphId),diagram,node),
           new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('图表渲染超时')),timeoutMs);}),
         ]);
         if(signal?.aborted)throw new DOMException('导出已取消','AbortError');

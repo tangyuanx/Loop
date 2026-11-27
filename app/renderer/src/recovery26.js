@@ -1184,7 +1184,10 @@ async function recovery26PurgeConfirm() {
   }
   recovery26Pending = null;
   recovery26Undo = null;
-  recovery26Manager();
+  if (state.trashOpen) {
+    shellCloseOverlay({ restoreFocus: false });
+    render();
+  } else recovery26Manager();
   recovery26Receipt(ids.size === 1 ? "所选归档已永久移除" : `已永久移除 ${ids.size} 项归档`);
 }
 
@@ -1193,7 +1196,31 @@ async function recovery26PurgeConfirm() {
 // ------------------------------------------------------------
 
 function recovery26Open() {
-  recovery26Manager();
+  shellCloseOverlay({ restoreFocus: false });
+  state.taskMenuOpen = false;
+  state.contextMenu = null;
+  state.settingsOpen = state.reviewOpen = state.calendarOpen = false;
+  state.trashOpen = true;
+  render();
+}
+
+function renderShellTrash() {
+  const retention = recentlyDeletedRetentionDays;
+  const entries = r26Archive();
+  return `<section class="trash-page" aria-label="最近删除">
+    <header><h1>最近删除</h1><span>${retention ? `保留 ${retention} 天后自动清除` : "保留至手动删除"}</span>
+      ${r26Button("purge-page-all", "清空", "button danger-action", entries.length ? "" : "disabled")}</header>
+    <div class="trash-page-rows">${entries.length ? entries.map(entry => {
+      const remaining = Math.max(0, Math.ceil((Date.parse(entry.deletedAt) + retention * 86400000 - Date.now()) / 86400000));
+      const expires = retention && Number.isFinite(remaining) ? `剩 ${remaining} 天` : r26Stamp(entry.deletedAt);
+      return `<article class="trash-page-row">
+        <span class="trash-page-kind">${r26Escape(RECOVERY26_TYPES[entry.kind])} · ${r26Escape(expires)}</span>
+        <div><strong>${r26Escape(entry.title)}</strong><small>${r26Escape(entry.ownerTaskTitle || entry.groupTitle || "未分组")}</small></div>
+        ${r26Button("restore-page", "恢复", "button", `data-id="${escAttr(entry.id)}"`)}
+        ${r26Button("purge-page", "永久删除", "button danger-action", `data-id="${escAttr(entry.id)}"`)}
+      </article>`;
+    }).join("") : "<p>最近删除为空</p>"}</div>
+  </section>`;
 }
 
 function recovery26OpenFromTaskMenu() {
@@ -1245,6 +1272,27 @@ function recovery26OnClick(event) {
   if (!button || button.disabled) return;
   if (recovery26Busy) { event.preventDefault(); event.stopImmediatePropagation(); return; }
   const action = button.dataset.recovery26;
+  if (action === "restore-page" || action === "purge-page" || action === "purge-page-all") {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const entry = r26Archive().find(item => item.id === button.dataset.id);
+    if (action === "purge-page-all" || action === "purge-page" && entry) {
+      recovery26PurgeReview(entry ? [entry.id] : r26Archive().map(item => item.id));
+    } else if (entry) {
+      recovery26Busy = true;
+      button.disabled = true;
+      recovery26Transaction(() => recovery26RestoreEntry(entry)).then(outcome => {
+        recovery26Busy = false;
+        if (!outcome.ok) {
+          recovery26Active = entry.id;
+          recovery26Manager();
+        }
+        render();
+        recovery26Receipt(outcome.message);
+      });
+    }
+    return;
+  }
   if (action === "owner") {
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -1276,7 +1324,7 @@ function recovery26OnClick(event) {
   event.preventDefault();
   event.stopImmediatePropagation();
   if (action === "open") {
-    recovery26Manager();
+    recovery26Open();
     return;
   }
   if (action === "cancel") {

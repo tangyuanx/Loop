@@ -442,23 +442,27 @@ test("task list visibility preserves editing state, scope and scroll without ren
     state.taskListCollapsed = false;
     globalThis.layoutBefore = JSON.stringify([state.tasks, state.activeTaskId, state.selectedNodeId, state.query, state.shellDrafts]);
     globalThis.layoutList = { scrollTop: 324, scrollLeft: 8 };
-    globalThis.layoutPane = { inert: false, contains: () => false };
-    globalThis.layoutToggle = { attrs: {}, setAttribute(key, value) { this.attrs[key] = value; } };
+    globalThis.layoutCollapse = { hidden: false, focus() { document.activeElement = this; } };
+    globalThis.layoutRestore = { hidden: true, focus() { document.activeElement = this; } };
+    globalThis.layoutPane = { inert: false, contains: element => element === layoutCollapse,
+      querySelector: selector => selector === ".shell-list-toggle" ? layoutCollapse : null };
+    document.activeElement = layoutCollapse;
     globalThis.layoutClasses = new Map();
     document.querySelector = selector => selector === "#task-results" ? layoutList
       : selector === ".task-list-pane" ? layoutPane
-      : selector === '[data-action="toggle-task-list"]' ? layoutToggle
+      : selector === ".breadcrumb .shell-list-toggle" ? layoutRestore
       : selector === ".app" ? { classList: { toggle: (key, value) => layoutClasses.set(key, value) } } : null;
     render = () => { throw new Error("Visibility changes must not rebuild the editor"); };
   `);
   await harness.evaluate(`action({ action: "toggle-task-list" })`);
   assert.equal(harness.evaluate(`state.taskListCollapsed && layoutPane.inert && layoutClasses.get("list-collapsed")`), true);
-  assert.equal(harness.evaluate(`layoutToggle.attrs["aria-expanded"]`), "false");
+  assert.equal(harness.evaluate(`layoutCollapse.hidden && !layoutRestore.hidden && document.activeElement === layoutRestore`), true);
   assert.equal(harness.evaluate(`loadBrowserTaskListCollapsed()`), true);
   harness.evaluate(`layoutList.scrollTop = 0; layoutList.scrollLeft = 0;`);
   await harness.evaluate(`action({ action: "toggle-task-list" })`);
   assert.deepEqual(harness.json(`[layoutList.scrollTop, layoutList.scrollLeft]`), [324, 8]);
   assert.equal(harness.evaluate(`!state.taskListCollapsed && !layoutPane.inert && !loadBrowserTaskListCollapsed()`), true);
+  assert.equal(harness.evaluate(`!layoutCollapse.hidden && layoutRestore.hidden && document.activeElement === layoutCollapse`), true);
   assert.equal(harness.evaluate(`layoutBefore === JSON.stringify([state.tasks, state.activeTaskId, state.selectedNodeId, state.query, state.shellDrafts])`), true);
   await harness.evaluate(`action({ action: "toggle-task-list" })`);
   harness.evaluate(`state.query = "另一个范围"; layoutList.scrollTop = 17;`);
@@ -481,7 +485,11 @@ test("topbar shows a read-only task path and editable title, without duplicate s
   assert.doesNotMatch(topbar, /data-action="toggle-task-group-select"/);
   assert.match(topbar, /data-action="share-task" data-task-id="header-task"/);
   assert.doesNotMatch(topbar, /data-action="(?:toggle-task-done|toggle-settings)"/);
-  assert.match(topbar, /data-action="toggle-task-list"/);
+  const navigation = harness.evaluate("renderShellNavigation()");
+  assert.match(navigation, /class="brand">\s*<button[^>]*data-action="toggle-nav"/);
+  assert.doesNotMatch(navigation, /data-action="toggle-task-list"/);
+  assert.match(topbar, /class="breadcrumb">\s*<button[^>]*data-action="toggle-nav"[^>]* hidden>[\s\S]*?<button[^>]*data-action="toggle-task-list"[^>]* hidden>/);
+  assert.match(harness.evaluate("renderShellTaskList(state.tasks)"), /class="list-heading[^>]*>\s*<button[^>]*data-action="toggle-nav"[^>]* hidden>[\s\S]*?<button[^>]*data-action="toggle-task-list"[^>]*aria-expanded="true"[^>]*>[\s\S]*class="list-heading-label"/);
   assert.doesNotMatch(harness.evaluate(`renderShellTaskProperties(shellActiveTask())`), /toggle-task-group-select/);
   harness.evaluate(`state.settingsOpen = true;`);
   const settings = harness.evaluate(`renderShellTopbar()`);
@@ -489,18 +497,19 @@ test("topbar shows a read-only task path and editable title, without duplicate s
   assert.doesNotMatch(settings, /data-action="(?:toggle-settings|edit-task-title)"/);
 });
 
-test("search shortcut reveals a hidden task list before requesting input focus", async () => {
+test("command shortcut opens the palette without changing the task-list state", async () => {
   const harness = await rendererHarness();
   harness.evaluate(`
     state.taskListCollapsed = true;
     state.query = "查找";
-    render = () => { globalThis.listAtSearchRender = state.taskListCollapsed; };
+    globalThis.paletteOpened = false;
+    shellOpenCommandPalette = () => { paletteOpened = true; };
   `);
   let prevented = false;
   harness.dispatch("keydown", { key: "k", metaKey: true, target: null, preventDefault() { prevented = true; } });
   assert.equal(prevented, true);
-  assert.equal(harness.evaluate(`listAtSearchRender`), false);
-  assert.equal(harness.evaluate(`state.focusSearch && state.searchCursor === 2`), true);
+  assert.equal(harness.evaluate("paletteOpened"), true);
+  assert.deepEqual(harness.json("[state.taskListCollapsed, state.query, state.focusSearch]"), [true, "查找", false]);
 });
 
 test("topbar task menu is clamped, focuses once and toggles closed to its trigger", async () => {
@@ -3531,7 +3540,7 @@ test("Today widget is rebuilt from the frozen phase 12/13 widget layers", async 
   // The widget renderer carries the Demo's own template and interactions.
   assert.match(runtime, /class="today-widget widget12 widget13 '/);
   assert.match(runtime, /data-widget-lane="' \+ lane/);
-  assert.match(runtime, /class="widget-logo" src="\.\/src\/assets\/loop-icon\.png"/);
+  assert.match(runtime, /data-action="widget-pin"/);
   assert.match(runtime, /class="widget-tabs"/);
   assert.match(runtime, /class="widget-compose"/);
   assert.match(runtime, /class="widget-empty"/);
@@ -3543,7 +3552,7 @@ test("Today widget is rebuilt from the frozen phase 12/13 widget layers", async 
   assert.match(runtime, /data-action="compact-widget"/);
   assert.match(runtime, /data-action="widget-preferences"/);
   assert.match(runtime, /data-action="toggle-widget"/);
-  assert.match(runtime, /placeholder="添加速记…"/);
+  assert.match(runtime, /placeholder="速记，回车保存到收件箱"/);
   assert.match(runtime, /data-widget12="submit"/);
   assert.match(runtime, /id="widget-feedback"/);
   // the Demo's own glyphs, not lookalikes
@@ -3579,9 +3588,9 @@ test("settings use the selected categorized modal, grouped rows, mixed controls,
     fs.readFile(path.join(__dirname, "..", "app", "renderer", "src", "settings.js"), "utf8"),
   ]);
 
-  assert.match(app, /activeSettingsPage = "appearance"/);
+  assert.match(app, /activeSettingsPage = "data"/);
   assert.match(app, /data-settings-page="\$\{value\}"/);
-  assert.match(app, /\["appearance", "tasks", "data", "updates", "advanced", "help"\]/);
+  assert.match(settings, /\["tasks", "通用"[\s\S]*\["appearance", "外观"[\s\S]*\["data", "数据与备份"[\s\S]*\["updates", "软件更新"[\s\S]*\["help", "帮助与反馈"/);
   assert.match(app, /class="settings-list"/);
   assert.match(app, /class="settings-switch"[^>]+role="switch"/);
   assert.match(app, /data-action="toggle-today-widget-visibility"[^>]*aria-label="显示今日任务浮窗"/);
@@ -4183,9 +4192,9 @@ test("Today widget restores topmost after app deactivation releases temporary ed
   // The renderer reports the panel box; the window is that box plus the ring
   // that carries the Demo's shadow, and only then is it shown.
   const fitResult = await ipcHandlers.get("today-widget:fit")({ sender: widgetWindow.webContents }, { width: 360, height: 366 });
-  assert.deepEqual(fitResult.content, { width: 360, height: 366 });
+  assert.deepEqual(fitResult.content, { width: 296, height: 366 });
   assert.equal(widgetWindow.visible, true);
-  assert.deepEqual(widgetWindow.bounds.width, 360 + 22 * 2);
+  assert.deepEqual(widgetWindow.bounds.width, 296 + 22 * 2);
   assert.deepEqual(widgetWindow.bounds.height, 366 + 22 + 36);
 
   await ipcHandlers.get("today-widget:set-editing")({ sender: widgetWindow.webContents }, true);
@@ -4294,7 +4303,7 @@ test("production Today widget uses its dedicated frontend and a sandboxed Electr
 
   // Chrome, tabs, rows and the composer: the Demo's markup, icon for icon.
   assert.match(runtime, /class="today-widget widget12 widget13 '/);
-  assert.match(runtime, /class="widget-logo" src="\.\/src\/assets\/loop-icon\.png"/);
+  assert.match(runtime, /data-action="widget-pin"/);
   assert.match(runtime, /<strong>今日<\/strong>/);
   assert.match(runtime, /class="widget-date"/);
   assert.match(runtime, /class="widget-count"/);
@@ -4490,7 +4499,7 @@ test("production Today widget uses its dedicated frontend and a sandboxed Electr
   assert.match(rendererApp, /function syncRecurringTasks\(at = loopNow\(\)\)/);
   assert.match(rendererApp, /return loopNow\(\)\.toISOString\(\);/);
   // today's completions stay reachable; minimal empty states; no row tags
-  assert.match(rendererApp, /function shellCompletedToday\(\)/);
+  assert.match(rendererApp, /function shellCompletedToday\(at = loopNow\(\)\)/);
   assert.match(rendererApp, /state\.todayFilter === "done"/);
   assert.match(shellSource2, /state\.todayFilter === "done" \? "今天暂无完成任务" : "暂无待办"/);
   assert.match(workspaceSource, /renderShellEmptyPrompt\("check", "今天暂无完成任务"[\s\S]*?data-action="show-today-active"/);
@@ -5281,7 +5290,6 @@ test("the integrated title bar keeps the platform's own window controls", async 
   assert.match(bridge, /window25-native-caption/);
   assert.match(bridge, /window25-native-traffic/);
   assert.match(bridge, /\.topbar > \.brand-update-slot > \.brand-update \{[^}]*position: relative;/, "the moved update chip must keep its own positioning");
-  assert.match(bridge, /\.app\.nav-collapsed \{ --nav-width: 64px !important; \}/, "the collapsed rail is 64px at every width");
   assert.ok(index.includes("./src/window25.js"), "the phase25 script must be loaded");
 });
 
@@ -5501,7 +5509,7 @@ test("Today widget snapshot reuses the main Today ordering and next-step content
       { id: "blocked", title: "阻塞任务", priority: "medium", tags: { today: true, blocked: true }, nodes: [{ id: "blocked_node", title: "解除阻塞", status: "blocked", children: [] }] },
       { id: "fourth", title: "第四项", priority: "low", tags: { today: true }, nodes: [] }
     ]);
-    const focus = todayFocusItems().map(({ task, kind, nextText }) => ({ taskId: task.id, title: task.title, kind, nextText }));
+    const focus = todayFocusItems().map(({ task, kind, nextText }) => ({ taskId: task.id, title: task.title, kind, nextText, deadline: "" }));
     const snapshot = todayWidgetSnapshot();
     return { focus, snapshot };
   })()`);
@@ -6288,7 +6296,7 @@ test("optional deadlines normalize consistently and invalid values stay unset", 
   assert.equal(harness.evaluate(`normalizeTasks([{ id: "renderer", deadlineReminderMinutes: null }])[0].deadlineReminderMinutes`), null);
 });
 
-test("deadline ranges compose with status and order only deadline-scoped results", async () => {
+test("deadline ranges compose with status and preserve deadline and manual ordering", async () => {
   const harness = await rendererHarness();
   const result = harness.json(`(() => {
     const at = new Date(2026, 7, 24, 10, 0);
@@ -6306,7 +6314,10 @@ test("deadline ranges compose with status and order only deadline-scoped results
       { id: "done-overdue", title: "已完成", status: "done", order: 5, deadlineAt: new Date(2026, 7, 23, 9).toISOString(), nodes: [] }
     ]);
     state.taskDeadlineFilter = "all";
+    const defaultOrder = filteredTasks({ at }).map((task) => task.id);
+    state.taskListSort = "manual";
     const manual = filteredTasks({ at }).map((task) => task.id);
+    state.taskListSort = "deadline";
     state.taskDeadlineFilter = "week";
     const week = filteredTasks({ at }).map((task) => task.id);
     state.taskDeadlineFilter = "overdue";
@@ -6314,9 +6325,10 @@ test("deadline ranges compose with status and order only deadline-scoped results
     state.taskDeadlineFilter = "all";
     state.taskDateFilter = "2026-08-25";
     const exact = filteredTasks({ at }).map((task) => task.id);
-    return { manual, week, overdue, exact };
+    return { defaultOrder, manual, week, overdue, exact };
   })()`);
 
+  assert.deepEqual(result.defaultOrder, ["overdue", "tomorrow-early", "tomorrow-late", "manual-first"]);
   assert.deepEqual(result.manual, ["manual-first", "tomorrow-late", "overdue", "tomorrow-early"]);
   assert.deepEqual(result.week, ["tomorrow-early", "tomorrow-late"]);
   assert.deepEqual(result.overdue, ["overdue"]);
@@ -6385,7 +6397,7 @@ test("review ranges reject invalid bounds and include the entire end date; task 
     Object.assign(state,{reviewOpen:true,calendarOpen:false,reviewPreset:"custom",reviewDateField:"created",reviewStartDate:"2026-10-07",reviewEndDate:"2026-10-07",captureSourceFilter:"quick",taskPane:"notes"});
   `);
   assert.deepEqual(harness.json("reviewTasks().map(item => item.task.id)"), ["end"]);
-  assert.match(harness.evaluate("renderShellReview()"), /10 月 7 日 — 10 月 7 日/);
+  assert.match(harness.evaluate("renderShellReview()"), /10\/7 – 10\/7/);
   assert.doesNotMatch(harness.evaluate("renderShellReview()"), /data-action="time18-clock"/);
   assert.match(harness.evaluate("shellSettingsAdvanced()"), /data-action="time18-clock"/);
   for (const bounds of [["2026-10-08","2026-10-07"],["","2026-10-07"],["2026-02-30","2026-10-07"]]) {
@@ -6414,18 +6426,20 @@ test("review ranges reject invalid bounds and include the entire end date; task 
   assert.equal(harness.evaluate("state.globalListReturn"), null, "explicit primary navigation must discard the old detour");
 });
 
-test("calendar uses local month boundaries, variable week counts and a quiet empty agenda", async () => {
+test("calendar uses local month boundaries, six-row months and a seven-day week", async () => {
   const harness = await rendererHarness();
-  for (const [month, count] of [["2027-02-01",28],["2026-10-01",35],["2026-08-01",42]]) {
+  for (const month of ["2027-02-01","2026-10-01","2026-08-01"]) {
     harness.evaluate(`state.calendarMonth=${JSON.stringify(month)};state.calendarSelectedDate=${JSON.stringify(month)}`);
     assert.equal(harness.evaluate("shellCalendarMonth().getDate()"), 1);
     assert.equal(harness.evaluate("shellCalendarMonth().getHours()"), 0, "date-only months must parse at local midnight, not UTC");
     const html = harness.evaluate("renderShellCalendar()");
-    assert.equal((html.match(/data-action="select-calendar-date"/g) || []).length, count);
+    assert.equal((html.match(/data-action="select-calendar-date"/g) || []).length, 42);
     const agenda = html.match(/<aside class="agenda"[\s\S]*?<\/aside>/)[0];
-    assert.match(agenda, /暂无任务/);
+    assert.match(agenda, /当天没有截止的任务/);
     assert.doesNotMatch(agenda, /在任务中查看|个任务截止|尚未记录进展/);
   }
+  harness.evaluate('state.calendarView = "week"');
+  assert.equal((harness.evaluate("renderShellCalendar()").match(/data-action="select-calendar-date"/g) || []).length, 7);
   harness.evaluate('loopSetPreviewClock("2027-02-03T09:00"); state.calendarMonth=""; state.calendarSelectedDate="";ensureCalendarState()');
   assert.deepEqual(harness.json("[state.calendarMonth,state.calendarSelectedDate]"), ["2027-02-01","2027-02-03"]);
 });
@@ -6521,7 +6535,7 @@ test("recurrence controls feed every Today surface and refresh while the app sta
   assert.match(app, /data-recurrence-field="time"/);
   // Phase18: the Today route now switches between the active list and today's
   // completions (completed occurrences included), not only scheduled tasks.
-  assert.match(app, /if \(state\.taskFilter === "today"\) \{[\s\S]*state\.todayFilter === "done"[\s\S]*shellCompletedToday\(\)\.includes\(task\)[\s\S]*isTaskScheduledForToday\(task\)/);
+  assert.match(app, /new Set\(shellCompletedToday\(at\)\)[\s\S]*completedToday\?\.has\(task\)[\s\S]*isTaskScheduledForToday\(task, at\)/);
   assert.match(app, /\.filter\(\(task\) => isTaskScheduledForToday\(task\)\)/);
   assert.match(app, /window\.setInterval\?\.\([\s\S]*?30000/);
 });
@@ -7810,13 +7824,13 @@ test('interaction preferences migrate from legacy cache but restored workspace v
   const h = await rendererHarness({storage:{read:async()=>stored,write:async data=>writes.push(data)}});
   h.evaluate(`localStorage.setItem('loop.interaction28',JSON.stringify({continuous:false,follow:false})); localStorage.setItem('loop-work-rhythm-v1:enabled','1')`);
   const legacy = await h.evaluate('loadAppData()');
-  assert.deepEqual(JSON.parse(JSON.stringify(legacy.uiPreferences)), {continuous:false,follow:false,workNavigationEnabled:true,nodeConclusionHintSeen:false,knowledgeAutoSpacing:false});
+  assert.deepEqual(JSON.parse(JSON.stringify(legacy.uiPreferences)), {continuous:false,follow:false,workNavigationEnabled:true,nodeConclusionHintSeen:false,knowledgeAutoSpacing:false,briefSerif:true,newTaskGroup:""});
   stored = {tasks:[],uiPreferences:{continuous:true,follow:true,workNavigationEnabled:false}};
   const restored = await h.evaluate('loadAppData()');
-  assert.deepEqual(JSON.parse(JSON.stringify(restored.uiPreferences)), {...stored.uiPreferences,nodeConclusionHintSeen:false,knowledgeAutoSpacing:false});
+  assert.deepEqual(JSON.parse(JSON.stringify(restored.uiPreferences)), {...stored.uiPreferences,nodeConclusionHintSeen:false,knowledgeAutoSpacing:false,briefSerif:true,newTaskGroup:""});
   h.evaluate(`state.uiPreferences = normalizeUiPreferences({continuous:true,follow:true,workNavigationEnabled:false}); LoopUiPreferences.update({follow:false,knowledgeAutoSpacing:true})`);
   await h.evaluate('flushSave()');
-  assert.deepEqual(JSON.parse(JSON.stringify(writes[0].uiPreferences)), {continuous:true,follow:false,workNavigationEnabled:false,nodeConclusionHintSeen:false,knowledgeAutoSpacing:true});
+  assert.deepEqual(JSON.parse(JSON.stringify(writes[0].uiPreferences)), {continuous:true,follow:false,workNavigationEnabled:false,nodeConclusionHintSeen:false,knowledgeAutoSpacing:true,briefSerif:true,newTaskGroup:""});
 });
 
 test('changing default task range within settings keeps the current settings page visible', async () => {

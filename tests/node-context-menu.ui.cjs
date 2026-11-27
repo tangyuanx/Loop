@@ -15,16 +15,21 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
     await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(1280,820));
     await page.waitForSelector('.flow-scroll');
     const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.evaluate(() => flushSave());
+    await settle();
     const open = async id => {
       // The desktop closes context menus on native window blur. Bring this
       // test's main window forward before exercising a right-click.
       await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).focus());
       await page.waitForFunction(()=>document.hasFocus());
-      await page.locator(`.node-title[data-node-id="${id}"]`).scrollIntoViewIfNeeded();
+      await page.locator(`.node-title[data-node-id="${id}"]`).evaluate(el => el.scrollIntoView({ block: 'nearest' }));
       await settle();
       await page.locator(`.node-title[data-node-id="${id}"]`).click({ button: 'right', position: { x: 25, y: 20 } });
       await page.waitForSelector('.node-context-menu');
-      assert.equal(await page.locator('.node-context-menu button').count(), 4);
+      assert.deepEqual(await page.locator('.node-context-menu button').evaluateAll(buttons => buttons.map(button => button.dataset.action)), [
+        'add-sibling-node', 'add-child-node', 'rename-context-node', 'open-node-status', 'edit-node-conclusion',
+        'share-node', 'copy-node-markdown', 'delete-node',
+      ]);
     };
     const nameDraft = async text => {
       assert.equal(await page.locator('[data-shell-node-draft]').count(), 1, 'one draft at the intended level');
@@ -37,7 +42,7 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
     const tree = () => page.evaluate(() => state.tasks.find(t => t.id === 'task').nodes);
 
     // Opening/dismissing on a scrolled flow keeps the exact DOM and inspector.
-    await page.locator('.node-title[data-node-id="n35"]').scrollIntoViewIfNeeded();
+    await page.locator('.node-title[data-node-id="n35"]').evaluate(el => el.scrollIntoView({ block: 'nearest' }));
     await page.locator('.node-title[data-node-id="n35"]').click();
     await settle();
     await page.locator('.node-title[data-node-id="n35"]').scrollIntoViewIfNeeded();
@@ -99,12 +104,12 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
       assert.equal(await page.locator('[data-shell-node-draft]').count(), 0);
       assert.deepEqual(await tree(), nodes);
       assert.equal(await page.locator('[data-pane="flow"] .pane-count').innerText(),
-        String(await page.evaluate(() => shellNodeList(shellActiveTask()).length)));
+        `${await page.evaluate(() => shellCountDoneNodes(shellActiveTask()))}/${await page.evaluate(() => shellNodeList(shellActiveTask()).length)}`);
     };
     await page.locator('.add-node').click();
     await page.locator('[data-shell-node-draft]').click();
     assert.equal(await page.locator('[data-shell-node-draft]').count(), 1, 'inside clicks keep the draft');
-    await page.locator('.flow-toolbar > span').click();
+    await page.locator('.tabs-bar').click({ position: { x: 8, y: 12 } });
     await expectCancelled();
 
     await open('n35');
@@ -116,14 +121,15 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
 
     await open('child');
     await page.getByRole('menuitem', { name: '添加子节点' }).click();
-    await page.locator('#search').click();
+    await page.getByRole('button', { name: '搜索任务', exact: true }).click();
     await expectCancelled();
+    await page.waitForFunction(() => document.activeElement.id === 'search');
     assert.equal(await page.evaluate(() => document.activeElement.id), 'search', 'outside input retains focus');
     await page.keyboard.press('Escape');
 
     await open('n44');
     await page.getByRole('menuitem', { name: '添加子节点' }).click();
-    await page.locator('.flow-toolbar > span').click();
+    await page.locator('.tabs-bar').click({ position: { x: 8, y: 12 } });
     await expectCancelled();
     assert.equal(await page.locator('.collapse[data-node-id="n44"]').isDisabled(), true);
 
@@ -173,19 +179,19 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
     await page.waitForFunction(old => state.focusNodeTitleId && state.focusNodeTitleId !== old, oldDraft);
     assert.equal(await page.locator('[data-shell-node-draft]').count(), 1, 'add again leaves exactly one fresh draft');
     assert.equal(await page.evaluate(id => Boolean(findNode(shellActiveTask().nodes, id)), oldDraft), false);
-    await page.locator('.flow-toolbar > span').click();
+    await page.locator('.tabs-bar').click({ position: { x: 8, y: 12 } });
     await expectCancelled();
     await page.waitForFunction(async () => !(await window.personalTaskTrack.storage.read()).tasks[0].nodes
       .some(node => !node.title.trim()));
 
     // Existing hover plus uses the same task identity and inline naming path.
     await page.locator('.node-title[data-node-id="child"]').hover();
-    await page.locator('.node-add[data-node-id="child"]').click();
+    await page.locator('.flow-row[data-node-id="child"]').getByRole('button', { name: '新增下级节点', exact: true }).click();
     await nameDraft('快捷添加');
     await open('child');
     await page.getByRole('menuitem', { name: '添加子节点' }).click();
     await page.locator('[data-shell-node-draft]').fill('失焦保存标题');
-    await page.locator('.flow-toolbar > span').click();
+    await page.locator('.tabs-bar').click({ position: { x: 8, y: 12 } });
     await page.waitForFunction(() => !state.focusNodeTitleId);
     assert.ok((await tree())[35].children[0].children.some(node => node.title === '失焦保存标题'));
     const saved = await tree();
@@ -204,7 +210,7 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
     await page.keyboard.press('ArrowDown');
     assert.equal(await page.evaluate(() => document.activeElement.dataset.action), 'add-child-node');
     await page.keyboard.press('ArrowDown');
-    assert.equal(await page.evaluate(() => document.activeElement.dataset.action), 'share-node');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.action), 'rename-context-node');
     await page.keyboard.press('End');
     assert.equal(await page.evaluate(() => document.activeElement.dataset.action), 'delete-node');
     await page.keyboard.press('ArrowDown');
@@ -220,7 +226,7 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
       const box = await page.locator('.node-context-menu').boundingBox();
       assert.ok(box.x >= 12 && box.y >= 12 && box.x + box.width <= 1268 && box.y + box.height <= 770);
       assert.equal(await page.locator('.node-context-menu').evaluate(el => getComputedStyle(el).backgroundColor),
-        await page.locator('body').evaluate(el => getComputedStyle(el).backgroundColor));
+        theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(38, 39, 43)');
       if (process.env.LOOP_TEST_SCREENSHOT_DIR) await page.screenshot({ path: path.join(process.env.LOOP_TEST_SCREENSHOT_DIR, `node-menu-${theme}.png`) });
       await page.keyboard.press('Escape');
     }

@@ -60,7 +60,7 @@
     return definitions;
   }
 
-  function projectTree(nodes, records, definitions, preserveProjectionOrder) {
+  function projectTree(nodes, records, definitions, preserveProjectionOrder, conclusions) {
     const selected = nodeShare.indexNodes(nodes);
     const usedStates = new Set();
     function projectNodes(items) {
@@ -76,7 +76,7 @@
           title: text(node.title),
           status,
           hypothesis: text(node.hypothesis),
-          conclusion: text(node.conclusion),
+          conclusion: conclusions ? text(node.conclusion) : '',
           ...(records ? { note: text(node.note) } : {}),
           updatedAt: text(node.updatedAt),
           children: projectNodes(node.children),
@@ -109,7 +109,8 @@
         downstreamDepth: selection.downstreamDepth ?? 0,
       }).nodes;
     } else if (flow && scope !== 'node') selectedNodes = allNodes;
-    const { nodes, nodeStates } = projectTree(selectedNodes, records, nodeDefinitions(snapshot.nodeStates), Boolean(selection.nodeId));
+    const { nodes, nodeStates } = projectTree(selectedNodes, records, nodeDefinitions(snapshot.nodeStates),
+      Boolean(selection.nodeId), selection.nodeConclusions !== false);
 
     const available = candidates(task, snapshot.documents, snapshot.tabIds);
     const noteId = selection.noteId ?? snapshot.noteId;

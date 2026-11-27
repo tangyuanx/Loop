@@ -31,7 +31,7 @@ const SHELL_ICON_PATHS = {
   note23Outline: "M4 5h2m4 0h10M4 12h2m4 0h10M4 19h2m4 0h10",
   chevron: "m9 5 7 7-7 7",
   down: "m5 9 7 7 7-7",
-  panel: "M3 4h18v16H3zM9 4v16",
+  panel: "M6 4.5h12a2.5 2.5 0 0 1 2.5 2.5v10a2.5 2.5 0 0 1-2.5 2.5H6A2.5 2.5 0 0 1 3.5 17V7A2.5 2.5 0 0 1 6 4.5zM9.5 4.5v15",
   taskDetails: "M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1M14 4v16M7 8h4M7 12h4",
   check: "m5 12 4 4L19 6",
   circle: "M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0",
@@ -57,8 +57,11 @@ const SHELL_ICON_PATHS = {
   expandRecord: "M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5",
   restoreRecord: "M3 8h5V3m8 0v5h5M8 21v-5H3m18 0h-5v5",
   share: "M4.5 13v5.5a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V13M16 7.5l-4-4-4 4M12 3.5V15",
-  taskList: "M3 4h18v16H3zM9 4v16M15 4v16",
+  taskList: "M6 4.5h12a2.5 2.5 0 0 1 2.5 2.5v10a2.5 2.5 0 0 1-2.5 2.5H6A2.5 2.5 0 0 1 3.5 17V7A2.5 2.5 0 0 1 6 4.5zM8.5 4.5v15M14.5 4.5v15",
   listMore: "M5 12h.01M12 12h.01M19 12h.01",
+  grip: "M9 5h.01M15 5h.01M9 12h.01M15 12h.01M9 19h.01M15 19h.01",
+  expandBranches: "m8 9 4-4 4 4m-8 6 4 4 4-4",
+  collapseBranches: "m8 5 4 4 4-4m-8 14 4-4 4 4",
   bolt: "M13 3.5L5 13.5h6l-1 7 8-10h-6z",
   widget: "M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5zm4 4h6v4H7V9z",
   moon: "M20 14.5A7.5 7.5 0 0 1 9.5 4a7.5 7.5 0 1 0 10.5 10.5z",
@@ -88,6 +91,7 @@ function shellGroupTitle(groupId) {
 
 /** Demo route vocabulary: today | tasks | calendar | review | settings. */
 function shellRoute() {
+  if (state.trashOpen) return "trash";
   if (state.settingsOpen) return "settings";
   if (state.reviewOpen) return "review";
   if (state.calendarOpen) return "calendar";
@@ -96,7 +100,7 @@ function shellRoute() {
 }
 
 function shellIsWide() {
-  return ["calendar", "review", "settings"].includes(shellRoute());
+  return ["calendar", "review", "settings", "trash"].includes(shellRoute());
 }
 
 function shellDateLabel(date = loopNow()) {
@@ -119,7 +123,7 @@ function shellTasksInGroup(groupId) {
 }
 
 function shellGroupOpenCount(groupId) {
-  return shellTasksInGroup(groupId).filter((task) => task.status !== "done").length;
+  return shellTasksInGroup(groupId).filter((task) => task.status !== "done" && !shellTaskIsNote(task)).length;
 }
 
 // ------------------------------------------------------------
@@ -174,7 +178,6 @@ function renderShellBrandUpdate() {
   const update = appUpdateState;
   const detected = ["available", "downloading", "downloaded", "preparing", "installing"].includes(update.status)
     || (update.version && ["checking", "error"].includes(update.status));
-  if (!detected) return "";
   const busy = ["checking", "downloading", "preparing", "installing"].includes(update.status);
   const labels = {
     idle: "软件更新",
@@ -189,7 +192,7 @@ function renderShellBrandUpdate() {
     error: "更新未完成",
   };
   const label = labels[update.status] || "软件更新";
-  return `<button class="icon-button shell-update brand-update" type="button" data-action="open-update-panel" aria-label="软件更新：${escAttr(label)}" title="${escAttr(label)}" ${busy ? 'aria-busy="true" disabled' : ""}>${shellIcon("download")}</button>`;
+  return `<button class="icon-button shell-update brand-update" type="button" data-action="open-update-panel" aria-label="软件更新 · ${escAttr(label)}" title="${escAttr(label)}" ${detected ? 'data-update-available' : ""} ${busy ? 'aria-busy="true" disabled' : ""}>${shellIcon("download")}</button>`;
 }
 
 /** Refresh the update control next to settings without replacing navigation. */
@@ -215,7 +218,7 @@ function shellNavButton(route, text, image) {
   const active = current === route;
   const scoped = active && route === "tasks" && state.activeGroupId !== ALL_TASKS_GROUP_ID;
   const attributes = route === "tasks"
-    ? 'data-setting-button="task-filter" data-value="all"'
+    ? 'data-setting-button="task-filter" data-value="active"'
     : route === "today"
       ? 'data-setting-button="task-filter" data-value="today"'
       : route === "calendar"
@@ -249,7 +252,7 @@ function renderShellGroupNavigation() {
     return `
       <div class="group-nav-row">
         <button class="nav-button ${active ? "active" : ""}" type="button" data-action="select-nav-group" data-group-id="${escAttr(group.id)}" title="${escAttr(group.title)}" aria-label="分组：${escAttr(group.title)}" aria-current="${active ? "page" : "false"}">
-          ${state.navCollapsed ? shellIcon("folder") : '<i class="group-mark"></i>'}<span>${esc(group.title)}</span><span class="count">${shellGroupOpenCount(group.id)}</span>
+          <i class="group-mark"></i><span>${esc(group.title)}</span><span class="count">${shellGroupOpenCount(group.id)}</span>
         </button>
       </div>`;
   }).join("");
@@ -257,7 +260,7 @@ function renderShellGroupNavigation() {
   const ungrouped = `
     <div class="group-nav-row">
       <button class="nav-button ${ungroupedActive ? "active" : ""}" type="button" data-action="select-nav-group" data-group-id="${UNGROUPED_TASKS_GROUP_ID}" title="未分组" aria-label="未分组" aria-current="${ungroupedActive ? "page" : "false"}">
-        ${state.navCollapsed ? shellIcon("folder") : '<i class="group-mark"></i>'}<span>未分组</span><span class="count">${shellGroupOpenCount(UNGROUPED_TASKS_GROUP_ID)}</span>
+        <i class="group-mark"></i><span>未分组</span><span class="count">${shellGroupOpenCount(UNGROUPED_TASKS_GROUP_ID)}</span>
       </button>
     </div>`;
   const trashCount = Array.isArray(state.recentlyDeleted) ? state.recentlyDeleted.length : 0;
@@ -265,7 +268,7 @@ function renderShellGroupNavigation() {
   return `
     <div class="nav-groups" data-context="task-list">
       <div class="nav-section-heading">
-        <span>任务分组</span>
+        <span>分组</span>
         <button class="icon-button" type="button" data-action="add-group" aria-label="新建分组" title="新建分组">${shellIcon("plus")}</button>
       </div>
       ${rows}
@@ -275,16 +278,19 @@ function renderShellGroupNavigation() {
     </div>`;
 }
 
+function renderShellSidebarToggle(expanded) {
+  const label = expanded ? "收起侧栏" : "展开侧栏";
+  return `<button class="icon-button nav-toggle shell-pane-toggle" type="button" data-action="toggle-nav" aria-controls="primary-navigation" aria-expanded="${expanded}" aria-label="${label}" title="${label}"${expanded ? "" : " hidden"}>${shellIcon("panel")}</button>`;
+}
+
 function renderShellNavigation() {
   return `
     <aside class="navigation" id="primary-navigation" aria-label="主导航">
       <div class="brand">
-        <span class="brand-mark"><img src="./src/assets/loop-icon.png" alt="Loop" /></span>
-        <strong>Loop</strong>
-        <button class="icon-button nav-toggle shell-pane-toggle" type="button" data-action="toggle-nav" aria-controls="primary-navigation" aria-expanded="${!state.navCollapsed}" aria-label="${state.navCollapsed ? "展开侧栏" : "收起侧栏"}" title="${state.navCollapsed ? "展开侧栏" : "收起侧栏"}">${shellIcon("panel")}</button>
+        ${renderShellSidebarToggle(true)}
       </div>
-      ${shellNavButton("today", "今日", "home")}
-      ${shellNavButton("tasks", "任务仓库", "tasks")}
+      ${shellNavButton("today", "今日", "sun")}
+      ${shellNavButton("tasks", "任务", "tasks")}
       ${shellNavButton("calendar", "日历", "calendar")}
       ${shellNavButton("review", "回顾", "history")}
       ${renderShellGroupNavigation()}
@@ -298,24 +304,29 @@ function renderShellNavigation() {
 // Top bar
 // ------------------------------------------------------------
 
+function renderShellTaskListToggle(expanded) {
+  const label = expanded ? "收起任务列表" : "展开任务列表";
+  return `<button class="icon-button shell-pane-toggle shell-list-toggle" type="button" data-action="toggle-task-list" aria-controls="task-list-panel" aria-expanded="${expanded}" aria-label="${label}" title="${label}"${expanded ? "" : " hidden"}>${shellIcon("taskList")}</button>`;
+}
+
 function renderShellTopbar(task = shellActiveTask()) {
   const route = shellRoute();
-  const routeNames = { today: "今日", tasks: "任务仓库", calendar: "日历", review: "回顾", settings: "设置" };
+  const routeNames = { today: "今日", tasks: "任务", calendar: "日历", review: "回顾", settings: "设置", trash: "最近删除" };
   const grouped = route === "tasks" && state.activeGroupId !== ALL_TASKS_GROUP_ID;
   const crumb = grouped ? shellGroupTitle(state.activeGroupId) : routeNames[route];
   const workspaceTask = !shellIsWide() ? task : null;
   const groupTitle = workspaceTask ? shellGroupTitle(workspaceTask.groupId) : crumb;
   return `
     <header class="topbar">
-      <div class="shell-list-header" role="group" aria-label="任务列表显示">
-        ${!shellIsWide() ? `<button class="icon-button shell-pane-toggle" type="button" data-action="toggle-task-list" aria-controls="task-list-panel" aria-expanded="${!state.taskListCollapsed}" aria-label="${state.taskListCollapsed ? "显示任务列表" : "隐藏任务列表"}" title="${state.taskListCollapsed ? "显示任务列表" : "隐藏任务列表"}">${shellIcon("taskList")}</button>` : ""}
-      </div>
+      ${!shellIsWide() ? '<div class="shell-list-header" aria-hidden="true"></div>' : ""}
       <div class="breadcrumb">
+        ${renderShellSidebarToggle(false)}
+        ${!shellIsWide() ? renderShellTaskListToggle(false) : ""}
         ${route === "tasks" && state.globalListReturn ? `<button class="text-button" type="button" data-action="return-global-page">返回${state.globalListReturn.route === "calendar" ? "日历" : "回顾"}</button>${shellIcon("chevron")}` : ""}
         ${workspaceTask ? `<span class="shell-task-path" aria-label="任务分组：${escAttr(groupTitle)}" title="${escAttr(groupTitle)}"><span class="shell-group-context">${shellIcon("folder")}<span>${esc(groupTitle)}</span></span></span><span class="topbar-focus-title">${shellIcon("chevron")}${renderShellTaskTitle(workspaceTask, "topbar")}</span>` : `<b>${esc(crumb)}</b>`}
       </div>
       <div class="shell-actions">
-        <span class="preview-date">${esc(shellDateLabel())}，${SHELL_WEEKDAY_NAMES[loopNow().getDay()]}</span>
+        <span class="preview-date">${esc(shellDateLabel().replaceAll(" ", ""))} ${SHELL_WEEKDAY_NAMES[loopNow().getDay()]}</span>
         <button class="icon-button topbar-util-btn" type="button" data-action="toggle-today-widget-visibility" aria-label="今日浮窗" title="今日浮窗">${shellIcon("widget")}</button>
         <button class="icon-button topbar-util-btn" type="button" data-action="toggle-theme" aria-label="${state.theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}" title="${state.theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}">${shellIcon(state.theme === "dark" ? "sun" : "moon")}</button>
         ${workspaceTask ? renderShellTaskActions(workspaceTask) : ""}
@@ -327,6 +338,13 @@ function renderShellTopbar(task = shellActiveTask()) {
 // knowledge editor must retain its View, Undo journal, selection and draft.
 let shellTaskListViewport = null;
 
+function shellSetNavCollapsed(collapsed) {
+  if (collapsed === state.navCollapsed) return;
+  state.navCollapsed = collapsed;
+  try { localStorage.setItem(NAV_COLLAPSED_KEY, collapsed ? "1" : "0"); } catch {}
+  shellSyncPaneVisibility();
+}
+
 function shellSetTaskListCollapsed(collapsed) {
   const next = collapsed === true;
   if (next === state.taskListCollapsed) return;
@@ -334,23 +352,37 @@ function shellSetTaskListCollapsed(collapsed) {
   if (next && list) shellTaskListViewport = { view: taskRepositoryViewKey(), top: list.scrollTop, left: list.scrollLeft };
   state.taskListCollapsed = next;
   try { localStorage.setItem(TASK_LIST_COLLAPSED_KEY, next ? "1" : "0"); } catch {}
-  shellSyncTaskListVisibility();
+  shellSyncPaneVisibility();
 }
 
-function shellSyncTaskListVisibility() {
-  const collapsed = state.taskListCollapsed === true;
+function shellSyncPaneVisibility() {
+  const sidebarClosed = state.navCollapsed === true;
+  const listClosed = state.taskListCollapsed === true;
+  const sidebar = document.querySelector(".navigation");
   const pane = document.querySelector(".task-list-pane");
-  const toggle = document.querySelector('[data-action="toggle-task-list"]');
-  if (collapsed && pane?.contains(document.activeElement)) toggle?.focus({ preventScroll: true });
-  document.querySelector(".app")?.classList.toggle("list-collapsed", collapsed);
-  if (pane) pane.inert = collapsed;
-  if (toggle) {
-    const label = collapsed ? "显示任务列表" : "隐藏任务列表";
-    toggle.setAttribute("aria-expanded", String(!collapsed));
-    toggle.setAttribute("aria-label", label);
-    toggle.title = label;
-  }
-  if (!collapsed && shellTaskListViewport) {
+  const closeNav = document.querySelector(".brand .nav-toggle");
+  const restoreNavInList = pane?.querySelector(".nav-toggle");
+  const restoreNavInWork = document.querySelector(".breadcrumb .nav-toggle");
+  const collapseToggle = pane?.querySelector(".shell-list-toggle");
+  const restoreToggle = document.querySelector(".breadcrumb .shell-list-toggle");
+  const sidebarButtons = [closeNav, restoreNavInList, restoreNavInWork];
+  const listButtons = [collapseToggle, restoreToggle];
+  const sidebarButton = !sidebarClosed ? closeNav : (listClosed || !pane ? restoreNavInWork : restoreNavInList);
+  const listButton = listClosed ? restoreToggle : collapseToggle;
+  const active = document.activeElement;
+  let focus;
+  if (active && (sidebarButtons.includes(active) || (sidebarClosed && sidebar?.contains(active)))) focus = sidebarButton;
+  else if (active && (listButtons.includes(active) || (listClosed && pane?.contains(active)))) focus = listButton;
+
+  const app = document.querySelector(".app");
+  app?.classList.toggle("sidebar-hidden", sidebarClosed);
+  app?.classList.toggle("list-collapsed", listClosed);
+  if (sidebar) sidebar.inert = sidebarClosed;
+  if (pane) pane.inert = listClosed;
+  for (const button of sidebarButtons) if (button) button.hidden = button !== sidebarButton;
+  for (const button of listButtons) if (button) button.hidden = button !== listButton;
+  if (focus && active !== focus) focus.focus({ preventScroll: true });
+  if (!listClosed && shellTaskListViewport) {
     const list = document.querySelector("#task-results");
     if (list && shellTaskListViewport.view === taskRepositoryViewKey()) {
       list.scrollTop = shellTaskListViewport.top;
@@ -365,11 +397,12 @@ function shellSyncTaskListVisibility() {
 // ------------------------------------------------------------
 
 function shellListTitle() {
+  if (state.quickInboxOpen) return "速记";
   if (shellRoute() === "today") {
-    return state.captureSourceFilter === "quick" ? "今日速记" : "今日任务";
+    return state.captureSourceFilter === "quick" ? "今日速记" : "今日";
   }
   if (state.activeGroupId !== ALL_TASKS_GROUP_ID) return shellGroupTitle(state.activeGroupId);
-  return "任务仓库";
+  return "任务";
 }
 
 /** Phase18: today's completions stay reachable from the list footer. */
@@ -473,6 +506,7 @@ function shellActiveFilterLabels() {
   if (state.priorityFilter !== "all") labels.push(`${priorityFilterLabels[state.priorityFilter]}优先`);
   if (state.captureSourceFilter !== "all") labels.push(captureSourceFilterLabels[state.captureSourceFilter]);
   if (["blocked", "later"].includes(state.taskFilter)) labels.push(taskFilterLabels[state.taskFilter]);
+  if (state.taskListTag) labels.push(SHELL_TASK_TAG_LABELS[state.taskListTag]);
   if (state.taskDeadlineFilter !== "all") labels.push(taskDeadlineFilterLabels[state.taskDeadlineFilter]);
   return labels;
 }
@@ -482,22 +516,30 @@ function renderShellTaskRows(list) {
   if (!list.length) {
     const filtered = shellActiveFilterLabels().length > 0 || Boolean(state.taskDateFilter);
     const today = shellRoute() === "today";
-    const noun = state.captureSourceFilter === "quick" ? "速记" : "任务";
+    const noun = state.captureSourceFilter === "quick" || state.quickInboxOpen ? "速记" : "任务";
     const message = filtered ? `没有匹配的${noun}` : today
       ? (state.todayFilter === "done" ? "今天暂无完成任务" : "暂无待办")
-      : state.taskFilter === "done" ? `暂无已完成${noun}` : `暂无${noun}`;
+      : state.taskFilter === "done" ? `暂无已完成${noun}` : `这里还没有${noun}`;
     const recovery = typeof recovery26Open === "function" && state.recentlyDeleted?.length && (!today || filtered)
       ? '<button class="text-button" type="button" data-recovery26="open">最近删除</button>'
       : "";
-    return `<div class="repository-empty"><p role="status">${message}</p>${filtered ? '<button class="text-button" type="button" data-action="clear-list-filters">清除筛选</button>' : ""}${recovery}</div>`;
+    return `<div class="repository-empty"><p role="status">${message}</p>${filtered ? '<button class="text-button" type="button" data-action="clear-list-filters">清除筛选</button>' : `<button class="button" type="button" data-action="add-task">${shellIcon("plus")}新建${noun}</button>`}${recovery}</div>`;
   }
   return `<ol class="task-rows" aria-label="任务列表">${list.map((task, index) => renderShellTaskRow(task, index + 1)).join("")}</ol>`;
 }
 
 function renderShellListFilter() {
-  if (shellRoute() === "today") return "";
+  const today = shellRoute() === "today";
+  const current = today ? state.todayFilter : state.taskFilter;
   const options = [["active", "进行中"], ["all", "全部"], ["done", "已完成"]];
-  return `<div class="list-filter">${options.map(([value, text]) => `<button class="filter-tab ${state.taskFilter === value ? "active" : ""}" type="button" data-setting-button="task-filter" data-value="${value}" aria-pressed="${state.taskFilter === value}">${text}</button>`).join("")}</div>`;
+  const quickCount = state.tasks.filter(task => shellTaskIsNote(task) && task.status !== "done").length;
+  return `<div class="list-filter">${options.map(([value, text]) => `<button class="filter-tab ${current === value ? "active" : ""}" type="button" ${today ? 'data-action="set-today-filter"' : 'data-setting-button="task-filter"'} data-value="${value}" aria-pressed="${current === value}">${text}</button>`).join("")}
+    ${!today && quickCount ? shellQuickInboxButton(quickCount) : ""}
+  </div>`;
+}
+
+function shellQuickInboxButton(count) {
+  return `<button class="icon-button quick-inbox-button" type="button" data-action="toggle-quick-inbox" aria-label="速记 ${count}" title="速记" aria-pressed="${state.quickInboxOpen}">${shellIcon("bolt")}${count}</button>`;
 }
 
 function renderShellScopeChip() {
@@ -508,16 +550,17 @@ function renderShellScopeChip() {
 }
 
 function renderShellTaskList(list) {
-  const note = state.captureSourceFilter === "quick";
+  const note = state.captureSourceFilter === "quick" || state.quickInboxOpen;
   const filters = shellActiveFilterLabels();
   const searching = Boolean(state.searchOpen || state.query.trim());
   return `
     <aside id="task-list-panel" class="task-list-pane ${shellRoute() === "today" ? "today-clean " : ""}" aria-label="任务列表">
       <span class="list-resizer" data-action="resize-list-column" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整任务列表宽度" aria-valuemin="230" aria-valuemax="460" aria-valuenow="${normalizeSidebarWidth(state.sidebarWidth)}" title="拖动调整任务列表宽度"></span>
       <div class="list-heading ${searching ? "is-searching" : ""}">
+        ${renderShellSidebarToggle(false)}
+        ${renderShellTaskListToggle(true)}
         <div class="list-heading-label">
           <h2 title="${escAttr(shellListTitle())}"><span class="list-title">${esc(shellListTitle())}</span><span class="count" role="status" aria-live="polite">${list.length}</span></h2>
-          ${shellRoute() === 'tasks' && window.personalTaskTrack?.taskShare ? `<button class="icon-button list-more-button" type="button" data-action="open-task-list-menu" aria-label="任务列表更多操作" title="更多操作" aria-haspopup="menu" aria-expanded="${state.contextMenu?.kind === 'task-list-more'}">${shellIcon('listMore')}</button>` : ''}
         </div>
         <div class="list-search" role="search">
           ${shellIcon("search")}
@@ -528,7 +571,7 @@ function renderShellTaskList(list) {
           </span>
         </div>
         <div class="heading-list-actions">
-          <button class="icon-button list-search-trigger" type="button" data-action="open-list-search" aria-label="搜索任务" title="搜索任务（${desktopPlatform === "darwin" ? "⌘" : "Ctrl"} K）">${shellIcon("search")}</button>
+          <button class="icon-button list-search-trigger" type="button" data-action="open-list-search" aria-label="搜索任务" title="搜索任务">${shellIcon("search")}</button>
           <button class="icon-button scope-filter ${filters.length ? "has-filters" : ""}" type="button" data-action="open-combined-filter" aria-label="筛选记录" aria-haspopup="dialog" title="${filters.length ? escAttr(`筛选记录：${filters.join(" · ")}`) : "筛选记录"}">${shellIcon("filter")}</button>
           <button class="icon-button" type="button" data-action="add-task" aria-label="新建${note ? "速记" : "任务"}" title="新建${note ? "速记" : "任务"}（${desktopPlatform === "darwin" ? "⌘" : "Ctrl"} + N）">${shellIcon("plus")}</button>
         </div>
@@ -539,23 +582,14 @@ function renderShellTaskList(list) {
       <div id="task-results" class="tasks-scroll" data-context="task-list">${renderShellTaskRows(list)}</div>
       ${shellBulk.active
         ? `<footer class="list-foot bulk-dock" aria-label="批量操作">${shellBulkFooter()}</footer>`
-        : `<footer class="list-foot ${shellTodayCompletedFoot() ? "time18-footer" : ""}">${shellListFoot() ? `<span>${esc(shellListFoot())}</span>` : ""}${shellTodayCompletedFoot()}${shellBulkFooter()}</footer>`}
+        : `<footer class="list-foot ${shellTodayCompletedFoot() ? "time18-footer" : ""}">${shellListFoot() ? `<span>${esc(shellListFoot())}</span>` : ""}${shellTodayCompletedFoot()}${shellRoute() === "today" ? shellQuickInboxButton(state.tasks.filter(task => shellTaskIsNote(task) && task.status !== "done").length) : ""}${shellBulkFooter()}</footer>`}
     </aside>`;
 }
 
 /** Bind each retained search node once. IME drafts are applied on commit. */
 function shellBindRepository() {
   const heading = document.querySelector(".task-list-pane .list-heading");
-  const trigger = document.querySelector(".task-list-pane .list-search-trigger");
   const input = document.querySelector(".list-search #search");
-  if (trigger && trigger.dataset.searchTriggerBound !== "1") {
-    trigger.dataset.searchTriggerBound = "1";
-    trigger.addEventListener("click", () => {
-      state.searchOpen = true;
-      heading?.classList.add("is-searching");
-      input?.focus({ preventScroll: true });
-    });
-  }
   if (input && input.dataset.repositoryBound !== "1") {
     input.dataset.repositoryBound = "1";
     let composing = false;

@@ -443,10 +443,6 @@ body .inspector.inspector-record-only .record-editor { background:transparent; }
   .app { --shell-expanded-nav-width: 154px; --nav-width: var(--shell-expanded-nav-width) !important; --list-width: 239px !important; }
 }
 
-@media (min-width: 1600px) {
-  .app { --shell-expanded-nav-width: 200px; --nav-width: var(--shell-expanded-nav-width) !important; --list-width: 300px !important; }
-}
-
 /* phase23: a programmatic focus restore must not paint a ring (bridge is the override layer). */
 /* Keyboard focus stays visible; a programmatic restore of focus must not paint a ring. */
 body[data-notebook23-enabled] .note23-filename.note23-focus-quiet:focus,
@@ -551,20 +547,6 @@ body[data-window25-enabled] .topbar > .brand-update-slot > .brand-update {
 /* 同一搬移下，Demo 的非活动规则（.topbar>.icon-button 转次要色）本来会命中该按钮。 */
 body[data-window25-inactive] .topbar > .brand-update-slot > .brand-update {
   color: var(--secondary);
-}
-
-/* Phase25：收起后的导航栏在 Demo 里始终是 64px（refinement.css 的
-   .app.nav-collapsed{--nav-width:64px}）。Phase20 为了让正文三栏比例与 Demo
-   一致，把 --nav-width 用 !important 钉在响应式梯级上，于是 ≤1100px 与
-   ≥1600px 时连「收起」也被钉住（1024px 收起后仍是 154px，而 Demo 是 64px）。
-   一体化标题栏的品牌区宽度绑定 --nav-width，所以这里让收起状态回到 Demo 的
-   64px；展开状态的响应式梯级不受影响。 */
-@media (max-width: 1100px) {
-  .app.nav-collapsed { --nav-width: 64px !important; }
-}
-
-@media (min-width: 1600px) {
-  .app.nav-collapsed { --nav-width: 64px !important; }
 }
 
 /* Persistence receipts reuse the quiet footer; only confirmed writes are green. */

@@ -15,6 +15,8 @@ const settle = page => page.evaluate(() => new Promise(resolve => requestAnimati
   await page.emulateMedia({reducedMotion:'reduce'});
   const box = selector => page.locator(selector).boundingBox();
   const toggleInfo = () => page.locator('[data-action="toggle-task-info"]').click();
+  const toggleList = page.locator('[data-action="toggle-task-list"]:visible');
+  const toggleNav = page.locator('[data-action="toggle-nav"]:visible');
   try {
     await page.locator('.task-info-card').waitFor();
     for (const theme of ['light','dark']) {
@@ -23,10 +25,11 @@ const settle = page => page.evaluate(() => new Promise(resolve => requestAnimati
       // The production card may auto-collapse to fit the toolbar. Make the
       // expanded-card fixture an explicit user choice before measuring it.
       if(await page.locator('[data-action="toggle-task-info"]').getAttribute('aria-expanded')==='false')await toggleInfo();
-      const list=await box('.task-list-pane'), listHeader=await box('.shell-list-header'), listToggle=await box('[data-action="toggle-task-list"]');
+      const list=await box('.task-list-pane'), listHeader=await box('.shell-list-header'), listToggle=await toggleList.boundingBox();
       assert.equal(listHeader.x,list.x);assert.equal(listHeader.width,list.width);
-      assert.ok(listToggle.x>list.x+list.width-45,'list toggle sits at the top right of the list');
-      const brand=await box('.brand'), navToggle=await box('[data-action="toggle-nav"]');
+      const titleLabel=await box('.list-heading-label');
+      assert.ok(listToggle.x>=list.x && listToggle.x+listToggle.width<=titleLabel.x,'list toggle leads the list heading');
+      const brand=await box('.brand'), navToggle=await toggleNav.boundingBox();
       assert.ok(navToggle.x>=brand.x && navToggle.x+navToggle.width<=brand.x+brand.width,'sidebar toggle belongs to the brand');
       assert.equal(await page.locator('.topbar [data-action="toggle-settings"],.topbar [data-action="toggle-task-done"]').count(),0);
       assert.equal(await page.locator('.topbar [data-action="toggle-task-group-select"]').count(),0);
@@ -85,18 +88,19 @@ const settle = page => page.evaluate(() => new Promise(resolve => requestAnimati
       await update.click();assert.equal(await page.locator('#overlay [aria-label="软件更新"]').count(),1,'live refreshed update works repeatedly');
       await page.keyboard.press('Escape');
       await page.screenshot({path:path.join(evidence,`${theme}-expanded.png`)});
-      await page.locator('[data-action="toggle-task-list"]').click();
+      await toggleList.click();
       assert.equal(await page.locator('.task-list-pane').isVisible(),false);
-      await page.locator('[data-action="toggle-task-list"]').click();assert.equal(await page.locator('.task-list-pane').isVisible(),true);
-      await page.locator('[data-action="toggle-nav"]').click();await settle(page);
-      assert.equal(await page.locator('[data-action="toggle-nav"]').isVisible(),true);
+      assert.equal(await page.locator('.breadcrumb [data-action="toggle-task-list"]').isVisible(),true);
+      await toggleList.click();assert.equal(await page.locator('.task-list-pane').isVisible(),true);
+      await toggleNav.click();await settle(page);
+      assert.equal(await page.locator('.list-heading [data-action="toggle-nav"]').isVisible(),true);
       await page.screenshot({path:path.join(evidence,`${theme}-nav-collapsed.png`)});
-      await page.locator('[data-action="toggle-nav"]').click();
+      await toggleNav.click();
       await page.locator('[data-pane="notes"]').click();await page.locator('.knowledge-pane .cm-content').waitFor();
       if(await page.locator('[data-action="toggle-task-info"]').getAttribute('aria-expanded')==='true')await toggleInfo();
       const editor=page.locator('.knowledge-pane .cm-content');await editor.click();await page.keyboard.press('ControlOrMeta+End');await page.keyboard.insertText('新增笔记');
       await page.evaluate(()=>{window.__headerView=knowledgeCurrentEntry().view;window.__headerEditor=document.querySelector('.cm-content');});
-      await toggleInfo();await page.locator('[data-action="toggle-task-list"]').click();await page.locator('[data-action="toggle-task-list"]').click();await toggleInfo();
+      await toggleInfo();await toggleList.click();await toggleList.click();await toggleInfo();
       assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().view===window.__headerView&&document.querySelector('.cm-content')===window.__headerEditor),true,'collapsing metadata/list preserves editor identity');
       await editor.click();await page.keyboard.press('ControlOrMeta+z');
       assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().view.state.doc.toString().includes('新增笔记')),false,'undo survives panel toggles');

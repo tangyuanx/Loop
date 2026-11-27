@@ -25,8 +25,10 @@ const tasks = [
     const toolbar = document.querySelector('.knowledge-note-actions');
     return card?.getBoundingClientRect().bottom <= toolbar?.getBoundingClientRect().top - 7;
   });
-  const nav = action('toggle-nav');
-  const list = action('toggle-task-list');
+  const nav = page.locator('[data-action="toggle-nav"]:visible');
+  const list = page.locator('[data-action="toggle-task-list"]:visible');
+  const listPane = page.locator('.task-list-pane');
+  const workspace = page.locator('.workspace');
   const details = action('toggle-task-info');
   const brief = page.locator('[data-brief21-toggle]');
   const find = page.locator('[data-kn-action="find"]');
@@ -38,7 +40,19 @@ const tasks = [
   };
   const clickBox = box => page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   const expanded = async (control, value) => assert.equal(await control.getAttribute('aria-expanded'), String(value));
+  const listPosition = async isExpanded => {
+    await expanded(list, isExpanded);
+    assert.equal(await listPane.isVisible(), isExpanded);
+    assert.ok(await list.evaluate((button, expanded) => button.parentElement.matches(expanded ? '.list-heading' : '.breadcrumb'), isExpanded));
+    const [sidebar, toggle, panel] = await Promise.all([nav.boundingBox(), list.boundingBox(), (isExpanded ? listPane : workspace).boundingBox()]);
+    assert.ok(toggle.x >= panel.x && toggle.x >= sidebar.x + sidebar.width, 'the list button clears the sidebar button');
+    if (isExpanded) {
+      const title = await page.locator('.list-heading h2').boundingBox();
+      assert.ok(toggle.x + toggle.width <= title.x, 'the button leads the list title');
+    }
+  };
   try {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.waitForFunction(() => window.LoopContinuity28 && document.querySelector('.pane-tab[data-pane="flow"]'));
     await page.evaluate(() => LoopContinuity28.restorePreferences({ continuous: true, follow: false }));
     for (const { width, theme, fontScale } of [{ width: 1280, theme: 'light', fontScale: 'normal' }, { width: 1024, theme: 'dark', fontScale: 'largest' }]) {
@@ -49,20 +63,19 @@ const tasks = [
       await frame();
       const header = await Promise.all([nav.boundingBox(), list.boundingBox()]);
       assert.ok(header.every(Boolean));
-      const workspace = page.locator('.workspace');
       const widthBefore = (await workspace.boundingBox()).width;
+      await listPosition(true);
       await clickBox(header[1]);
-      await expanded(list, false);
-      assert.equal(await page.locator('.task-list-pane').isVisible(), false);
+      await listPosition(false);
       assert.ok((await workspace.boundingBox()).width > widthBefore);
-      await compare(header, nav, list);
+      assert.ok(await list.evaluate(el => el === document.activeElement));
       await clickBox(header[0]);
       await expanded(nav, false);
-      await compare(header, nav, list);
-      await clickBox(header[1]);
-      await expanded(list, true);
-      assert.equal(await page.locator('.task-list-pane').isVisible(), true);
-      await compare(header, nav, list);
+      assert.equal(await page.locator('.navigation').isVisible(), false);
+      await listPosition(false);
+      await list.press('Enter');
+      await listPosition(true);
+      assert.ok(await list.evaluate(el => el === document.activeElement));
       await nav.press('Enter');
       await expanded(nav, true);
       assert.ok(await nav.evaluate(el => el === document.activeElement));
@@ -106,24 +119,27 @@ const tasks = [
       await focus.click();
       await frame();
       assert.equal(await page.locator('.navigation').isVisible(), false);
+      assert.equal(await list.count(), 0);
       const full = await workspace.boundingBox();
       assert.equal(full.x, 0);
       assert.equal(full.width, await page.evaluate(() => innerWidth));
       await pane('flow').click();
-      assert.equal(await page.locator('.navigation').isVisible(), true);
-      await compare(header, nav, list);
+      assert.equal(await page.locator('.navigation').isVisible(), false);
+      await expanded(nav, false);
+      await listPosition(false);
       await pane('notes').click();
       await frame();
       assert.equal(await page.locator('.navigation').isVisible(), false);
       assert.ok(await page.evaluate(() => knowledgeCurrentEntry().view === window.switchAnchorEditor));
       await focus.click();
       await fit();
-      await compare(header, nav, list);
+      await listPosition(false);
       await clickBox(header[0]);
-      await clickBox(header[1]);
+      await list.click();
+      await listPosition(true);
       await pane('flow').click();
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-      console.log(`PASS ${width}px ${theme} ${fontScale}: same-position pointer/keyboard toggles, notes and details hit targets, focus round trip`);
+      console.log(`PASS ${width}px ${theme} ${fontScale}: pane toggle placement and keyboard focus, notes and details hit targets, focus round trip`);
     }
     assert.deepEqual(errors, []);
   } finally {

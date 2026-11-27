@@ -851,8 +851,46 @@ body :is(.work15-body, .review-content, .workspace:has(> .calendar-layout)) {
  * Redesign v2 · Calendar Task Chips & Review KPI / Heatmap
  * ============================================================ */
 body .calendar-layout.calendar-v2 {
-  padding-top: 14px;
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  margin: 0;
+  grid-template-columns: minmax(0, 1fr) clamp(235px, 25%, 320px);
+  gap: 0;
+  align-items: stretch;
 }
+body .calendar-header { display: flex; flex: none; align-items: center; gap: 4px; padding: 12px 24px 10px 36px; margin: 0; }
+body .calendar-header h2 { margin: 0 6px 0 0; }
+body .calendar-header .calendar-view-picker { margin-left: auto; }
+body .calendar-v2 .calendar-main { display: flex; min-height: 0; flex-direction: column; padding: 0 24px 20px 36px; }
+body .calendar-v2 .calendar-weekdays { padding: 0; border: 1px solid var(--line); border-bottom: 0; font-size: 11.5px; }
+body .calendar-v2 .calendar-weekdays span { padding: 6px 8px; border-right: 1px solid var(--line); }
+body .calendar-v2 .calendar-weekdays span:last-child { border-right: 0; }
+body .calendar-v2 .calendar-grid { flex: 1; min-height: 0; gap: 1px; border-radius: 0; grid-template-rows: repeat(var(--calendar-weeks, 6), minmax(0, 1fr)); }
+body .calendar-v2 .calendar-day { display: flex; flex-direction: column; justify-content: start; padding: 4px 5px; gap: 2px; min-height: 0; overflow: hidden; border: 0; border-radius: 0; }
+body .calendar-v2 .calendar-day.outside { background: var(--canvas); }
+body .calendar-v2 .calendar-day.weekend { background: color-mix(in srgb, var(--hover) 60%, var(--canvas)); }
+body .calendar-v2 .calendar-day.selected { background: color-mix(in srgb, var(--selected) 92%, var(--canvas)); box-shadow: none; }
+body .calendar-v2 .calendar-day .day-number { min-width: 20px; height: 20px; font: 11.5px var(--font-mono); }
+body .calendar-v2 .agenda { min-height: 0; display: flex; flex-direction: column; padding: 0; background: var(--surface-task-list); }
+body .calendar-v2 .agenda-head { padding: 18px 20px 10px; }
+body .calendar-v2 .agenda-head h2 { margin: 0; font-size: 14px; }
+body .calendar-v2 .agenda-head p { font: 11px var(--font-mono); }
+body .agenda-scroll { min-height: 0; overflow: auto; }
+body .agenda-scroll h3 { padding: 10px 20px 4px; margin: 0; color: var(--workspace-muted); font-size: 11.5px; }
+body .agenda-scroll .agenda-item { display: flex; gap: 10px; align-items: baseline; text-align: left; width: 100%; padding: 7px 20px; border: 0; font-size: 13px; }
+body .agenda-scroll .agenda-item:hover { background: var(--hover); }
+body .agenda-item time { flex: 0 0 40px; color: var(--workspace-muted); font: 11px var(--font-mono); }
+body .agenda-item small { display: block; color: var(--workspace-muted); font-size: 11.5px; }
+body .agenda-scroll .agenda-empty { margin: 0; padding: 6px 20px; }
+body .agenda-timeline { position: relative; margin: 14px 20px 20px 64px; border-left: 1px solid var(--line); }
+body .agenda-hour { height: 38px; position: relative; border-top: 1px dashed var(--line); }
+body .agenda-hour span { position: absolute; left: -44px; top: -7px; width: 36px; text-align: right; font: 10px var(--font-mono); color: var(--workspace-muted); }
+body .agenda-block { position: absolute; inset-inline: 8px 0; border-radius: 6px; background: var(--accent-position-soft); box-shadow: inset 2px 0 var(--accent-position); padding: 4px 8px; overflow: hidden; font-size: 12px; }
+body .agenda-block small { display: block; color: var(--workspace-muted); font: 10.5px var(--font-mono); }
+body .agenda-now { position: absolute; inset-inline: -4px 0; border-top: 1px solid var(--status-danger); }
+body .agenda-now::before { content: ""; position: absolute; top: -4px; width: 7px; height: 7px; border-radius: 50%; background: var(--status-danger); }
 body .calendar-day .day-count.sr-only {
   position: absolute;
   width: 1px;
@@ -870,19 +908,26 @@ body .cal-day-events {
   margin-top: 4px;
 }
 body .cal-ev {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   width: 100%;
   padding: 1px 4px 1px 6px;
-  border-left: 2px solid var(--workspace-secondary);
+  border: 0;
   border-radius: 2px;
-  font-size: 10.5px;
-  line-height: 15px;
+  font-size: 11.5px;
+  line-height: 16px;
   color: var(--workspace-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
 }
+body .cal-ev::before { content: ""; flex: 0 0 3px; height: 10px; border-radius: 2px; background: var(--workspace-secondary); }
+body .cal-ev > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+body .cal-ev > svg { flex: none; width: 11px; height: 11px; color: var(--workspace-muted); }
+body .cal-ev.is-overdue::before { background: var(--status-danger); }
+body .cal-ev.is-done::before { background: var(--status-done); }
 body .cal-ev.is-overdue {
   border-left-color: var(--status-danger);
   color: var(--status-danger);
@@ -988,3 +1033,18 @@ body .heat-cell {
 body .heat-cell.l1 { background: color-mix(in srgb, var(--workspace-text) 18%, var(--workspace-canvas)); }
 body .heat-cell.l2 { background: color-mix(in srgb, var(--workspace-text) 38%, var(--workspace-canvas)); }
 body .heat-cell.l3 { background: color-mix(in srgb, var(--workspace-text) 62%, var(--workspace-canvas)); }
+body .review-loop { width: 100%; max-width: 980px; padding-top: 0; }
+body .review-loop .review-v2-overview { padding-inline: 0; }
+body .review-loop .review-kpi { border-left: 0; }
+body .review-loop h2 { display: flex; align-items: baseline; gap: 8px; margin: 20px 0 8px; font-size: 14px; }
+body .review-loop h2 small, body .review-heat-legend { color: var(--workspace-muted); font-size: 11.5px; font-weight: 400; }
+body .review-heat-legend { margin-top: 8px; }
+body .review-loop :is(.review-closed, .review-pending) { width: 100%; text-align: left; align-items: baseline; padding: 9px 10px; border-radius: 7px; }
+body .review-loop :is(.review-closed, .review-pending):hover { background: var(--hover); }
+body .review-closed { display: grid; grid-template-columns: 60px minmax(0, 1fr) auto; gap: 4px 12px; border-bottom: 1px solid var(--line); }
+body .review-closed > span { font-size: 13.5px; font-weight: 560; }
+body .review-closed > p { grid-column: 2 / -1; margin: 0; color: var(--secondary); font: 14px/22px var(--font-serif); white-space: pre-wrap; }
+body .review-closed > p > small { color: var(--status-done); font: 11.5px var(--sans); margin-right: 6px; }
+body .review-closed :is(time, small), body .review-pending small { color: var(--workspace-muted); font: 11px var(--font-mono); }
+body .review-pending { display: flex; gap: 10px; }
+body .review-pending small { margin-left: auto; }

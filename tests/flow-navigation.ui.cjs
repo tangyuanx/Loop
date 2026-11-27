@@ -42,7 +42,7 @@ const long = Array.from({length:12},(_,i)=>`第${i+1}行：完整保留中英文
     assert.equal(await nav.isVisible(),false,'the path is hidden at the very top');
     assert.equal(await progress.isVisible(),true,'the completed count is shown on the flow tab');
     const toolsSlot=await tools.boundingBox();
-    assert.deepEqual(await tools.locator('button').evaluateAll(buttons=>buttons.map(button=>button.dataset.action)),['open-flow-locator','open-flow-options']);
+    assert.deepEqual(await tools.locator('button').evaluateAll(buttons=>buttons.map(button=>button.dataset.action)),['open-flow-locator','open-flow-options','set-all-nodes-collapsed','set-all-nodes-collapsed','add-root-node']);
     assert.equal(await p.locator('.flow-line-number').count(),0);
     const scrollTopEdge=(await scroll.boundingBox()).y;
     const toolbarBottom=await p.locator('.flow-toolbar').evaluate(el=>el.getBoundingClientRect().bottom);
@@ -149,7 +149,7 @@ const long = Array.from({length:12},(_,i)=>`第${i+1}行：完整保留中英文
     assert.equal(await p.evaluate(()=>findNode(shellActiveTask().nodes,'done-parent').status),'done');
 
     await (await openFlowOptions(p)).getByRole('button',{name:'隐藏已完成'}).click();
-    await (await openFlowOptions(p)).getByRole('button',{name:/^待确认/}).click();
+    await (await openFlowOptions(p)).getByRole('button',{name:/^仅看待确认/}).click();
     // Keep review content above and below the target so the path is visible and can reach the reading line.
     await p.evaluate(()=>{
       const nodes=shellActiveTask().nodes;
@@ -161,7 +161,7 @@ const long = Array.from({length:12},(_,i)=>`第${i+1}行：完整保留中英文
     await go('review-child');
     await nav.locator('[data-flow-nav-id="review-parent"]').click();
     await p.waitForFunction(()=>document.activeElement?.dataset.nodeId==='review-parent');
-    const reviewFilter=(await openFlowOptions(p)).getByRole('button',{name:/^待确认/});
+    const reviewFilter=(await openFlowOptions(p)).getByRole('button',{name:/^仅看待确认/});
     assert.equal(await reviewFilter.getAttribute('aria-pressed'),'true','showing a completed ancestor preserves an unrelated review filter');
     await reviewFilter.click();
     assert.equal(await p.getByRole('button',{name:'处理流选项',exact:true}).getAttribute('data-filter-active'),null);
@@ -175,7 +175,7 @@ const long = Array.from({length:12},(_,i)=>`第${i+1}行：完整保留中英文
     await p.keyboard.press('Escape');await p.waitForFunction(()=>!shellOverlayIsOpen());
     assert.equal(await optionsButton.evaluate(el=>el===document.activeElement),true);
     await p.locator('[data-action="switch-task-pane"][data-pane="history"]').click();
-    assert.match(await p.locator('.article-pane').innerText(),/已有任务记录/);
+    assert.match(await p.locator('.task-activity-pane').innerText(),/已有任务记录/);
     assert.equal(await p.evaluate(()=>shellFlowNavigationRuntime),null);
     await p.locator('[data-action="switch-task-pane"][data-pane="flow"]').click();
 

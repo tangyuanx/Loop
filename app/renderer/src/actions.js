@@ -140,10 +140,10 @@ function shellIgnoreImplicitSubmit(form) {
 function shellCreateDraftFresh() {
   const route = shellRoute();
   return {
-    kind: "task",
+    kind: state.quickInboxOpen || state.captureSourceFilter === "quick" ? "quick" : "task",
     title: "",
     description: "",
-    groupId: state.activeGroupId === ALL_TASKS_GROUP_ID ? "" : state.activeGroupId === UNGROUPED_TASKS_GROUP_ID ? "" : state.activeGroupId,
+    groupId: defaultComposerGroupId(),
     priority: state.newTaskPriority,
     today: route === "today",
     deadline: "",
@@ -152,6 +152,11 @@ function shellCreateDraftFresh() {
     recurrence: { frequency: "none", time: "09:00", weekdays: [1, 2, 3, 4, 5], lastCompletedOccurrence: "" },
     sectionOpen: "",
   };
+}
+
+function defaultComposerGroupId() {
+  const preferred = state.uiPreferences.newTaskGroup || state.activeGroupId;
+  return state.taskGroups.some(group => group.id === preferred) ? preferred : "";
 }
 
 function shellCreateDate(offsetDays) {
@@ -260,15 +265,21 @@ function shellRenderCreateDialog(focusSelector) {
   ].filter(({ key }) => !quick || key === "group");
   overlay.innerHTML = `<div class="dialog-backdrop" data-return-focus="[data-action='add-task']">
     <form class="dialog entry16-dialog" id="create-form" role="dialog" aria-modal="true" aria-label="新建${quick ? "速记" : "任务"}" novalidate>
-      <div class="entry16-title-row">
+      <div class="entry16-mode-row">
+        <div class="segmented" role="group" aria-label="新建类型">
+          <button type="button" class="${quick ? "" : "active"}" aria-pressed="${!quick}" data-composer-type="task">新建任务</button>
+          <button type="button" class="${quick ? "active" : ""}" aria-pressed="${quick}" data-composer-type="quick">速记</button>
+        </div>
         <button type="button" class="icon-button" data-action="close-dialog" aria-label="关闭" title="关闭并保留本次草稿（Esc）">${shellIcon("close")}</button>
+      </div>
+      <div class="entry16-title-row">
         <div class="entry16-title-field">
-          <input id="create-title" name="title" maxlength="160" autocomplete="off" value="${escAttr(draft.title)}" placeholder="${quick ? "写下想法" : "写下任务"}" aria-label="${quick ? "速记标题" : "任务标题"}" aria-required="true" aria-describedby="entry16-error" aria-invalid="${error === "请输入标题后再保存"}" />
+          <input id="create-title" name="title" maxlength="160" autocomplete="off" value="${escAttr(draft.title)}" placeholder="${quick ? "写下想法" : "任务标题"}" aria-label="${quick ? "速记标题" : "任务标题"}" aria-required="true" aria-describedby="entry16-error" aria-invalid="${error === "请输入标题后再保存"}" />
           <p class="error" role="status" id="entry16-error">${error === "请输入标题后再保存" ? esc(error) : ""}</p>
         </div>
       </div>
       <div class="entry16-body">
-        <textarea id="create-description" name="description" rows="1" aria-label="${quick ? "速记内容（可选）" : "任务背景（可选）"}" placeholder="${quick ? "补充内容" : "补充背景"}">${esc(draft.description)}</textarea>
+        <textarea id="create-description" name="description" rows="3" aria-label="${quick ? "速记内容（可选）" : "任务背景（可选）"}" placeholder="${quick ? "补充内容" : "补充背景（可选）"}">${esc(draft.description)}</textarea>
         <div class="entry16-attributes" role="group" aria-label="${quick ? "速记属性" : "任务属性"}">
           ${attributes.map((attribute) => shellCreateAttribute(draft, attribute)).join("")}
         </div>
@@ -277,10 +288,9 @@ function shellRenderCreateDialog(focusSelector) {
         </div>
       </div>
       <footer>
-        <span class="entry16-status ${error === SHELL_CREATE_WRITE_ERROR ? "error" : ""}" role="status">${error === SHELL_CREATE_WRITE_ERROR ? esc(error) : state.createResumed && edited ? "已恢复草稿" : ""}</span>
+        <span class="entry16-status ${error === SHELL_CREATE_WRITE_ERROR ? "error" : ""}" role="status">${error === SHELL_CREATE_WRITE_ERROR ? esc(error) : state.createResumed && edited ? "已恢复草稿" : `关闭会保留草稿 · ${desktopPlatform === "darwin" ? "⌘↵" : "Ctrl+Enter"} 保存`}</span>
         <div class="entry16-tools">
-          <button type="button" class="entry16-switch" data-composer-type="${quick ? "task" : "quick"}">${quick ? "改为任务" : "改为速记"}</button>
-          <button type="button" class="entry16-discard" data-entry16="cancel" ${edited ? "" : "hidden"}>放弃草稿</button>
+          <button type="button" class="entry16-discard" data-entry16="cancel">放弃</button>
         </div>
         <button type="submit" class="button entry16-submit"><span>${error === SHELL_CREATE_WRITE_ERROR ? "重试保存" : quick ? "保存速记" : "创建任务"}</span><span class="entry16-enter" aria-hidden="true">↵</span></button>
       </footer>
@@ -1065,11 +1075,14 @@ function shellNodeOperations(trigger, nodeId) {
     ["out", "提升为同级节点", !parent],
   ];
   shellMountSurface(
-    `<div class="surface-popover" role="menu" aria-label="节点操作">${shellSurfaceHeader("节点操作")}
+    `<div class="surface-popover flow-view-options" role="menu" aria-label="节点操作" data-light-dismiss>
       <button class="button" type="button" role="menuitem" data-action="edit-node-title" data-node-id="${escAttr(nodeId)}">${shellIcon("edit")}修改标题</button>
       <button class="button" type="button" role="menuitem" data-action="add-sibling-node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(nodeId)}">${shellIcon("plus")}添加同级节点</button>
       <button class="button" type="button" role="menuitem" data-action="add-child-node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(nodeId)}">${shellIcon("indent")}添加子节点</button>
+      <button class="button" type="button" role="menuitem" data-action="open-node-status" data-node-id="${escAttr(nodeId)}" aria-haspopup="menu">${shellIcon("circle")}状态</button>
+      <button class="button" type="button" role="menuitem" data-action="edit-node-conclusion" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(nodeId)}">${shellIcon("note")}编辑结论</button>
       <button class="button" type="button" role="menuitem" data-action="share-node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(nodeId)}">${shellIcon("share")}分享此节点…</button>
+      <button class="button" type="button" role="menuitem" data-action="copy-node-markdown" data-node-id="${escAttr(nodeId)}">${shellIcon("note")}复制为 Markdown</button>
       <div class="menu-divider"></div>
       ${moves.map(([value, label, disabled]) => `<button class="button" type="button" role="menuitem" data-action="move-node" data-node-id="${escAttr(nodeId)}" data-direction="${value}" ${disabled ? "disabled" : ""}>${label}</button>`).join("")}
       <div class="menu-divider"></div>
@@ -1347,14 +1360,13 @@ function shellOpenFlowOptions(trigger, task) {
     return;
   }
   const nodes = shellNodeList(task);
-  const branches = nodes.filter(node => node.id !== state.focusNodeTitleId && node.children?.length);
-  const allCollapsed = branches.every(node => node.collapsed);
   const reviewCount = nodes.filter(node => node.status === "review").length;
   const check = active => active ? shellIcon("check", "flow-option-check") : "";
   const surface = shellMountSurface(`<section class="surface-popover flow-view-options" role="dialog" aria-label="处理流选项" data-light-dismiss>
-    <button type="button" data-action="toggle-review-nodes" aria-pressed="${shellReviewOnly}"><span>待确认 <small>${reviewCount}</small></span>${check(shellReviewOnly)}</button>
-    ${branches.length ? `<button type="button" data-action="toggle-all-nodes" data-task-id="${escAttr(task.id)}">${allCollapsed ? "展开全部" : "收起全部"}</button>` : ""}
-    <button type="button" data-action="toggle-completed-nodes" aria-pressed="${shellHideCompletedNodes}"><span>${shellHideCompletedNodes ? "显示已完成" : "隐藏已完成"}</span>${check(shellHideCompletedNodes)}</button>
+    <p class="compact-menu-label">处理流视图</p>
+    <button type="button" data-action="toggle-review-nodes" aria-pressed="${shellReviewOnly}"><span>仅看待确认 <small>${reviewCount}</small></span>${check(shellReviewOnly)}</button>
+    <button type="button" data-action="toggle-completed-nodes" aria-pressed="${shellHideCompletedNodes}"><span>隐藏已完成</span>${check(shellHideCompletedNodes)}</button>
+    <button type="button" data-action="reset-flow-filters">重置筛选</button>
     <button type="button" data-action="open-flow-status-history">节点状态记录</button>
   </section>`, trigger, 184);
   if (!surface) return;
@@ -1367,7 +1379,7 @@ function shellOption(value, label, selected) {
   return `<option value="${escAttr(value)}" ${String(selected) === String(value) ? "selected" : ""}>${esc(label)}</option>`;
 }
 
-function shellCombinedFilter(trigger) {
+function shellAdvancedListFilter(trigger) {
   const today = shellRoute() === "today";
   const kinds = [["all", "全部"], ["task", "任务"], ["quick", "速记"]];
   const statuses = today ? [["active", "未完成"], ["done", "已完成"]] : [["active", "未完成"], ["all", "全部"], ["done", "已完成"], ["blocked", "卡住"], ["later", "稍后"]];
@@ -1398,6 +1410,97 @@ function shellCombinedFilter(trigger) {
     save();
     render();
   });
+}
+
+function shellCombinedFilter(trigger) {
+  const item = (label, action, value, checked = false) => `<button type="button" data-action="${action}" data-value="${value}" aria-pressed="${checked}"><span>${label}</span>${checked ? shellIcon("check") : ""}</button>`;
+  const group = (title, items) => `<p class="compact-menu-label">${title}</p>${items.join("")}`;
+  shellMountSurface(`<section class="surface-popover flow-view-options repository-filter-menu" role="dialog" aria-label="筛选与更多" data-light-dismiss>
+    ${group("优先级", [["high", "高"], ["medium", "中"], ["low", "低"]].map(([value, label]) => item(label, "set-list-priority", value, state.priorityFilter === value)))}
+    ${group("标记", [["blocked", "卡住"], ["later", "稍后"]].map(([value, label]) => item(label, "set-list-tag", value, state.taskListTag === value)))}
+    ${group("排序与导入", [["deadline", "按截止时间"], ["priority", "按优先级"], ["manual", "手动顺序"]].map(([value, label]) => item(label, "set-list-sort", value, state.taskListSort === value)))}
+    ${window.personalTaskTrack?.taskShare ? '<button type="button" data-action="import-task-share">导入分享任务包…</button>' : ""}
+    <div class="menu-divider"></div><button type="button" data-action="open-advanced-list-filter">更多筛选…</button>
+  </section>`, trigger, 202);
+}
+
+function shellOpenCommandPalette() {
+  if (shellOverlayIsOpen() || dataTransferInProgress) return;
+  const modifier = desktopPlatform === "darwin" ? "⌘" : "Ctrl+";
+  const commands = [
+    ["新建任务", "add-task", "plus", `${modifier}N`],
+    ["打开今日浮窗", "toggle-today-widget-visibility", "widget"],
+    ["切换明暗主题", "toggle-theme", "moon", `⇧${modifier}L`],
+    ["前往日历", "toggle-calendar", "calendar"],
+    ["前往回顾", "toggle-review", "history"],
+    ["导出加密备份", "open-encrypted-backup", "download"],
+  ];
+  const origin = document.activeElement;
+  const overlay = shellOverlay();
+  if (!overlay) return;
+  overlay.innerHTML = `<div class="dialog-backdrop command-backdrop"><section class="dialog command-palette" role="dialog" aria-modal="true" aria-label="命令面板">
+    <label class="command-search">${shellIcon("search")}<input type="search" aria-label="搜索任务或输入命令" placeholder="搜索任务或输入命令" autocomplete="off"><kbd>Esc</kbd></label>
+    <div class="command-results"></div>
+  </section></div>`;
+  const dialog = overlay.querySelector(".command-palette");
+  const input = dialog.querySelector("input");
+  const results = dialog.querySelector(".command-results");
+  const tasks = state.tasks.slice().sort(compareTaskListRows);
+  let selected = 0;
+  function updateSelection() {
+    [...results.querySelectorAll("button")].forEach((button, index) => button.classList.toggle("selected", index === selected));
+    results.querySelector(".selected")?.scrollIntoView({ block: "nearest" });
+  }
+  function draw() {
+    const query = input.value.trim().toLowerCase();
+    const taskLink = /^loop:\/\/task\/([^/?#]+)$/i.exec(input.value.trim());
+    const matches = tasks.filter(task => taskLink ? encodeURIComponent(task.id) === taskLink[1]
+      : `${task.title} ${shellGroupTitle(task.groupId)}`.toLowerCase().includes(query)).slice(0, 5);
+    const actions = commands.filter(([label]) => label.toLowerCase().includes(query));
+    results.innerHTML = `${matches.length ? '<p class="compact-menu-label">任务</p>' : ""}
+      ${matches.map(task => `<button type="button" data-command-task="${escAttr(task.id)}">${shellIcon("tasks")}<span>${esc(task.title)}</span><small>${esc(shellGroupTitle(task.groupId))}</small></button>`).join("")}
+      ${actions.length ? '<p class="compact-menu-label">命令</p>' : ""}
+      ${actions.map(([label, name, icon, shortcut]) => `<button type="button" data-command-action="${name}">${shellIcon(icon)}<span>${label}</span>${shortcut ? `<small>${shortcut}</small>` : ""}</button>`).join("")}
+      ${matches.length || actions.length ? "" : '<p class="compact-menu-label" role="status">没有匹配的任务或命令</p>'}`;
+    selected = 0;
+    updateSelection();
+  }
+  input.addEventListener("input", draw);
+  dialog.addEventListener("keydown", event => {
+    if (event.isComposing || event.keyCode === 229) return;
+    const buttons = [...results.querySelectorAll("button")];
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      shellCloseOverlay({ restoreFocus: false });
+      origin?.focus({ preventScroll: true });
+    } else if (event.key === "Enter" && event.target === input && buttons.length) {
+      event.preventDefault();
+      buttons[selected]?.click();
+    } else if (["ArrowDown", "ArrowUp"].includes(event.key) && buttons.length) {
+      event.preventDefault();
+      selected = (selected + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+      if (event.target !== input) buttons[selected]?.focus({ preventScroll: true });
+      updateSelection();
+    }
+  });
+  results.addEventListener("click", event => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    shellCloseOverlay({ restoreFocus: false });
+    if (button.dataset.commandTask) {
+      openTaskFromGlobalList(button.dataset.commandTask);
+      shellSetTaskListCollapsed(false);
+      save();
+      render();
+    } else {
+      const command = button.dataset.commandAction;
+      if (command === "toggle-calendar" && state.calendarOpen || command === "toggle-review" && state.reviewOpen) return;
+      void action({ action: command });
+    }
+  });
+  draw();
+  input.focus();
 }
 
 function shellUpdatePanelBody() {
@@ -1480,13 +1583,12 @@ function shellRefreshUpdatePanel() {
 // combined timestamp back through the existing field.
 // ------------------------------------------------------------
 
-function shellChoiceMenu(trigger, title, options, selected, dataKey, iconName = "flag") {
+function shellChoiceMenu(trigger, title, options, selected) {
   const rect = trigger.getBoundingClientRect();
   const taskId = trigger.dataset.taskId || shellActiveTask()?.id || "";
   const overlay = shellOverlay();
   overlay.innerHTML = `<div class="priority-popover" role="menu" aria-label="${escAttr(title)}" data-return-focus="[data-action='${escAttr(trigger.dataset.action)}']" style="left:${Math.max(12, Math.min(rect.left, window.innerWidth - 200))}px;top:${rect.bottom + 7}px">
-    <p class="status-menu-title">${esc(title)}</p>
-    ${Object.entries(options).map(([value, label]) => `<button type="button" role="menuitemradio" aria-checked="${selected === value}" data-action="set-task-priority" data-task-id="${escAttr(taskId)}" data-priority="${escAttr(value)}">${shellIcon(iconName)}<span>${esc(label)}</span>${selected === value ? shellIcon("check") : "<span></span>"}</button>`).join("")}
+    ${Object.entries(options).map(([value, label]) => `<button type="button" role="menuitemradio" aria-checked="${selected === value}" data-action="set-task-priority" data-task-id="${escAttr(taskId)}" data-priority="${escAttr(value)}">${shellIcon("flag")}<span>${esc(label)}</span>${selected === value ? shellIcon("check") : "<span></span>"}</button>`).join("")}
   </div>`;
   shellClampFloatingSurface(overlay.querySelector(".priority-popover"));
   trigger.setAttribute("aria-expanded", "true");
@@ -1885,9 +1987,94 @@ function shellCloseTaskMenu({ restoreFocus = false } = {}) {
 // ------------------------------------------------------------
 
 async function shellAction(data, event) {
-  const trigger = event?.currentTarget || event?.target;
+  const trigger = event?.target?.closest?.("[data-action]") || event?.currentTarget || event?.target;
   const task = shellActiveTask();
   switch (data.action) {
+    case "open-list-search":
+      shellSetTaskListCollapsed(false);
+      state.searchOpen = true;
+      state.focusSearch = true;
+      state.searchCursor = state.query.length;
+      return true;
+    case "copy-task-link":
+    case "copy-task-markdown": {
+      if (!task) return true;
+      shellCloseTaskMenu();
+      try {
+        captureMountedMilkdownDrafts();
+        flushNodeNoteDrafts({ persist: true });
+        await navigator.clipboard.writeText(data.action === "copy-task-link" ? `loop://task/${encodeURIComponent(task.id)}` : taskMarkdown(task));
+        shellToast(data.action === "copy-task-link" ? "已复制任务链接 · 可在命令面板中打开" : "已复制 Markdown");
+      } catch { shellToast("无法写入剪贴板"); }
+      return true;
+    }
+    case "show-task-history":
+      shellCloseTaskMenu();
+      state.taskPane = "history";
+      exitNodeDetail();
+      return true;
+    case "toggle-task-focus":
+      shellCloseTaskMenu();
+      state.taskFocus = !state.taskFocus;
+      return true;
+    case "show-task-metadata":
+      if (!task) return true;
+      shellCloseTaskMenu();
+      shellMountSurface(`<section class="surface-popover" role="dialog" aria-label="任务信息" data-light-dismiss>${shellSurfaceHeader("任务信息")}
+        <dl class="task-metadata"><dt>创建时间</dt><dd>${esc(r26Stamp(task.createdAt))}</dd><dt>更新时间</dt><dd>${esc(r26Stamp(task.updatedAt))}</dd></dl>
+        <button class="button" type="button" data-manage24="properties" data-task-id="${escAttr(task.id)}">编辑属性…</button></section>`, document.querySelector('[data-action="open-task-menu"]'), 225);
+      return true;
+    case "open-task-tags": {
+      if (!task) return true;
+      const tags = normalizeTaskTags(task.tags);
+      shellMountSurface(`<section class="surface-popover flow-view-options" role="dialog" aria-label="标记" data-light-dismiss>
+        ${Object.entries(SHELL_TASK_TAG_LABELS).map(([tag, label]) => `<button type="button" data-action="set-task-mark" data-tag="${tag}" aria-pressed="${Boolean(tags[tag])}"><span>${label}</span>${tags[tag] ? shellIcon("check") : ""}</button>`).join("")}
+      </section>`, trigger, 165);
+      return true;
+    }
+    case "set-task-mark":
+      if (task && Object.hasOwn(SHELL_TASK_TAG_LABELS, data.tag)) toggleTaskTag(task.id, data.tag);
+      shellCloseOverlay();
+      save();
+      return true;
+    case "open-command-palette":
+      shellOpenCommandPalette();
+      return true;
+    case "set-today-filter":
+      state.todayFilter = ["active", "all", "done"].includes(data.value) ? data.value : "active";
+      state.quickInboxOpen = false;
+      return true;
+    case "toggle-quick-inbox":
+      state.quickInboxOpen = !state.quickInboxOpen;
+      if (state.quickInboxOpen && !shellTaskIsNote(task)) state.activeTaskId = "";
+      return true;
+    case "set-list-priority":
+      state.priorityFilter = state.priorityFilter === data.value ? "all" : normalizePriorityFilter(data.value);
+      shellCloseOverlay();
+      save();
+      return true;
+    case "set-list-tag":
+      state.taskListTag = state.taskListTag === data.value ? "" : data.value;
+      shellCloseOverlay();
+      return true;
+    case "set-list-sort":
+      if (["deadline", "priority", "manual"].includes(data.value)) state.taskListSort = data.value;
+      shellCloseOverlay();
+      return true;
+    case "open-advanced-list-filter":
+      shellAdvancedListFilter(document.querySelector('[data-action="open-combined-filter"]'));
+      return true;
+    case "reset-flow-filters":
+      shellReviewOnly = false;
+      shellHideCompletedNodes = false;
+      try { localStorage.removeItem(SHELL_HIDE_COMPLETED_KEY); } catch {}
+      shellCloseOverlay();
+      return true;
+    case "set-all-nodes-collapsed":
+      if (!task) return true;
+      setAllNodesCollapsed(task.id, data.value === "true");
+      save();
+      return true;
     case "select-flow-node": {
       shellFinishNodeConclusionEdit(true);
       state.selectedNodeId = data.nodeId;
@@ -1909,8 +2096,21 @@ async function shellAction(data, event) {
       state.selectedNodeId = "";
       return true;
     case "edit-node-conclusion":
+      if (trigger?.closest?.("#overlay")) shellCloseOverlay({ restoreFocus: false });
+      if (state.contextMenu?.kind === "node") closeContextMenu();
       shellStartNodeConclusionEdit(data.taskId, data.nodeId);
       return true;
+    case "copy-node-markdown": {
+      const node = task && findNode(task.nodes, data.nodeId);
+      if (!node) return true;
+      closeContextMenu();
+      shellCloseOverlay({ restoreFocus: false });
+      try {
+        await navigator.clipboard.writeText(nodeMarkdownLines(node, 0).join("\n"));
+        shellToast("已复制 Markdown");
+      } catch { shellToast("无法写入剪贴板"); }
+      return true;
+    }
     case "toggle-node-conclusion": {
       const key = shellConclusionKey(data.taskId, data.nodeId);
       if (shellExpandedConclusions.has(key)) shellExpandedConclusions.delete(key);
@@ -1928,8 +2128,7 @@ async function shellAction(data, event) {
       if (event?.target?.closest?.('.flow-view-options')) shellCloseOverlay();
       return false;
     case "toggle-nav":
-      state.navCollapsed = !state.navCollapsed;
-      try { localStorage.setItem(NAV_COLLAPSED_KEY, state.navCollapsed ? "1" : "0"); } catch {}
+      shellSetNavCollapsed(!state.navCollapsed);
       return true;
     case "toggle-task-list":
       shellSetTaskListCollapsed(!state.taskListCollapsed);
@@ -1990,6 +2189,7 @@ async function shellAction(data, event) {
       return true;
     case "clear-list-filters":
       state.query = "";
+      state.taskListTag = "";
       state.searchOpen = false;
       state.priorityFilter = "all";
       state.captureSourceFilter = "all";
@@ -2114,14 +2314,51 @@ async function shellAction(data, event) {
       return true;
     case "toggle-task-priority-menu": {
       if (!task) return true;
-      shellChoiceMenu(trigger, "任务优先级", SHELL_PRIORITY_LABELS, normalizePriority(task.priority), "priority");
+      shellChoiceMenu(trigger, "任务优先级", { high: "高", medium: "中", low: "低" }, normalizePriority(task.priority));
       return true;
     }
-    case "toggle-deadline-picker":
-      shellDeadlinePanel(trigger);
+    case "toggle-deadline-picker": {
+      if (!task) return true;
+      const monday = loopNow();
+      monday.setDate(monday.getDate() + (8 - (monday.getDay() || 7)));
+      const dates = [[loopTodayKey(), "今天 18:00"], [shellCreateDate(1), "明天 18:00"], [localDateKey(monday), "下周一"]];
+      shellMountSurface(`<section class="surface-popover flow-view-options" role="dialog" aria-label="截止" data-light-dismiss>
+        <p class="compact-menu-label">截止</p>
+        ${dates.map(([date, label]) => `<button type="button" data-action="set-deadline-shortcut" data-date="${date}">${label}</button>`).join("")}
+        <button type="button" data-action="open-deadline-details">选择日期与提醒…</button>
+        ${task.deadlineAt ? '<button type="button" data-action="set-deadline-shortcut" data-date="">清除截止</button>' : ""}
+      </section>`, trigger, 200);
       return true;
-    case "open-task-recurrence":
-      shellRecurrencePanel(trigger);
+    }
+    case "open-deadline-details":
+      shellDeadlinePanel(document.querySelector('.ws-props-row [data-action="toggle-deadline-picker"]'));
+      return true;
+    case "set-deadline-shortcut":
+      if (task) shellApplyDeadline(data.date, "18:00", task.deadlineReminderMinutes);
+      return true;
+    case "open-task-recurrence": {
+      if (!task) return true;
+      const current = normalizeTaskRecurrence(task.recurrence);
+      const weeklyFriday = current.frequency === "weekly" && current.weekdays.length === 1 && current.weekdays[0] === 5;
+      const options = [["none", "不循环", current.frequency === "none"], ["daily", "每天", current.frequency === "daily"], ["weekly", "每周五", weeklyFriday]];
+      shellMountSurface(`<section class="surface-popover flow-view-options" role="dialog" aria-label="循环" data-light-dismiss>
+        ${options.map(([value, label, checked]) => `<button type="button" data-action="set-recurrence-shortcut" data-value="${value}" aria-pressed="${checked}"><span>${label}</span>${checked ? shellIcon("check") : ""}</button>`).join("")}
+        <button type="button" data-action="open-recurrence-details">自定义…</button>
+      </section>`, trigger, 180);
+      return true;
+    }
+    case "open-recurrence-details":
+      shellRecurrencePanel(document.querySelector('.ws-props-row [data-action="open-task-recurrence"]'));
+      return true;
+    case "set-recurrence-shortcut":
+      if (task) {
+        const previous = normalizeTaskRecurrence(task.recurrence);
+        task.recurrence = normalizeTaskRecurrence({ ...previous, frequency: data.value, weekdays: data.value === "weekly" ? [5] : previous.weekdays });
+        task.updatedAt = now();
+        syncRecurringTasks(loopNow());
+        shellCloseOverlay();
+        save();
+      }
       return true;
     case "toggle-task-group-select":
       shellGroupPanel(trigger);
@@ -2183,6 +2420,12 @@ async function shellAction(data, event) {
     case "knowledge-file-info":
       shellKnowledgeFileInfo(knowledgeActiveDocument());
       return true;
+    case "reveal-knowledge-file": {
+      const filePath = knowledgeActiveDocument()?.knowledgeNote?.filePath;
+      if (filePath && !await desktopKnowledgeFile?.reveal?.(filePath)) showWorkspaceError("无法显示当前笔记文件");
+      shellCloseOverlay();
+      return true;
+    }
     case "export-knowledge-note":
       shellKnowledgeExportNote(knowledgeFindDocument(data.taskId) || knowledgeActiveDocument());
       return true;
@@ -2219,6 +2462,8 @@ async function shellAction(data, event) {
       state.calendarOpen = false;
       state.reviewOpen = false;
       state.settingsOpen = false;
+      state.trashOpen = false;
+      state.quickInboxOpen = false;
       if (state.taskFilter === "today") state.taskFilter = "all";
       selectGroup(data.groupId);
       save();
@@ -2230,7 +2475,7 @@ async function shellAction(data, event) {
       state.reviewOpen = false;
       state.feedbackOpen = false;
       state.globalListReturn = null;
-      activeSettingsPage = "knowledge";
+      activeSettingsPage = "appearance";
       settingsMotion = "page";
       shellCloseOverlay({ restoreFocus: false });
       return true;
@@ -2242,6 +2487,33 @@ async function shellAction(data, event) {
       return true;
     case "toggle-knowledge-auto-spacing":
       LoopUiPreferences.update({ knowledgeAutoSpacing: !state.uiPreferences.knowledgeAutoSpacing });
+      return true;
+    case "toggle-brief-serif":
+      LoopUiPreferences.update({ briefSerif: !state.uiPreferences.briefSerif });
+      return true;
+    case "toggle-login-startup":
+      if (loginStartupStatus?.supported) await refreshLoginStartup(!loginStartupStatus.enabled);
+      return true;
+    case "toggle-auto-snapshots": {
+      if (!desktopDataBackup?.setAutomatic || !dataBackupOverview?.automatic || trigger?.disabled) return true;
+      if (trigger) trigger.disabled = true;
+      try {
+        const result = await desktopDataBackup.setAutomatic(!dataBackupOverview.automatic.enabled);
+        dataBackupOverview.automatic.enabled = result.enabled;
+      } catch { showWorkspaceError("自动快照设置未保存"); }
+      return true;
+    }
+    case "reveal-workspace":
+      await desktopDataBackup?.reveal?.();
+      return true;
+    case "open-log-folder":
+      if (!await window.personalTaskTrack?.openLogs?.()) showWorkspaceError("无法打开日志文件夹");
+      return true;
+    case "open-encrypted-backup":
+      shellOpenEncryptedBackup();
+      return true;
+    case "open-backup-restore":
+      shellOpenBackupRestore();
       return true;
     case "open-settings-choice":
       shellSettingsChoiceMenu(trigger, data.key);
@@ -2607,7 +2879,7 @@ function shellCommitNodeDraft(taskId = shellActiveTask()?.id, nodeId = state.foc
   if (showConclusionHint) state.uiPreferences.nodeConclusionHintSeen = true;
   save();
   render();
-  if (showConclusionHint && workspaceFeedback?.source !== "error") showWorkspaceFeedback("右键节点可添加结论，双击结论可修改。", "", { source: "node-conclusion-hint" });
+  if (showConclusionHint && workspaceFeedback?.source !== "error") showWorkspaceFeedback("可在节点右侧添加结论，双击结论可修改。", "", { source: "node-conclusion-hint" });
 }
 
 function shellCancelNodeDraft({ renderView = true } = {}) {
@@ -2628,7 +2900,7 @@ function shellCancelNodeDraft({ renderView = true } = {}) {
       }
       const nodes = shellNodeList(task);
       const count = document.querySelector('[data-pane="flow"] .pane-count');
-      if (count) count.textContent = String(nodes.length);
+      if (count) count.textContent = nodes.length ? `${shellCountDoneNodes(task)}/${nodes.length}` : "0";
       const progress = document.querySelector(".flow-progress");
       if (progress) progress.textContent = `${shellCountDoneNodes(task)} / ${nodes.length} 已完成`;
       document.querySelector(".flow-outline")?.style.setProperty("--flow-depth", shellFlowDepth(task.nodes || []));

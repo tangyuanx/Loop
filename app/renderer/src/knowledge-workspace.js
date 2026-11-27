@@ -6,6 +6,7 @@ const knowledgeSaveQueue = new LoopKnowledgeCore.SerialQueue();
 const knowledgeAutosaveTimers = new Map();
 const knowledgeSaveResults = new Map();
 const knowledgePanels = new Set();
+const knowledgeOutlineClosed = new Set();
 const knowledgeBacklinkPanels = new Set();
 const knowledgeOutlineWidths = new Map();
 const knowledgeOutlineBindings = new Map();
@@ -1328,13 +1329,15 @@ function knowledgeRefreshPanels(task) {
   const pane=knowledgePane(task?.id);if(!pane)return;
   const body=pane.querySelector('.knowledge-body');if(!body)return;
   let aside=pane.querySelector('.kn-side-panel');
-  const backlinksOpen=knowledgeBacklinkPanels.has(task.id),open=knowledgePanels.has(task.id)||backlinksOpen;
+  const headings=LoopKnowledgeCore.headings(knowledgeText(task));
+  const backlinksOpen=knowledgeBacklinkPanels.has(task.id);
+  const defaultOutline=headings.length>0 && !pane.closest('.kn-split') && !knowledgeOutlineClosed.has(task.id);
+  const open=knowledgePanels.has(task.id)||backlinksOpen||defaultOutline;
   pane.querySelector('.knowledge-header [data-kn-action="panels"]')?.setAttribute('aria-expanded',String(open));
   if(!open || backlinksOpen) knowledgeOutlineBindings.get(body)?.();
   if(!open){aside?.remove();return;}
   if(!aside){aside=document.createElement('aside');aside.className='kn-side-panel';aside.id=`kn-side-panel-${encodeURIComponent(task.id)}`;body.append(aside);}
   aside.setAttribute('aria-label',backlinksOpen?'反向链接':'笔记大纲');
-  const headings=LoopKnowledgeCore.headings(knowledgeText(task));
   if(!backlinksOpen){
     knowledgeBindOutlineDivider(body, aside, task.id);
     const base=Math.min(...headings.map(h=>h.level),6);
@@ -1818,7 +1821,10 @@ document.addEventListener('click',event=>{
   if(action==='insert-format')shellApplyNoteFormat(button.dataset.knFormat);
   if(action==='panels'||action==='backlinks'){
     const closing=button.closest('.kn-side-panel'),current=action==='panels'?knowledgePanels:knowledgeBacklinkPanels,other=action==='panels'?knowledgeBacklinkPanels:knowledgePanels;
-    if(current.has(task.id))current.delete(task.id);else{current.add(task.id);other.delete(task.id);}
+    const outlineOpen = Boolean(knowledgePane(task.id)?.querySelector(".kn-side-panel")) && !knowledgeBacklinkPanels.has(task.id);
+    if (action === 'panels' && outlineOpen) { current.delete(task.id); knowledgeOutlineClosed.add(task.id); }
+    else if (current.has(task.id)) current.delete(task.id);
+    else { current.add(task.id); other.delete(task.id); if (action === 'panels') knowledgeOutlineClosed.delete(task.id); }
     shellCloseOverlay({restoreFocus:false});knowledgeRefreshPanels(task);if(closing)knowledgePane(task.id)?.querySelector('[data-wb-action="more"]')?.focus({preventScroll:true});
   }
   if(action==='rename')knowledgeRename(task,button);

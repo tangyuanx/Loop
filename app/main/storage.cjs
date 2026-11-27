@@ -251,19 +251,19 @@ function normalizeTaskData(data) {
     flowWidths: normalizeFlowWidths(safeData.flowWidths),
     // Mirrors app.js defaultSidebarWidth / sidebarWidthLimits: the preference now
     // drives the task-list column, whose compact baseline is 240px.
-    sidebarWidth: clampNumber(safeData.sidebarWidth, 240, 230, 460),
+    sidebarWidth: clampNumber(safeData.sidebarWidth, 318, 230, 460),
     detailHeight: clampNumber(safeData.detailHeight, 58, 50, 82),
     attachments: normalizeAttachments(safeData.attachments),
-    theme: safeData.theme === "dark" ? "dark" : "light",
+    theme: ["dark", "system"].includes(safeData.theme) ? safeData.theme : "light",
     font: ["songti", "heiti", "system", "mono"].includes(safeData.font) ? safeData.font : "system",
     zhFont: ZH_FONTS.has(safeData.zhFont) ? safeData.zhFont : legacyFonts.zhFont,
     enFont: EN_FONTS.has(safeData.enFont) ? safeData.enFont : legacyFonts.enFont,
     fontScale: FONT_SCALES.has(safeData.fontScale) ? safeData.fontScale : "larger",
-    taskFilter: TASK_FILTERS.has(safeData.taskFilter) ? safeData.taskFilter : "all",
+    taskFilter: TASK_FILTERS.has(safeData.taskFilter) ? safeData.taskFilter : "active",
     priorityFilter: PRIORITY_FILTERS.has(safeData.priorityFilter) ? safeData.priorityFilter : "all",
     captureSourceFilter: CAPTURE_SOURCE_FILTERS.has(safeData.captureSourceFilter) ? safeData.captureSourceFilter : "all",
     newTaskPriority: PRIORITIES.has(safeData.newTaskPriority) ? safeData.newTaskPriority : "medium",
-    knowledgeWidth: ["default", "wide", "full"].includes(safeData.knowledgeWidth) ? safeData.knowledgeWidth : "default",
+    knowledgeWidth: ["narrow", "default", "wide", "full"].includes(safeData.knowledgeWidth) ? safeData.knowledgeWidth : "default",
     markdownMode: ["edit", "source", "preview"].includes(safeData.markdownMode) ? safeData.markdownMode : "edit",
     uiPreferences: safeData.uiPreferences && typeof safeData.uiPreferences === "object" ? {
       continuous: safeData.uiPreferences.continuous !== false,
@@ -271,6 +271,8 @@ function normalizeTaskData(data) {
       workNavigationEnabled: safeData.uiPreferences.workNavigationEnabled === true,
       nodeConclusionHintSeen: safeData.uiPreferences.nodeConclusionHintSeen === true,
       knowledgeAutoSpacing: safeData.uiPreferences.knowledgeAutoSpacing === true,
+      briefSerif: safeData.uiPreferences.briefSerif !== false,
+      newTaskGroup: typeof safeData.uiPreferences.newTaskGroup === "string" ? safeData.uiPreferences.newTaskGroup.slice(0, 128) : "",
     } : null,
     workNavigation: workNavigationModel.normalizeWorkNavigation(safeData.workNavigation, {
       groupIds: taskGroups.map((group) => group.id),

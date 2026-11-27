@@ -255,7 +255,8 @@ function readTaskActivity(data, taskId, beforeId) {
 
 function restoreTaskActivityValue(data, { taskId, eventId, field, side }, now = new Date()) {
   const event = data?.taskActivity?.find(item => item.id === eventId && item.taskId === taskId);
-  const restorable = event?.targetKind === "task" ? field === "conclusion" : event?.targetKind === "node" && ["note", "conclusion"].includes(field);
+  const restorable = event?.targetKind === "task" ? ["description", "hypothesis", "conclusion"].includes(field)
+    : event?.targetKind === "node" && ["note", "conclusion"].includes(field);
   const change = event?.changes?.find(item => item.field === field);
   const value = (side === "before" || side === "after" && event?.kind !== "deleted") && change?.[side];
   const task = data?.tasks?.find(item => item.id === taskId);
@@ -280,7 +281,7 @@ function restoreTaskActivityValue(data, { taskId, eventId, field, side }, now = 
   });
   const updatedTask = event.targetKind === "node"
     ? { ...task, nodes: replace(task.nodes), updatedAt }
-    : { ...task, [field]: value, updatedAt };
+    : { ...task, [field]: value, updatedAt, ...(field === "hypothesis" ? { hypothesisUpdatedAt: updatedAt } : {}) };
   return { next: { ...data, tasks: data.tasks.map(item => item === task ? updatedTask : item) }, receipt };
 }
 

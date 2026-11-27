@@ -248,24 +248,25 @@
       return `
         <div class="group-nav-row">
           <button class="nav-button ${active ? "active" : ""}" type="button" data-action="select-nav-group" data-group-id="${manage24Attr(group.id)}" title="${manage24Attr(group.title)}" aria-label="分组：${manage24Attr(group.title)}" aria-haspopup="menu" aria-current="${active ? "page" : "false"}">
-            ${state.navCollapsed ? shellIcon("folder") : '<i class="group-mark"></i>'}<span>${manage24Esc(group.title)}</span><span class="count">${shellGroupOpenCount(group.id)}</span>
+            <i class="group-mark"></i><span>${manage24Esc(group.title)}</span><span class="count">${shellGroupOpenCount(group.id)}</span>
           </button>
+          <button class="icon-button group-menu-button" type="button" data-manage24="group-menu" data-group-id="${manage24Attr(group.id)}" aria-label="${manage24Attr(group.title)} 分组操作" aria-haspopup="menu">${shellIcon("more")}</button>
         </div>`;
     }).join("");
     const ungroupedActive = shellRoute() === "tasks" && state.activeGroupId === UNGROUPED_TASKS_GROUP_ID;
     const ungrouped = `
       <div class="group-nav-row">
         <button class="nav-button ${ungroupedActive ? "active" : ""}" type="button" data-action="select-nav-group" data-group-id="${manage24Attr(UNGROUPED_TASKS_GROUP_ID)}" title="未分组" aria-label="未分组" aria-current="${ungroupedActive ? "page" : "false"}">
-          ${state.navCollapsed ? shellIcon("folder") : '<i class="group-mark"></i>'}<span>未分组</span><span class="count">${shellGroupOpenCount(UNGROUPED_TASKS_GROUP_ID)}</span>
+          <i class="group-mark"></i><span>未分组</span><span class="count">${shellGroupOpenCount(UNGROUPED_TASKS_GROUP_ID)}</span>
         </button>
       </div>`;
     const trashCount = Array.isArray(state.recentlyDeleted) ? state.recentlyDeleted.length : 0;
-    const trashBtn = `<div class="nav-trash-slot"><button class="nav-button" type="button" data-recovery26="open" title="最近删除" aria-label="最近删除">${shellIcon("trash")}<span>最近删除</span><span class="count">${trashCount}</span></button></div>`;
+    const trashBtn = `<div class="nav-trash-slot"><button class="nav-button ${state.trashOpen ? "active" : ""}" type="button" data-recovery26="open" title="最近删除" aria-label="最近删除" aria-current="${state.trashOpen ? "page" : "false"}">${shellIcon("trash")}<span>最近删除</span><span class="count">${trashCount}</span></button></div>`;
     return `
       <div class="nav-groups" data-context="task-list">
         <div class="nav-section-heading">
-          <span>任务分组</span>
-          <span class="manage24-heading-actions"><button class="icon-button" type="button" data-manage24="organize" aria-label="整理分组" title="整理分组">${manage24Icon("organize")}</button><button class="icon-button" type="button" data-action="add-group" aria-label="新建分组" title="新建分组">${shellIcon("plus")}</button></span>
+          <span>分组</span>
+          <span class="manage24-heading-actions"><button class="icon-button" type="button" data-action="add-group" aria-label="新建分组" title="新建分组">${shellIcon("plus")}</button></span>
         </div>
         ${rows}
         ${editingId && !editingGroup ? draft : ""}
@@ -482,11 +483,8 @@
 
   function manage24StartGroupEdit(groupId) {
     if (!manage24Group(groupId)) return;
-    // A collapsed rail must not squeeze the existing inline name editor.
-    if (state.navCollapsed) {
-      state.navCollapsed = false;
-      try { localStorage.setItem(NAV_COLLAPSED_KEY, "0"); } catch {}
-    }
+    // Reveal the inline name editor before moving focus to it.
+    shellSetNavCollapsed(false);
     state.editingGroupId = groupId;
     state.focusGroupTitleId = "";
     manage24CloseSurface();
@@ -649,19 +647,15 @@
   // ============================================================
 
   renderShellTaskMenu = function manage24TaskMenu(task) {
-    const tags = normalizeTaskTags(task.tags);
     return `<div class="popover" data-task-menu role="menu" aria-label="任务操作">
-      <button type="button" role="menuitem" data-recovery26="open">${manage24Icon("folder")}最近删除</button>
+      <button type="button" role="menuitem" data-manage24="task-move-menu" data-task-id="${manage24Attr(task.id)}">${manage24Icon("folder")}移动到分组…</button>
+      <button type="button" role="menuitem" data-action="copy-task-link">${shellIcon("loop")}复制任务链接</button>
+      <button type="button" role="menuitem" data-action="copy-task-markdown">${shellIcon("note")}复制为 Markdown</button>
       <div class="menu-divider"></div>
-      <button type="button" role="menuitem" data-manage24="properties" data-task-id="${manage24Attr(task.id)}">${manage24Icon("edit")}编辑属性</button>
-      <button type="button" role="menuitem" data-action="toggle-task-group-select" data-task-id="${manage24Attr(task.id)}">${manage24Icon("folder")}移动到分组…</button>
+      <button type="button" role="menuitem" data-action="show-task-history">${shellIcon("history")}查看处理历史</button>
+      <button type="button" role="menuitem" data-action="toggle-task-focus">${shellIcon("expandRecord")}${state.taskFocus ? "退出专注模式" : "专注模式"}</button>
+      <button type="button" role="menuitem" data-action="show-task-metadata">${shellIcon("info")}任务信息</button>
       <div class="menu-divider"></div>
-      <button type="button" role="menuitem" data-action="toggle-task-tag" data-tag="today" data-task-id="${manage24Attr(task.id)}">${manage24Icon("home")}${tags.today ? "取消手动加入今日" : "加入今日"}</button>
-      <button type="button" role="menuitemcheckbox" aria-checked="${Boolean(tags.blocked)}" data-action="toggle-task-tag" data-tag="blocked" data-task-id="${manage24Attr(task.id)}">${manage24Icon("blocked")}${tags.blocked ? "取消卡住" : "标记卡住"}</button>
-      <button type="button" role="menuitemcheckbox" aria-checked="${Boolean(tags.later)}" data-action="toggle-task-tag" data-tag="later" data-task-id="${manage24Attr(task.id)}">${manage24Icon("later")}${tags.later ? "取消稍后" : "标记稍后"}</button>
-      <div class="menu-divider"></div>
-      <button type="button" role="menuitem" data-action="share-task" data-task-id="${manage24Attr(task.id)}">${manage24Icon("note")}分享／导出任务…</button>
-      <button type="button" role="menuitem" data-action="copy-task-summary" data-task-id="${manage24Attr(task.id)}">${manage24Icon("note")}复制任务摘要</button>
       <button class="danger-action" type="button" role="menuitem" data-action="delete-task" data-task-id="${manage24Attr(task.id)}">${manage24Icon("remove")}删除任务…</button>
     </div>`;
   };
@@ -866,14 +860,38 @@
     const targetGroupId = draft.groupId === UNGROUPED_TASKS_GROUP_ID ? "" : draft.groupId;
     const changed = (task.groupId || "") !== targetGroupId;
     if (changed) {
+      const before = { groupId: task.groupId, updatedAt: task.updatedAt };
+      const stamp = now();
       task.groupId = targetGroupId;
-      task.updatedAt = now();
-      if (!(await manage24Persist())) return;
+      task.updatedAt = stamp;
+      if (!(await manage24Persist())) {
+        if (task.groupId === targetGroupId && task.updatedAt === stamp) {
+          Object.assign(task, before);
+          save();
+        }
+        const error = manage24Node("#manage24-move-error");
+        if (error) error.textContent = "移动未保存，请重试";
+        return;
+      }
     }
     manage24CloseSurface();
     manage24MoveDraft = null;
     if (changed) manage24AfterMove(task);
     else manage24Receipt("任务已在此分组");
+  }
+
+  function manage24ShowMoveMenu(task) {
+    if (!task) return;
+    const choices = manage24GroupChoices();
+    const current = task.groupId || UNGROUPED_TASKS_GROUP_ID;
+    state.taskMenuOpen = false;
+    render();
+    const trigger = manage24Node('[data-action="open-task-menu"]');
+    manage24Mount(`<div class="surface-popover flow-view-options" role="menu" aria-label="移动到分组" data-light-dismiss>
+      <p class="compact-menu-label">移动到分组</p>
+      ${choices.map(choice => `<button type="button" role="menuitemradio" aria-checked="${choice.id === current}" data-manage24="move-to-group" data-task-id="${manage24Attr(task.id)}" data-group-id="${manage24Attr(choice.id)}"><span>${manage24Esc(choice.title)}</span>${choice.id === current ? shellIcon("check") : ""}</button>`).join("")}
+      <p class="manage24-error" id="manage24-move-error" role="status"></p>
+    </div>`, { trigger, width: 210, returnFocus: '[data-action="open-task-menu"]' });
   }
 
   /** Keep the source list and filter; offer the target and the return entry. */
@@ -1294,6 +1312,27 @@
     const action = button?.dataset.manage24;
     if (!action) return;
 
+    if (action === "group-menu") {
+      event.preventDefault();
+      manage24ShowGroupMenu(button.dataset.groupId, button);
+      return;
+    }
+    if (action === "task-move-menu") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      manage24ShowMoveMenu(manage24Task(button.dataset.taskId));
+      return;
+    }
+    if (action === "move-to-group") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (button.closest("div[role='menu']")?.getAttribute("aria-busy") === "true") return;
+      const menu = button.closest("div[role='menu']");
+      menu?.setAttribute("aria-busy", "true");
+      manage24MoveDraft = { id: button.dataset.taskId, groupId: button.dataset.groupId, query: "" };
+      void manage24SubmitMove().finally(() => menu?.removeAttribute("aria-busy"));
+      return;
+    }
     if (action === "properties") {
       event.preventDefault();
       event.stopImmediatePropagation();

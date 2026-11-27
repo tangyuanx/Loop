@@ -280,7 +280,7 @@ function portableBody(content, pack, from = '', inlined = false) {
   });
 }
 
-function markdownDocuments(pack) {
+function markdownDocuments(pack, { statusMarkers = true } = {}) {
   const { task } = pack;
   const statusLabel = (status) => ({ todo: '未完成', done: '已完成', review: '待确认' }[status] || pack.nodeStates.find(item => item.id === status)?.name || '未完成');
   const nodes = flatten(task.nodes);
@@ -289,13 +289,14 @@ function markdownDocuments(pack) {
   const flow = (items, depth = 0) => items.flatMap(node => {
     const indent = '    '.repeat(depth);
     const text = (label, value) => value ? ['', `${indent}    ${label}`, ...portableBody(value, pack, '', standalone).split('\n').map(line => `${indent}    ${line}`), ''] : [];
-    return [`${indent}- ${escapeMarkdown(node.title)}（${statusLabel(node.status)}）`,
+    return [`${indent}- ${escapeMarkdown(node.title)}${statusMarkers ? `（${statusLabel(node.status)}）` : ""}`,
       ...text('进展', node.hypothesis), ...text('结论', node.conclusion), ...text('记录', node.note), ...flow(node.children, depth + 1)];
   });
   if (standalone && pack.scope === 'notes' && pack.notes.length === 1) {
     return [{ name: 'README.md', bytes: Buffer.from(portableBody(pack.notes[0].content, pack, '', true), 'utf8') }];
   }
-  const lines = [`# ${escapeMarkdown(task.title)}`, '', `- 状态：${task.status === 'done' ? '已完成' : '处理中'}`];
+  const lines = [`# ${escapeMarkdown(task.title)}`, ''];
+  if (statusMarkers) lines.push(`- 状态：${task.status === 'done' ? '已完成' : '处理中'}`);
   if (task.priority) lines.push(`- 优先级：${({ high: '高', medium: '中', low: '低' })[task.priority]}`);
   if (task.deadlineAt) lines.push(`- 截止时间：${task.deadlineAt}`);
   for (const [field, title] of [['description', '背景'], ['hypothesis', '进展'], ['conclusion', '结论']]) {
@@ -317,8 +318,8 @@ function markdownDocuments(pack) {
     ...(!standalone ? pack.notes.map(note => ({ name: note.entry, bytes: Buffer.from(portableBody(note.content, pack, note.entry), 'utf8') })) : [])];
 }
 
-function staticDocument(pack) {
-  const documents = markdownDocuments(pack);
+function staticDocument(pack, options) {
+  const documents = markdownDocuments(pack, options);
   const additional = documents.slice(1).map((entry, index) => `\n## ${escapeMarkdown(pack.notes[index].title)}\n\n${entry.bytes.toString('utf8')}`);
   const source = [documents[0].bytes.toString('utf8'), ...additional].join('\n');
   return rewrite(source, scan(source), ref => /(?:^|\/)assets\/[a-f\d]{64}\./i.test(ref.destination) ? plainReference(ref, '附件') : undefined);

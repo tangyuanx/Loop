@@ -733,14 +733,6 @@ html:is([data-os="windows"], [data-density="standard"])[data-theme="dark"] {
   --selection-fill: color-mix(in srgb, var(--workspace-text) 9%, transparent);
 }
 
-:root:is([data-os="windows"], [data-density="standard"]) body .navigation .nav-button:is(.active, [data-value="today"].active),
-html:is([data-os="windows"], [data-density="standard"]) body .task-list-pane .task-item.selected,
-html:is([data-os="windows"], [data-density="standard"]) body .task-list-pane.today-clean .task-item.selected:hover {
-  position: relative;
-  background: var(--selection-fill);
-  box-shadow: none;
-}
-
 html:is([data-os="windows"], [data-density="standard"]) body .flow-row:hover:where(:not(.selected, .adding, [data-drop])) {
   background: var(--selection-hover);
 }
@@ -754,18 +746,13 @@ html:is([data-os="windows"], [data-density="standard"]) body .flow-row:has(> .fl
   box-shadow: inset calc(2 * var(--hairline)) 0 0 var(--focus-line);
 }
 
-html:is([data-os="windows"], [data-density="standard"]) body :is(.navigation .nav-button.active,
-  .task-list-pane .task-item.selected, .flow-row.selected:where(:not([data-drop])))::before {
+html:is([data-os="windows"], [data-density="standard"]) body .flow-row.selected:where(:not([data-drop]))::before {
   content: "";
   display: block;
   position: absolute;
   inset: 8px auto 8px 0;
   width: var(--selection-indicator);
   border-radius: var(--selection-indicator);
-  background: var(--green);
+  background: var(--accent-position);
   pointer-events: none;
-}
-
-html:is([data-os="windows"], [data-density="standard"]) body .task-list-pane .task-item.selected::before {
-  inset-block: 10px;
 }
