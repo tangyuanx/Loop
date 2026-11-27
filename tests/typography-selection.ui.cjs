@@ -4,6 +4,8 @@ const path = require('node:path');
 const { launchRepository, task } = require('./electron-ui-helpers.cjs');
 
 const output = process.env.LOOP_REVIEW_OUTPUT;
+const selectionLabels = ['.navigation .nav-button.active > span:not(.count)', '.task-item.selected .task-item-title',
+  '.flow-row.selected .node-title'];
 const node = { id: 'node', title: '处理节点', status: 'todo', children: [] };
 const data = {
   activeTaskId: 'first', zhFont: 'heiti', enFont: 'times', fontScale: 'current',
@@ -46,12 +48,12 @@ async function verifySelection(page, dpr, theme) {
   await page.waitForSelector('.flow-row.selected');
   await page.mouse.move(1, 1);
 
-  const styles = await page.evaluate(async () => {
+  for (const selector of selectionLabels) await page.locator(selector).waitFor();
+  const styles = await page.evaluate(async (selectionLabels) => {
     const selectors = ['.navigation .nav-button.active', '.task-item.selected', '.flow-row.selected'];
     const rows = selectors.map(selector => document.querySelector(selector));
     await Promise.all(rows.flatMap(row => row.getAnimations().map(animation => animation.finished)));
-    const labels = ['.navigation .nav-button.active > span', '.task-item.selected .task-item-title',
-      '.flow-row.selected .node-title', '.nav-section-heading'];
+    const labels = [...selectionLabels, '.nav-section-heading'];
     return {
       rows: rows.map(row => {
         const style = getComputedStyle(row);
@@ -65,7 +67,7 @@ async function verifySelection(page, dpr, theme) {
         return { selector, font: style.fontFamily, weight: style.fontWeight, size: parseFloat(style.fontSize) };
       }),
     };
-  });
+  }, selectionLabels);
   assert.equal(styles.dpr, dpr);
   assert.equal(styles.density, 'standard');
   assert.equal(new Set(styles.rows.map(row => row.fill)).size, 1);
@@ -104,10 +106,9 @@ async function verifySearchFocus(page) {
 }
 
 async function verifyWindowsFonts(page, cdp) {
-  const selectors = ['.navigation .nav-button.active > span', '.task-item.selected .task-item-title', '.flow-row.selected .node-title'];
   await cdp.send('DOM.enable');
   await cdp.send('CSS.enable');
-  for (const selector of selectors) {
+  for (const selector of selectionLabels) {
     let fonts;
     for (let attempt = 1; attempt <= 3; attempt++) {
       await page.locator(selector).waitFor();
