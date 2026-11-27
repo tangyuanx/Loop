@@ -14,7 +14,7 @@ body .navigation {
   border-right: 0;
   box-shadow: none;
   padding-inline: 10px;
-  padding-top: 4px;
+  padding-top: 6px;
 }
 
 /* Clean crisp three-column dividers (Redesign v2) */
@@ -245,7 +245,18 @@ body .breadcrumb .manage24-inline-error {
 }
 body .breadcrumb .manage24-inline-error:empty { display: none; }
 
-body .shell-actions { gap: 8px; flex-shrink: 0; padding: 0 20px 0 12px; }
+body .shell-actions { gap: 4px; flex-shrink: 0; padding: 0 16px 0 12px; }
+body .shell-actions .topbar-util-btn {
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 5px;
+  border-radius: 5px;
+  color: var(--workspace-secondary);
+  background: transparent;
+}
+body .shell-actions .topbar-util-btn:hover { background: var(--surface-navigation-hover); color: var(--workspace-text); }
+body .shell-actions .topbar-util-btn svg { width: 14px; height: 14px; }
 body .preview-date {
   font-family: var(--font-mono);
   font-size: var(--type-11);
@@ -262,9 +273,9 @@ body .app.list-collapsed:not(.app-wide) > .workspace { grid-column: 2; grid-row:
 
 /* Primary Navigation Rail — Calm, Breathing Proportions */
 body .navigation .nav-button {
-  min-height: 33px;
-  height: 33px;
-  margin-block: 2px;
+  min-height: 30px;
+  height: 30px;
+  margin-block: 1.5px;
   padding-inline: 10px;
   border: 0;
   border-radius: 7px;
@@ -324,10 +335,17 @@ body .navigation .nav-trash-slot .count {
   color: var(--workspace-faint, var(--workspace-muted));
   background: transparent;
 }
+body .navigation .nav-button .count.overdue-badge {
+  color: var(--status-danger);
+  font-weight: 500;
+}
 body .navigation .nav-button.active .count,
 body .navigation .nav-button[data-value="today"].active .count {
   color: var(--workspace-secondary);
   background: transparent;
+}
+body .navigation .nav-button.active .count.overdue-badge {
+  color: var(--status-danger);
 }
 
 /* Task Groups Section */
@@ -721,6 +739,14 @@ body .task-row-sub {
 }
 body .task-meta-due { font-family: var(--font-mono); font-size: 10.5px; }
 body .task-meta-due.overdue { color: var(--status-danger); }
+body .task-meta-recur {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  color: var(--workspace-faint, var(--workspace-muted));
+}
+body .task-meta-recur svg { width: 10px; height: 10px; flex-shrink: 0; }
 body .task-meta-tag {
   display: inline-flex;
   align-items: center;
@@ -741,8 +767,10 @@ body .task-item.done:not(.selected) .task-item-title {
   text-decoration-color: color-mix(in srgb, var(--workspace-muted) 45%, transparent);
 }
 
-/* Sequence number <-> hover completion check ring */
+/* Always show hollow completion ring on task rows (matching Prototype v2); keep sequence only on quick notes */
 body .task-sequence-action { width: 18px; flex-basis: 18px; }
+body .task-item:not(.is-note) .task-sequence { opacity: 0; pointer-events: none; }
+body .task-item:not(.is-note) .task-complete { opacity: 1; pointer-events: auto; }
 body .task-sequence {
   font-size: 10px;
   color: var(--workspace-muted);

@@ -22,7 +22,7 @@ body .task-work-main > .tab-content { flex: 1; min-height: 0; }
 /* Workspace Head: Authoritative Title + Flat Properties Row (Redesign v2) */
 body .task-info-card { display: none !important; }
 body .ws-task-head {
-  padding: 18px var(--task-work-inset, 34px) 0;
+  padding: 14px var(--task-work-inset, 34px) 0;
   flex-shrink: 0;
 }
 body .ws-title-row {
@@ -57,8 +57,8 @@ body .ws-title-row .task-title {
   margin: 0;
   flex: 1 1 auto;
   min-width: 0;
-  font-size: calc(20px * var(--font-scale, 1));
-  line-height: 1.4;
+  font-size: 20px;
+  line-height: 28px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -210,10 +210,10 @@ body[data-brief21-enabled] .task-work-main > .brief21-toggle {
   align-self: flex-start;
   width: auto;
   max-width: calc(100% - var(--task-work-inset) * 2 - 42px);
-  margin: 18px var(--task-work-inset) 6px;
-  padding: 2px 7px 2px 4px;
-  min-height: 26px;
-  height: 26px;
+  margin: 10px var(--task-work-inset) 2px;
+  padding: 1px 7px 1px 2px;
+  min-height: 22px;
+  height: 22px;
   gap: 6px;
   border: 0;
   border-radius: 5px;
@@ -221,6 +221,12 @@ body[data-brief21-enabled] .task-work-main > .brief21-toggle {
   color: var(--secondary);
   font-size: var(--type-12);
   transition: background-color 100ms ease, color 100ms ease;
+}
+body .brief21-meter {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--workspace-faint, var(--workspace-muted));
+  font-variant-numeric: tabular-nums;
 }
 body[data-brief21-enabled] .task-work-main > .brief21-toggle[aria-expanded="false"] {
   margin-bottom: 8px;
@@ -256,8 +262,8 @@ body .brief21-digest {
 
 /* Open 3-row brief resting directly on the pure workspace sheet */
 body[data-brief21-enabled] .task-work-main > .brief {
-  margin: 0 calc(var(--task-work-inset) + 42px) 12px var(--task-work-inset);
-  padding: 2px 0;
+  margin: 0 var(--task-work-inset) 8px;
+  padding: 1px 0;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -266,15 +272,15 @@ body[data-brief21-enabled] .task-work-main > .brief {
   overflow: auto;
   flex-shrink: 0;
 }
-body[data-brief21-enabled] .workspace > .brief { margin: 0 34px 12px; max-height: min(196px, 26dvh); }
-body[data-brief21-enabled] .workspace > .brief21-toggle { margin: 0 34px 6px; min-height: 24px; }
+body[data-brief21-enabled] .workspace > .brief { margin: 0 34px 8px; max-height: min(196px, 26dvh); }
+body[data-brief21-enabled] .workspace > .brief21-toggle { margin: 0 34px 2px; min-height: 22px; }
 
 body[data-brief21-enabled] .brief-row {
   position: relative;
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  gap: 12px;
-  padding: 3px 0 3px 18px;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 10px;
+  padding: 2px 0 2px 16px;
   align-items: start;
   border: 0;
 }
@@ -321,10 +327,10 @@ body[data-brief21-enabled] .brief-row:focus-within::after {
 }
 
 body[data-brief21-enabled] .brief-row label {
-  padding: 3px 0;
+  padding: 1px 0;
   border: 0;
   font-size: var(--type-12);
-  line-height: 1.65;
+  line-height: 1.55;
   color: var(--workspace-muted);
   user-select: none;
 }
@@ -332,11 +338,11 @@ body[data-brief21-enabled] .brief-row[data-brief-filled="1"] label {
   color: var(--secondary);
 }
 body .workspace .brief21-input {
-  min-height: 27px;
-  padding: 3px 0;
+  min-height: 22px;
+  padding: 1px 0;
   font-family: var(--font-serif);
-  font-size: calc(14.5px * var(--font-scale, 1));
-  line-height: 1.65;
+  font-size: 13.5px;
+  line-height: 1.55;
   color: var(--text);
   overflow-y: hidden;
 }
@@ -551,7 +557,7 @@ body .flow-view-options button:hover { background: var(--hover); }
 body .flow-view-options button:focus-visible { outline: none; box-shadow: inset 0 -1px var(--focus-line); }
 body .flow-view-options small { color: var(--secondary); font-family: var(--font-mono); font-size: var(--type-11); font-variant-numeric: tabular-nums; }
 body .flow-option-check { width: 13px; height: 13px; flex-shrink: 0; }
-body .flow-scroll { padding: 18px var(--task-work-inset, 34px) 32px; }
+body .flow-scroll { padding: 14px var(--task-work-inset, 34px) 32px 2px; }
 
 /* Empty Workspace & Empty Flow States */
 body .workspace > .workspace-empty { display: flex; flex: 1; min-height: 0; overflow: auto; padding: 28px; }
@@ -630,10 +636,10 @@ body .status-option .node-status-chip { display: inline-block; max-width: 100%; 
 /* Recursive Processing Flow Outline — Open Sheet with Breathing Rhythm (Zero Card Boxes) */
 body .flow-pane { container: processing-flow / inline-size; }
 body .flow-outline {
-  --flow-gutter: 44px;
-  --flow-indent: 20px;
-  --flow-deep-indent: 14px;
-  --flow-node-line: calc(var(--type-13) * 1.65);
+  --flow-gutter: 32px;
+  --flow-indent: 18px;
+  --flow-deep-indent: 12px;
+  --flow-node-line: calc(13.5px * 1.55);
   min-width: max(100%, calc(260px + var(--node-offset)));
 }
 body .flow-tree { --row: 31px; min-width: 0; display: block; }
@@ -674,28 +680,40 @@ body .flow-node-main {
   min-width: 0;
   display: flex;
   align-items: start;
-  gap: 6px;
+  gap: 4px;
   padding: 4px 8px 3px 0;
 }
 body .node-gutter {
-  width: var(--flow-gutter, 44px);
-  flex: 0 0 var(--flow-gutter, 44px);
+  width: var(--flow-gutter, 32px);
+  flex: 0 0 var(--flow-gutter, 32px);
   text-align: right;
-  padding-right: 10px;
+  padding-right: 3px;
   padding-top: 3px;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 9.5px;
+  letter-spacing: -0.02em;
   line-height: 18px;
-  color: var(--workspace-muted);
+  color: var(--workspace-faint, var(--workspace-muted));
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   user-select: none;
   margin-right: var(--node-offset);
 }
 body .node-gutter.is-compact {
-  letter-spacing: -0.03em;
-  color: var(--workspace-faint, var(--workspace-muted));
+  letter-spacing: -0.04em;
 }
+body .flow-outline.flow-flat .collapse.empty { display: none; }
+body .node-collapsed-count {
+  margin-left: auto;
+  flex-shrink: 0;
+  align-self: center;
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--workspace-faint, var(--workspace-muted));
+  font-variant-numeric: tabular-nums;
+}
+body .node-collapsed-count + .node-status-tag { margin-left: 4px; }
 body .flow-row.review .node-gutter { color: var(--status-review-ink); font-weight: 550; }
 body .flow-row.done .node-gutter { color: var(--workspace-faint, var(--workspace-muted)); opacity: 0.6; }
 body .flow-row.selected .node-gutter { color: var(--accent-position); }
@@ -722,8 +740,8 @@ body .node-status-tag.is-custom {
 
 /* Collapse chevron & Status glyph */
 body .flow-row .collapse {
-  flex: 0 0 14px;
-  width: 14px;
+  flex: 0 0 12px;
+  width: 12px;
   height: 23px;
   margin: 0;
   color: var(--workspace-muted);
@@ -786,8 +804,8 @@ body .flow-row .node-status.custom-status { color: var(--node-custom-color, var(
 body .flow-row .node-title {
   height: auto;
   min-height: 23px;
-  font-size: var(--type-13);
-  line-height: 1.62;
+  font-size: 13.5px;
+  line-height: 1.55;
   padding: 1px 0;
   color: var(--text);
   white-space: pre-wrap;
@@ -820,14 +838,17 @@ body .flow-row:has(> .flow-conclusion:not(.is-empty)) { padding-bottom: 6px; }
 body .flow-conclusion {
   position: relative;
   min-width: 0;
-  margin: 2px 16px 2px calc(78px + var(--node-offset));
-  padding: 4px 12px 4px 14px;
+  margin: 2px 16px 2px calc(60px + var(--node-offset));
+  padding: 4px 12px;
   border: 0;
   border-left: 2px solid var(--workspace-line-strong);
   color: var(--secondary);
   font-size: var(--type-12);
   line-height: 1.65;
   transition: opacity 120ms ease, border-color 120ms ease;
+}
+body .flow-outline.flow-flat .flow-conclusion {
+  margin-left: calc(44px + var(--node-offset));
 }
 body .flow-row.review .flow-conclusion {
   border-left-color: var(--status-review-border);
@@ -940,7 +961,7 @@ body .flow-children::before {
   position: absolute;
   z-index: 1;
   pointer-events: none;
-  left: calc(57px + var(--node-offset));
+  left: calc(42px + var(--node-offset));
   top: 2px;
   bottom: 8px;
   border-left: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
@@ -960,7 +981,7 @@ body .flow-branch > .flow-children { overflow: hidden; min-height: 0; }
 
 /* Quiet Outliner "+ 添加节点" Trigger */
 body .flow-pane > .flow-scroll .add-node {
-  margin: 14px 0 0 46px;
+  margin: 14px 0 0 26px;
   min-height: 28px;
   height: 28px;
   padding: 2px 8px;

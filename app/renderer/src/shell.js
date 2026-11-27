@@ -60,6 +60,9 @@ const SHELL_ICON_PATHS = {
   taskList: "M3 4h18v16H3zM9 4v16M15 4v16",
   listMore: "M5 12h.01M12 12h.01M19 12h.01",
   bolt: "M13 3.5L5 13.5h6l-1 7 8-10h-6z",
+  widget: "M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5zm4 4h6v4H7V9z",
+  moon: "M20 14.5A7.5 7.5 0 0 1 9.5 4a7.5 7.5 0 1 0 10.5 10.5z",
+  sun: "M12 3v2M12 19v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M3 12h2M19 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
 };
 
 const SHELL_NODE_STATUS_LABELS = { todo: "未完成", done: "已完成", review: "待确认" };
@@ -196,6 +199,17 @@ function refreshShellBrandUpdate() {
   slot.innerHTML = renderShellBrandUpdate();
 }
 
+function shellOverdueCount() {
+  const nowMs = loopNow().getTime();
+  return state.tasks
+    .filter((task) => task.status !== "done" && !shellTaskIsNote(task))
+    .filter((task) => {
+      const deadline = safeDate(task.deadlineAt);
+      return deadline && deadline.getTime() < nowMs;
+    })
+    .length;
+}
+
 function shellNavButton(route, text, image) {
   const current = shellRoute();
   const active = current === route;
@@ -209,11 +223,14 @@ function shellNavButton(route, text, image) {
         : route === "review"
           ? 'data-action="toggle-review"'
           : 'data-action="toggle-settings"';
+  const overdue = route === "calendar" ? shellOverdueCount() : 0;
   const count = route === "today"
     ? `<span class="count">${shellTodayCount()}</span>`
     : route === "tasks"
       ? `<span class="count">${shellGroupOpenCount(ALL_TASKS_GROUP_ID)}</span>`
-      : "";
+      : route === "calendar" && overdue > 0
+        ? `<span class="count overdue-badge">${overdue} 逾期</span>`
+        : "";
   return `<button class="nav-button ${active ? (scoped ? "parent-active" : "active") : ""}" type="button" ${attributes} title="${escAttr(text)}" aria-label="${escAttr(text)}" aria-current="${active && !scoped ? "page" : "false"}">${shellIcon(image)}<span>${esc(text)}</span>${count}</button>`;
 }
 
@@ -299,6 +316,8 @@ function renderShellTopbar(task = shellActiveTask()) {
       </div>
       <div class="shell-actions">
         <span class="preview-date">${esc(shellDateLabel())}，${SHELL_WEEKDAY_NAMES[loopNow().getDay()]}</span>
+        <button class="icon-button topbar-util-btn" type="button" data-action="toggle-today-widget-visibility" aria-label="今日浮窗" title="今日浮窗">${shellIcon("widget")}</button>
+        <button class="icon-button topbar-util-btn" type="button" data-action="toggle-theme" aria-label="${state.theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}" title="${state.theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}">${shellIcon(state.theme === "dark" ? "sun" : "moon")}</button>
         ${workspaceTask ? renderShellTaskActions(workspaceTask) : ""}
       </div>
     </header>`;
@@ -368,21 +387,52 @@ function shellListFoot() {
   return "";
 }
 
+function shellCompactDueLabel(task) {
+  const deadline = safeDate(task.deadlineAt);
+  if (!deadline) return null;
+  const now = loopNow();
+  const overdue = task.status !== "done" && deadline.getTime() < now.getTime();
+  const todayKey = loopTodayKey();
+  const tomorrowKey = localDateKey(new Date(now.getTime() + 86400000));
+  const key = localDateKey(deadline);
+  const time = typeof shellTimeLabel === "function" ? shellTimeLabel(deadline) : "";
+  const mmdd = `${deadline.getMonth() + 1}/${String(deadline.getDate()).padStart(2, "0")}`;
+  let text = key === todayKey
+    ? `今天 ${time}`
+    : key === tomorrowKey
+      ? `明天 ${time}`
+      : mmdd;
+  if (overdue && key !== todayKey) text = mmdd;
+  return { text, classes: overdue ? "overdue" : "" };
+}
+
+function shellCompactRecurLabel(recurrence) {
+  const value = normalizeTaskRecurrence(recurrence);
+  if (value.frequency === "none") return "";
+  if (value.frequency === "daily") return "每天";
+  const days = [1, 2, 3, 4, 5, 6, 0].filter((d) => value.weekdays.includes(d)).map((d) => SHELL_WEEKDAY_NAMES[d].slice(1)).join("、");
+  return `每周${days}`;
+}
+
 function shellTaskRowMeta(task) {
   if (shellTaskIsNote(task)) return "";
   const parts = [];
   if (task.status === "done") {
-    if (task.resolvedAt) parts.push(`<span class="task-meta-due">${esc(shellDisplayDate(task.resolvedAt))} 完成</span>`);
+    if (task.resolvedAt) {
+      const rd = safeDate(task.resolvedAt);
+      const label = rd ? `${rd.getMonth() + 1}/${String(rd.getDate()).padStart(2, "0")} 完成` : `${shellDisplayDate(task.resolvedAt)} 完成`;
+      parts.push(`<span class="task-meta-due">${esc(label)}</span>`);
+    }
     if (task.conclusion) parts.push(`<span class="task-meta-concl">${esc(task.conclusion)}</span>`);
     return parts.length ? `<span class="task-row-sub">${parts.join("")}</span>` : "";
   }
   if (state.activeGroupId === ALL_TASKS_GROUP_ID || shellRoute() === "today") {
     parts.push(`<span class="task-meta-group">${esc(shellGroupTitle(task.groupId))}</span>`);
   }
-  if (task.deadlineAt && typeof shellDeadlineProperty === "function") {
-    const dl = shellDeadlineProperty(task);
-    parts.push(`<span class="task-meta-due ${dl.classes}">${esc(dl.text)}</span>`);
-  }
+  const due = shellCompactDueLabel(task);
+  if (due) parts.push(`<span class="task-meta-due ${due.classes}">${esc(due.text)}</span>`);
+  const recur = shellCompactRecurLabel(task.recurrence);
+  if (recur) parts.push(`<span class="task-meta-recur">${shellIcon("repeat")}${esc(recur)}</span>`);
   const tags = normalizeTaskTags(task.tags);
   if (tags.blocked) parts.push('<span class="task-meta-tag is-blocked">卡住</span>');
   if (tags.later) parts.push('<span class="task-meta-tag is-later">稍后</span>');
@@ -406,7 +456,7 @@ function renderShellTaskRow(task, displayOrder) {
   const done = task.status === "done";
   const note = shellTaskIsNote(task);
   return `
-    <li class="task-item ${selected ? "selected" : ""} ${done ? "done" : ""}" data-task-row="${escAttr(task.id)}" data-task-id="${escAttr(task.id)}" data-context="task" draggable="true" data-task-drag-target="${escAttr(task.id)}">
+    <li class="task-item ${selected ? "selected" : ""} ${done ? "done" : ""} ${note ? "is-note" : ""}" data-task-row="${escAttr(task.id)}" data-task-id="${escAttr(task.id)}" data-context="task" draggable="true" data-task-drag-target="${escAttr(task.id)}">
       <span class="task-sequence-action">
         <span class="task-sequence" aria-hidden="true">${note ? shellIcon("note") : String(displayOrder).padStart(2, "0")}</span>
         <button class="task-complete" type="button" data-action="toggle-task-done" data-task-id="${escAttr(task.id)}" aria-label="${done ? "恢复任务" : "完成任务"}：${escAttr(task.title)}" aria-pressed="${done}" title="${done ? "恢复任务" : "完成任务"}"><span class="task-check-ring">${shellIcon("check")}</span></button>

@@ -36,7 +36,7 @@ function brief21Resize(el) {
   const top = el.scrollTop;
   el.style.height = "0px";
   const needed = Math.ceil(el.scrollHeight);
-  el.style.height = `${Math.max(26, Math.min(160, needed))}px`;
+  el.style.height = `${Math.max(22, Math.min(160, needed))}px`;
   el.style.overflowY = needed > 160 ? "auto" : "hidden";
   el.scrollTop = top;
 }
@@ -132,11 +132,13 @@ function brief21SetupFlowBrief() {
   toggle.setAttribute("aria-controls", brief.id);
   toggle.title = expanded ? "收起背景、进展、结论" : "展开背景、进展、结论";
   const active = shellActiveTask() || {};
+  const filledCount = shellBriefFields(active).filter(({ value }) => value.trim()).length;
+  const meter = `<span class="brief21-meter" aria-hidden="true">${filledCount}/3</span>`;
   const digestSource = !expanded
     ? String(active.conclusion || active.hypothesis || active.description || "").trim().replace(/\s+/g, " ")
     : "";
   const digest = digestSource ? `<span class="brief21-digest" aria-hidden="true">${esc(digestSource)}</span>` : "";
-  toggle.innerHTML = `${shellIcon(expanded ? "down" : "chevron")}<span class="brief21-toggle-label">任务简报</span>${digest}`;
+  toggle.innerHTML = `${shellIcon(expanded ? "down" : "chevron")}<span class="brief21-toggle-label">任务简报</span>${meter}${digest}`;
 }
 
 /** 补充结论／查看结果: expand the brief, then put the caret in the field. */

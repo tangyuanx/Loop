@@ -199,7 +199,7 @@ const ALL_TASKS_GROUP_ID = "group_all";
 const UNGROUPED_TASKS_GROUP_ID = "group_ungrouped";
 // The Demo's task-list column is 270px (--list-width). The persisted sidebar
 // width preference now drives that column; existing wider values are kept.
-const defaultSidebarWidth = 240;
+const defaultSidebarWidth = 296;
 const sidebarWidthLimits = [230, 460];
 const defaultDetailHeight = 58;
 const detailHeightLimits = [50, 82];

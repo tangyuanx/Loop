@@ -50,9 +50,18 @@ function renderShellCalendar() {
     const outside = date.getMonth() !== month.getMonth();
     const boundary = outside || date.getDate() === 1;
     const label = `${date.getFullYear()} 年 ${date.getMonth() + 1} 月 ${date.getDate()} 日，${items.length ? `${items.length} 个任务截止` : "无截止任务"}`;
+    const nowMs = loopNow().getTime();
+    const previewChips = items.slice(0, 2).map((task) => {
+      const done = task.status === "done";
+      const dl = safeDate(task.deadlineAt);
+      const overdue = !done && dl && dl.getTime() < nowMs;
+      const tone = done ? "is-done" : overdue ? "is-overdue" : "is-open";
+      return `<span class="cal-ev ${tone}" title="${escAttr(task.title || "未命名任务")}">${esc(task.title || "未命名任务")}</span>`;
+    }).join("");
+    const extraChip = items.length > 2 ? `<span class="cal-ev-more">+${items.length - 2}</span>` : "";
     return `<button class="calendar-day ${outside ? "outside " : ""}${key === todayKey ? "today " : ""}${key === selectedKey ? "selected" : ""}" type="button" data-action="select-calendar-date" data-date="${key}" tabindex="${key === focusKey ? "0" : "-1"}" aria-label="${escAttr(label)}" aria-pressed="${key === selectedKey}" ${key === todayKey ? 'aria-current="date"' : ""}>
       <span class="day-number ${boundary ? "month-boundary" : ""}">${boundary ? `${date.getMonth() + 1}月 ${date.getDate()}` : date.getDate()}</span>
-      ${items.length ? `<span class="day-count">${items.length} 个任务</span>` : ""}
+      ${items.length ? `<span class="cal-day-events">${previewChips}${extraChip}</span><span class="day-count sr-only">${items.length} 个任务</span>` : ""}
     </button>`;
   }).join("");
 
@@ -71,8 +80,7 @@ function renderShellCalendar() {
     <button class="button" type="button" data-action="apply-calendar-date">在任务中查看${shellIcon("arrow")}</button>`
     : '<p class="agenda-empty">当天暂无任务截止。<br>可选择其他日期查看。</p>';
 
-  return `${shellPageHeading("日历", "按截止日期安排任务，查看当天需要闭环的问题。")}
-    <div class="calendar-layout">
+  return `<div class="calendar-layout calendar-v2">
       <section class="calendar-main" aria-label="截止日期日历">
         <div class="month-controls">
           <h2>${month.getFullYear()} 年 ${month.getMonth() + 1} 月</h2>
@@ -134,11 +142,60 @@ function shellTemporalSummary(value) {
   return `<details class="temporal-summary"><summary><span class="temporal-summary-preview">${esc(text.slice(0, 180))}…</span><span class="temporal-summary-label">完整摘要</span></summary><p class="summary">${esc(text)}</p></details>`;
 }
 
+function renderShellReviewSummary(items) {
+  const tasksInScope = items.map(({ task }) => task);
+  const doneTasks = tasksInScope.filter((t) => t.status === "done");
+  const doneNodesCount = tasksInScope.reduce((acc, t) => acc + shellCountDoneNodes(t), 0);
+  const conclCount = doneTasks.filter((t) => String(t.conclusion || "").trim()).length;
+  const conclPct = doneTasks.length ? Math.round((conclCount / doneTasks.length) * 100) : 0;
+  const blockedCount = tasksInScope.filter((t) => t.status !== "done" && normalizeTaskTags(t.tags).blocked).length;
+
+  // 13-week (91-day) activity heatmap from real task/node timestamps
+  const today = loopNow();
+  const countsByDay = new Map();
+  const bump = (iso) => {
+    const d = safeDate(iso);
+    if (!d) return;
+    const k = localDateKey(d);
+    countsByDay.set(k, (countsByDay.get(k) || 0) + 1);
+  };
+  for (const t of state.tasks) {
+    if (t.resolvedAt) bump(t.resolvedAt);
+    else if (t.updatedAt) bump(t.updatedAt);
+    for (const n of shellNodeList(t)) {
+      if (n.status === "done" && (n.updatedAt || n.createdAt)) bump(n.updatedAt || n.createdAt);
+    }
+  }
+  const cells = [];
+  for (let i = 90; i >= 0; i--) {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+    const k = localDateKey(d);
+    const n = countsByDay.get(k) || 0;
+    const lvl = n === 0 ? 0 : n === 1 ? 1 : n <= 3 ? 2 : 3;
+    cells.push(`<i class="heat-cell l${lvl}" title="${k}：${n} 条活动"></i>`);
+  }
+
+  return `<div class="review-v2-overview">
+    <div class="review-kpis">
+      <div class="review-kpi"><b>${doneTasks.length}</b><span>个任务闭环</span></div>
+      <div class="review-kpi"><b>${doneNodesCount}</b><span>个节点完成</span></div>
+      <div class="review-kpi"><b>${conclCount}</b><span>条结论写下${doneTasks.length ? ` · ${conclPct}%` : ""}</span></div>
+      <div class="review-kpi"><b>${blockedCount}</b><span>个任务仍卡住</span></div>
+    </div>
+    <div class="review-heat-block">
+      <div class="review-heat-head"><b>节点活动</b><span>近 13 周 · 每格一天</span></div>
+      <div class="review-heat-grid" aria-hidden="true">${cells.join("")}</div>
+    </div>
+  </div>`;
+}
+
 function renderShellReview() {
   const { range, items } = shellReviewItems();
   const invalid = Boolean(range.error);
-  return `${shellPageHeading("回顾", "回看处理过程与结论，把未闭环的问题带入下一次工作。")}
-    <div class="review-controls-row">
+  return `<div class="review-v2-head">
+      <h1>回顾</h1>
+      <span class="review-v2-range">${esc(shellReviewRangeLabel(range))}</span>
+      <div class="review-controls-row">
       <div class="segmented" aria-label="回顾时间范围">
         ${SHELL_REVIEW_PRESETS.map(([value, label]) => `<button class="${state.reviewPreset === value ? "active" : ""}" type="button" data-action="set-review-preset" data-preset="${value}" aria-pressed="${state.reviewPreset === value}">${label}</button>`).join("")}
       </div>
@@ -154,7 +211,9 @@ function renderShellReview() {
         <input class="range-input" type="date" id="review-end" data-review-date-bound="end" aria-label="结束日期" aria-invalid="${invalid}" ${invalid ? 'aria-describedby="review-range-error"' : ""} value="${escAttr(state.reviewEndDate)}" />
         ${invalid ? '<p class="range-error" id="review-range-error" role="alert">请选择完整日期，结束日期不能早于开始日期。</p>' : ""}
       </div>` : ""}
+      </div>
     </div>
+    ${renderShellReviewSummary(items)}
     <section class="review-content">
       <div class="review-caption">
         <span><b>${esc(shellReviewRangeLabel(range))}</b> · ${SHELL_REVIEW_FIELD_LABELS[state.reviewDateField] || "更新日期"}</span>

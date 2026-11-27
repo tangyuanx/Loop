@@ -180,9 +180,17 @@ function renderShellTabs(task) {
   const nodes = shellNodeList(task);
   const total = nodes.length;
   const doneCount = shellCountDoneNodes(task);
-  const panes = [["flow", "处理流"], ["notes", "知识笔记"], ["history", "历史处理"]];
+  const noteCount = Array.isArray(state.knowledgeDocuments)
+    ? state.knowledgeDocuments.filter((doc) => doc && doc.taskId === task.id).length
+    : 0;
+  const historyCount = Array.isArray(task.history) ? task.history.length : 0;
+  const panes = [
+    ["flow", "处理流", total ? `${doneCount}/${total}` : "0"],
+    ["notes", "知识笔记", noteCount ? String(noteCount) : ""],
+    ["history", "历史处理", historyCount ? String(historyCount) : ""],
+  ];
   return `<nav class="tabs-bar" aria-label="任务内容">
-    ${panes.map(([pane, label]) => `<button class="pane-tab ${state.taskPane === pane ? "active" : ""}" type="button" data-action="switch-task-pane" data-pane="${pane}" aria-pressed="${state.taskPane === pane}">${label}${pane === "flow" ? `<span class="pane-count">${total ? `${doneCount}/${total}` : "0"}</span>` : ""}</button>`).join("")}
+    ${panes.map(([pane, label, count]) => `<button class="pane-tab ${state.taskPane === pane ? "active" : ""}" type="button" data-action="switch-task-pane" data-pane="${pane}" aria-pressed="${state.taskPane === pane}">${label}${count ? `<span class="pane-count">${count}</span>` : ""}</button>`).join("")}
   </nav>`;
 }
 
@@ -320,6 +328,13 @@ function renderShellFlowNode(task, node, depth = 0, path = "") {
     : customState
       ? `<span class="node-status-tag is-custom" style="--node-custom-color:${escAttr(customState.color)}" aria-hidden="true">${esc(customState.name)}</span>`
       : "";
+  const collapsedSummary = displayCollapsed && hasChildren
+    ? (() => {
+        const sub = flatten(node.children || []);
+        const subDone = sub.filter((item) => item.status === "done").length;
+        return `<span class="node-collapsed-count" aria-hidden="true">${subDone}/${sub.length}</span>`;
+      })()
+    : "";
   const gutterText = shellFormatNodePath(path);
   const gutterCompact = gutterText !== path;
   const body = `<div class="flow-row ${statusClass} ${hasChildren ? "is-parent" : ""} ${selected ? "selected" : ""} ${shellExpandedTitles.has(key) ? "expanded-title" : ""} ${shellExpandedConclusions.has(key) ? "expanded-summary" : ""}" data-context="node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" data-flow-drag-source data-flow-drag-target>
@@ -328,7 +343,7 @@ function renderShellFlowNode(task, node, depth = 0, path = "") {
       <button class="collapse ${hasChildren ? "" : "empty"}" type="button" data-action="toggle-node-collapse" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" aria-label="${displayCollapsed ? "展开" : "收起"} ${escAttr(node.title)}" aria-expanded="${!displayCollapsed}" ${hasChildren && !shellReviewOnly ? "" : "disabled"}>${shellIcon(displayCollapsed ? "chevron" : "down")}</button>
       <span class="node-status-slot"><button class="node-status ${statusClass}"${statusStyle} type="button" data-action="cycle-node-status" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" title="${escAttr(shellNodeStatusLabel(node.status))} · 点击切换为${escAttr(shellNodeStatusLabel(nextNodeStatus(node.status)))}" aria-label="${escAttr(shellNodeStatusButtonLabel(node))}"><span class="st-dot" aria-hidden="true">${node.status === "done" ? shellIcon("check") : ""}</span></button></span>
       ${renderShellNodeTitle(task, node, selected)}
-      ${statusTag}
+      ${collapsedSummary}${statusTag}
     </div>
     ${renderShellNodeConclusion(task, node)}
     </div>`;
@@ -356,6 +371,7 @@ function renderShellFlow(task) {
   const doneCount = shellCountDoneNodes(task);
   const ratio = list.length ? Math.round((doneCount / list.length) * 100) : 0;
   const addButton = `<button class="add-node" type="button" data-action="add-root-node" data-task-id="${escAttr(task.id)}"${empty ? ' aria-describedby="flow-start-hint"' : ""}>${shellIcon("plus")}${empty ? "添加第一个节点" : "添加节点"}</button>`;
+  const maxDepth = shellFlowDepth(task.nodes || []);
   return `<section class="flow-pane${empty ? " flow-empty" : ""}" aria-label="层级处理流">
     <div class="flow-toolbar">
       <span class="flow-progress"><span class="flow-progress-meter" aria-hidden="true"><i style="width:${ratio}%"></i></span>${doneCount} / ${list.length} 已完成</span>
@@ -369,7 +385,7 @@ function renderShellFlow(task) {
       </div>
     </div>
     <div class="flow-scroll" data-context="flow-root" data-task-id="${escAttr(task.id)}" data-processing-flow-scroll data-processing-flow-view="${escAttr(processingFlowViewKey(task))}">
-      <div class="flow-outline" style="--flow-depth:${shellFlowDepth(task.nodes || [])};${shellFlowIndentStyle(shellFlowDepth(task.nodes || []))};--flow-title-track:${state.flowWidths.title}fr;--flow-note-track:${state.flowWidths.note}fr">
+      <div class="flow-outline${maxDepth === 0 ? " flow-flat" : ""}" style="--flow-depth:${maxDepth};${shellFlowIndentStyle(maxDepth)};--flow-title-track:${state.flowWidths.title}fr;--flow-note-track:${state.flowWidths.note}fr">
       <ol class="flow-tree">
         ${roots.map((node, idx) => renderShellFlowNode(task, node, 0, String(idx + 1))).join("")}
       </ol>
