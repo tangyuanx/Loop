@@ -424,6 +424,13 @@ body .workspace > .tabs-bar {
   height: 38px;
   flex-shrink: 0;
 }
+body .tabs-bar > .pane-tabs {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: inherit;
+  white-space: nowrap;
+}
 body .workspace .pane-tab {
   position: relative;
   color: var(--secondary);
@@ -469,36 +476,20 @@ body .workspace .tabs-actions { color: var(--secondary); }
 /* ============================================================
  * Processing Flow Toolbar & Runbook Stage Cards
  * ============================================================ */
-body .flow-toolbar {
+body .tabs-bar > .flow-toolbar {
   display: grid;
-  grid-template-columns: minmax(96px, 1fr) minmax(0, max-content);
+  grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
-  min-height: 32px;
-  height: auto;
-  padding: 3px var(--task-work-inset, 28px);
-  color: var(--secondary);
-  border-bottom: 1px solid var(--border-subtle);
-}
-/* Dock flow stats/breadcrumb/tools stably onto the right half of the 38px tabs-bar */
-body .task-work-main .flow-pane:not(.flow-empty) > .flow-toolbar {
-  position: relative;
-  z-index: 3;
-  margin-top: -38px;
-  margin-left: 244px;
-  min-height: 38px;
-  height: 38px;
-  padding: 0 var(--task-work-inset, 34px) 0 12px;
-  border-bottom: 0;
-  grid-template-columns: minmax(96px, 1fr) max-content;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
   gap: 8px;
+  padding: 0;
+  color: var(--secondary);
   pointer-events: none;
 }
-body .task-work-main .flow-pane:not(.flow-empty) > .flow-toolbar > :is(.flow-progress, .flow-context-bar, .flow-tools) {
-  pointer-events: auto;
-}
-body .task-work-main .flow-pane:not(.flow-empty) > .flow-toolbar > .flow-progress {
-  justify-content: flex-end;
-}
+body .tabs-bar > .flow-toolbar[hidden] { display: none; }
+body .flow-toolbar > :is(.flow-context-bar, .flow-tools) { pointer-events: auto; }
 body .flow-progress {
   display: none;
 }
@@ -596,7 +587,6 @@ body .workspace-empty-actions > .button:hover { background: var(--action-bg-hove
 body .workspace-empty-actions > .text-button { padding-inline: 6px; }
 body .workspace-empty-actions svg { width: 14px; height: 14px; }
 
-body .flow-empty > .flow-toolbar { display: none; }
 body .flow-empty .flow-tree:not(:has(.node-draft)) { display: none; }
 body .flow-empty .flow-outline:not(:has(.node-draft)) { min-width: 0; }
 body .flow-start { padding-top: 16px; }
@@ -1049,7 +1039,6 @@ body .flow-status-history p { color: var(--secondary); font-size: var(--type-11)
 
 @container processing-flow (max-width: 500px) {
   body .flow-outline { --flow-indent: 16px; --flow-deep-indent: 6px; }
-  body .flow-breadcrumb button[aria-current] { max-width: 215px; }
 }
 
 /* ============================================================
@@ -1289,7 +1278,7 @@ body :is(.flow-scroll, .node-record-window .record-editor, .article-pane) {
   body .workspace > .task-heading { padding-inline: 20px; gap: 12px; }
   body .workspace .task-title { font-size: calc(20px * var(--font-scale, 1)); }
   body .task-heading-actions .button { padding-inline: 8px; }
-  body .workspace > .tabs-bar, body .flow-toolbar, body .workspace-foot, body .article-pane { padding-inline: 20px; }
+  body .workspace > .tabs-bar, body .workspace-foot, body .article-pane { padding-inline: 20px; }
   body[data-brief21-enabled] .workspace > .brief { margin-inline: 20px; }
   body[data-brief21-enabled] .workspace > .brief21-toggle { margin-inline: 20px; }
   body .flow-scroll { padding-inline: 16px; }
