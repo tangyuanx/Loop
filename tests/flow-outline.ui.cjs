@@ -46,6 +46,7 @@ const longText = ('完整结论、分析证据和验证结果。'.repeat(8) + '\
     assert.equal(await page.locator('.status-menu').count(),0);
     await title('parent').click();assert.equal(await page.locator('.node-record-window').count(),0);
     // Right-click creation delegates to the production hierarchy code.
+    await title('blank').evaluate(el=>el.scrollIntoView({block:'center'}));await settle();
     await title('blank').click({button:'right'});await page.getByRole('menuitem',{name:'添加子节点',exact:true}).click();
     await page.locator('[data-shell-node-draft]').fill('真实子节点');await page.locator('[data-shell-node-draft]').press('Enter');
     assert.equal((await model('blank')).children[0].title,'真实子节点');

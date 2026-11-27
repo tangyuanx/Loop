@@ -129,7 +129,7 @@ async function main(){
     // editing and mode switches continue to work after removing scroll rebuilds.
     await revealSource('const value0 = 20;');
     const code=page.locator('.kn-code').filter({hasText:'const value0 = 20;'});
-    await code.scrollIntoViewIfNeeded();await settle();
+    await code.evaluate(el=>el.scrollIntoView({block:'center'}));await settle();
     const beforeCodeClick=await source();
     await observe(code,'code click',async()=>{
       const r=await code.locator('pre').boundingBox();await page.mouse.click(r.x+40,r.y+25);

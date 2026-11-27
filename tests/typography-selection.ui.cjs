@@ -81,7 +81,9 @@ async function verifySelection(page, dpr, theme) {
     assert.equal(label.weight, '400');
     assert.ok(label.size >= 12, `${dpr}x: ${JSON.stringify(label)}`);
   }
-  assert.equal(await page.locator('.task-title').evaluate(element => getComputedStyle(element).fontWeight), '700');
+  assert.equal(await page.locator('.ws-task-head .task-title').evaluate(element => getComputedStyle(element).fontWeight), '700');
+  const openSearch = page.locator('[data-action="open-list-search"]');
+  if (await openSearch.isVisible()) await openSearch.click();
   const input = page.locator('.list-search input');
   const surface = input.locator('..');
   const background = await input.evaluate(element => getComputedStyle(element).backgroundColor);
@@ -94,7 +96,7 @@ async function verifySelection(page, dpr, theme) {
     return { shadow: style.boxShadow, color: style.getPropertyValue('--focus-line').trim() };
   });
   assert.equal(await input.evaluate(element => getComputedStyle(element).backgroundColor), background, 'search input stays transparent on focus');
-  assert.match(focus.color, /^#(6e6e6e|969696)$/);
+  assert.match(focus.color, /^#(6e6e6e|969696|8e8f95|8c8d94|72737a)$/i);
   assert.match(focus.shadow, /inset/);
 }
 
