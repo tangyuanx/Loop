@@ -53,16 +53,16 @@ const { openFlowOptions } = require('./workbench-helpers.cjs');
     };
 
     // The tree toolbar acts on this task and handles mixed branch states.
-    const collapseAll = page.locator('.flow-view-options [data-action="toggle-all-nodes"]');
-    await openFlowOptions(page);
-    assert.equal(await collapseAll.innerText(), '收起全部');
+    const collapseAll = page.getByRole('button', { name: '折叠全部', exact: true });
+    const expandAll = page.getByRole('button', { name: '展开全部', exact: true });
+    assert.ok(await collapseAll.isEnabled() && await expandAll.isEnabled(), 'mixed branch states allow both commands');
     await collapseAll.click();
     await page.waitForFunction(() => shellNodeList(shellActiveTask()).filter(n => n.children.length).every(n => n.collapsed));
     await page.waitForFunction(() => !document.querySelector('.node-title[data-node-id="ax"]'));
-    await openFlowOptions(page);
-    assert.equal(await collapseAll.innerText(), '展开全部');
-    await collapseAll.click();
+    assert.equal(await collapseAll.isDisabled(), true);
+    await expandAll.click();
     await page.waitForFunction(() => shellNodeList(shellActiveTask()).filter(n => n.children.length).every(n => !n.collapsed));
+    assert.equal(await expandAll.isDisabled(), true);
     await title('ax').waitFor(); await title('bx').waitFor();
     await page.locator('[data-action="toggle-node-collapse"][data-node-id="b"]').click();
 
@@ -178,7 +178,7 @@ const { openFlowOptions } = require('./workbench-helpers.cjs');
     assert.equal(await page.locator('.flow-row.selected').count(), 0);
     await options.getByRole('button',{name:'隐藏已完成'}).click();
     const activeOptions=await openFlowOptions(page);
-    const showCompleted=activeOptions.getByRole('button',{name:'显示已完成'});
+    const showCompleted=activeOptions.getByRole('button',{name:'隐藏已完成'});
     assert.equal(await showCompleted.getAttribute('aria-pressed'),'true');
     await showCompleted.click();
     await title('a').click({ position: { x: 25, y: 20 } }); await settle();

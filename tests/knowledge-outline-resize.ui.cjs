@@ -90,7 +90,8 @@ async function main() {
     await page.locator('[data-pane="notes"]').click();
     await page.waitForFunction(() => knowledgeCurrentEntry()?.view);
     await wb.mode(page, 'source');
-    await wb.panels(page);
+    await outline.waitFor();
+    await divider.waitFor();
     await page.evaluate(() => {
       const entry = knowledgeCurrentEntry();
       entry.view.dispatch({selection: {anchor: 4, head: 8}});

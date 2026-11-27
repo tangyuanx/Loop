@@ -143,7 +143,17 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
     await input.press('Escape');assert.equal(await page.locator('[data-kn-action=find]').isVisible(),true);
     assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().view===window.__floatingView),true);
    }
+   // With the default outline open, text cannot reach the toolbar at the edge.
+   await page.getByRole('button',{name:'关闭大纲',exact:true}).click();
+   await page.locator('.kn-side-panel').waitFor({state:'detached'});
+   await wb.width(page,'full');
    await page.evaluate(()=>{const e=knowledgeCurrentEntry();e.view.dispatch({changes:{from:0,to:e.view.state.doc.length,insert:'# '+('宽正文从工具下方经过，显示轻微悬浮底色。'.repeat(6))+'\n\n'+Array.from({length:35},(_,i)=>`第 ${i+1} 段测试正文滚动。\n`).join('\n')}});document.querySelector('.knowledge-body').scrollTop=0;});
+   await frame();
+   await page.locator('.knowledge-body').evaluate(body=>{
+    const line=body.querySelector('.cm-line').getBoundingClientRect();
+    const tools=body.parentElement.querySelector('.knowledge-note-actions').getBoundingClientRect();
+    body.scrollTop+=Math.max(0,line.top-tools.top+4);
+   });
    await page.waitForFunction(()=>document.querySelector('.knowledge-note-actions')?.hasAttribute('data-over-content'));
    const anchored=await page.locator('.knowledge-note-actions').boundingBox();
    await page.locator('.knowledge-body').hover();await page.mouse.wheel(0,200);await frame();

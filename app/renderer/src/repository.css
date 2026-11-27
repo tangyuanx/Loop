@@ -8,10 +8,10 @@
   --repository-selected: var(--surface-task-selected);
 }
 
-@property --shell-nav-track {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: 0px;
+@property --shell-nav-open {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
 }
 
 @media (min-width: 1101px) {
@@ -29,12 +29,12 @@ body .navigation {
 
 /* Clean crisp three-column dividers (Redesign v2) */
 body[data-window25] .app {
-  --shell-nav-track: var(--nav-width);
+  --shell-nav-track: calc(var(--nav-width) * var(--shell-nav-open));
   position: relative;
   background: var(--workspace-canvas);
-  transition: --shell-nav-track 220ms cubic-bezier(.3, .7, .2, 1);
+  transition: --shell-nav-open 220ms cubic-bezier(.3, .7, .2, 1);
 }
-body[data-window25] .app.sidebar-hidden { --shell-nav-track: 0px; }
+body[data-window25] .app.sidebar-hidden { --shell-nav-open: 0; }
 body[data-window25]:not(.wb-focus) .app:not(.app-wide):not(.task-focus) {
   grid-template-columns: var(--shell-nav-track) var(--list-width) minmax(0, 1fr);
 }

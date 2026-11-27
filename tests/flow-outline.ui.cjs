@@ -7,6 +7,7 @@ const {minimizeTaskInfo,openFlowOptions} = require('./workbench-helpers.cjs');
 const longTitle = '已完成的长标题：保留父子关系、配置字段、解析过程和验证结果。'.repeat(7);
 const oldNote = '旧浮窗中的完整记录。\n\n第二段证据与验证过程必须保留。';
 const longText = ('完整结论、分析证据和验证结果。'.repeat(8) + '\n').repeat(5);
+const conclusionHint = '可在节点右侧添加结论，双击结论可修改。';
 (async () => {
   const run = await launchRepository({tasks:[task('outline',{title:'处理流极简验收',nodes:[
     {id:'parent',title:'父节点',status:'todo',conclusion:'阶段结论',note:oldNote,children:[
@@ -40,13 +41,13 @@ const longText = ('完整结论、分析证据和验证结果。'.repeat(8) + '\
     await minimizeTaskInfo(page);
     // Successful creation alone shows a durable, dismissible introduction.
     await page.locator('.add-node').click();await page.locator('[data-shell-node-draft]').press('Escape');
-    assert.equal(await page.getByText('右键节点可添加结论，双击结论可修改。',{exact:true}).count(),0);
+    assert.equal(await page.getByText(conclusionHint,{exact:true}).count(),0);
     await page.locator('.add-node').click();await page.locator('[data-shell-node-draft]').fill('首次新建');await page.locator('[data-shell-node-draft]').press('Enter');
-    await page.getByText('右键节点可添加结论，双击结论可修改。',{exact:true}).waitFor();
+    await page.getByText(conclusionHint,{exact:true}).waitFor();
     await page.getByRole('button',{name:'关闭操作反馈',exact:true}).click();
     await page.evaluate(()=>flushSave());await page.reload();await page.locator('.flow-scroll').waitFor();await minimizeTaskInfo(page);
     await page.locator('.add-node').click();await page.locator('[data-shell-node-draft]').fill('第二次新建');await page.locator('[data-shell-node-draft]').press('Enter');
-    assert.equal(await page.getByText('右键节点可添加结论，双击结论可修改。',{exact:true}).count(),0);
+    assert.equal(await page.getByText(conclusionHint,{exact:true}).count(),0);
     assert.equal(await page.locator('.flow-row .node-add,.flow-node-actions,.flow-column-head,.conclusion-expand').count(),0);
     assert.equal(await row('blank').locator('.node-conclusion-text').count(),0);
     // Three states survive persistence and do not change children.
@@ -88,8 +89,8 @@ const longText = ('完整结论、分析证据和验证结果。'.repeat(8) + '\
     await shot('outline-reading');
     // Filtering preserves ancestors and the actual data tree.
     const before=await page.evaluate(()=>structuredClone(shellActiveTask().nodes));
-    await (await openFlowOptions(page)).getByRole('button',{name:/^待确认/}).click();assert.equal(await row('review').count(),1);assert.equal(await row('parent').count(),1);assert.equal(await row('blank').count(),0);
-    assert.deepEqual(await page.evaluate(()=>shellActiveTask().nodes),before);await (await openFlowOptions(page)).getByRole('button',{name:/^待确认/}).click();
+    await (await openFlowOptions(page)).getByRole('button',{name:/^仅看待确认/}).click();assert.equal(await row('review').count(),1);assert.equal(await row('parent').count(),1);assert.equal(await row('blank').count(),0);
+    assert.deepEqual(await page.evaluate(()=>shellActiveTask().nodes),before);await (await openFlowOptions(page)).getByRole('button',{name:/^仅看待确认/}).click();
     await page.evaluate(()=>flushSave());const disk=JSON.parse(await fs.readFile(path.join(profile,'task-data.json'),'utf8'));
     assert.equal(disk.uiPreferences.nodeConclusionHintSeen,true);assert.equal(disk.tasks[0].nodes[0].children[1].status,'review');
     await page.reload();await page.locator('.flow-scroll').waitFor();assert.ok((await model('parent')).conclusion.includes('保存后的新内容'));assert.deepEqual(errors,[]);

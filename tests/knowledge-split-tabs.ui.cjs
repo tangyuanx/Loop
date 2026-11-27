@@ -16,7 +16,11 @@ const out=path.resolve(process.env.LOOP_SPLIT_TABS_QA_DIR||'.local-review/knowle
  const layout=()=>page.evaluate(()=>JSON.parse(JSON.stringify(state.knowledgeWorkspace)));
  const begin=async(id,point)=>{
   await tab(id).evaluate(button=>Promise.all(button.parentElement.getAnimations().map(animation=>animation.finished.catch(()=>{}))));
-  await page.evaluate(()=>window.addEventListener('pointerdown',event=>window.__dragPointer=event.pointerId,{once:true}));
+  await page.evaluate(()=>window.addEventListener('pointerdown',event=>{
+   window.__dragPointer=event.pointerId;
+   const source=event.target.closest('[data-kn-document]').parentElement.getBoundingClientRect();
+   window.__dragStart={...source.toJSON(),pointerX:event.clientX};
+  },{once:true,capture:true}));
   const r=await tab(id).boundingBox();await page.mouse.move(r.x+Math.min(20,r.width/2),r.y+r.height/2);
   await page.mouse.down();await page.mouse.move(point.x,point.y,{steps:10});await settle();
  };
@@ -36,13 +40,14 @@ const out=path.resolve(process.env.LOOP_SPLIT_TABS_QA_DIR||'.local-review/knowle
   await minimizeTaskInfo(page);
   await page.evaluate(()=>{window.__a=knowledgeCurrentEntry('a');__a.insertText('待保存的编辑 ');__a.view.dispatch({selection:{anchor:30,head:43}});document.querySelector('.knowledge-body').scrollTop=430;});await settle();
   const original=await page.evaluate(()=>({text:__a.getMarkdown(),selection:__a.view.state.selection.toJSON(),scroll:document.querySelector('.knowledge-body').scrollTop}));
-  const start=await tab('b').boundingBox(),source=await tab('b').locator('..').boundingBox();
-  await begin('b',{x:start.x+70,y:start.y+85});
+  const start=await tab('b').boundingBox(),dropPoint={x:start.x+70,y:start.y+85};
+  await begin('b',dropPoint);
+  const source=await page.evaluate(()=>window.__dragStart);
   const ghost=page.locator('.kn-tab-drag-ghost'),first=await ghost.boundingBox();
   assert.equal(await ghost.getAttribute('aria-hidden'),'true');assert.equal(await ghost.locator('.kn-tab-drag-title').textContent(),'笔记 b');
   assert.equal(await ghost.locator('span').count(),1);
-  assert.ok(Math.abs(first.width-source.width)<1&&Math.abs(first.height-source.height)<1);
-  assert.ok(Math.abs(first.x-(source.x+50))<3,JSON.stringify({start,first}));
+  assert.ok(Math.abs(first.width-source.width)<1&&Math.abs(first.height-source.height)<1,JSON.stringify({source,first}));
+  assert.ok(Math.abs(first.x-(dropPoint.x-source.pointerX+source.x))<3,JSON.stringify({dropPoint,source,first}));
   assert.equal(await ghost.evaluate(el=>getComputedStyle(el).pointerEvents),'none');
   await page.mouse.move(start.x+160,start.y+130,{steps:5});await settle();
   const second=await ghost.boundingBox();assert.ok(Math.abs(second.x-first.x-90)<1&&Math.abs(second.y-first.y-45)<1,JSON.stringify({first,second}));
