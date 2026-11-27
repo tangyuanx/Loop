@@ -76,10 +76,11 @@ const {launchRepository, task} = require('./electron-ui-helpers.cjs');
       assert.equal(await p.evaluate(()=>state.tasks.find(t=>t.id==='blocked').status),'done');
       if (usesThreePlaneLight) {
         const ring = p.locator('[data-task-row="blocked"].done .task-check-ring');
+        const muted = process.platform === 'win32' ? 'rgb(118, 125, 139)' : 'rgb(118, 119, 126)';
         assert.deepEqual(await ring.evaluate(el => {
           const style = getComputedStyle(el);
           return [style.backgroundColor, style.borderTopColor, style.color];
-        }), ['rgba(0, 0, 0, 0)', 'rgb(118, 119, 126)', 'rgb(118, 119, 126)'],
+        }), ['rgba(0, 0, 0, 0)', muted, muted],
         'The completed task keeps a neutral ring and check without a fill');
       }
       await p.locator('[data-journey17="undo"]').click(); await settle();

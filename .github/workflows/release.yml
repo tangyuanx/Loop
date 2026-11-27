@@ -95,6 +95,8 @@ jobs:
       - name: Check native desktop behavior
         # Keep OS-dependent storage and window checks without repeating the
         # complete editor builds, service checks and source suite per platform.
+        # Explicit Bash propagates the first failure on Windows as well.
+        shell: bash
         run: |
           node --test tests/desktop.test.cjs
           node tests/completion-readiness.ui.cjs

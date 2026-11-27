@@ -295,7 +295,7 @@ function renderShellTopbar(task = shellActiveTask()) {
       </div>
       <div class="breadcrumb">
         ${route === "tasks" && state.globalListReturn ? `<button class="text-button" type="button" data-action="return-global-page">返回${state.globalListReturn.route === "calendar" ? "日历" : "回顾"}</button>${shellIcon("chevron")}` : ""}
-        ${workspaceTask ? `<span class="shell-task-path" aria-label="任务分组：${escAttr(groupTitle)}" title="${escAttr(groupTitle)}"><span class="shell-group-context">${shellIcon("folder")}<span>${esc(groupTitle)}</span></span></span><span class="topbar-focus-title">${shellIcon("chevron")}${renderShellTaskTitle(workspaceTask)}</span>` : `<b>${esc(crumb)}</b>`}
+        ${workspaceTask ? `<span class="shell-task-path" aria-label="任务分组：${escAttr(groupTitle)}" title="${escAttr(groupTitle)}"><span class="shell-group-context">${shellIcon("folder")}<span>${esc(groupTitle)}</span></span></span><span class="topbar-focus-title">${shellIcon("chevron")}${renderShellTaskTitle(workspaceTask, "topbar")}</span>` : `<b>${esc(crumb)}</b>`}
       </div>
       <div class="shell-actions">
         <span class="preview-date">${esc(shellDateLabel())}，${SHELL_WEEKDAY_NAMES[loopNow().getDay()]}</span>

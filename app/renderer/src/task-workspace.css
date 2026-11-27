@@ -62,19 +62,28 @@ body .ws-title-row .task-title {
   font-weight: 600;
   letter-spacing: -0.01em;
 }
+body .ws-title-row :is(.title-edit, .manage24-title-input) {
+  width: 100%;
+  padding: 1px 4px;
+  margin-left: -4px;
+  text-align: left;
+  font: inherit;
+  letter-spacing: inherit;
+  color: var(--text);
+}
 body .ws-title-row .title-edit {
   display: flex;
   align-items: center;
   justify-content: flex-start;
   gap: 6px;
-  width: 100%;
-  padding: 1px 4px;
-  margin-left: -4px;
   border-radius: 5px;
-  text-align: left;
-  font: inherit;
-  color: var(--text);
 }
+body .ws-title-row .manage24-title-input {
+  display: block;
+  border: 0;
+  border-radius: 0;
+}
+body .ws-title-row .manage24-inline-error:empty { display: none; }
 body .ws-title-row .title-edit:hover { background: var(--hover); }
 body .ws-props-row {
   display: flex;

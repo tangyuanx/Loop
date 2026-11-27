@@ -82,6 +82,9 @@ async function verifySelection(page, dpr, theme) {
     assert.ok(label.size >= 12, `${dpr}x: ${JSON.stringify(label)}`);
   }
   assert.equal(await page.locator('.ws-task-head .task-title').evaluate(element => getComputedStyle(element).fontWeight), '700');
+}
+
+async function verifySearchFocus(page) {
   const openSearch = page.locator('[data-action="open-list-search"]');
   if (await openSearch.isVisible()) await openSearch.click();
   const input = page.locator('.list-search input');
@@ -104,10 +107,20 @@ async function verifyWindowsFonts(page, cdp) {
   const selectors = ['.navigation .nav-button.active > span', '.task-item.selected .task-item-title', '.flow-row.selected .node-title'];
   await cdp.send('DOM.enable');
   await cdp.send('CSS.enable');
-  const { root } = await cdp.send('DOM.getDocument');
   for (const selector of selectors) {
-    const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector });
-    const { fonts } = await cdp.send('CSS.getPlatformFontsForNode', { nodeId });
+    let fonts;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await page.locator(selector).waitFor();
+      try {
+        const { root } = await cdp.send('DOM.getDocument');
+        const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector });
+        ({ fonts } = await cdp.send('CSS.getPlatformFontsForNode', { nodeId }));
+        break;
+      } catch (error) {
+        // The renderer may replace a row between the two CDP calls.
+        if (attempt === 3 || !error.message.includes('Could not find node with given id')) throw error;
+      }
+    }
     assert.ok(fonts.length > 0 && fonts.every(font => font.familyName === 'Microsoft YaHei UI' && !/Bold/i.test(font.postScriptName)),
       `${selector} must use regular Microsoft YaHei UI: ${JSON.stringify(fonts)}`);
   }
@@ -150,6 +163,7 @@ async function verifyDesktop(dpr) {
         await page.waitForFunction(expected => devicePixelRatio === expected && document.documentElement.dataset.density === 'standard', scale);
         await verifySelection(page, scale, theme);
         if (windows) await verifyWindowsFonts(page, cdp);
+        await verifySearchFocus(page);
         await page.locator('.list-search input').blur();
         await screenshot(cdp, `${windows ? 'windows' : 'windows-styles'}-${scale}x-${theme}`);
       }

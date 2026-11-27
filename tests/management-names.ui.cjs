@@ -13,6 +13,21 @@ const {launchRepository,task}=require('./electron-ui-helpers.cjs');
  const out=process.env.LOOP_REVIEW_OUTPUT||path.join(profile,'evidence');await fs.mkdir(out,{recursive:true});
  const results=[];
  const shot=name=>p.screenshot({path:path.join(out,name+'.png')});
+ const heading=p.locator('.ws-task-head [data-action="edit-task-title"]');
+ const titleAppearance=locator=>locator.evaluate(el=>{
+  const style=getComputedStyle(el),rect=el.getBoundingClientRect();
+  return {
+   typography:[style.fontFamily,style.fontSize,style.fontWeight,style.lineHeight,style.letterSpacing,style.color],
+   textLeft:rect.left+parseFloat(style.borderLeftWidth)+parseFloat(style.paddingLeft),
+   centerY:rect.top+rect.height/2,
+  };
+ });
+ const assertTitleAppearance=async (editor,before)=>{
+  const after=await titleAppearance(editor);
+  assert.deepEqual(after.typography,before.typography,'the editor keeps the title typography');
+  assert.ok(Math.abs(after.textLeft-before.textLeft)<1,'the title does not shift horizontally');
+  assert.ok(Math.abs(after.centerY-before.centerY)<1,'the title does not shift vertically');
+ };
  const disk=async()=>JSON.parse(await fs.readFile(path.join(profile,'task-data.json'),'utf8'));
  const select=async id=>{await p.locator(`.task-select[data-task-id="${id}"]`).click();await p.waitForFunction(id=>state.activeTaskId===id,id);};
  const fault=mode=>app.evaluate((_electron,mode)=>{global.__nameFault.mode=mode;global.__nameFault.blocked=false;},mode);
@@ -45,7 +60,7 @@ const {launchRepository,task}=require('./electron-ui-helpers.cjs');
    const open=async()=>{
     await p.evaluate(()=>{state.activeGroupId='group_all';state.activeTaskId='a';render();});
     if(kind==='row')await p.locator('.task-select[data-task-id="a"]').dblclick();
-    if(kind==='heading')await p.locator('.topbar [data-action="edit-task-title"]').click();
+    if(kind==='heading')await heading.click();
     if(kind==='group'){await p.locator('.navigation [data-group-id="work"]').focus();await p.keyboard.press('F2');}
     await input.waitFor();assert.equal(await input.evaluate(el=>el===document.activeElement),true);
    };
@@ -88,15 +103,15 @@ const {launchRepository,task}=require('./electron-ui-helpers.cjs');
    await done(kind+': IME, pending deduplication, render and newer input survive the old disk acknowledgement');
   }
   // A late task-A result must not replace task B's heading or close its editor.
-  await select('a');await p.locator('.topbar .title-edit').click();await p.locator('#manage24-title').fill('A迟到的已提交名称');
+  await select('a');await heading.click();await p.locator('#manage24-title').fill('A迟到的已提交名称');
   await flush();await fault('delay');await p.locator('#manage24-title').press('Enter');
   await app.evaluate(async()=>{const end=Date.now()+10000;while(!global.__nameFault.blocked&&Date.now()<end)await new Promise(r=>setTimeout(r,20));if(!global.__nameFault.blocked)throw Error('Disk write did not block');});
-  await select('b');await p.locator('.topbar .title-edit').click();await p.locator('#manage24-title').fill('B尚未提交');
+  await select('b');await heading.click();await p.locator('#manage24-title').fill('B尚未提交');
   await p.evaluate(()=>{globalThis.__newNameField=document.querySelector('#manage24-title');});
   await release();await p.waitForFunction(()=>state.tasks.find(t=>t.id==='a').title==='A迟到的已提交名称');await flush();
   assert.equal(await p.locator('#manage24-title').inputValue(),'B尚未提交');
   assert.equal(await p.evaluate(()=>document.querySelector('#manage24-title')===__newNameField),true);
-  await p.locator('#manage24-title').press('Escape');assert.equal(await p.locator('.topbar .title-edit').innerText(),'另一任务');
+  await p.locator('#manage24-title').press('Escape');assert.equal(await heading.innerText(),'另一任务');
   await done('late A write preserves B editor, heading and unsubmitted draft');
   await select('a');
   const openTitle=()=>p.evaluate(()=>action({action:'edit-node-title',nodeId:'node'},{currentTarget:document.querySelector('.node-title[data-node-id="node"]')}));
@@ -125,7 +140,9 @@ const {launchRepository,task}=require('./electron-ui-helpers.cjs');
   await select('b');
   for(const theme of ['light','dark']){
    await p.evaluate(theme=>{state.theme=theme;render();},theme);
-   await p.locator('.topbar .title-edit').click();await p.locator('#manage24-title').focus();
+   const before=await titleAppearance(heading);
+   await heading.click();await p.locator('#manage24-title').focus();
+   await assertTitleAppearance(p.locator('#manage24-title'),before);
    const sample=await p.locator('#manage24-title').evaluate(el=>{
     const visibleGreen=style=>{
      const green=color=>{const m=color.match(/rgba?\((\d+)[, ]+(\d+)[, ]+(\d+)(?:[, /]+([\d.]+))?/);return m&&Number(m[4]??1)>.05&&+m[2]>+m[1]*1.12&&+m[2]>+m[3]*1.08;};
@@ -137,9 +154,24 @@ const {launchRepository,task}=require('./electron-ui-helpers.cjs');
     return {green:nodes.some(node=>visibleGreen(getComputedStyle(node))),focus:getComputedStyle(el).boxShadow,bg:getComputedStyle(el).backgroundColor};
    });
    assert.equal(sample.green,false);assert.equal(sample.bg,'rgba(0, 0, 0, 0)');
+   assert.match(sample.focus,/inset/);
    await shot(theme+'-name-focus');await p.locator('#manage24-title').press('Escape');
   }
-  await done('light/dark input and ancestors retain transparent editing without green boundaries');
+  await done('light/dark title editing keeps typography and position with a neutral focus underline');
+  await p.locator('[data-pane="notes"]').click();
+  await p.locator('[data-wb-action="focus"]').click();
+  const focusHeading=p.locator('.topbar [data-action="edit-task-title"]');
+  const focusAppearance=await titleAppearance(focusHeading);
+  await focusHeading.click();await p.locator('#manage24-title').fill('专注模式标题');
+  await assertTitleAppearance(p.locator('.topbar #manage24-title'),focusAppearance);
+  await p.evaluate(()=>render());
+  assert.equal(await p.locator('#manage24-title').count(),1);
+  assert.equal(await p.locator('.topbar #manage24-title').inputValue(),'专注模式标题');
+  await p.locator('#manage24-title').press('Enter');await focusHeading.waitFor();
+  assert.equal(await focusHeading.innerText(),'专注模式标题');
+  assert.equal(await heading.textContent(),'专注模式标题');
+  assert.equal((await disk()).tasks.find(t=>t.id==='b').title,'专注模式标题');
+  await done('focus-mode topbar keeps one editor through render and saves both headings');
   await flush();const saved=await disk();await p.reload();await p.locator('.app').waitFor();
   assert.equal(await p.evaluate(()=>state.tasks.find(t=>t.id==='a').title),saved.tasks.find(t=>t.id==='a').title);
   assert.equal(await p.evaluate(()=>state.taskGroups.find(g=>g.id==='work').title),saved.taskGroups.find(g=>g.id==='work').title);

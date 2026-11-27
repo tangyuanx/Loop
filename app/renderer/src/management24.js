@@ -379,14 +379,13 @@
 
   // ---- workspace title -----------------------------------------------------
 
-  function manage24TitleHeading(task) {
-    return `<h1 class="task-title"><button class="title-edit" type="button" data-action="edit-task-title" aria-label="编辑${shellTaskIsNote(task) ? "速记" : "任务"}标题" title="${escAttr(task.title)}"><span>${manage24Esc(task.title)}</span>${shellIcon("edit")}</button></h1>`;
-  }
-
   function manage24RepaintTitleHeading(task) {
     if (shellActiveTask()?.id !== task.id) return;
-    const heading = document.querySelector(".topbar .task-title");
-    if (heading) heading.outerHTML = manage24TitleHeading(task);
+    const headings = document.querySelectorAll(".topbar .task-title, .ws-task-head .task-title");
+    for (const heading of headings) {
+      if (manage24TitleSession?.id === task.id && heading.querySelector("#manage24-title")) continue;
+      heading.outerHTML = manage24BaseTaskTitle(task);
+    }
   }
 
   function manage24ResizeTitle() {
@@ -401,8 +400,14 @@
     return `<h1 class="task-title"${manage24TitleSession.width ? ` style="width:${manage24TitleSession.width}px"` : ""}><input id="manage24-title" class="manage24-title-input" type="text" maxlength="160" aria-label="${shellTaskIsNote(task) ? "速记" : "任务"}标题" aria-describedby="manage24-title-error" value="${escAttr(manage24TitleSession.value)}"${manage24NameAttrs(manage24TitleSession)} /><p id="manage24-title-error" class="manage24-inline-error" role="status">${manage24Esc(manage24TitleSession.error || "")}</p></h1>`;
   }
 
-  function manage24BeginTitle(task = shellActiveTask()) {
-    if (!task) return;
+  function manage24BeginTitle(task, button) {
+    const heading = button.closest(".task-title");
+    if (!task || !heading) return;
+    const activeEditor = document.getElementById("manage24-title");
+    if (manage24TitleSession?.id === task.id && activeEditor) {
+      activeEditor.focus({ preventScroll: true });
+      return;
+    }
     manage24CloseSurface();
     state.taskMenuOpen = false;
     if (state.contextMenu) {
@@ -410,9 +415,9 @@
       if (typeof syncContextMenuRoot === "function") syncContextMenuRoot();
     }
     const draft = manage24TitleDrafts.get(task.id);
-    const heading = document.querySelector(".topbar .task-title");
-    manage24TitleSession = { id: task.id, model:task, value: draft !== undefined ? draft : task.title, error: "", width: heading?.getBoundingClientRect().width };
-    if (heading) heading.outerHTML = manage24TitleEditorMarkup(task);
+    const location = button.closest(".topbar") ? "topbar" : "workspace";
+    manage24TitleSession = { id: task.id, model:task, value: draft !== undefined ? draft : task.title, error: "", width: heading.getBoundingClientRect().width, location };
+    heading.outerHTML = manage24TitleEditorMarkup(task);
     const input = document.getElementById("manage24-title");
     input?.focus({ preventScroll: true });
     input?.select();
@@ -468,8 +473,8 @@
   }
 
   const manage24BaseTaskTitle = renderShellTaskTitle;
-  renderShellTaskTitle = function manage24TaskTitle(task) {
-    if (manage24TitleSession?.id === task.id) return manage24TitleEditorMarkup(task);
+  renderShellTaskTitle = function manage24TaskTitle(task, location = "workspace") {
+    if (manage24TitleSession?.id === task.id && manage24TitleSession.location === location) return manage24TitleEditorMarkup(task);
     return manage24BaseTaskTitle(task);
   };
 
@@ -1280,7 +1285,7 @@
     if (!button) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    manage24BeginTitle(shellActiveTask());
+    manage24BeginTitle(shellActiveTask(), button);
   }, true);
 
   /** The overlay's own controls: one vocabulary, one place. */

@@ -69,6 +69,8 @@ jobs:
       - name: Verify complete clipboard content and code caret geometry
         run: node tests/knowledge-clipboard-caret.ui.cjs
       - name: Verify inline conclusions and existing node interactions
+        # Explicit Bash propagates the first failure on Windows as well.
+        shell: bash
         run: |
           node tests/completion-readiness.ui.cjs
           node tests/flow-outline.ui.cjs

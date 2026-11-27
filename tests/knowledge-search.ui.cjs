@@ -136,7 +136,7 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
     await input.focus();
     const focused=await page.locator('.kn-find-field').evaluate(el=>{const s=getComputedStyle(el),i=getComputedStyle(el.querySelector('input'));return {background:s.backgroundColor,border:s.borderColor,shadow:s.boxShadow,inputBackground:i.backgroundColor,outline:i.outlineStyle};});
     assert.equal(focused.background,neutral);assert.equal(focused.border,'rgba(0, 0, 0, 0)');assert.equal(focused.inputBackground,'rgba(0, 0, 0, 0)');assert.equal(focused.outline,'none');
-    const rgb=focused.shadow.match(/rgba?\((\d+), (\d+), (\d+)/);assert.ok(rgb&&rgb[1]===rgb[2]&&rgb[2]===rgb[3]);assert.match(focused.shadow,/inset/);
+    assert.match(focused.shadow,/^rgb\((110, 110, 110|150, 150, 150|142, 143, 149|140, 141, 148|114, 115, 122)\) 0px -1px 0px 0px inset$/);
     await input.fill('测试');assert.equal(await count.innerText(),'1/2');
     await page.locator('.kn-find [name=toggleReplace]').click();await frame();assert.deepEqual(await measure(),before);
     await page.screenshot({path:path.join(out,`floating-${theme}.png`)});

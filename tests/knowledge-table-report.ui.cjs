@@ -171,7 +171,7 @@ async function main() {
     };
     // Finish the text-selection gesture without leaving the cell editor. A
     // drag starting on selected glyphs can become a native text drag instead.
-    await editorField.press('ArrowRight');
+    await editorField.evaluate(() => getSelection().collapseToEnd());
     assert.ok(await editorField.evaluate(field => field.contains(document.activeElement) && getSelection().isCollapsed),
       'the cell editor keeps focus after collapsing its text selection');
     await drag(await center(cell(0,0)), await center(cell(1,1)));
