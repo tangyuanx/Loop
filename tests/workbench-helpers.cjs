@@ -1,9 +1,9 @@
 /* Navigate the production menu controls; editor/data assertions stay in suites. */
 async function minimizeTaskInfo(page){
-  // The floating attributes card deliberately overlays the document. Dismiss it
-  // through the same control as a user before operating the toolbar beneath it.
+  // The floating attributes card was replaced by the inline property row in Redesign v2;
+  // only dismiss it when visible.
   const toggle=page.locator('[data-action="toggle-task-info"][aria-expanded="true"]');
-  if(await toggle.count()){
+  if(await toggle.count() && await toggle.isVisible()){
     try {
       await toggle.click({timeout:2000});
     } catch (error) {

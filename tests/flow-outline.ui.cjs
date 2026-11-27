@@ -68,14 +68,13 @@ const longText = ('完整结论、分析证据和验证结果。'.repeat(8) + '\
       assert.ok(geometry.fits);assert.ok(geometry.width>100);assert.equal(geometry.outline,'none');
       await shot('outline-edit-'+theme);await field.press('Escape');
     }
-    // Completed title and conclusion independently collapse, hover and pin.
+    // Completed title collapses and expands on hover; conclusion stays visible and softly muted until hover/click.
     await page.reload();await page.locator('.flow-scroll').waitFor();await minimizeTaskInfo(page);
     await page.mouse.move(20,20);await settle();
-    const compact=await row('complete').evaluate(el=>{const t=el.querySelector('.node-title'),n=el.querySelector('.node-conclusion-preview');return{title:t.clientHeight,note:n.clientHeight,ellipsis:getComputedStyle(n).textOverflow};});
-    assert.ok(compact.title<30&&compact.note<30);assert.equal(compact.ellipsis,'ellipsis');
+    const compact=await row('complete').evaluate(el=>{const t=el.querySelector('.node-title'),c=el.querySelector('.flow-conclusion');return{title:t.clientHeight,noteVisible:c.clientHeight>0,opacity:parseFloat(getComputedStyle(c).opacity)};});
+    assert.ok(compact.title<30&&compact.noteVisible&&compact.opacity<1);
     await title('complete').hover();assert.ok(await title('complete').evaluate(el=>el.clientHeight)>compact.title);
-    await page.mouse.move(20,20);await text('complete').hover();assert.ok(await row('complete').locator('.node-conclusion-preview').evaluate(el=>el.clientHeight)>compact.note);
-    await text('complete').click();await page.mouse.move(20,20);assert.equal(await row('complete').evaluate(el=>el.classList.contains('expanded-summary')),true);
+    await page.mouse.move(20,20);await text('complete').click();await page.mouse.move(20,20);assert.equal(await row('complete').evaluate(el=>el.classList.contains('expanded-summary')),true);
     await shot('outline-reading');
     // Filtering preserves ancestors and the actual data tree.
     const before=await page.evaluate(()=>structuredClone(shellActiveTask().nodes));

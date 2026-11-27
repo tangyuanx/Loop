@@ -41,9 +41,9 @@ const {launchRepository, task} = require('./electron-ui-helpers.cjs');
       },theme);
       if (usesThreePlaneLight) {
         for (const [selector, expected] of [
-          ['.topbar', 'rgb(242, 243, 245)'],
-          ['.navigation', 'rgb(242, 243, 245)'],
-          ['.task-list-pane', 'rgb(247, 248, 250)'],
+          ['.topbar', 'rgb(255, 255, 255)'],
+          ['.navigation', 'rgb(247, 247, 248)'],
+          ['.task-list-pane', 'rgb(251, 251, 252)'],
           ['.workspace', 'rgb(255, 255, 255)'],
         ]) {
           assert.equal(await p.locator(selector).evaluate(el => getComputedStyle(el).backgroundColor),
@@ -79,7 +79,7 @@ const {launchRepository, task} = require('./electron-ui-helpers.cjs');
         assert.deepEqual(await ring.evaluate(el => {
           const style = getComputedStyle(el);
           return [style.backgroundColor, style.borderTopColor, style.color];
-        }), ['rgba(0, 0, 0, 0)', 'rgb(138, 144, 158)', 'rgb(138, 144, 158)'],
+        }), ['rgba(0, 0, 0, 0)', 'rgb(118, 119, 126)', 'rgb(118, 119, 126)'],
         'The completed task keeps a neutral ring and check without a fill');
       }
       await p.locator('[data-journey17="undo"]').click(); await settle();

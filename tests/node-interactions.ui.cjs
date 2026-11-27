@@ -96,7 +96,7 @@ const { openFlowOptions } = require('./workbench-helpers.cjs');
 
     await title('a').dblclick({ delay: 60, position: { x: 25, y: 20 } }); await rename.waitFor();
     await rename.fill('   ');
-    await page.locator('.flow-toolbar > span').click();
+    await page.locator('.tabs-bar').click({ position: { x: 10, y: 10 } });
     assert.equal(await rename.count(), 0);
     assert.equal((await tree())[0].title, '已改名步骤 A', 'blank blur restores the original name');
     await title('d').dblclick({ delay: 60, position: { x: 25, y: 20 } }); await rename.waitFor();

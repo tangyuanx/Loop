@@ -39,12 +39,12 @@ body[data-window25] .topbar .brand {
   margin-bottom: -1px;
   height: 49px;
 }
-body[data-window25] .app:not(.app-wide):not(.list-collapsed) .task-list-pane {
+body[data-window25]:not(.wb-focus) .app:not(.app-wide):not(.list-collapsed) .task-list-pane {
   grid-column: 2;
   grid-row: 1 / 3;
   z-index: 3;
 }
-body[data-window25] .app:not(.app-wide):not(.list-collapsed) > .workspace {
+body[data-window25]:not(.wb-focus) .app:not(.app-wide):not(.list-collapsed) > .workspace {
   grid-column: 3;
   grid-row: 2;
 }

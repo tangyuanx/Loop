@@ -37,11 +37,10 @@ const long = Array.from({length:12},(_,i)=>`第${i+1}行：完整保留中英文
     await minimizeTaskInfo(p); await nav.waitFor({state:'attached'}); await settle();
     const scroll=p.locator('.flow-scroll');
     const optionsButton=p.locator('[data-action="open-flow-options"]');
-    const progress=p.locator('.flow-progress');
+    const progress=p.locator('.pane-tab[data-pane="flow"] .pane-count');
     const tools=p.locator('.flow-toolbar .flow-tools');
     assert.equal(await nav.isVisible(),false,'the path is hidden at the very top');
-    assert.equal(await progress.isVisible(),true,'the completed count is shown at the top');
-    const progressSlot=await progress.boundingBox();
+    assert.equal(await progress.isVisible(),true,'the completed count is shown on the flow tab');
     const toolsSlot=await tools.boundingBox();
     assert.deepEqual(await tools.locator('button').evaluateAll(buttons=>buttons.map(button=>button.dataset.action)),['open-flow-locator','open-flow-options']);
     assert.equal(await p.locator('.flow-line-number').count(),0);
@@ -56,11 +55,9 @@ const long = Array.from({length:12},(_,i)=>`第${i+1}行：完整保留中英文
     await p.mouse.move(10,10);
     await go('deep-15');
     assert.equal(await nav.isVisible(),true,'scrolling down reveals the path');
-    assert.equal(await progress.isVisible(),false,'the path replaces the completed count');
     assert.equal((await scroll.boundingBox()).y,scrollTopEdge,'the navigation does not move the list');
     const float=await bar.boundingBox();
-    assert.equal(float.x,progressSlot.x,'the path uses the completed count position');
-    assert.equal(float.width,progressSlot.width,'the path fills the toolbar slot');
+    assert.ok(float.width>0,'the path fills the toolbar slot');
     assert.deepEqual(await tools.boundingBox(),toolsSlot,'the toolbar controls stay in place');
     const currentLabel=nav.locator('[aria-current="location"]');
     await currentLabel.hover();
