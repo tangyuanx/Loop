@@ -22,6 +22,16 @@ const longText = ('完整结论、分析证据和验证结果。'.repeat(8) + '\
   const field=page.locator('[data-shell-node-conclusion]');
   const model=id=>page.evaluate(id=>structuredClone(findNode(shellActiveTask().nodes,id)),id);
   const settle=()=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  const selectNodeMenuItem=async (id,name)=>{
+    const target=title(id);
+    await target.evaluate(el=>el.scrollIntoView({block:'center',behavior:'instant'}));
+    // Let hover-driven layout and the resulting scroll settle before a
+    // menu that dismisses itself on scrolling is opened.
+    await target.hover();
+    await settle();
+    await target.click({button:'right'});
+    await page.getByRole('menuitem',{name,exact:true}).click();
+  };
   const saveEnter=async locator=>{await locator.press('Enter');await locator.waitFor({state:'detached'});};
   const shot=async name=>{if(process.env.LOOP_REVIEW_OUTPUT){await fs.mkdir(process.env.LOOP_REVIEW_OUTPUT,{recursive:true});await page.screenshot({path:path.join(process.env.LOOP_REVIEW_OUTPUT,name+'.png')});}};
   try {
@@ -46,11 +56,10 @@ const longText = ('完整结论、分析证据和验证结果。'.repeat(8) + '\
     assert.equal(await page.locator('.status-menu').count(),0);
     await title('parent').click();assert.equal(await page.locator('.node-record-window').count(),0);
     // Right-click creation delegates to the production hierarchy code.
-    await title('blank').evaluate(el=>el.scrollIntoView({block:'center'}));await settle();
-    await title('blank').click({button:'right'});await page.getByRole('menuitem',{name:'添加子节点',exact:true}).click();
+    await selectNodeMenuItem('blank','添加子节点');
     await page.locator('[data-shell-node-draft]').fill('真实子节点');await page.locator('[data-shell-node-draft]').press('Enter');
     assert.equal((await model('blank')).children[0].title,'真实子节点');
-    await title('blank').click({button:'right'});await page.getByRole('menuitem',{name:'添加结论',exact:true}).click();await field.fill('右键添加的结论');await saveEnter(field);
+    await selectNodeMenuItem('blank','添加结论');await field.fill('右键添加的结论');await saveEnter(field);
     assert.equal((await model('blank')).conclusion,'右键添加的结论');
     // Legacy records are visible, editable and cancel restores both fields.
     await text('parent').dblclick({delay:70});assert.ok((await field.inputValue()).includes(oldNote));
