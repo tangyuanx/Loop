@@ -163,18 +163,21 @@ async function main() {
       });
     });
     await drag(first, last);
-    assert.ok(await page.evaluate(() => getSelection().toString().length > 0), 'text selection stays inside an active cell');
+    assert.ok(await editorField.evaluate(field => {
+      const selection = getSelection();
+      return selection.toString().length > 0 && field.contains(selection.anchorNode) && field.contains(selection.focusNode);
+    }), 'text selection stays inside an active cell');
     assert.equal(await table.locator('[data-table-range]').count(), 0);
     const center = async locator => {
       const box = await locator.boundingBox();
       return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
     };
-    // Finish the text-selection gesture without leaving the cell editor. A
-    // drag starting on selected glyphs can become a native text drag instead.
-    await editorField.evaluate(() => getSelection().collapseToEnd());
-    assert.ok(await editorField.evaluate(field => field.contains(document.activeElement) && getSelection().isCollapsed),
-      'the cell editor keeps focus after collapsing its text selection');
-    await drag(await center(cell(0,0)), await center(cell(1,1)));
+    // Open a fresh cell for the range gesture. Starting on selected glyphs
+    // in the previous cell would invoke the OS text drag instead.
+    const rangeStart = cell(1,0);
+    await rangeStart.click();
+    await rangeStart.locator('.kn-table-cell-editor:focus').waitFor();
+    await drag(await center(rangeStart), await center(cell(0,1)));
     assert.equal(await table.locator('[data-table-range]').count(), 4, 'drag from the active editor selects four cells');
     assert.equal(await editorField.count(), 0);
     await page.keyboard.press('Escape');

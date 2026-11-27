@@ -66,6 +66,8 @@ jobs:
         run: npm run test:ui:knowledge-emphasis
       - name: Verify knowledge editing scroll stability
         run: npm run test:ui:knowledge-scroll
+      - name: Verify knowledge table editing and range selection
+        run: node tests/knowledge-table-report.ui.cjs
       - name: Verify complete clipboard content and code caret geometry
         run: node tests/knowledge-clipboard-caret.ui.cjs
       - name: Verify inline conclusions and existing node interactions
