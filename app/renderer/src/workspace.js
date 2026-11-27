@@ -176,7 +176,7 @@ function renderShellEditActions(key) {
 // Tabs and flow
 // ------------------------------------------------------------
 
-function renderShellTabs(task) {
+function renderShellTabs(task, flowToolbar = "") {
   const nodes = shellNodeList(task);
   const total = nodes.length;
   const doneCount = shellCountDoneNodes(task);
@@ -189,9 +189,12 @@ function renderShellTabs(task) {
     ["notes", "知识笔记", noteCount ? String(noteCount) : ""],
     ["history", "历史处理", historyCount ? String(historyCount) : ""],
   ];
-  return `<nav class="tabs-bar" aria-label="任务内容">
-    ${panes.map(([pane, label, count]) => `<button class="pane-tab ${state.taskPane === pane ? "active" : ""}" type="button" data-action="switch-task-pane" data-pane="${pane}" aria-pressed="${state.taskPane === pane}">${label}${count ? `<span class="pane-count">${count}</span>` : ""}</button>`).join("")}
-  </nav>`;
+  return `<div class="tabs-bar">
+    <nav class="pane-tabs" aria-label="任务内容">
+      ${panes.map(([pane, label, count]) => `<button class="pane-tab ${state.taskPane === pane ? "active" : ""}" type="button" data-action="switch-task-pane" data-pane="${pane}" aria-pressed="${state.taskPane === pane}">${label}${count ? `<span class="pane-count">${count}</span>` : ""}</button>`).join("")}
+    </nav>
+    ${flowToolbar}
+  </div>`;
 }
 
 function shellNodeStatusLabel(status) {
@@ -372,8 +375,7 @@ function renderShellFlow(task) {
   const ratio = list.length ? Math.round((doneCount / list.length) * 100) : 0;
   const addButton = `<button class="add-node" type="button" data-action="add-root-node" data-task-id="${escAttr(task.id)}"${empty ? ' aria-describedby="flow-start-hint"' : ""}>${shellIcon("plus")}${empty ? "添加第一个节点" : "添加节点"}</button>`;
   const maxDepth = shellFlowDepth(task.nodes || []);
-  return `<section class="flow-pane${empty ? " flow-empty" : ""}" aria-label="层级处理流">
-    <div class="flow-toolbar">
+  const toolbar = `<div class="flow-toolbar"${empty ? " hidden" : ""}>
       <span class="flow-progress"><span class="flow-progress-meter" aria-hidden="true"><i style="width:${ratio}%"></i></span>${doneCount} / ${list.length} 已完成</span>
       <div class="flow-context-bar" hidden>
         ${shellIcon("flowPath", "flow-path-icon")}
@@ -383,7 +385,8 @@ function renderShellFlow(task) {
         <button class="icon-button" type="button" data-action="open-flow-locator" aria-label="定位处理流节点" title="定位节点" aria-haspopup="dialog">${shellIcon("search")}</button>
         <button class="icon-button flow-options-trigger" type="button" data-action="open-flow-options" aria-haspopup="dialog" aria-expanded="false" aria-label="${escAttr(optionsLabel)}" title="${escAttr(optionsLabel)}" ${filters.length ? 'data-filter-active' : ''}>${shellIcon("more")}</button>
       </div>
-    </div>
+    </div>`;
+  const content = `<section class="flow-pane${empty ? " flow-empty" : ""}" aria-label="层级处理流">
     <div class="flow-scroll" data-context="flow-root" data-task-id="${escAttr(task.id)}" data-processing-flow-scroll data-processing-flow-view="${escAttr(processingFlowViewKey(task))}">
       <div class="flow-outline${maxDepth === 0 ? " flow-flat" : ""}" style="--flow-depth:${maxDepth};${shellFlowIndentStyle(maxDepth)};--flow-title-track:${state.flowWidths.title}fr;--flow-note-track:${state.flowWidths.note}fr">
       <ol class="flow-tree">
@@ -396,6 +399,7 @@ function renderShellFlow(task) {
       </div>
     </div>
     </section>`;
+  return { toolbar, content };
 }
 
 // ------------------------------------------------------------
@@ -1019,13 +1023,14 @@ function renderShellWorkspaceHead(task) {
 function renderShellWorkspace(task, visibleTaskCount) {
   if (!task) return renderShellEmptyWorkspace(visibleTaskCount);
   const pane = state.taskPane === "notes" ? "notes" : state.taskPane === "history" ? "history" : "flow";
+  const flow = pane === "flow" ? renderShellFlow(task) : null;
   return `<section class="task-work-area ${shellTaskInfoCollapsed.has(task.id) ? "task-info-collapsed" : ""}">
       <div class="task-work-main">
         ${renderShellWorkspaceHead(task)}
         ${renderShellBrief(task)}
-        ${renderShellTabs(task)}
+        ${renderShellTabs(task, flow?.toolbar)}
         <div class="tab-content">
-          ${pane === "flow" ? renderShellFlow(task) : pane === "notes" ? renderShellNotes(task) : renderShellHistory(task)}
+          ${flow ? flow.content : pane === "notes" ? renderShellNotes(task) : renderShellHistory(task)}
         </div>
       </div>
       ${renderShellTaskInfo(task)}

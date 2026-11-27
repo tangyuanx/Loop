@@ -2637,7 +2637,7 @@ function render() {
   retainRegion("workspace", workspaceMarkup);
   // Preserve the shared pane controls across content-only redraws.
   if (regionReuse.get("workspace") !== "reused") {
-    const tabs = document.querySelector(".workspace .tabs-bar");
+    const tabs = document.querySelector(".workspace .pane-tabs");
     if (tabs) {
       tabs.dataset.region = "workspace-tabs";
       tabs.dataset.tabTaskId = task?.id || "";

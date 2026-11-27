@@ -191,6 +191,9 @@ const long = Array.from({length:12},(_,i)=>`第${i+1}行：完整保留中英文
       assert.ok(geometry.title>=200&&geometry.bodyFits&&geometry.barFits&&geometry.navFits,JSON.stringify(geometry));
       assert.ok(geometry.content<=Math.max(geometry.viewport,460),JSON.stringify(geometry));
       assert.equal(await nav.locator('button[aria-current]').evaluate(el=>getComputedStyle(el).display),'block','long path labels use actual text ellipsis rather than flex clipping');
+      for(const pane of ['flow','notes','history']){
+        await p.locator(`.pane-tab[data-pane="${pane}"]`).click({trial:true});
+      }
       await p.locator('[data-flow-nav-overflow]').focus();
       await p.keyboard.press('Tab');await p.keyboard.press('Shift+Tab');
       const focus=await p.locator('[data-flow-nav-overflow]').evaluate(el=>({shadow:getComputedStyle(el).boxShadow,outline:getComputedStyle(el).outlineStyle}));

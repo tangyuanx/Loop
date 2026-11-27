@@ -1193,10 +1193,12 @@ function shellBindFlowNavigation() {
   if (!pane) return;
   const scroll = pane.querySelector('.flow-scroll');
   const outline = pane.querySelector('.flow-outline');
-  const nav = pane.querySelector('[data-flow-breadcrumb]');
-  const bar = pane.querySelector('.flow-context-bar');
-  const progress = pane.querySelector('.flow-progress');
-  const optionsButton = pane.querySelector('[data-action="open-flow-options"]');
+  const toolbar = pane.closest('.task-work-main')?.querySelector('.flow-toolbar');
+  if (!toolbar) return;
+  const nav = toolbar.querySelector('[data-flow-breadcrumb]');
+  const bar = toolbar.querySelector('.flow-context-bar');
+  const progress = toolbar.querySelector('.flow-progress');
+  const optionsButton = toolbar.querySelector('[data-action="open-flow-options"]');
   if (!scroll || !outline || !nav || !bar || !progress || !optionsButton) return;
   const taskId = scroll.dataset.taskId;
   const controller = new AbortController();
@@ -1242,7 +1244,8 @@ function shellBindFlowNavigation() {
     nav.dataset.currentNode = current?.id || '';
     const hidden = atStart || !current;
     const focused = nav.contains(document.activeElement) ? document.activeElement.dataset.flowNavId || 'overflow' : null;
-    const width = progress.clientWidth;
+    bar.hidden = hidden;
+    const width = bar.clientWidth;
     const narrow = width < 480;
     const shown = hidden ? [] : path.length > (narrow ? 2 : 4)
       ? (width < 220 ? [null, path.at(-1)] : [path[0], null, ...(narrow ? path.slice(-1) : path.slice(-2))]) : path;
@@ -1250,7 +1253,6 @@ function shellBindFlowNavigation() {
     const stale = surface && (!shown.includes(null) || surface.dataset.flowTaskId !== taskId || surface.dataset.flowPath !== pathSignature(path));
     const returnPathFocus = stale && surface.contains(document.activeElement);
     if (stale) shellCloseOverlay({ restoreFocus: false });
-    bar.hidden = hidden;
     progress.classList.toggle('is-hidden', !hidden);
     if (hidden && (focused || returnPathFocus)) optionsButton.focus({ preventScroll: true });
     const next = pathSignature(shown);
@@ -1315,7 +1317,7 @@ function shellBindFlowNavigation() {
       shellFlowNavigationRuntime?.navigate(button.dataset.flowNavId);
     });
   };
-  pane.addEventListener('click', event => {
+  nav.addEventListener('click', event => {
     const button = event.target.closest('[data-flow-nav-id], [data-flow-nav-overflow]');
     if (!button || shellOverlayDismissBlocked()) return;
     event.preventDefault(); event.stopPropagation();
@@ -1324,7 +1326,7 @@ function shellBindFlowNavigation() {
   }, { signal });
   scroll.addEventListener('scroll', () => schedule(), { passive: true, signal });
   const resized = new ResizeObserver(() => schedule(true));
-  resized.observe(scroll); resized.observe(outline); resized.observe(progress);
+  resized.observe(scroll); resized.observe(outline); resized.observe(toolbar);
   const mutated = new MutationObserver(() => schedule(true));
   mutated.observe(outline, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'style', 'inert'] });
   shellFlowNavigationRuntime = { pane, navigate, refresh: () => schedule(true), destroy() {
