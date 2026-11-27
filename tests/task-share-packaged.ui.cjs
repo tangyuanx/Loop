@@ -102,13 +102,14 @@ async function exportedPack(run, output) {
     await saveDialog(app, output);
     await page.locator(`.task-select[data-task-id="${senderTaskId}"]`).click();
     await page.locator(`.task-share-action[data-task-id="${senderTaskId}"]`).click();
-    assert.equal(await page.locator('.task-share-source h3').textContent(), taskTitle);
+    await page.getByRole('dialog', { name: `分享「${taskTitle}」`, exact: true }).waitFor();
     assert.equal(await page.locator('#task-share-format').inputValue(), 'md');
     assert.equal(await page.locator('#task-share-scope').isVisible(), false);
     const summary = page.locator('#task-share-summary');
     await summary.getByText(/个节点|预览未完成/).waitFor();
     assert.match(await summary.textContent(), /2 个节点（含记录）.*3 篇任务笔记.*2 个附件/,
       await page.locator('[data-task-share-dialog]').innerText());
+    await page.locator('#task-share-adjust > summary').click();
     await page.locator('#task-share-format').selectOption('pack');
     await page.locator('#task-share-export').click();
     await page.locator('#task-share-receipt').getByText(path.basename(output), { exact: false }).waitFor();
@@ -176,8 +177,8 @@ async function importedPack(run, input) {
     await page.reload();
     await page.waitForFunction(id => state.tasks.some(task => task.id === id), importedId);
     await openDialog(app, input);
-    await page.getByRole('button', { name: '任务列表更多操作', exact: true }).click();
-    await page.getByRole('menuitem', { name: '导入任务包…', exact: true }).click();
+    await page.getByRole('button', { name: '筛选记录', exact: true }).click();
+    await page.getByRole('button', { name: '导入分享任务包…', exact: true }).click();
     await page.locator('#task-share-import-status').getByText(/完整任务/).waitFor();
     assert.match(await page.locator('#task-share-import-details').innerText(), /提醒关闭/);
     await page.locator('#task-share-import-title').fill('再次导入 · 独立副本');
