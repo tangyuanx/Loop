@@ -35,4 +35,25 @@ async function launchRepository(data, name = 'repository', executablePath = '', 
 
 const task = (id, fields = {}) => ({ id, title: id, status: 'active', priority: 'medium', order: 1,
   createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), nodes: [], ...fields });
-module.exports = { launchRepository, task };
+
+let resizeSequence = 0;
+async function resizeRepositoryWindow(app, page, width, height) {
+  const sequence = ++resizeSequence;
+  await app.evaluate(({ BrowserWindow }, { size, sequence }) => {
+    const window = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('/app/renderer/index.html'));
+    if (!window) throw new Error('The repository window did not open');
+    // Reply to the inspector before native resize events reenter Electron.
+    setTimeout(() => {
+      window.setSize(...size);
+      const nativeSize = window.getSize();
+      void window.webContents.executeJavaScript(`globalThis.loopTestWindowResize = ${JSON.stringify({ sequence, nativeSize })}`);
+    }, 50);
+    return true;
+  }, { size: [width, height], sequence });
+  await page.waitForFunction(sequence => globalThis.loopTestWindowResize?.sequence === sequence, sequence);
+  return page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+    resolve({ nativeSize: globalThis.loopTestWindowResize.nativeSize, viewport: [innerWidth, innerHeight] });
+  }))));
+}
+
+module.exports = { launchRepository, resizeRepositoryWindow, task };

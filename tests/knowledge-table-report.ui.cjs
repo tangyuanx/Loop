@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { launchRepository, task } = require('./electron-ui-helpers.cjs');
+const { launchRepository, resizeRepositoryWindow, task } = require('./electron-ui-helpers.cjs');
 const { readKnowledgeDocument } = require('../app/main/knowledge-file.cjs');
 const { readTaskData } = require('../app/main/storage.cjs');
 
@@ -74,6 +74,10 @@ async function main() {
         knowledgeNote: { ...disk, title: '表格核对', documentState: 'SAVED', dirty: false } })],
     }, 'table-report', process.env.LOOP_APP_EXECUTABLE);
     const { page, app, errors } = run;
+    // Use a known workspace width so auto-layout tests compare visible column
+    // proportions on the same geometry on both runner displays.
+    const windowGeometry = await resizeRepositoryWindow(app, page, 1280, 820);
+    assert.equal(windowGeometry.viewport[0], 1280, JSON.stringify(windowGeometry));
     await page.locator('[data-pane=notes]').click();
     const widgets = page.locator('.kn-table-widget');
     const editorField = page.locator('.kn-table-cell-editor:focus');
