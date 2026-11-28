@@ -77,7 +77,8 @@ async function main() {
     // Use a known workspace width so auto-layout tests compare visible column
     // proportions on the same geometry on both runner displays.
     const windowGeometry = await resizeRepositoryWindow(app, page, 1280, 820);
-    assert.equal(windowGeometry.viewport[0], 1280, JSON.stringify(windowGeometry));
+    assert.equal(windowGeometry.nativeSize[0], 1280, JSON.stringify(windowGeometry));
+    await page.waitForFunction(() => innerWidth === 1280);
     await page.locator('[data-pane=notes]').click();
     const widgets = page.locator('.kn-table-widget');
     const editorField = page.locator('.kn-table-cell-editor:focus');

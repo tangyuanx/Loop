@@ -42,13 +42,17 @@ const http=require('node:http');
   try{assert.equal(await p.evaluate(async url=>{const image=new Image();image.src=url;await image.decode();return knowledgeCurrentEntry().copyImage(image);},'http://127.0.0.1:'+imageServer.address().port+'/image.svg'),true);assert.deepEqual(await app.evaluate(({clipboard})=>clipboard.readImage().getSize()),{width:12,height:9});}
   finally{imageServer.closeAllConnections();await new Promise(resolve=>imageServer.close(resolve));}
   await p.locator('[data-pane="flow"]').click();await p.locator('.node-title[data-node-id="node"]').dblclick();
-  input=p.locator('[data-shell-node-rename]');await input.fill('第一行');await input.press('Shift+Enter');await input.pressSequentially('second');
+  input=p.locator('[data-shell-node-rename]');await input.fill('新节点标题');
+  const nodeCount=await p.evaluate(()=>shellNodeList(shellActiveTask()).length);
   await input.dispatchEvent('keydown',{key:'Enter',isComposing:true,keyCode:229});assert.equal(await input.count(),1);
-  await input.press('Enter');await p.waitForFunction(()=>!shellNodeRenameDraft);
-  assert.equal(await p.locator('.node-title[data-node-id="node"]').innerText(),'第一行\nsecond');
+  await input.press('Shift+Enter');await p.waitForFunction(()=>!shellNodeRenameDraft);
+  const title=p.locator('.node-title[data-node-id="node"]');
+  assert.equal(await title.innerText(),'新节点标题');
+  assert.equal(await title.evaluate(el=>el===document.activeElement),true);
+  assert.equal(await p.evaluate(()=>shellNodeList(shellActiveTask()).length),nodeCount);
   await p.locator('.flow-row[data-node-id="node"] .node-conclusion-text').dblclick();input=p.locator('[data-shell-node-conclusion]');await input.fill('结论');await input.press('Shift+Enter');await input.pressSequentially('second');await input.press('Enter');await p.waitForFunction(()=>!shellConclusionDraft);
   await p.evaluate(()=>flushSave());await p.reload();await p.locator('.node-title[data-node-id="node"]').waitFor();
-  assert.equal(await p.evaluate(()=>findNode(shellActiveTask().nodes,'node').title),'第一行\nsecond');
+  assert.equal(await p.evaluate(()=>findNode(shellActiveTask().nodes,'node').title),'新节点标题');
   assert.equal(await p.evaluate(()=>findNode(shellActiveTask().nodes,'node').conclusion),'结论\nsecond');
   assert.deepEqual(h.errors,[]);console.log('memo stage 2: table/flow Enter, Shift+Enter, composition guards, failed-save edit retention, image system clipboard, link hit/open and removed format shortcut passed');
  }finally{
