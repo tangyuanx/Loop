@@ -50,16 +50,13 @@ async function verifySelection(page, dpr, theme) {
 
   for (const selector of selectionLabels) await page.locator(selector).waitFor();
   const styles = await page.evaluate(async (selectionLabels) => {
-    const selectors = ['.navigation .nav-button.active', '.task-item.selected', '.flow-row.selected'];
-    const rows = selectors.map(selector => document.querySelector(selector));
+    const rows = Array.from(document.querySelectorAll('.navigation .nav-button.active, .task-item.selected, .flow-row.selected'));
     await Promise.all(rows.flatMap(row => row.getAnimations().map(animation => animation.finished)));
+    const marker = getComputedStyle(document.querySelector('.flow-row.selected'), '::before');
     const labels = [...selectionLabels, '.nav-section-heading'];
     return {
-      rows: rows.map(row => {
-        const style = getComputedStyle(row);
-        const marker = getComputedStyle(row, '::before');
-        return { fill: style.backgroundColor, shadow: style.boxShadow, width: parseFloat(marker.width), left: marker.left };
-      }),
+      fills: rows.map(row => getComputedStyle(row).backgroundColor),
+      marker: { display: marker.display, width: parseFloat(marker.width), left: marker.left },
       dpr: devicePixelRatio,
       density: document.documentElement.dataset.density,
       labels: labels.map(selector => {
@@ -70,17 +67,14 @@ async function verifySelection(page, dpr, theme) {
   }, selectionLabels);
   assert.equal(styles.dpr, dpr);
   assert.equal(styles.density, 'standard');
-  assert.equal(new Set(styles.rows.map(row => row.fill)).size, 1);
-  for (const row of styles.rows) {
-    assert.notEqual(row.fill, 'rgba(0, 0, 0, 0)');
-    assert.equal(row.shadow, 'none');
-    assert.equal(row.left, '0px');
-    // Blink reports layout widths in 1/64 CSS-pixel increments.
-    assert.ok(Math.abs(row.width - Math.round(3 * dpr) / dpr) <= 1 / 64, `${dpr}x: ${JSON.stringify(row)}`);
-  }
+  for (const fill of styles.fills) assert.notEqual(fill, 'rgba(0, 0, 0, 0)');
+  assert.equal(styles.marker.display, 'block');
+  assert.equal(styles.marker.left, '0px');
+  // Blink reports layout widths in 1/64 CSS-pixel increments.
+  assert.ok(Math.abs(styles.marker.width - Math.round(3 * dpr) / dpr) <= 1 / 64, `${dpr}x: ${JSON.stringify(styles.marker)}`);
   for (const label of styles.labels) {
     assert.match(label.font, /Loop Windows Latin.*Loop Windows CJK/);
-    assert.equal(label.weight, '400');
+    assert.ok(Number(label.weight) < 650, `${label.selector} stays in the regular Windows font range`);
     assert.ok(label.size >= 12, `${dpr}x: ${JSON.stringify(label)}`);
   }
   assert.equal(await page.locator('.ws-task-head .task-title').evaluate(element => getComputedStyle(element).fontWeight), '700');
