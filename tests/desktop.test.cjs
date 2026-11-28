@@ -8,6 +8,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 const { UUID } = require("builder-util-runtime");
+const { deadlineReminderGroups } = require("../app/main/deadline-reminders.cjs");
 const {
   DATA_FILE,
   DATA_VERSION,
@@ -6494,6 +6495,8 @@ test("recurring tasks normalize, become due at local time, and reactivate for a 
   }).tasks[0].recurrence;
   assert.deepEqual(normalized, {
     frequency: "weekly",
+    interval: 1,
+    anchorDate: "",
     weekdays: [5],
     time: "08:30",
     lastCompletedOccurrence: "",
@@ -6526,6 +6529,64 @@ test("recurring tasks normalize, become due at local time, and reactivate for a 
   assert.equal(result.dailyStatus, "active");
   assert.equal(result.changed, true);
   assert.equal(result.key, "2026-08-15");
+});
+
+test("extended task cycles survive production storage and use local calendar cadence", async () => {
+  const profile = await fs.mkdtemp(path.join(os.tmpdir(), "loop-recurrence-"));
+  try {
+    const input = [
+      ["day", { frequency: "daily", interval: 3, anchorDate: "2026-01-31" }],
+      ["week", { frequency: "weekly", interval: 2, anchorDate: "2026-01-28", weekdays: [5, 1, 5] }],
+      ["month", { frequency: "monthly", interval: 1, anchorDate: "2026-01-31" }],
+      ["year", { frequency: "yearly", interval: 1, anchorDate: "2024-02-29" }],
+      ["sparse", { frequency: "yearly", interval: 99, anchorDate: "2026-01-31" }],
+      ["old", { frequency: "weekly", weekday: 5 }],
+    ].map(([id, recurrence]) => ({ id, recurrence }));
+    await writeTaskData(profile, { version: DATA_VERSION, tasks: input });
+    const stored = (await readTaskData(profile)).tasks;
+    assert.deepEqual(Object.fromEntries(stored.map(({ id, recurrence: r }) => [id, [r.frequency, r.interval, r.anchorDate, r.weekdays]])), {
+      day: ["daily", 3, "2026-01-31", []], week: ["weekly", 2, "2026-01-28", [1, 5]],
+      month: ["monthly", 1, "2026-01-31", []], year: ["yearly", 1, "2024-02-29", []],
+      sparse: ["yearly", 99, "2026-01-31", []], old: ["weekly", 1, "", [5]],
+    });
+    const harness = await rendererHarness();
+    const result = harness.json(`(() => {
+      state.tasks = normalizeTasks(${JSON.stringify(stored)});
+      const tasks = Object.fromEntries(state.tasks.map(task => [task.id, task]));
+      const at = (day, time = "09:00") => new Date(day + "T" + time);
+      const due = (id, day, time) => isRecurringTaskDue(tasks[id], at(day, time));
+      return {
+        daily: ["2026-02-02", "2026-02-03", "2026-02-06"].map(day => due("day", day)),
+        weekly: ["2026-01-26", "2026-01-30", "2026-02-02", "2026-02-09", "2026-02-13"].map(day => due("week", day)),
+        monthly: ["2026-02-27", "2026-02-28", "2026-03-30", "2026-03-31"].map(day => due("month", day)),
+        yearly: ["2025-02-28", "2028-02-28", "2028-02-29"].map(day => due("year", day)),
+        beforeTime: due("month", "2026-02-28", "08:59"),
+        today: isTaskScheduledForToday(tasks.month, at("2026-02-28")),
+        calendar: shellCalendarOccurrences(at("2026-02-28"), at("2026-02-01")).map(task => task.id),
+        monthPreview: recurrenceUpcomingLabels(tasks.month.recurrence, at("2026-02-01"), 2),
+        sparse: localDateKey(nextRecurrenceDate(tasks.sparse.recurrence, at("2026-02-01"))),
+        reminder: deadlineReminderSnapshot(at("2026-02-28")).find(task => task.id === "loop-cycle:month"),
+        reminderTarget: deadlineReminderTargetId("loop-cycle:month"),
+        invalidInterval: normalizeTaskRecurrence({frequency: "monthly", interval: 113, anchorDate: "2026-02-31"}).interval,
+      };
+    })()`);
+    assert.deepEqual(result.daily, [false, true, true]);
+    assert.deepEqual(result.weekly, [false, true, false, true, true]);
+    assert.deepEqual(result.monthly, [false, true, false, true]);
+    assert.deepEqual(result.yearly, [true, false, true]);
+    assert.equal(result.beforeTime, false);
+    assert.equal(result.today, true);
+    assert.ok(result.calendar.includes("month"));
+    assert.deepEqual(result.monthPreview, ["2月28日 周六 09:00", "3月31日 周二 09:00"]);
+    assert.equal(result.sparse, "2125-01-31");
+    assert.equal(result.reminder.deadlineAt, new Date("2026-02-28T09:00").toISOString());
+    assert.equal(result.reminderTarget, "month");
+    assert.deepEqual(deadlineReminderGroups([result.reminder], new Date("2026-02-28T08:59")), []);
+    assert.equal(deadlineReminderGroups([result.reminder], new Date("2026-02-28T09:00"))[0].tasks[0].id, "loop-cycle:month");
+    assert.equal(result.invalidInterval, 99);
+  } finally {
+    await fs.rm(profile, { recursive: true, force: true });
+  }
 });
 
 test("recurrence controls feed every Today surface and refresh while the app stays open", async () => {

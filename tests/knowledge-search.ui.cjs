@@ -121,7 +121,7 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
     await page.evaluate(({theme,short})=>{state.theme=theme;render();const e=knowledgeCurrentEntry();e.view.dispatch({changes:{from:0,to:e.view.state.doc.length,insert:short}});document.querySelector('.knowledge-body').scrollTop=0;window.__floatingView=e.view;},{theme,short});
     await frame();
     assert.equal(await page.locator('.task-work-main > .tabs-bar [data-kn-action=find]').count(),0);
-    assert.equal(await page.locator('.knowledge-note-actions').getAttribute('data-over-content'),null);
+    assert.equal(await page.locator('.knowledge-note-actions.raised').count(),0);
     const measure=()=>page.evaluate(()=>{
      const r=document.querySelector('.knowledge-body').getBoundingClientRect(),b=document.querySelector('[data-wb-action=focus]').getBoundingClientRect();
      return {top:r.top,height:r.height,focusX:b.x,focusY:b.y};
@@ -143,7 +143,7 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
     await input.press('Escape');assert.equal(await page.locator('[data-kn-action=find]').isVisible(),true);
     assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().view===window.__floatingView),true);
    }
-   // With the default outline open, text cannot reach the toolbar at the edge.
+   // The toolbar raises when the document scrolls underneath it.
    await page.getByRole('button',{name:'关闭大纲',exact:true}).click();
    await page.locator('.kn-side-panel').waitFor({state:'detached'});
    await wb.width(page,'full');
@@ -151,10 +151,10 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
    await frame();
    await page.locator('.knowledge-body').evaluate(body=>{
     const line=body.querySelector('.cm-line').getBoundingClientRect();
-    const tools=body.parentElement.querySelector('.knowledge-note-actions').getBoundingClientRect();
-    body.scrollTop+=Math.max(0,line.top-tools.top+4);
+    const tools=body.querySelector('.knowledge-note-actions').getBoundingClientRect();
+    body.scrollTop+=Math.max(8,line.top-tools.top+4);
    });
-   await page.waitForFunction(()=>document.querySelector('.knowledge-note-actions')?.hasAttribute('data-over-content'));
+   await page.waitForFunction(()=>document.querySelector('.knowledge-note-actions')?.classList.contains('raised'));
    const anchored=await page.locator('.knowledge-note-actions').boundingBox();
    await page.locator('.knowledge-body').hover();await page.mouse.wheel(0,200);await frame();
    assert.ok(await page.locator('.knowledge-body').evaluate(el=>el.scrollTop>0));

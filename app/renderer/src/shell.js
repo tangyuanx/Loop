@@ -45,6 +45,7 @@ const SHELL_ICON_PATHS = {
   moon: "M21 13a9 9 0 1 1-10-10 7 7 0 0 0 10 10",
   settings: "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
   folder: "M3 7h7l2 2h9v11H3zM3 7V4h7l2 3",
+  pause: "M9 5v14M15 5v14",
   clock: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M12 7v5l3 2",
   filter: "M4 6h16M7 12h10M10 18h4",
   arrow: "M5 12h14m-6-6 6 6-6 6",
@@ -432,11 +433,7 @@ function shellCompactDueLabel(task) {
 }
 
 function shellCompactRecurLabel(recurrence) {
-  const value = normalizeTaskRecurrence(recurrence);
-  if (value.frequency === "none") return "";
-  if (value.frequency === "daily") return "每天";
-  const days = [1, 2, 3, 4, 5, 6, 0].filter((d) => value.weekdays.includes(d)).map((d) => SHELL_WEEKDAY_NAMES[d].slice(1)).join("、");
-  return `每周${days}`;
+  return recurrenceCompactLabel(recurrence);
 }
 
 function shellTaskRowMeta(task) {

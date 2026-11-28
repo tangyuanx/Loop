@@ -10,7 +10,8 @@
 // the frozen brief21.css applies. Phase20's brief card/toggle steps aside for it.
 // ------------------------------------------------------------
 
-const BRIEF21_EXPANDED = new Map();   // taskId -> the user's own choice this session
+const BRIEF21_EXPANDED = new Map();   // taskId -> the user's flow preference
+let brief21OtherPane = null;
 const BRIEF21_SESSIONS = new Map();   // "taskId:field" -> the value the session started from
 let brief21Rendering = false;
 
@@ -45,18 +46,37 @@ function brief21ResizeAll() {
   document.querySelectorAll(".brief21-input").forEach(brief21Resize);
 }
 
-/**
- * The brief itself: labelled multi-line inputs whose text is the control, with
- * no card, border or background in any state (the frozen sheet owns the look).
- */
-renderShellBrief = function brief21Brief(task) {
-  return `<section class="brief" aria-label="任务简报">${shellBriefFields(task).map(({ field, label, placeholder, value }) => `
+function brief21Open(taskId) {
+  if (state.taskPane === "flow") return BRIEF21_EXPANDED.get(taskId) ?? true;
+  return brief21OtherPane?.taskId === taskId && brief21OtherPane?.pane === state.taskPane && brief21OtherPane.open;
+}
+
+function brief21SetOpen(taskId, open) {
+  if (state.taskPane === "flow") BRIEF21_EXPANDED.set(taskId, open);
+  else brief21OtherPane = { taskId, pane: state.taskPane, open };
+}
+
+renderShellBrief = function brief21Brief(task, { dock = false } = {}) {
+  const fields = shellBriefFields(task);
+  const rows = fields.map(({ field, label, placeholder, value }) => `
     <div class="brief-row" data-brief-field="${field}" data-brief-filled="${value.trim() ? "1" : "0"}">
       <label for="brief21-${escAttr(task.id)}-${field}">${label}</label>
       <textarea id="brief21-${escAttr(task.id)}-${field}" class="brief21-input" rows="1" wrap="soft"
         data-brief21-key="${escAttr(`${task.id}:${field}`)}" data-edit-key="${escAttr(`${task.id}:${field}`)}"
         aria-label="${label}" placeholder="${placeholder}">${esc(value)}</textarea>
-    </div>`).join("")}</section>`;
+    </div>`).join("");
+  if (!dock) return `<section class="brief" aria-label="任务简报">${rows}</section>`;
+  const open = brief21Open(task.id);
+  const rowsId = `brief21-task-${escAttr(task.id)}`;
+  return `<section class="brief brief21-docked ${open ? "" : "is-folded"}" aria-label="任务简报">
+    <div class="brief-h">
+      <button id="brief21-flow-toggle" class="brief21-toggle" type="button" data-brief21-toggle aria-expanded="${Boolean(open)}" aria-controls="${rowsId}">${shellIcon("down")}<span>任务简报</span></button>
+      <span class="brief21-meter" title="背景、进展、结论的填写情况">${fields.filter(({ value }) => value.trim()).length}/3</span>
+      <span class="bwarn" ${open || fields[2].value.trim() ? "hidden" : ""}>缺结论</span>
+      ${renderTaskPropertyDock(task)}
+    </div>
+    <div class="brief-rows" id="${rowsId}" ${open ? "" : "hidden"}>${rows}</div>
+  </section>`;
 };
 
 /** Write the field into the real task (the product's own field semantics). */
@@ -76,6 +96,8 @@ function brief21Retain(el) {
   el.closest?.(".brief-row")?.setAttribute?.("data-brief-filled", el.value.trim() ? "1" : "0");
   delete state.shellDrafts[key]; // the explicit-save draft path no longer owns this field
   brief21Resize(el);
+  const meter = el.closest(".brief21-docked")?.querySelector(".brief21-meter");
+  if (meter) meter.textContent = `${shellBriefFields(task).filter(({ value }) => value.trim()).length}/3`;
 }
 
 /** Close the session: one history entry when the value actually changed. */
@@ -102,6 +124,17 @@ function brief21Flush(key) {
 function brief21SetupFlowBrief() {
   const brief = document.querySelector(".workspace > .brief, .task-work-main > .brief");
   document.querySelector(".scale20-brief-toggle")?.remove();
+  const live = document.querySelector(".brief21-docked");
+  if (live) {
+    const task = shellActiveTask();
+    const open = brief21Open(task.id);
+    live.classList.toggle("is-folded", !open);
+    live.querySelector(".brief-rows").hidden = !open;
+    live.querySelector(".brief21-toggle").setAttribute("aria-expanded", String(Boolean(open)));
+    live.querySelector(".bwarn").hidden = open || Boolean(String(task.conclusion || "").trim());
+    live.closest(".task-work-main")?.querySelector(".tabs-bar")?.classList.toggle("compact-top", !open);
+    return;
+  }
   if (!brief) {
     document.querySelector(".brief21-toggle")?.remove();
     return;
@@ -145,8 +178,8 @@ function brief21SetupFlowBrief() {
 function brief21BeginEdit(key) {
   if (!brief21IsBriefKey(key)) return false;
   let el = document.querySelector(`[data-brief21-key="${CSS.escape(key)}"]`);
-  if (!el || el.closest(".brief")?.hidden) {
-    BRIEF21_EXPANDED.set(key.split(":")[0], true);
+  if (!el || el.closest(".brief[hidden], .brief-rows[hidden]")) {
+    brief21SetOpen(key.split(":")[0], true);
     state.noteSummaryOpen = true;
     state.scale20SummaryOpen = true;
     render();
@@ -159,16 +192,17 @@ function brief21BeginEdit(key) {
 
 const brief21PriorRender = render;
 render = function brief21Render() {
+  if (brief21OtherPane && (brief21OtherPane.pane !== state.taskPane || brief21OtherPane.taskId !== state.activeTaskId)) brief21OtherPane = null;
   // A re-render must not disturb the caret while someone is typing.
   const active = document.activeElement;
   const editing = Boolean(active?.matches?.(".brief21-input"));
   const cursor = editing
     ? { key: active.dataset.brief21Key, start: active.selectionStart, end: active.selectionEnd,
-        direction: active.selectionDirection, top: active.scrollTop, briefTop: active.closest(".brief")?.scrollTop ?? 0 }
+        direction: active.selectionDirection, top: active.scrollTop, briefTop: active.closest(".brief-rows, .brief")?.scrollTop ?? 0 }
     : null;
   if (editing) brief21Retain(active);
   const continuing = cursor?.key.split(":")[0] === state.activeTaskId
-    && !state.settingsOpen && !state.calendarOpen && !state.reviewOpen ? cursor?.key : null;
+    && brief21Open(state.activeTaskId) && !state.settingsOpen && !state.calendarOpen && !state.reviewOpen ? cursor?.key : null;
   [...BRIEF21_SESSIONS.keys()].filter(key => key !== continuing).forEach(brief21Flush);
   brief21Rendering = true;
   try { brief21PriorRender(); } finally { brief21Rendering = false; }
@@ -181,7 +215,7 @@ render = function brief21Render() {
       el.focus({ preventScroll: true });
       el.setSelectionRange(cursor.start, cursor.end, cursor.direction);
       el.scrollTop = cursor.top;
-      const brief = el.closest(".brief");
+      const brief = el.closest(".brief-rows, .brief");
       if (brief) brief.scrollTop = cursor.briefTop;
     }
   }
@@ -246,7 +280,7 @@ window.addEventListener("click", (event) => {
   if (!toggle) return;
   event.preventDefault();
   event.stopImmediatePropagation();
-  BRIEF21_EXPANDED.set(state.activeTaskId, toggle.getAttribute("aria-expanded") !== "true");
+  brief21SetOpen(state.activeTaskId, toggle.getAttribute("aria-expanded") !== "true");
   // Folding only changes geometry. Keep the live brief and processing tree,
   // including native textarea undo and any open node record, in place.
   brief21SetupFlowBrief();

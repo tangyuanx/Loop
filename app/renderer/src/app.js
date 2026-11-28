@@ -203,11 +203,13 @@ const defaultSidebarWidth = 318;
 const sidebarWidthLimits = [230, 460];
 const defaultDetailHeight = 58;
 const detailHeightLimits = [50, 82];
-const recurrenceFrequencies = new Set(["none", "daily", "weekly"]);
+const recurrenceFrequencies = new Set(["none", "daily", "weekly", "monthly", "yearly"]);
 const recurrenceFrequencyLabels = {
   none: "不循环",
   daily: "每天",
   weekly: "每周",
+  monthly: "每月",
+  yearly: "每年",
 };
 const deadlineReminderMinuteValues = new Set([0, 5, 15, 30, 60, 120, 1440, 2880, 10080]);
 const defaultDeadlineReminderMinutes = 60;
@@ -845,6 +847,8 @@ function normalizeTaskRecurrence(value) {
     : legacyWeekdays;
   return {
     frequency: recurrenceFrequencies.has(raw.frequency) ? raw.frequency : "none",
+    interval: Math.max(1, Math.min(99, Math.trunc(Number(raw.interval)) || 1)),
+    anchorDate: normalizeTaskDateFilter(raw.anchorDate),
     weekdays,
     time: /^([01]\d|2[0-3]):[0-5]\d$/.test(raw.time || "") ? raw.time : "09:00",
     lastCompletedOccurrence: normalizeTaskDateFilter(raw.lastCompletedOccurrence),
@@ -4755,44 +4759,102 @@ globalThis.LoopWorkNavigationBridge = Object.freeze({
   },
 });
 
+function recurrenceCompactLabel(value) {
+  const { frequency, interval, weekdays } = normalizeTaskRecurrence(value);
+  if (frequency === "none") return "";
+  if (frequency === "daily") return interval === 1 ? "每天" : `每 ${interval} 天`;
+  if (frequency === "monthly") return interval === 1 ? "每月" : `每 ${interval} 个月`;
+  if (frequency === "yearly") return interval === 1 ? "每年" : `每 ${interval} 年`;
+  const days = weekdays.map((day) => recurrenceWeekdayLabels[day].slice(1)).join("、");
+  return interval === 1 ? `每周${days}` : `每 ${interval} 周${days ? ` · 周${days}` : ""}`;
+}
+
 function recurrenceSummaryLabel(value) {
   const recurrence = normalizeTaskRecurrence(value);
-  if (recurrence.frequency === "daily") return `每天 · ${recurrence.time}`;
-  if (recurrence.frequency === "weekly") {
-    const weekdays = recurrenceWeekdayOrder
-      .filter((weekday) => recurrence.weekdays.includes(weekday))
-      .map((weekday) => recurrenceWeekdayLabels[weekday].replace("周", ""));
-    return weekdays.length ? `每周${weekdays.join("、")} · ${recurrence.time}` : "每周 · 请选择日期";
+  const label = recurrenceCompactLabel(recurrence);
+  return label ? `${label} · ${recurrence.time}` : "不循环";
+}
+
+function taskRecurrenceAnchor(task, fallback = loopTodayKey()) {
+  return localDateKey(task.deadlineAt || "") || localDateKey(task.createdAt || "") || fallback;
+}
+
+// Count calendar days in UTC so daylight-saving changes do not shift the cadence.
+function recurrenceDayNumber(date) {
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000;
+}
+
+function recurrenceMonthDay(year, month, day) {
+  return Math.min(day, new Date(year, month + 1, 0).getDate());
+}
+
+function recurrenceMatchesDate(rule, date, fallbackAnchor = "", firstDate = date) {
+  if (rule.frequency === "none" || !Number.isFinite(date.getTime())) return false;
+  const anchor = parseDateInput(rule.anchorDate || fallbackAnchor) || firstDate;
+  const day = recurrenceDayNumber(date);
+  const origin = recurrenceDayNumber(anchor);
+  const elapsed = day - origin;
+  if (rule.frequency === "daily") return rule.interval === 1 || (elapsed >= 0 && elapsed % rule.interval === 0);
+  if (rule.frequency === "weekly") {
+    const days = rule.weekdays.length ? rule.weekdays : rule.anchorDate ? [anchor.getDay()] : [];
+    if (!days.includes(date.getDay())) return false;
+    const monday = origin - (anchor.getDay() + 6) % 7;
+    const weeks = Math.floor((day - monday) / 7);
+    return rule.interval === 1 || (elapsed >= 0 && weeks % rule.interval === 0);
   }
-  return "不循环";
+  if (elapsed < 0) return false;
+  const month = (date.getFullYear() - anchor.getFullYear()) * 12 + date.getMonth() - anchor.getMonth();
+  const interval = rule.interval * (rule.frequency === "yearly" ? 12 : 1);
+  return month % interval === 0 && date.getDate() === recurrenceMonthDay(date.getFullYear(), date.getMonth(), anchor.getDate());
+}
+
+function nextRecurrenceDate(rule, after, fallbackAnchor = "") {
+  if (!Number.isFinite(+after) || rule.frequency === "none" || (rule.frequency === "weekly" && !rule.weekdays.length && !rule.anchorDate)) return null;
+  const anchor = parseDateInput(rule.anchorDate || fallbackAnchor) || new Date(after);
+  const cursor = new Date(after);
+  const [hours, minutes] = rule.time.split(":").map(Number);
+  cursor.setHours(hours, minutes, 0, 0);
+  if (cursor <= after) cursor.setDate(cursor.getDate() + 1);
+  if (rule.frequency === "monthly" || rule.frequency === "yearly") {
+    const interval = rule.interval * (rule.frequency === "yearly" ? 12 : 1);
+    const months = (cursor.getFullYear() - anchor.getFullYear()) * 12 + cursor.getMonth() - anchor.getMonth();
+    const offset = Math.max(0, Math.ceil(months / interval)) * interval;
+    const occurrence = new Date(anchor.getFullYear(), anchor.getMonth() + offset, 1, hours, minutes);
+    occurrence.setDate(recurrenceMonthDay(occurrence.getFullYear(), occurrence.getMonth(), anchor.getDate()));
+    if (occurrence < cursor) {
+      occurrence.setDate(1);
+      occurrence.setMonth(occurrence.getMonth() + interval);
+      occurrence.setDate(recurrenceMonthDay(occurrence.getFullYear(), occurrence.getMonth(), anchor.getDate()));
+    }
+    return occurrence;
+  }
+  if (rule.interval > 1 && recurrenceDayNumber(cursor) < recurrenceDayNumber(anchor)) {
+    cursor.setFullYear(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+  }
+  while (!recurrenceMatchesDate(rule, cursor, fallbackAnchor, anchor)) cursor.setDate(cursor.getDate() + 1);
+  cursor.setHours(hours, minutes, 0, 0);
+  return cursor;
 }
 
 function recurrenceUpcomingLabels(value, start = loopNow(), count = 3) {
-  const recurrence = normalizeTaskRecurrence(value);
-  if (recurrence.frequency === "none" || count < 1) return [];
-  const [hours, minutes] = recurrence.time.split(":").map(Number);
-  const cursor = new Date(start);
-  cursor.setHours(hours, minutes, 0, 0);
-  if (cursor <= start) cursor.setDate(cursor.getDate() + 1);
+  const rule = normalizeTaskRecurrence(value);
   const labels = [];
-  for (let step = 0; step < 32 && labels.length < count; step += 1) {
-    if (recurrence.frequency === "daily" || recurrence.weekdays.includes(cursor.getDay())) {
-      labels.push(`${cursor.getMonth() + 1}月${cursor.getDate()}日 ${recurrenceWeekdayLabels[cursor.getDay()]} ${recurrence.time}`);
-    }
-    cursor.setDate(cursor.getDate() + 1);
+  const anchor = localDateKey(start);
+  let cursor = start;
+  while (labels.length < count && (cursor = nextRecurrenceDate(rule, cursor, anchor))) {
+    labels.push(`${cursor.getMonth() + 1}月${cursor.getDate()}日 ${recurrenceWeekdayLabels[cursor.getDay()]} ${rule.time}`);
   }
   return labels;
 }
 
 function recurringOccurrenceKey(task, at = loopNow()) {
   const recurrence = normalizeTaskRecurrence(task.recurrence);
-  if (recurrence.frequency === "none") return "";
   const date = at instanceof Date ? at : new Date(at);
-  if (!Number.isFinite(date.getTime())) return "";
+  if (!recurrenceMatchesDate(recurrence, date, taskRecurrenceAnchor(task, localDateKey(date)))) return "";
   const [hours, minutes] = recurrence.time.split(":").map(Number);
-  if (date.getHours() * 60 + date.getMinutes() < hours * 60 + minutes) return "";
-  if (recurrence.frequency === "weekly" && !recurrence.weekdays.includes(date.getDay())) return "";
-  return localDateKey(date);
+  const scheduled = new Date(date);
+  scheduled.setHours(hours, minutes, 0, 0);
+  return date < scheduled ? "" : localDateKey(date);
 }
 
 function isRecurringTaskDue(task, at = loopNow()) {
@@ -4847,6 +4909,7 @@ function startRecurringSchedule() {
   window.clearInterval?.(recurrenceScheduleTimer);
   recurrenceScheduleTimer = window.setInterval?.(() => {
     if (syncRecurringTasks(loopNow())) render();
+    else publishDeadlineReminderSnapshot();
   }, 30000) || 0;
 }
 
@@ -8514,7 +8577,7 @@ async function action(data, event = null) {
   // recognises is executed there and re-rendered, the legacy chain below
   // keeps handling the remaining project commands.
   if (typeof shellAction === "function" && await shellAction(data, event)) {
-    if (!["note-format", "note-heading", "toggle-nav", "toggle-task-list", "toggle-task-info", "edit-node-conclusion", "toggle-node-conclusion", "select-flow-node", "read-node-conclusion"].includes(data.action)) render();
+    if (!["note-format", "note-heading", "toggle-nav", "toggle-task-list", "toggle-task-info", "open-dock-schedule", "open-dock-priority", "open-dock-marks", "edit-node-conclusion", "toggle-node-conclusion", "select-flow-node", "read-node-conclusion"].includes(data.action)) render();
     return;
   }
   state.contextMenu = null;
@@ -9822,6 +9885,7 @@ function updateTaskRecurrence(taskId, field, value) {
     next.frequency = recurrenceFrequencies.has(value) ? value : "none";
     if (next.frequency === "weekly" && previous.weekdays.length === 0) next.weekdays = [loopNow().getDay()];
     if (next.frequency === "none") next.lastCompletedOccurrence = "";
+    else if (!next.anchorDate) next.anchorDate = taskRecurrenceAnchor(task);
   }
   if (field === "weekday") {
     const weekday = Number(value);
@@ -10761,17 +10825,32 @@ function publishTodayWidgetSnapshot() {
   desktopTodayWidget.publish(todayWidgetSnapshot());
 }
 
-function deadlineReminderSnapshot() {
-  return state.tasks
-    .filter((task) => safeDate(task.deadlineAt))
-    .map((task) => ({
-      id: task.id,
-      title: task.title || "未命名任务",
-      status: task.status,
-      priority: task.priority,
-      deadlineAt: task.deadlineAt,
-      deadlineReminderMinutes: task.deadlineReminderMinutes,
-    }));
+function recurringReminderId(task) {
+  return `loop-cycle:${task.id}`.slice(0, 160);
+}
+
+function deadlineReminderTargetId(id) {
+  return state.tasks.find((task) => task.id === id)?.id
+    || state.tasks.find((task) => recurringReminderId(task) === id)?.id || id;
+}
+
+function deadlineReminderSnapshot(at = new Date()) {
+  const today = new Date(at);
+  today.setHours(0, 0, 0, 0);
+  return state.tasks.flatMap((task) => {
+    const common = { id: task.id, title: task.title || "未命名任务", status: task.status, priority: task.priority };
+    const result = [];
+    if (safeDate(task.deadlineAt)) result.push({ ...common, deadlineAt: task.deadlineAt, deadlineReminderMinutes: task.deadlineReminderMinutes });
+    const rule = normalizeTaskRecurrence(task.recurrence);
+    if (shellTaskIsNote(task) || rule.frequency === "none" || task.deadlineReminderMinutes === null) return result;
+    const anchor = taskRecurrenceAnchor(task, localDateKey(today));
+    let occurrence = nextRecurrenceDate(rule, new Date(+today - 1), anchor);
+    if (occurrence && rule.lastCompletedOccurrence === localDateKey(occurrence)) occurrence = nextRecurrenceDate(rule, occurrence, anchor);
+    if (occurrence && +occurrence !== +safeDate(task.deadlineAt)) {
+      result.push({ ...common, id: recurringReminderId(task), status: "active", deadlineAt: occurrence.toISOString(), deadlineReminderMinutes: 0 });
+    }
+    return result;
+  });
 }
 
 function publishDeadlineReminderSnapshot() {
@@ -10802,7 +10881,7 @@ function initializeDeadlineReminderBridge() {
     if (!taskId) return;
     // Phase19: coming back from a reminder must not lose the open draft.
     shellPreserveDraftsForReturn();
-    openTaskFromGlobalList(taskId);
+    openTaskFromGlobalList(deadlineReminderTargetId(taskId));
     render();
   });
   unsubscribeDeadlineReminderCalendar = desktopDeadlineReminders.onOpenCalendar?.(() => {

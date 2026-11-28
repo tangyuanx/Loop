@@ -679,6 +679,7 @@
       time: deadline ? shellTimeLabel(deadline) : "18:00",
       reminder: task.deadlineReminderMinutes === null || task.deadlineReminderMinutes === undefined ? "none" : String(task.deadlineReminderMinutes),
       cycle: recurrence.frequency,
+      interval: recurrence.interval,
       cycleTime: recurrence.time || "09:00",
       weekdays: [...recurrence.weekdays],
       expanded: false,
@@ -701,6 +702,7 @@
     draft.time = String(data.get("time") ?? "18:00");
     draft.reminder = String(data.get("reminder") ?? "none");
     draft.cycle = String(data.get("cycle") ?? "none");
+    draft.interval = Number(data.get("interval") ?? draft.interval);
     draft.cycleTime = String(data.get("cycleTime") ?? "09:00");
     draft.weekdays = data.getAll("weekday").map(Number);
     draft.today = data.has("today");
@@ -727,7 +729,8 @@
             <div><label for="manage24-date">截止日期</label><input id="manage24-date" name="date" type="date" value="${manage24Attr(draft.date)}"></div>
             <div><label for="manage24-time-input">截止时间</label><input id="manage24-time-input" name="time" type="time" value="${manage24Attr(draft.time)}"></div>
             <div class="manage24-full"><label for="manage24-reminder">提醒</label><select id="manage24-reminder" name="reminder">${Object.entries(deadlineReminderLabels).map(([value, label]) => manage24Option(value, label, draft.reminder)).join("")}</select></div>
-            <div><label for="manage24-cycle">循环</label><select id="manage24-cycle" name="cycle">${[["none", "不循环"], ["daily", "每天"], ["weekly", "每周"]].map(([value, label]) => manage24Option(value, label, draft.cycle)).join("")}</select></div>
+            <div><label for="manage24-cycle">循环</label><select id="manage24-cycle" name="cycle">${Object.entries(recurrenceFrequencyLabels).map(([value, label]) => manage24Option(value, label, draft.cycle)).join("")}</select></div>
+            <div><label for="manage24-cycle-interval">循环间隔</label><input id="manage24-cycle-interval" name="interval" type="number" min="1" max="99" value="${draft.interval}"></div>
             <div><label for="manage24-cycle-time">进入今日的时间</label><input id="manage24-cycle-time" name="cycleTime" type="time" value="${manage24Attr(draft.cycleTime)}"></div>
             <div class="manage24-full" id="manage24-weekdays" ${draft.cycle === "weekly" ? "" : "hidden"}><label>重复日期</label><div class="manage24-tags">${MANAGE24_WEEKDAY_ORDER.map((day) => `<label><input type="checkbox" name="weekday" value="${day}" ${draft.weekdays.includes(day) ? "checked" : ""}>${SHELL_WEEKDAY_NAMES[day].slice(1)}</label>`).join("")}</div></div>
             <div class="manage24-full"><label for="manage24-estimate">预计时长 · 可选</label><input type="number" id="manage24-estimate" name="estimate" min="1" max="720" value="${manage24Attr(draft.estimate)}" placeholder="分钟"></div>
@@ -768,7 +771,7 @@
     let error = "";
     if (!String(draft.title || "").trim()) error = "请输入标题后再保存";
     else if (!choices.some((choice) => choice.id === draft.groupId)) error = "目标分组已不存在，请重新选择";
-    else if (draft.cycle === "weekly" && !draft.weekdays.length) error = "每周循环至少选择一天";
+    else if (draft.cycle !== "none" && (!Number.isInteger(draft.interval) || draft.interval < 1 || draft.interval > 99)) error = "循环间隔须为 1 至 99 的整数";
     else if ((draft.date && !draft.time) || (draft.cycle !== "none" && !draft.cycleTime)) error = "请补全截止或循环的时间";
     else if (estimate && (!/^\d+$/.test(estimate) || Number(estimate) < 1 || Number(estimate) > 720)) error = "请检查预计时长（1–720 分钟）";
     if (error) {
@@ -789,6 +792,8 @@
       task.recurrence = normalizeTaskRecurrence({
         ...task.recurrence,
         frequency: draft.cycle,
+        interval: draft.cycle === "none" ? 1 : draft.interval,
+        anchorDate: draft.cycle === "none" ? "" : (task.recurrence?.anchorDate || draft.date || loopTodayKey()),
         time: draft.cycle !== "none" ? draft.cycleTime : "",
         weekdays: draft.weekdays,
         lastCompletedOccurrence: draft.cycle === "none" ? "" : task.recurrence?.lastCompletedOccurrence || "",

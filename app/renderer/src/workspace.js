@@ -119,11 +119,7 @@ function shellDeadlineProperty(task) {
 }
 
 function shellRecurrenceLabel(recurrence) {
-  const value = normalizeTaskRecurrence(recurrence);
-  if (value.frequency === "none") return "不循环";
-  const weekly = `每周${[1, 2, 3, 4, 5, 6, 0].filter((day) => value.weekdays.includes(day)).map((day) => SHELL_WEEKDAY_NAMES[day].slice(1)).join("、")}`;
-  const base = value.frequency === "daily" ? "每天" : weekly;
-  return `${base} · ${value.time || "09:00"}`;
+  return recurrenceSummaryLabel(recurrence);
 }
 
 // ------------------------------------------------------------
@@ -190,7 +186,7 @@ function renderShellTabs(task, flowToolbar = "") {
     ["notes", "知识笔记", noteCount ? String(noteCount) : ""],
     ["history", "处理历史", historyCount ? String(historyCount) : ""],
   ];
-  return `<div class="tabs-bar">
+  return `<div class="tabs-bar ${typeof brief21Open === "function" && !brief21Open(task.id) ? "compact-top" : ""}">
     <nav class="pane-tabs" aria-label="任务内容">
       ${panes.map(([pane, label, count]) => `<button class="pane-tab ${state.taskPane === pane ? "active" : ""}" type="button" data-action="switch-task-pane" data-pane="${pane}" aria-pressed="${state.taskPane === pane}">${label}${count ? `<span class="pane-count">${count}</span>` : ""}</button>`).join("")}
     </nav>
@@ -1095,26 +1091,40 @@ function shellSetTaskInfoCollapsed(taskId, collapsed) {
   if (!collapsed) brief21ResizeAll?.();
 }
 
+function renderTaskPropertyDock(task) {
+  const { today, blocked, later } = normalizeTaskTags(task.tags);
+  const priority = normalizePriority(task.priority);
+  const priorityLabel = SHELL_PRIORITY_LABELS[priority].replace("优先", "");
+  const deadline = safeDate(task.deadlineAt);
+  const due = deadline ? `${deadline.getMonth() + 1}/${deadline.getDate()} ${shellTimeLabel(deadline)}` : "";
+  const overdue = deadline && !shellTaskDone(task) && deadline < loopNow();
+  const cycle = recurrenceCompactLabel(task.recurrence);
+  const schedule = [due && `截止 ${due}`, cycle && `循环 ${recurrenceSummaryLabel(task.recurrence)}`].filter(Boolean).join(" · ");
+  const marks = [blocked && "卡住", later && "稍后"].filter(Boolean).join(" · ");
+  const slot = (key, icon, value, tone, title) => {
+    const action = key === "today" ? "toggle-dock-today" : `open-dock-${key}`;
+    const expanded = typeof shellOverlay === "function" && shellOverlay()?.querySelector(".prop-pop")?.dataset.mode === key;
+    return `<button class="pd ${value ? "set" : ""} ${tone}" type="button" data-action="${action}" data-slot="${key}"
+      aria-label="${escAttr(title)}" title="${escAttr(title)}" ${key === "today" ? `aria-pressed="${today}"` : `aria-haspopup="dialog" aria-expanded="${Boolean(expanded)}"`}>
+      ${shellIcon(icon)}${value ? `<span class="pv">${value}</span>` : ""}
+    </button>`;
+  };
+  return `<div class="pdock" role="group" aria-label="任务属性">
+    ${slot("schedule", !deadline && cycle ? "repeat" : "clock", due ? `<span class="mono">${esc(due)}</span>${cycle ? shellIcon("repeat", "pd-repeat") : ""}` : esc(cycle), overdue ? "over" : "", schedule || "设置截止与循环")}
+    ${slot("priority", "flag", priorityLabel, priority === "high" ? "high" : "", `优先级：${priorityLabel}`)}
+    ${slot("today", "sun", today ? "今日" : "", today ? "today" : "", today ? "已在今日，点击移出" : "加入今日")}
+    ${slot("marks", "pause", esc(marks), blocked ? "stuck" : "", marks ? `标记：${marks}` : "标记卡住 / 稍后")}
+  </div>`;
+}
+
 function renderShellWorkspaceHead(task) {
-  const done = task.status === "done";
-  const tags = normalizeTaskTags(task.tags);
-  const deadline = shellDeadlineProperty(task);
-  const recurrence = normalizeTaskRecurrence(task.recurrence);
-  const pri = SHELL_PRIORITY_LABELS[normalizePriority(task.priority)];
-  const dueDate = safeDate(task.deadlineAt);
-  const dueText = dueDate ? `${dueDate.getMonth() + 1}/${dueDate.getDate()} ${shellTimeLabel(dueDate)} 截止` : "截止";
-  return `<header class="ws-task-head">
+  const done = shellTaskDone(task);
+  return `<header class="ws-task-head work-head">
     <div class="ws-title-row">
       <button class="ws-complete-check ${done ? "done" : ""}" type="button" data-action="toggle-task-done" data-task-id="${escAttr(task.id)}" aria-label="${done ? "恢复任务" : "完成任务"}" aria-pressed="${done}" title="${done ? "已完成，点击恢复" : "完成任务"}">${done ? shellIcon("check") : ""}</button>
       ${renderShellTaskTitle(task)}
     </div>
-    <div class="ws-props-row" role="group" aria-label="任务属性">
-      <button class="ws-prop" type="button" data-action="toggle-task-priority-menu" data-task-id="${escAttr(task.id)}" aria-haspopup="menu" title="修改优先级">${shellIcon("flag")}<span>优先级 ${esc(pri.replace("优先", ""))}</span></button>
-      <button class="ws-prop ${deadline.classes}" type="button" data-action="toggle-deadline-picker" data-task-id="${escAttr(task.id)}" aria-haspopup="dialog" title="${escAttr(deadline.title)}">${shellIcon("clock")}<span>${esc(dueText)}</span></button>
-      <button class="ws-prop ${tags.blocked ? "is-blocked" : ""}" type="button" data-action="open-task-tags" aria-haspopup="dialog" title="标记">${shellIcon(tags.blocked ? "blocked" : "flag")}<span>${tags.blocked ? "卡住" : tags.later ? "稍后" : "标记"}</span></button>
-      <button class="ws-prop ${tags.today ? "is-today" : ""}" type="button" data-action="toggle-task-tag" data-tag="today" data-task-id="${escAttr(task.id)}" aria-pressed="${Boolean(tags.today)}" title="今日安排">${shellIcon("sun")}<span>${tags.today ? "在今日" : "今日"}</span></button>
-      <button class="ws-prop" type="button" data-action="open-task-recurrence" data-task-id="${escAttr(task.id)}" aria-haspopup="dialog" title="设置循环">${shellIcon("repeat")}<span>${recurrence.frequency === "none" ? "循环" : esc(shellRecurrenceLabel(recurrence))}</span></button>
-    </div>
+    ${renderShellBrief(task, { dock: true })}
   </header>`;
 }
 
@@ -1125,7 +1135,6 @@ function renderShellWorkspace(task, visibleTaskCount) {
   return `<section class="task-work-area ${shellTaskInfoCollapsed.has(task.id) ? "task-info-collapsed" : ""}">
       <div class="task-work-main">
         ${renderShellWorkspaceHead(task)}
-        ${renderShellBrief(task)}
         ${renderShellTabs(task, flow?.toolbar)}
         <div class="tab-content">
           ${flow ? flow.content : pane === "notes" ? renderShellNotes(task) : renderShellHistory(task)}

@@ -39,7 +39,7 @@ const ALL_TASKS_GROUP_ID = "group_all";
 const UNGROUPED_TASKS_GROUP_ID = "group_ungrouped";
 const TASK_STATUSES = new Set(["active", "done"]);
 const PRIORITIES = new Set(["high", "medium", "low"]);
-const RECURRENCE_FREQUENCIES = new Set(["none", "daily", "weekly"]);
+const RECURRENCE_FREQUENCIES = new Set(["none", "daily", "weekly", "monthly", "yearly"]);
 const DEADLINE_REMINDER_MINUTES = new Set([0, 5, 15, 30, 60, 120, 1440, 2880, 10080]);
 const DEFAULT_DEADLINE_REMINDER_MINUTES = 60;
 const TASK_FILTERS = new Set(["all", "today", "active", "done", "blocked", "later"]);
@@ -544,6 +544,8 @@ function normalizeTaskRecurrence(value) {
     : legacyWeekdays;
   return {
     frequency: RECURRENCE_FREQUENCIES.has(raw.frequency) ? raw.frequency : "none",
+    interval: Math.max(1, Math.min(99, Math.trunc(Number(raw.interval)) || 1)),
+    anchorDate: normalizeLocalDateKey(raw.anchorDate),
     weekdays,
     time: /^([01]\d|2[0-3]):[0-5]\d$/.test(raw.time || "") ? raw.time : "09:00",
     lastCompletedOccurrence: normalizeLocalDateKey(raw.lastCompletedOccurrence),

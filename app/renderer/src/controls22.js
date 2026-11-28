@@ -16,7 +16,7 @@ const CONTROL22_SKIP = [
   'input[type="hidden"]', 'input[type="checkbox"]', 'input[type="radio"]', 'input[type="range"]',
   'input[type="file"]', 'input[type="color"]', 'input[type="button"]', 'input[type="submit"]',
   'input[type="reset"]', 'input[type="image"]', ".brief21-input", "#knowledge-source", ".kn-find input", ".kn-table-cell-editor",
-  ".node-share-search-field input", ".node-conclusion-editor", ".manage24-title-input",
+  ".node-share-search-field input", ".node-conclusion-editor", ".manage24-title-input", ".pp-in",
 ].join(",");
 const CONTROL22_CHECK = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7"/></svg>';
 
@@ -27,7 +27,7 @@ let control22Typed = "";
 let control22TypedAt = 0;
 
 function control22Supported(el) {
-  return el instanceof HTMLSelectElement && !el.multiple && el.size <= 1 && !el.disabled;
+  return el instanceof HTMLSelectElement && !el.classList.contains("pp-in") && !el.multiple && el.size <= 1 && !el.disabled;
 }
 
 function control22Enabled(option) {

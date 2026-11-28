@@ -1799,6 +1799,160 @@ function shellApplyDeadline(date, time, reminder) {
   render();
 }
 
+const DOCK_RECURRENCE_PRESETS = [["none", "不循环"], ["daily", "每天"], ["weekly", "每周"], ["monthly", "每月"]];
+const DOCK_RECURRENCE_UNITS = [["daily", "天"], ["weekly", "周"], ["monthly", "个月"], ["yearly", "年"]];
+const DOCK_LABELS = { schedule: "截止与循环", priority: "优先级", marks: "标记" };
+const DOCK_WIDTHS = { schedule: 288, priority: 180, marks: 152 };
+
+function shellDockDates() {
+  const monday = loopNow();
+  monday.setDate(monday.getDate() + 8 - (monday.getDay() || 7));
+  return [[loopTodayKey(), "今天", "18:00"], [shellCreateDate(1), "明天", "18:00"], [localDateKey(monday), "下周一", ""]];
+}
+
+function shellDockPanelMarkup(task, mode, custom) {
+  const choice = (key, value, text, selected, cls = "pp-chip") => `<button type="button" class="${cls}${selected ? " on" : ""}" data-p="${key}" data-value="${value}" aria-pressed="${selected}">${text}</button>`;
+  if (mode === "priority") {
+    const current = normalizePriority(task.priority);
+    return `<div class="pp-row"><span class="pp-lbl">优先级</span><div class="pp-seg" role="group" aria-label="优先级">${[["low", "低"], ["medium", "中"], ["high", "高"]].map(([value, label]) => choice("priority", value, label, current === value, value)).join("")}</div></div>`;
+  }
+  if (mode === "marks") {
+    const tags = normalizeTaskTags(task.tags);
+    return `<div class="pp-row"><span class="pp-lbl">标记</span><div class="pp-chips">${choice("mark", "blocked", "卡住", tags.blocked, "pp-chip danger")}${choice("mark", "later", "稍后", tags.later)}</div></div>`;
+  }
+  const deadline = safeDate(task.deadlineAt);
+  const date = deadline ? localDateKey(deadline) : "";
+  const rule = normalizeTaskRecurrence(task.recurrence);
+  const cycle = recurrenceCompactLabel(rule);
+  return `<div class="pp-row col">
+    <div class="pp-sub"><span class="pp-lbl">截止日期与时间</span><button type="button" class="pp-clear" data-p="clear-date" ${deadline ? "" : "hidden"}>清除</button></div>
+    <div class="pp-chips">${shellDockDates().map(([value, label]) => choice("date", value, label, date === value)).join("")}</div>
+    <div class="pp-inputs">
+      <input class="pp-in" type="date" data-pi="date" value="${date}" aria-label="自定义截止日期">
+      <input class="pp-in time" type="time" data-pi="time" value="${deadline ? shellTimeLabel(deadline) : ""}" aria-label="自定义截止时间">
+    </div>
+    <div class="pp-sub pp-cycle"><span class="pp-lbl">循环</span><span data-dock-cycle-label>${esc(cycle)}</span></div>
+    <div class="pp-chips">${DOCK_RECURRENCE_PRESETS.map(([value, label]) => choice("cycle", value, label, !custom && rule.frequency === value)).join("")}${choice("custom", "", "自定义", custom)}</div>
+    ${custom ? `<div class="pp-custom">
+      <div class="pp-inputs">
+        <span class="pp-lbl">每</span>
+        <input class="pp-in num" type="number" min="1" max="99" step="1" data-pi="interval" value="${rule.interval}" aria-label="循环间隔">
+        <select class="pp-in sel" data-pi="unit" aria-label="循环单位">${DOCK_RECURRENCE_UNITS.map(([value, label]) => `<option value="${value}" ${rule.frequency === value ? "selected" : ""}>${label}</option>`).join("")}</select>
+      </div>
+      ${rule.frequency === "weekly" ? `<div class="pp-wdays" role="group" aria-label="选择循环星期">${recurrenceWeekdayOrder.map((day) => choice("weekday", day, SHELL_WEEKDAY_LABELS[day], rule.weekdays.includes(day), "")).join("")}</div>` : ""}
+    </div>` : ""}
+  </div>`;
+}
+
+function shellLayoutDockPanel(surface) {
+  const trigger = document.querySelector(surface.dataset.returnFocus);
+  if (!trigger || shellActiveTask()?.id !== surface.dataset.taskId || !trigger.getClientRects().length) {
+    shellCloseOverlay({ restoreFocus: false });
+    return;
+  }
+  const rect = trigger.getBoundingClientRect();
+  const width = surface.offsetWidth, height = surface.offsetHeight;
+  const left = rect.left + width > innerWidth - 12 ? rect.right - width : rect.left;
+  const top = rect.bottom + 6 + height > innerHeight - 12 ? rect.top - 6 - height : rect.bottom + 6;
+  surface.style.left = `${Math.max(12, Math.min(left, innerWidth - width - 12))}px`;
+  surface.style.top = `${Math.max(12, Math.min(top, innerHeight - height - 12))}px`;
+}
+
+function shellOpenDockPanel(task, mode, trigger) {
+  if (!task || !trigger) return;
+  const active = shellOverlay()?.querySelector(".prop-pop");
+  if (active?.dataset.mode === mode) { shellCloseOverlay(); return; }
+  const rule = normalizeTaskRecurrence(task.recurrence);
+  let custom = rule.interval > 1 || rule.frequency === "yearly" || (rule.frequency === "weekly" && rule.weekdays.length > 0);
+  const surface = shellMountSurface(`<section class="surface-popover prop-pop" role="dialog" aria-label="${DOCK_LABELS[mode]}" data-light-dismiss data-mode="${mode}" data-task-id="${escAttr(task.id)}">${shellDockPanelMarkup(task, mode, custom)}</section>`, trigger, DOCK_WIDTHS[mode]);
+  if (!surface) return;
+  shellLayoutDockPanel(surface);
+  if (!surface.contains(document.activeElement)) surface.querySelector("button:not([hidden]), input, select")?.focus({ preventScroll: true });
+
+  const commit = (source, update, repaint = true) => {
+    const current = shellActiveTask();
+    if (current?.id !== task.id) { shellCloseOverlay({ restoreFocus: false }); return; }
+    update(current);
+    current.updatedAt = now();
+    syncRecurringTasks(loopNow());
+    save();
+    const wasFocused = document.activeElement === source;
+    const control = source.dataset.pi ? `[data-pi="${source.dataset.pi}"]`
+      : `[data-p="${source.dataset.p}"][data-value="${source.dataset.value ?? ""}"]`;
+    if (repaint) surface.innerHTML = shellDockPanelMarkup(current, mode, custom);
+    else {
+      // Keep the native field and the next click target connected when change
+      // is dispatched as a field loses focus.
+      const deadline = safeDate(current.deadlineAt);
+      const date = deadline ? localDateKey(deadline) : "";
+      surface.querySelector('[data-pi="date"]').value = date;
+      surface.querySelector('[data-pi="time"]').value = deadline ? shellTimeLabel(deadline) : "";
+      surface.querySelector('[data-p="clear-date"]').hidden = !deadline;
+      surface.querySelectorAll('[data-p="date"]').forEach((button) => {
+        const selected = button.dataset.value === date;
+        button.setAttribute("aria-pressed", String(selected));
+        button.classList.toggle("on", selected);
+      });
+      const updated = normalizeTaskRecurrence(current.recurrence);
+      surface.querySelector("[data-dock-cycle-label]").textContent = recurrenceCompactLabel(updated);
+      const interval = surface.querySelector('[data-pi="interval"]');
+      if (interval) interval.value = updated.interval;
+    }
+    render();
+    if (!surface.isConnected) return;
+    shellLayoutDockPanel(surface);
+    if (wasFocused) (surface.querySelector(control) || surface.querySelector('[data-pi="date"]'))?.focus({ preventScroll: true });
+  };
+  const setCycle = (current, changes) => {
+    const previous = normalizeTaskRecurrence(current.recurrence);
+    const anchorDate = previous.anchorDate || (safeDate(current.deadlineAt) ? localDateKey(current.deadlineAt) : loopTodayKey());
+    current.recurrence = normalizeTaskRecurrence({ ...previous, anchorDate, ...changes });
+  };
+  const setDeadline = (current, date, time) => {
+    const stamp = date && safeDate(`${date}T${time || "18:00"}`);
+    current.deadlineAt = stamp ? stamp.toISOString() : "";
+  };
+  surface.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-p]");
+    if (!button) return;
+    const value = button.dataset.value;
+    commit(button, (current) => {
+      const recurrence = normalizeTaskRecurrence(current.recurrence);
+      switch (button.dataset.p) {
+        case "priority": current.priority = value; break;
+        case "mark": toggleTaskTag(current.id, value); break;
+        case "clear-date": setDeadline(current, "", ""); break;
+        case "date": setDeadline(current, value, current.deadlineAt ? shellTimeLabel(current.deadlineAt) : shellDockDates().find(([date]) => date === value)?.[2]); break;
+        case "cycle":
+          custom = false;
+          setCycle(current, { frequency: value, interval: 1, weekdays: [], ...(value === "none" ? { anchorDate: "", lastCompletedOccurrence: "" } : {}) });
+          break;
+        case "custom":
+          custom = true;
+          if (recurrence.frequency === "none") setCycle(current, { frequency: "weekly", weekdays: [5] });
+          break;
+        case "weekday": {
+          const day = Number(value);
+          const weekdays = recurrence.weekdays.includes(day) ? recurrence.weekdays.filter((entry) => entry !== day) : [...recurrence.weekdays, day];
+          setCycle(current, { weekdays });
+          break;
+        }
+      }
+    });
+  });
+  surface.addEventListener("change", (event) => {
+    const input = event.target.closest("[data-pi]");
+    if (!input || (input.type === "number" && input.validity.badInput)) return;
+    commit(input, (current) => {
+      const deadline = safeDate(current.deadlineAt);
+      if (input.dataset.pi === "date") setDeadline(current, input.value, deadline ? shellTimeLabel(deadline) : "");
+      if (input.dataset.pi === "time") setDeadline(current, deadline ? localDateKey(deadline) : loopTodayKey(), input.value);
+      if (input.dataset.pi === "interval") setCycle(current, { interval: input.value });
+      if (input.dataset.pi === "unit") setCycle(current, { frequency: input.value });
+    }, input.dataset.pi === "unit");
+  });
+}
+
 // ------------------------------------------------------------
 // Recurrence
 // ------------------------------------------------------------
@@ -1830,7 +1984,7 @@ function shellRenderRecurrencePanel(trigger) {
   const draft = state.recurrenceDraft;
   const surface = shellMountSurface(
     `<form class="surface-popover" id="recurrence-form" role="dialog" aria-modal="true" aria-label="设置循环任务">${shellSurfaceHeader("循环任务")}
-      <div class="recurrence-modes" role="group" aria-label="循环周期">${[["none", "不循环"], ["daily", "每天"], ["weekly", "每周"]].map(([value, label]) => `<button type="button" class="${draft.frequency === value ? "active" : ""}" data-action="shell-recurrence-mode" data-mode="${value}" aria-pressed="${draft.frequency === value}">${label}</button>`).join("")}</div>
+      <div class="recurrence-modes" role="group" aria-label="循环周期">${Object.entries(recurrenceFrequencyLabels).map(([value, label]) => `<button type="button" class="${draft.frequency === value ? "active" : ""}" data-action="shell-recurrence-mode" data-mode="${value}" aria-pressed="${draft.frequency === value}">${label}</button>`).join("")}</div>
       ${draft.frequency !== "none" ? shellCycleState() : ""}
       ${draft.frequency !== "none" ? `
         <label for="recurrence-time">显示在今日的时间</label>
@@ -1990,6 +2144,30 @@ async function shellAction(data, event) {
   const trigger = event?.target?.closest?.("[data-action]") || event?.currentTarget || event?.target;
   const task = shellActiveTask();
   switch (data.action) {
+    case "open-dock-schedule":
+    case "open-dock-priority":
+    case "open-dock-marks":
+      shellOpenDockPanel(task, data.action.slice("open-dock-".length), trigger);
+      return true;
+    case "toggle-dock-today": {
+      if (!task) return true;
+      toggleTaskTag(task.id, "today");
+      const added = task.tags.today;
+      showWorkspaceFeedback(added ? "已加入今日" : isTaskScheduledForToday(task) ? "已取消手动加入今日" : "已移出今日",
+        `<button type="button" data-action="undo-dock-today" data-task-id="${escAttr(task.id)}" data-added="${added}">撤销</button>`,
+        { source: "dock-today" });
+      save();
+      return true;
+    }
+    case "undo-dock-today": {
+      const changed = state.tasks.find((item) => item.id === data.taskId);
+      if (changed && normalizeTaskTags(changed.tags).today === (data.added === "true")) {
+        toggleTaskTag(changed.id, "today");
+        save();
+      }
+      clearWorkspaceFeedback("dock-today");
+      return true;
+    }
     case "open-list-search":
       shellSetTaskListCollapsed(false);
       state.searchOpen = true;
@@ -2331,7 +2509,7 @@ async function shellAction(data, event) {
       return true;
     }
     case "open-deadline-details":
-      shellDeadlinePanel(document.querySelector('.ws-props-row [data-action="toggle-deadline-picker"]'));
+      shellDeadlinePanel(document.querySelector('[data-action="toggle-deadline-picker"]'));
       return true;
     case "set-deadline-shortcut":
       if (task) shellApplyDeadline(data.date, "18:00", task.deadlineReminderMinutes);
@@ -2339,8 +2517,8 @@ async function shellAction(data, event) {
     case "open-task-recurrence": {
       if (!task) return true;
       const current = normalizeTaskRecurrence(task.recurrence);
-      const weeklyFriday = current.frequency === "weekly" && current.weekdays.length === 1 && current.weekdays[0] === 5;
-      const options = [["none", "不循环", current.frequency === "none"], ["daily", "每天", current.frequency === "daily"], ["weekly", "每周五", weeklyFriday]];
+      const weeklyFriday = current.frequency === "weekly" && current.interval === 1 && current.weekdays.length === 1 && current.weekdays[0] === 5;
+      const options = [["none", "不循环", current.frequency === "none"], ["daily", "每天", current.frequency === "daily" && current.interval === 1], ["weekly", "每周五", weeklyFriday]];
       shellMountSurface(`<section class="surface-popover flow-view-options" role="dialog" aria-label="循环" data-light-dismiss>
         ${options.map(([value, label, checked]) => `<button type="button" data-action="set-recurrence-shortcut" data-value="${value}" aria-pressed="${checked}"><span>${label}</span>${checked ? shellIcon("check") : ""}</button>`).join("")}
         <button type="button" data-action="open-recurrence-details">自定义…</button>
@@ -2348,12 +2526,12 @@ async function shellAction(data, event) {
       return true;
     }
     case "open-recurrence-details":
-      shellRecurrencePanel(document.querySelector('.ws-props-row [data-action="open-task-recurrence"]'));
+      shellRecurrencePanel(document.querySelector('[data-action="open-task-recurrence"]'));
       return true;
     case "set-recurrence-shortcut":
       if (task) {
         const previous = normalizeTaskRecurrence(task.recurrence);
-        task.recurrence = normalizeTaskRecurrence({ ...previous, frequency: data.value, weekdays: data.value === "weekly" ? [5] : previous.weekdays });
+        task.recurrence = normalizeTaskRecurrence({ ...previous, frequency: data.value, interval: 1, weekdays: data.value === "weekly" ? [5] : previous.weekdays });
         task.updatedAt = now();
         syncRecurringTasks(loopNow());
         shellCloseOverlay();
@@ -3081,7 +3259,7 @@ function shellBindOverlayDismissal() {
   window.addEventListener("resize", () => {
     shellLayoutTaskMenu();
     document.querySelectorAll("#overlay .surface-popover, #overlay .priority-popover, #overlay .status-menu")
-      .forEach(shellClampFloatingSurface);
+      .forEach((surface) => surface.matches?.(".prop-pop") ? shellLayoutDockPanel(surface) : shellClampFloatingSurface(surface));
   });
   let consumeOutsideClick = false;
   document.addEventListener("keydown", (event) => {
@@ -3246,6 +3424,8 @@ function shellBindFlowColumns() {
   });
 }
 function shellBindOverlay() {
+  const dock = shellOverlay()?.querySelector(".prop-pop");
+  if (dock) shellLayoutDockPanel(dock);
   const card = document.querySelector("[data-task-info]");
   if (card && bindRenderElement(card, "task-info-keys")) card.addEventListener("keydown", event => {
     if (event.key !== "Escape" || event.isComposing || shellOverlayIsOpen()) return;

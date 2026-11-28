@@ -417,29 +417,22 @@ function knowledgeBindToolbar() {
   if(knowledgeToolbarBindings.has(surface)){knowledgeToolbarBindings.get(surface).schedule();continue;}
   const actions=surface.querySelector('.knowledge-note-actions');if(!actions)continue;
   const controller=new AbortController();
-  const card=surface.closest('.task-work-area')?.querySelector('[data-task-info]');
-  const fitChrome=()=>{
-    surface.style.setProperty('--knowledge-actions-clearance',actions.offsetTop+actions.offsetHeight+8+'px');
-    if(!card?.getClientRects().length)return;
-    const clearance=Math.floor(actions.getBoundingClientRect().top-card.getBoundingClientRect().top-8);
-    const header=card.querySelector('.task-info-head').offsetHeight;
-    const limit=Math.max(header,clearance)+'px';
-    if(card.style.getPropertyValue('--task-info-max-height')!==limit)card.style.setProperty('--task-info-max-height',limit);
-  };
+  const body=surface.querySelector('.knowledge-body');
   const binding={surface,actions,controller,frame:0};
   const update=()=>{
     binding.frame=0;
     if(!surface.isConnected)return;
-    for(const group of [actions,surface.querySelector('.knowledge-footer-meta')].filter(Boolean))group.toggleAttribute('data-over-content',knowledgeToolbarContentUnder(group,surface));
+    actions.classList.toggle('raised', (body?.scrollTop ?? 0) > 6);
+    const footer=surface.querySelector('.knowledge-footer-meta');
+    if(footer)footer.toggleAttribute('data-over-content',knowledgeToolbarContentUnder(footer,surface));
   };
   const schedule=()=>{if(!binding.frame)binding.frame=requestAnimationFrame(update);};
-  const resize=new ResizeObserver(()=>{fitChrome();schedule();}),mutations=new MutationObserver(schedule);
+  const resize=new ResizeObserver(schedule),mutations=new MutationObserver(schedule);
   Object.assign(binding,{schedule,resize,mutations});knowledgeToolbarBindings.set(surface,binding);
   resize.observe(surface);resize.observe(actions);
   mutations.observe(surface,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['hidden','data-mode']});
   surface.addEventListener('scroll',schedule,{capture:true,passive:true,signal:controller.signal});
   document.fonts?.addEventListener('loadingdone',schedule,{signal:controller.signal});
-  fitChrome();
   schedule();
   }
 }
@@ -448,8 +441,12 @@ function knowledgeUpdateTabScroll(binding) {
   for(const current of binding?[binding]:knowledgeTabsBindings.values()){
   const {bar,viewport,session}=current;
   session.scroll=viewport.scrollLeft;
-  bar.querySelector('[data-kn-scroll="-1"]').disabled=viewport.scrollLeft<=1;
-  bar.querySelector('[data-kn-scroll="1"]').disabled=viewport.scrollLeft+viewport.clientWidth>=viewport.scrollWidth-1;
+  const atStart=viewport.scrollLeft<=1;
+  const atEnd=viewport.scrollLeft+viewport.clientWidth>=viewport.scrollWidth-1;
+  bar.querySelector('[data-kn-scroll="-1"]').disabled=atStart;
+  bar.querySelector('[data-kn-scroll="1"]').disabled=atEnd;
+  viewport.classList.toggle('fade-l',!atStart);
+  viewport.classList.toggle('fade-r',!atEnd);
   }
 }
 
@@ -1336,7 +1333,7 @@ function knowledgeRefreshPanels(task) {
   pane.querySelector('.knowledge-header [data-kn-action="panels"]')?.setAttribute('aria-expanded',String(open));
   if(!open || backlinksOpen) knowledgeOutlineBindings.get(body)?.();
   if(!open){aside?.remove();return;}
-  if(!aside){aside=document.createElement('aside');aside.className='kn-side-panel';aside.id=`kn-side-panel-${encodeURIComponent(task.id)}`;body.append(aside);}
+  if(!aside){aside=document.createElement('aside');aside.className='kn-side-panel kn-outline';aside.id=`kn-side-panel-${encodeURIComponent(task.id)}`;body.append(aside);}
   aside.setAttribute('aria-label',backlinksOpen?'反向链接':'笔记大纲');
   if(!backlinksOpen){
     knowledgeBindOutlineDivider(body, aside, task.id);

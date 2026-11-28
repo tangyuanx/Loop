@@ -49,11 +49,12 @@ function renderShellCalendar() {
     const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
     const key = localDateKey(date);
     const dueItems = calendarTasksForDate(key);
-    const items = [...dueItems, ...shellCalendarOccurrences(date, now)];
+    const occurrences = shellCalendarOccurrences(date, now);
+    const items = [...dueItems.map(task => ({ task, occurrence: false })), ...occurrences.map(task => ({ task, occurrence: true }))];
     const weekend = date.getDay() === 0 || date.getDay() === 6;
-    const previewChips = items.slice(0, 3).map(task => {
-      const tone = task.status === "done" ? "is-done" : Date.parse(task.deadlineAt) < +now ? "is-overdue" : "is-open";
-      const repeat = normalizeTaskRecurrence(task.recurrence).frequency !== "none";
+    const previewChips = items.slice(0, 3).map(({ task, occurrence }) => {
+      const tone = occurrence ? "is-open" : task.status === "done" ? "is-done" : Date.parse(task.deadlineAt) < +now ? "is-overdue" : "is-open";
+      const repeat = occurrence || normalizeTaskRecurrence(task.recurrence).frequency !== "none";
       return `<span class="cal-ev ${tone}" title="${escAttr(task.title)}"><span>${esc(task.title)}</span>${repeat ? shellIcon("repeat") : ""}</span>`;
     }).join("");
     const label = `${key} · ${dueItems.length} 项截止${items.length > dueItems.length ? ` · ${items.length - dueItems.length} 项循环` : ""}`;

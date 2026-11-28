@@ -254,6 +254,6 @@ function desktopReminderOpenEntry(index) {
   }
   const taskId = entry.tasks?.[0]?.id;
   if (!taskId) return;
-  openTaskFromGlobalList(taskId);
+  openTaskFromGlobalList(deadlineReminderTargetId(taskId));
   render();
 }
