@@ -3,7 +3,11 @@ import {tableGeometry} from './knowledge-span-grid.js';
 // HTML table heights are minimums: content, including rowspan cells, remains
 // fully visible after narrowing columns, typing, image loads or font changes.
 export function applyTableRowHeights(table,heights) {
-  [...table.rows].forEach((row,index)=>row.style.height=heights?.[index]?heights[index]+'px':'');
+  // Legacy header heights stay in storage but never affect natural layout.
+  [...table.rows].forEach((row,index)=>{
+    const height=row.parentElement===table.tHead?0:heights?.[index];
+    row.style.height=height?height+'px':'';
+  });
 }
 
 export function preferredColumnWidth(table,index,limit) {

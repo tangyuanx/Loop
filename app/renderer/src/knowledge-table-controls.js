@@ -171,6 +171,7 @@ export function installTableControls(owner,widget) {
   }
   for(let row=0;row<table.rows.length;row++){
     handle('row',row);
+    if(table.rows[row].parentElement===table.tHead)continue;
     const el=document.createElement('div');el.className='kn-table-row-resizer';el.dataset.row=row;
     el.title='拖动调整行高，双击设为最合适的行高';el.setAttribute('aria-hidden','true');
     el.addEventListener('pointerdown',event=>start(event,'row-resize',row));

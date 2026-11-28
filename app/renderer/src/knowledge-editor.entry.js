@@ -1846,7 +1846,7 @@ class KnowledgeEditor {
     const block=this.tableAt(Number(widget?.dataset.sourcePos));
     const count=block?.span?block.height:block?.rows.length-1;
     height=Math.round(Number(height));
-    if(!block||!Number.isInteger(row)||row<0||row>=count||!Number.isFinite(height)||height!==0&&(height<42||height>4096))return false;
+    if(!block||!Number.isInteger(row)||row<1||row>=count||!Number.isFinite(height)||height!==0&&(height<42||height>4096))return false;
     const index=this.tableIndex(block.from),tables=this.view.state.field(this.tableHeights).map(rows=>rows.slice());
     while(tables.length<=index)tables.push([]);
     tables[index]=Array.from({length:count},(_,r)=>tables[index][r]||0);tables[index][row]=height;
