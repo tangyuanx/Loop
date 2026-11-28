@@ -16,8 +16,6 @@
 //     trailing save/cancel control or hint text is rendered;
 //   · one in-place field skin (transparent, no box, 1px bottom rule, 0 radius)
 //     while ordinary property fields keep the Phase22 weak-border 6px skin;
-//   · no per-group management button in the navigation — the group menu and the
-//     central organizer own every management path;
 //   · a 200px group menu with a fixed 14px icon column, 34px rows and correct
 //     up/down arrow rotation;
 //   · the 360px properties panel with per-task drafts, the 330px move panel,
@@ -229,7 +227,7 @@
   }
 
   // ============================================================
-  // 1. Group navigation: heading actions, no per-row management button
+  // 1. Group navigation and management
   // ============================================================
 
   renderShellGroupNavigation = function manage24GroupNavigation() {
@@ -250,7 +248,7 @@
           <button class="nav-button ${active ? "active" : ""}" type="button" data-action="select-nav-group" data-group-id="${manage24Attr(group.id)}" title="${manage24Attr(group.title)}" aria-label="分组：${manage24Attr(group.title)}" aria-haspopup="menu" aria-current="${active ? "page" : "false"}">
             <i class="group-mark"></i><span>${manage24Esc(group.title)}</span><span class="count">${shellGroupOpenCount(group.id)}</span>
           </button>
-          <button class="icon-button group-menu-button" type="button" data-manage24="group-menu" data-group-id="${manage24Attr(group.id)}" aria-label="${manage24Attr(group.title)} 分组操作" aria-haspopup="menu">${shellIcon("more")}</button>
+          <button class="icon-button group-nav-menu" type="button" data-manage24="group-menu" data-group-id="${manage24Attr(group.id)}" aria-label="${manage24Attr(group.title)} 分组操作" aria-haspopup="menu">${shellIcon("moreHorizontal")}</button>
         </div>`;
     }).join("");
     const ungroupedActive = shellRoute() === "tasks" && state.activeGroupId === UNGROUPED_TASKS_GROUP_ID;

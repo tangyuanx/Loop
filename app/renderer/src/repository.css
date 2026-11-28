@@ -429,11 +429,43 @@ body .nav-section-heading .icon-button:hover {
   background: var(--surface-navigation-hover);
   color: var(--workspace-text);
 }
-body .navigation .group-nav-row { margin-block: 0; }
+body .navigation .group-nav-row {
+  position: relative;
+  margin-block: 0;
+}
 body .navigation .group-nav-row .nav-button {
   min-height: 30px;
   height: 30px;
   font-size: var(--type-13);
+}
+body .navigation .group-nav-row .nav-button > span:first-of-type {
+  padding-right: 0;
+}
+body .navigation .group-nav-menu {
+  position: absolute;
+  inset-inline-end: 10px;
+  width: 22px;
+  height: 26px;
+  padding: 0;
+  color: var(--workspace-secondary);
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+}
+body .navigation .group-nav-menu:hover {
+  color: var(--workspace-text);
+  background: transparent;
+}
+body .navigation .group-nav-menu svg {
+  width: 14px;
+  height: 14px;
+}
+body .navigation .group-nav-row:is(:hover, :has(> :focus-visible)) > .group-nav-menu {
+  opacity: 1;
+  pointer-events: auto;
+}
+body .navigation .group-nav-row:has(> .group-nav-menu):is(:hover, :has(> :focus-visible)) .count {
+  visibility: hidden;
 }
 body .group-mark {
   width: 7px;
