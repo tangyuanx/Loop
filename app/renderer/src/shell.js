@@ -405,14 +405,6 @@ function shellListTitle() {
   return "任务";
 }
 
-/** Phase18: today's completions stay reachable from the list footer. */
-function shellTodayCompletedFoot() {
-  if (shellRoute() !== "today" || state.captureSourceFilter === "quick") return "";
-  const count = shellCompletedToday().length;
-  if (!count && state.todayFilter !== "done") return "";
-  return `<button class="text-button time18-completed" type="button" data-action="${state.todayFilter === "done" ? "show-today-active" : "show-today-completed"}">${state.todayFilter === "done" ? "返回待办" : `已完成 ${count}`}</button>`;
-}
-
 function shellListFoot() {
   if (shellRoute() === "today") {
     return state.captureSourceFilter === "quick" ? "随手记录，稍后整理" : "";
@@ -553,6 +545,7 @@ function renderShellTaskList(list) {
   const note = state.captureSourceFilter === "quick" || state.quickInboxOpen;
   const filters = shellActiveFilterLabels();
   const searching = Boolean(state.searchOpen || state.query.trim());
+  const footLabel = shellListFoot();
   return `
     <aside id="task-list-panel" class="task-list-pane ${shellRoute() === "today" ? "today-clean " : ""}" aria-label="任务列表">
       <span class="list-resizer" data-action="resize-list-column" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整任务列表宽度" aria-valuemin="230" aria-valuemax="460" aria-valuenow="${normalizeSidebarWidth(state.sidebarWidth)}" title="拖动调整任务列表宽度"></span>
@@ -582,7 +575,7 @@ function renderShellTaskList(list) {
       <div id="task-results" class="tasks-scroll" data-context="task-list">${renderShellTaskRows(list)}</div>
       ${shellBulk.active
         ? `<footer class="list-foot bulk-dock" aria-label="批量操作">${shellBulkFooter()}</footer>`
-        : `<footer class="list-foot ${shellTodayCompletedFoot() ? "time18-footer" : ""}">${shellListFoot() ? `<span>${esc(shellListFoot())}</span>` : ""}${shellTodayCompletedFoot()}${shellRoute() === "today" ? shellQuickInboxButton(state.tasks.filter(task => shellTaskIsNote(task) && task.status !== "done").length) : ""}${shellBulkFooter()}</footer>`}
+        : `<footer class="list-foot">${footLabel ? `<span>${esc(footLabel)}</span>` : ""}${shellBulkFooter()}</footer>`}
     </aside>`;
 }
 

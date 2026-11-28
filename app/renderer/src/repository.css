@@ -950,6 +950,14 @@ body .list-foot .text-button {
   font-size: var(--type-11);
   color: var(--workspace-secondary);
 }
+body[data-scale20-enabled] .list-foot .scale20-locate {
+  margin-inline-start: 0;
+}
+/* Keep the other footer actions away from the pointer when locating hides this button. */
+body[data-scale20-enabled] .list-foot .scale20-locate[hidden] {
+  display: inline-flex;
+  visibility: hidden;
+}
 body .task-list-pane .empty { overflow-wrap: anywhere; }
 body .task-list-context-menu { width: max-content; min-width: 128px; }
 

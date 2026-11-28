@@ -38,7 +38,7 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     assert.equal(await page.locator('.workspace-empty h2').innerText(), '没有匹配的任务');
     assert.deepEqual(await filterButton.boundingBox(), filterBox, 'active filtering leaves the button in place');
     await clear(); assert.equal(await page.evaluate(() => shellRoute()), 'today');
-    await page.locator('[data-action="show-today-completed"]').click();
+    await page.locator('.list-filter [data-action="set-today-filter"][data-value="done"]').click();
     await filter('priority', 'low'); await clear();
     assert.equal(await page.evaluate(() => state.todayFilter), 'done');
     await page.locator('.navigation [data-group-id="work"]').click();

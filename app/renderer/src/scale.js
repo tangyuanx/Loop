@@ -41,29 +41,37 @@ function scale20LocateIcon() {
 }
 
 function scale20ListScroll() {
-  return document.querySelector(".tasks-scroll");
+  return document.getElementById("task-results");
 }
 
-function scale20SelectedRow() {
-  return document.querySelector(".tasks-scroll .task-item.selected") || document.querySelector(".task-item.selected");
+function scale20SelectedRow(list) {
+  const row = list.querySelector(".task-item.selected");
+  return row?.dataset.taskId === state.activeTaskId ? row : null;
 }
 
 /** 定位当前 is only offered while the selected row sits outside the viewport. */
 function scale20UpdateLocate() {
   const list = scale20ListScroll();
-  const row = scale20SelectedRow();
-  const button = document.querySelector(".scale20-locate");
-  if (!list || !button) return;
-  const listRect = list.getBoundingClientRect();
+  if (!list) return;
+  const button = list.closest(".task-list-pane")?.querySelector(".scale20-locate");
+  if (!button) return;
+  const row = scale20SelectedRow(list);
   const rowRect = row?.getBoundingClientRect();
-  button.hidden = !rowRect || (rowRect.top >= listRect.top && rowRect.bottom <= listRect.bottom);
+  const top = list.getBoundingClientRect().top + list.clientTop;
+  button.hidden = !rowRect || !list.clientHeight ||
+    (rowRect.top >= top - 1 && rowRect.bottom <= top + list.clientHeight + 1);
 }
 
-function scale20LocateCurrent() {
-  const row = scale20SelectedRow();
+function scale20LocateCurrent({ keyboard }) {
+  const list = scale20ListScroll();
+  if (!list?.clientHeight) return;
+  const row = scale20SelectedRow(list);
   if (!row) return;
-  row.scrollIntoView({ block: "center" });
-  row.querySelector(".task-select")?.focus({ preventScroll: true });
+  const listTop = list.getBoundingClientRect().top + list.clientTop;
+  const rowRect = row.getBoundingClientRect();
+  const top = list.scrollTop + rowRect.top - listTop + (rowRect.height - list.clientHeight) / 2;
+  list.scrollTo({ top, behavior: "instant" });
+  if (keyboard) row.querySelector(".task-select")?.focus({ preventScroll: true });
   scale20UpdateLocate();
 }
 
@@ -97,7 +105,7 @@ function scale20Decorate() {
 
   const foot = document.querySelector(".list-foot:not(.bulk-dock)");
   if (foot && !foot.querySelector(".scale20-locate")) {
-    foot.insertAdjacentHTML("beforeend", `<button class="text-button scale20-locate" data-scale20="locate" title="定位当前任务" hidden>${scale20LocateIcon()}定位当前</button>`);
+    foot.insertAdjacentHTML("afterbegin", `<button class="text-button scale20-locate" type="button" data-scale20="locate" title="定位当前任务" hidden>${scale20LocateIcon()}定位当前</button>`);
   }
 
   // One horizontal scroll container per table keeps the header and the body aligned.
@@ -209,7 +217,7 @@ window.addEventListener("click", (event) => {
   if (!button) return;
   event.preventDefault();
   event.stopImmediatePropagation();
-  if (button.dataset.scale20 === "locate") scale20LocateCurrent();
+  if (button.dataset.scale20 === "locate") scale20LocateCurrent({ keyboard: event.detail === 0 });
   else if (button.dataset.scale20 === "summary") {
     state.scale20SummaryOpen = state.scale20SummaryOpen !== true;
     render();
