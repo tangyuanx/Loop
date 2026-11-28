@@ -15,6 +15,7 @@ module.exports=async({page,choose,mode,markdown})=>{
  try{
   for(const code of ['const 值 = `a|b`;\n// 第二行','保留最后一个空行\n','']){
    const source='```text\n'+code+'\n```';await reset(source);await mode('preview');
+   await page.locator('.kn-reading .kn-code').first().hover();
    await page.locator('.kn-code-copy').first().click();
    await page.waitForFunction(()=>document.querySelector('.kn-code-copy')?.textContent==='已复制');
    assert.equal(await page.evaluate(()=>window.__boundaryCopy),code,'copy omits the fence terminator and preserves explicit blank lines');
@@ -22,7 +23,7 @@ module.exports=async({page,choose,mode,markdown})=>{
   }
   await page.evaluate(()=>{navigator.clipboard.writeText=async()=>{throw Error('QA clipboard permission denied');};});
   await page.locator('.kn-code-copy').first().click();
-  await page.waitForFunction(()=>document.querySelector('.kn-code-copy')?.textContent==='复制失败');
+  await page.getByText('无法复制代码',{exact:true}).waitFor();
  }finally{await page.evaluate(()=>{navigator.clipboard.writeText=window.__boundaryCopyWrite;delete window.__boundaryCopyWrite;delete window.__boundaryCopy;});}
  await mode('edit');
 };

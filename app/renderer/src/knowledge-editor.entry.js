@@ -911,10 +911,16 @@ class KnowledgeEditor {
         for(const c of markers)add(c.from,c.to,Decoration.replace({inclusive:false,knHiddenSyntax:true}));
         add(node.from,node.to,Decoration.mark({class:'kn-external-link',attributes:{'data-kn-link-from':String(node.from)}}));
       }
-      if(node.name==='TaskMarker'&&!active){
+      if(node.name==='TaskMarker'){
         const value=state.doc.sliceString(node.from,node.to);
-        const label=state.doc.lineAt(node.from).text.replace(/^\s*(?:[-+*]|\d+[.)])\s+\[[ xX]\]\s*/,'').trim().slice(0,120);
-        add(node.from,node.to,Decoration.replace({widget:new TaskWidget(/[xX]/.test(value),node.from+1,label),inclusive:false}));return false;}
+        const line=state.doc.lineAt(node.from),checked=/[xX]/.test(value);
+        if(checked&&node.to<line.to)add(node.to,line.to,Decoration.mark({class:'kn-task-completed'}));
+        if(!active){
+          const label=line.text.replace(/^\s*(?:[-+*]|\d+[.)])\s+\[[ xX]\]\s*/,'').trim().slice(0,120);
+          add(node.from,node.to,Decoration.replace({widget:new TaskWidget(checked,node.from+1,label),inclusive:false}));
+        }
+        return false;
+      }
       if(node.name==='ListMark'&&!active && /^[-+*]$/.test(state.doc.sliceString(node.from,node.to))) {
         const task=/^\s+\[[ xX]\]/.test(state.doc.sliceString(node.to,Math.min(node.to+5,state.doc.length)));
         add(node.from,node.to,Decoration.replace(task?{inclusive:false}:{widget:new BulletWidget(),inclusive:false}));
@@ -1569,7 +1575,13 @@ class KnowledgeEditor {
       // The rendered fence includes one structural newline before its closing
       // marker. Keep intentional blank lines, without copying that terminator.
       const code=(button.parentElement.querySelector('pre code')?.textContent||'').replace(/\n$/,'');
-      navigator.clipboard.writeText(code).then(()=>{button.textContent='已复制';}).catch(()=>{button.textContent='复制失败';});return;
+      navigator.clipboard.writeText(code).then(()=>{
+        clearTimeout(button.copyReceipt);
+        button.textContent='已复制';button.classList.add('copied');
+        button.copyReceipt=setTimeout(()=>{
+          button.textContent='复制';button.classList.remove('copied');
+        },1400);
+      }).catch(()=>this.options.onFeedback?.('无法复制代码'));return;
     }
     const box=target.closest('input[data-task-pos]');
     if(box){
@@ -1605,6 +1617,38 @@ class KnowledgeEditor {
     // heading matching ignores case and Unicode form on both sides.
     const target=core.anchorOffset(this.getEditorText(),anchor);
     if(typeof target==='number'&&target>=0)this.locate(target);
+  }
+  readingHeading(line) {
+    return [...this.readHost.querySelectorAll(`:is(h1,h2,h3,h4,h5,h6)[data-source-line="${line}"]`)]
+      .find(heading=>!heading.closest('.kn-embed-body'));
+  }
+  headingAtHeight(headings, top) {
+    const {view}=this;
+    if(this.mode==='preview'){
+      const visible=[...this.readHost.querySelectorAll(':is(h1,h2,h3,h4,h5,h6)[data-source-line]')]
+        .findLast(heading=>!heading.closest('.kn-embed-body')&&heading.getBoundingClientRect().top<=top);
+      if(!visible)return -1;
+      const pos=view.state.doc.line(Math.min(view.state.doc.lines,Number(visible.dataset.sourceLine)+1)).from;
+      return headings.findLastIndex(heading=>heading.offset<=pos);
+    }
+    const pos=view.lineBlockAtHeight(top-view.documentTop).from;
+    return headings.findLastIndex(heading=>heading.offset<=pos);
+  }
+  scrollToHeading(pos, body) {
+    const {view}=this;
+    if(this.mode!=='preview' && (view.composing||this.activeTableCell?.composing))return false;
+    const line=view.state.doc.lineAt(Math.min(pos,view.state.doc.length));
+    const reading=this.mode==='preview';
+    this.finishTableCell();
+    view.dispatch({selection:{anchor:line.from}});
+    const top=reading
+      ? this.readingHeading(line.number-1)?.getBoundingClientRect().top
+      : view.documentTop+view.lineBlockAt(line.from).top;
+    if(top==null)return false;
+    if(!reading)view.focus();
+    body.scrollBy({top:top-body.getBoundingClientRect().top-36,
+      behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
+    return true;
   }
   locate(pos) {
     pos=Math.max(0,Math.min(this.view.state.doc.length,pos));

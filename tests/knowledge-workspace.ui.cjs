@@ -6,7 +6,7 @@ const path = require('node:path');
 const {launchRepository,task} = require('./electron-ui-helpers.cjs');
 const wb = require('./workbench-helpers.cjs');
 const out = path.resolve(process.env.LOOP_STAGE4_QA_DIR || '.local-review/frontend-remediation/stage-04/workspace');
-const original = '# 工作记录\r\n\r\n原文与 **重点**。\r\n\r\n| 项目 | 结论 |\r\n| --- | --- |\r\n| 编辑 | 保真 |\r\n\r\n[[另一份笔记]]\r\n';
+const original = '# 工作记录\r\n\r\n原文与 **重点**。\r\n\r\n| 项目 | 结论 |\r\n| --- | --- |\r\n| 编辑 | 保真 |\r\n\r\n[[另一份笔记]]\r\n\r\n```js\r\nconst sample = 42;\r\n```\r\n';
 const long = Array.from({length:600},(_,i)=>`## 标题 ${i+1}\n\n第 ${i+1} 段，长笔记需要保持选区、滚动和撤销。`.repeat(1)).join('\n\n');
 const results = {checks:[],inputs:[],performance:null,errors:[]};
 let h;
@@ -37,10 +37,28 @@ function neutral(css,label) {
   await choose(p,'note');await p.evaluate(()=>{globalThis.__stage4Editor=knowledgeCurrentEntry();globalThis.__stage4View=knowledgeCurrentEntry().view;});
   for(const value of ['source','preview','edit'])await wb.mode(p,value);
   for(const width of ['wide','full','default'])await wb.width(p,width);
-  await wb.panels(p);await p.locator('.kn-side-panel').waitFor();
+  if(!await p.locator('.kn-outline').count())await wb.panels(p);
+  await p.locator('.kn-side-panel').waitFor();
   assert.equal(await p.locator('.kn-side-panel header strong').innerText(),'大纲');
   await wb.more(p);await p.locator('[data-kn-action="backlinks"]').click();
   await p.locator('.kn-backlink').waitFor();assert.equal(await p.locator('.kn-backlink').count(),1);
+  assert.equal(await p.locator('.kn-outline').count(),1);
+  assert.match(await p.locator('.kn-backlink small').innerText(),/工作记录/);
+  await p.getByRole('button',{name:'关闭反向链接',exact:true}).click();
+  assert.equal(await p.locator('.kn-outline').count(),1);
+  assert.equal(await p.locator('.kn-backlinks').count(),0);
+  await wb.mode(p,'preview');
+  const block=p.locator('.kn-reading .kn-code[data-lang="js"]');
+  await block.hover();
+  await block.getByRole('button',{name:'复制代码'}).click();
+  await block.getByText('已复制',{exact:true}).waitFor();
+  assert.equal(await app.evaluate(({clipboard})=>clipboard.readText()),'const sample = 42;');
+  await wb.mode(p,'edit');
+  await p.keyboard.press('ControlOrMeta+/');
+  await p.waitForFunction(()=>knowledgeCurrentEntry()?.mode==='source');
+  assert.equal(await p.locator('[data-kn-mode-status]').innerText(),'源码');
+  await p.keyboard.press('ControlOrMeta+/');
+  await p.waitForFunction(()=>knowledgeCurrentEntry()?.mode==='edit');
   await p.locator('[data-wb-action="focus"]').click();assert.equal(await p.locator('.navigation').isVisible(),false);await p.keyboard.press('Escape');assert.equal(await p.locator('.navigation').isVisible(),true);
   await p.locator('[data-pane="flow"]').click();await p.locator('[data-pane="notes"]').click();
   await choose(p,'other');await choose(p,'note');
@@ -68,6 +86,11 @@ function neutral(css,label) {
   for(const theme of ['light','dark']) {
    await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(1280,820));
    await p.evaluate(t=>{state.theme=t;render()},theme);await wb.mode(p,'edit');
+   await p.locator('[data-kn-document="note"]').dblclick();
+   const rename=p.locator('.kn-inline-rename input');
+   neutral(await rename.evaluate(readCSS),'inline rename');
+   neutral(await rename.locator('..').evaluate(readCSS),'inline rename parent');
+   await rename.press('Escape');
    await p.locator('[data-kn-action="find"]').click();await p.locator('.kn-find [name=toggleReplace]').click();
    for(const selector of ['.kn-find input[name=search]','.kn-find input[name=replace]']) {
     const el=p.locator(selector);let parentBackground;for(const interaction of ['default','hover','focus']) {
@@ -85,7 +108,7 @@ function neutral(css,label) {
    assert.equal(await p.evaluate(()=>knowledgeCurrentEntry().view.hasFocus),true);
    await p.locator('.kn-table-widget tbody td').first().click();const cell=p.locator('.kn-table-cell-editor');await cell.waitFor();const css=await cell.evaluate(readCSS);neutral(css,'table');assert.equal(css.backgroundColor,'rgba(0, 0, 0, 0)');
    await p.keyboard.press('Escape');await settle(p);await p.screenshot({path:path.join(out,theme+'-edit.png')});
-   await wb.mode(p,'preview');await wb.panels(p);await settle(p);await p.screenshot({path:path.join(out,theme+'-reading-panels.png')});
+   await wb.mode(p,'preview');if(!await p.locator('.kn-outline').count())await wb.panels(p);await settle(p);await p.screenshot({path:path.join(out,theme+'-reading-panels.png')});
    await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(1024,680));await settle(p);
    assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await p.screenshot({path:path.join(out,theme+'-1024.png')});
    await p.locator('.kn-side-panel [data-kn-action="panels"]').click();await wb.mode(p,'source');await p.screenshot({path:path.join(out,theme+'-source.png')});
@@ -93,6 +116,8 @@ function neutral(css,label) {
   results.checks.push('light/dark 1280/1024; search default/hover/focus + parents; CodeMirror keyboard cue; transparent table editing; reading/source/outline');
   await choose(p,'empty');await wb.mode(p,'edit');await p.screenshot({path:path.join(out,'empty.png')});
   const start=performance.now();await choose(p,'long');await settle(p);const openMs=performance.now()-start;
+  await p.locator('.knowledge-body').evaluate(el=>{el.scrollTop=el.scrollHeight*.45;});
+  await p.waitForFunction(()=>Number(document.querySelector('.kn-outline-link.is-active')?.dataset.knHeading)>30);
   const measure=await p.evaluate(async()=>{const e=knowledgeCurrentEntry(),body=document.querySelector('.knowledge-body');globalThis.__longEntry=e;const doc=e.getMarkdown();body.scrollTop=body.scrollHeight*.6;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const before=body.scrollTop;const samples=[];for(let i=0;i<6;i++){const t=performance.now();render();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));samples.push(performance.now()-t)}return {characters:doc.length,lines:e.view.state.doc.lines,dom:document.querySelectorAll('*').length,scrollBefore:before,scrollAfter:document.querySelector('.knowledge-body').scrollTop,renderTwoFramesMs:samples,sameEntry:knowledgeCurrentEntry()===globalThis.__longEntry};});
   assert.equal(measure.sameEntry,true);assert.ok(Math.abs(measure.scrollAfter-measure.scrollBefore)<4);
   const text=await p.evaluate(()=>knowledgeCurrentEntry().getMarkdown());await wb.mode(p,'preview');await wb.mode(p,'source');await wb.mode(p,'edit');assert.equal(await p.evaluate(()=>knowledgeCurrentEntry().getMarkdown()),text);

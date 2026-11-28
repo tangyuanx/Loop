@@ -191,6 +191,7 @@
 .kn-editor-host[data-mode=source] .cm-scroller {font-family:ui-monospace,SFMono-Regular,Consolas,monospace;}
 .kn-rendered .contains-task-list {list-style:none;padding-left:1em;}
 .kn-rendered .task-list-item {list-style:none;}
+.kn-task-completed,.kn-reading .task-list-item:has(> input[data-task-pos]:checked),.kn-reading .task-list-item > p:has(> input[data-task-pos]:checked) {text-decoration:line-through;text-decoration-color:var(--secondary);}
 .knowledge-rich-host.kn-editor-host .cm-content:focus,.knowledge-rich-host.kn-editor-host .cm-content:focus-visible {outline:none!important;}
 .kn-rendered s {text-decoration:line-through;}
 .kn-editor-host {--kn-code-keyword:#88608a;--kn-code-string:#467250;--kn-code-number:#a06f32;--kn-code-comment:#81887f;--kn-code-name:#3e6d83;}
@@ -307,7 +308,8 @@ body[data-notebook23-enabled] .knowledge-footer-meta {display:flex;margin-left:a
 body[data-controls22-enabled] .note-heading-select.control22-field:focus-visible {outline:1px solid var(--focus-line-strong,var(--secondary));outline-offset:-2px;}
 .knowledge-rich-host.kn-editor-host .kn-rendered mark {background:#e9ca594d;color:inherit;border-radius:2px;padding-inline:2px;}
 :root[data-theme=dark] .knowledge-rich-host.kn-editor-host .kn-rendered mark {background:#e9ca5966;color:inherit;}
-.knowledge-rich-host.kn-editor-host .kn-rendered a.kn-wiki {color:var(--text);text-decoration:underline;text-decoration-color:color-mix(in srgb,currentColor 45%,transparent);text-underline-offset:3px;}
+.knowledge-rich-host.kn-editor-host .kn-rendered a.kn-wiki {color:var(--text);text-decoration:underline dashed;text-decoration-color:color-mix(in srgb,currentColor 45%,transparent);text-underline-offset:3px;}
+.knowledge-rich-host.kn-editor-host .kn-rendered a.kn-wiki:hover {background:var(--hover);text-decoration-color:currentColor;}
 .knowledge-rich-host.kn-editor-host .kn-rendered a.kn-wiki:focus-visible {outline:1px solid var(--focus-line-strong,var(--secondary));outline-offset:-2px;}
 .kn-image-layout { max-width: 100%; }
 .kn-image-widget:has(> .kn-image-layout) { display: inline-block; width: 100%; vertical-align: bottom; }

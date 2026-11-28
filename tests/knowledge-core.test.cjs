@@ -26,7 +26,7 @@ test('split layouts persist identities and modes through shared normalization wh
   b:{leftId:'one',rightId:'two'},c:{leftId:'one',rightId:'one'},missing:{leftId:'one',rightId:'two'}
  }};
  const normalized=metadata.normalizeWorkspace(source,tasks,documents);
- assert.deepEqual(normalized.splitsByTask,{a:{leftId:'one',rightId:'two',active:'right',ratio:.75,leftMode:'source',rightMode:'preview',leftTabs:['one'],rightTabs:['two']}});
+ assert.deepEqual(normalized.splitsByTask,{a:{leftId:'one',rightId:'two',active:'right',ratio:.74,leftMode:'source',rightMode:'preview',leftTabs:['one'],rightTabs:['two']}});
  assert.deepEqual(metadata.normalizeWorkspace(normalized,tasks,documents),normalized);
  assert.deepEqual(normalizeTaskData({version:2,tasks,knowledgeDocuments:documents,knowledgeWorkspace:source}).knowledgeWorkspace.splitsByTask,normalized.splitsByTask);
  const closed=metadata.normalizeWorkspace({...source,tabsByTask:{a:['one']}},tasks,documents);
@@ -38,7 +38,7 @@ test('split tab groups migrate old layouts and repair closed/duplicate identitie
  const legacy=metadata.normalizeSplitLayout({leftId:'three',rightId:'two'},tabs);
  assert.deepEqual(legacy.leftTabs,['one','three','four']);assert.deepEqual(legacy.rightTabs,['two']);assert.equal(legacy.leftId,'three');
  const grouped=metadata.normalizeSplitLayout({leftId:'closed',rightId:'one',active:'right',leftTabs:['three','three','one','closed'],rightTabs:['one','four','two','missing'],leftMode:'invalid',rightMode:'preview',ratio:-1},tabs);
- assert.deepEqual(grouped.leftTabs,['three','one']);assert.deepEqual(grouped.rightTabs,['four','two']);assert.equal(grouped.leftId,'one');assert.equal(grouped.rightId,'two');assert.equal(grouped.ratio,.25);assert.equal(grouped.leftMode,'edit');
+ assert.deepEqual(grouped.leftTabs,['three','one']);assert.deepEqual(grouped.rightTabs,['four','two']);assert.equal(grouped.leftId,'one');assert.equal(grouped.rightId,'two');assert.equal(grouped.ratio,.26);assert.equal(grouped.leftMode,'edit');
  assert.deepEqual(metadata.normalizeSplitLayout(grouped,tabs),grouped);
  assert.equal(metadata.normalizeSplitLayout({...grouped,rightTabs:[]},tabs),null);
  const tasks=[{id:'a'},{id:'b'}],documents=tabs.map(id=>({id}));

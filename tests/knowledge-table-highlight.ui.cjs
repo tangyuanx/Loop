@@ -41,7 +41,7 @@ async function main(){
     assert.deepEqual(await ranges(),expected(kind,index,table,table?19:4));
   };
   const dismiss=async()=>{await page.keyboard.press('Escape');await page.locator('.kn-table-menu').waitFor({state:'detached'});};
-  const outside=()=>page.locator('.knowledge-footer [data-note-stats]').click();
+  const outside=()=>page.locator('.knowledge-footer [data-kn-mode-status]').click();
   try{
     await page.locator('[data-pane=notes]').click();await page.waitForFunction(()=>knowledgeCurrentEntry()?.view);
     await page.waitForFunction(()=>knowledgeCurrentEntry().getMarkdown().includes('阶段18'));

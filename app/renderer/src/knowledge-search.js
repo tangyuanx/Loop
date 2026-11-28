@@ -135,7 +135,8 @@ export class KnowledgeFind {
     this.dom=document.createElement('div');this.dom.className='kn-find';this.dom.hidden=true;this.dom.id=this.highlightKey+'-panel';this.dom.setAttribute('role','search');this.dom.setAttribute('aria-label','查找当前笔记');
     this.dom.innerHTML=`<div class="kn-find-row">
       <button type="button" name="toggleReplace" aria-label="展开替换" aria-expanded="false" title="展开替换">${icon('expand')}</button>
-      <div class="kn-find-field">${icon('search')}<input type="text" name="search" aria-label="查找当前笔记" placeholder="查找当前笔记" autocomplete="off" spellcheck="false"/>
+      <div class="kn-find-field">${icon('search')}<input type="text" name="search" aria-label="查找当前笔记" placeholder="查找当前笔记" autocomplete="off" spellcheck="false"/></div>
+      <div class="kn-find-options" role="group" aria-label="查找选项">
         <button type="button" name="caseSensitive" aria-label="区分大小写" aria-pressed="false" title="区分大小写">Aa</button>
         <button type="button" name="wholeWord" aria-label="全词匹配" aria-pressed="false" title="全词匹配">ab</button>
         <button type="button" name="regexp" aria-label="正则表达式" aria-pressed="false" title="正则表达式">.*</button>
@@ -413,8 +414,8 @@ export class KnowledgeFind {
     this.composing=false;
     this.dom.querySelector('.kn-replace-row').hidden=true;const toggle=this.dom.querySelector('[name=toggleReplace]');toggle.setAttribute('aria-expanded','false');toggle.setAttribute('aria-label','展开替换');toggle.title='展开替换';
     cancelAnimationFrame(this.revealFrame);this.syncQuery();this.update();
-    const rendered=this.renderedRoot();
-    if(rendered)rendered.focus({preventScroll:true});else this.owner.view.focus();
+    const trigger=this.owner.root.closest('.knowledge-pane')?.querySelector('[data-kn-action=find]');
+    trigger?.focus({preventScroll:true});
   }
   destroy(){cancelAnimationFrame(this.revealFrame);this.clearHighlights();this.style?.remove();this.dom.remove();}
 }

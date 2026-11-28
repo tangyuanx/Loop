@@ -175,7 +175,7 @@ const out=path.resolve(process.env.LOOP_SPLIT_TABS_QA_DIR||'.local-review/knowle
   await reopenSplit('left');
   r=await pane('right').locator('.kn-document-new').boundingBox();
   await begin('c',{x:r.x+r.width/2,y:r.y+r.height/2});
-  assert.equal(await preview.textContent(),'松手合并为单栏');assert.equal(await page.locator('[data-tab-after]').count(),1);
+  assert.equal(await preview.textContent(),'松手合并为单栏');assert.equal(await page.locator('.drag-over-r').count(),1);
   await end();
   assert.equal(await page.locator('.kn-split').count(),0);assert.deepEqual(await ids(),['a','b','d','c']);
   assert.equal(await page.evaluate(()=>knowledgeActiveDocument().id),'c');

@@ -62,6 +62,8 @@ function knowledgeActivateSide(side) {
   }
   if (changed) { knowledgeResourceEpoch++; save(); }
   knowledgeSyncFocus();
+  knowledgeUpdateModeStatus();
+  for (const binding of knowledgeToolbarBindings.values()) binding.schedule();
   if (changed) knowledgeQueueConflictPrompt();
 }
 function knowledgeSyncFocus() {
@@ -152,6 +154,13 @@ function knowledgeMergeSplit() {
   delete state.knowledgeWorkspace.splitsByTask[state.activeTaskId];
   applySetting('knowledge-mode',mode); shellCloseOverlay({restoreFocus:false}); save(); render();
 }
+function knowledgeSwapSplit() {
+  const split = knowledgeSplitLayout(); if (!split) return;
+  for (const key of ['Id','Mode','Tabs']) [split['left'+key],split['right'+key]] = [split['right'+key],split['left'+key]];
+  split.active = split.active === 'left' ? 'right' : 'left';
+  knowledgeCommitTabGroups(split);
+  save(); render();
+}
 let knowledgeSplitBinding = null;
 function knowledgeBindSplit() {
   const divider = document.querySelector('.kn-split-divider');
@@ -162,29 +171,41 @@ function knowledgeBindSplit() {
   if (!divider) return;
   const controller = new AbortController(), signal = controller.signal, layout = divider.parentElement;
   let gesture = null;
+  const boundSplit = knowledgeSplitLayout();
   const set = ratio => {
-    const split = knowledgeSplitLayout(); if (!split) return;
-    const minimum = Math.min(.5,Math.max(.25,180/layout.clientWidth));
-    split.ratio = Math.max(minimum,Math.min(1-minimum,ratio));
-    layout.style.setProperty('--kn-left',split.ratio*100+'%');
-    divider.setAttribute('aria-valuenow',String(Math.round(split.ratio*100)));
+    const next=Math.max(.26,Math.min(.74,ratio));
+    layout.style.setProperty('--kn-left',next*100+'%');
+    divider.setAttribute('aria-valuenow',String(Math.round(next*100)));
+    knowledgeUpdateModeStatus(next);
+    return next;
+  };
+  const commit = ratio => {
+    boundSplit.ratio=set(ratio);
+    save();
   };
   const finish = cancel => {
     if (!gesture) return;
     const last = gesture; gesture = null;
-    if (cancel) set(last.ratio);
     if (divider.hasPointerCapture(last.id)) divider.releasePointerCapture(last.id);
-    layout.classList.remove('kn-split-resizing'); save();
+    layout.classList.remove('kn-split-resizing');
+    if (last.moved) {
+      if(cancel)set(last.ratio);
+      else commit(last.next);
+    }
   };
   knowledgeSplitBinding = {divider,controller,finish};
   divider.addEventListener('pointerdown',event=>{
-    if(event.button!==0||!knowledgeSplitLayout())return;
-    event.preventDefault(); gesture={id:event.pointerId,ratio:knowledgeSplitLayout().ratio};
-    divider.setPointerCapture(event.pointerId);layout.classList.add('kn-split-resizing');
+    if(event.button!==0||gesture)return;
+    gesture={id:event.pointerId,x:event.clientX,ratio:boundSplit.ratio,moved:false};
+    divider.setPointerCapture(event.pointerId);
   },{signal});
   divider.addEventListener('pointermove',event=>{
     if(!gesture||gesture.id!==event.pointerId)return;
-    event.preventDefault();const bounds=layout.getBoundingClientRect();set((event.clientX-bounds.left)/bounds.width);
+    const delta=event.clientX-gesture.x;
+    if(!gesture.moved && Math.abs(delta)<2)return;
+    gesture.moved=true;
+    layout.classList.add('kn-split-resizing');
+    event.preventDefault();gesture.next=set(gesture.ratio+delta/layout.clientWidth);
   },{signal});
   divider.addEventListener('pointerup',()=>finish(false),{signal});
   divider.addEventListener('pointercancel',()=>finish(true),{signal});
@@ -192,10 +213,10 @@ function knowledgeBindSplit() {
   window.addEventListener('blur',()=>finish(true),{signal});
   window.addEventListener('keydown',event=>{if(gesture&&event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();finish(true);}},{signal,capture:true});
   divider.addEventListener('keydown',event=>{
-    if(!['ArrowLeft','ArrowRight','Home'].includes(event.key)||event.isComposing)return;
-    event.preventDefault();set(event.key==='Home'?.5:knowledgeSplitLayout().ratio+(event.key==='ArrowLeft'?-1:1)*(event.shiftKey?.1:.025));save();
+    if(gesture||!['ArrowLeft','ArrowRight','Home'].includes(event.key)||event.isComposing)return;
+    event.preventDefault();commit(event.key==='Home'?.5:boundSplit.ratio+(event.key==='ArrowLeft'?-1:1)*(event.shiftKey?.1:.04));
   },{signal});
-  divider.addEventListener('dblclick',()=>{set(.5);save();},{signal});
+  divider.addEventListener('dblclick',()=>{commit(.5);shellToast('已恢复 50/50 分栏');},{signal});
 }
 function knowledgeSplitMenu(trigger) {
   const split = knowledgeSplitLayout();
@@ -212,17 +233,55 @@ document.addEventListener('pointerdown',event=>{
 document.addEventListener('focusin',event=>{const pane=event.target.closest('[data-kn-side]');if(pane)knowledgeActivateSide(pane.dataset.knSide);},true);
 document.addEventListener('click',event=>{
   const action=event.target.closest('[data-kn-layout]');
-  if(action){event.preventDefault();event.stopImmediatePropagation();if(action.dataset.knLayout==='merge')knowledgeMergeSplit();else knowledgeSplitMenu(action);return;}
+  if(action){
+    event.preventDefault();event.stopImmediatePropagation();
+    if(action.dataset.knLayout==='merge')knowledgeMergeSplit();
+    else if(action.dataset.knLayout==='swap')knowledgeSwapSplit();
+    else knowledgeSplitMenu(action);
+    return;
+  }
   const note=event.target.closest('[data-kn-split-note]');
   if(note){event.preventDefault();event.stopImmediatePropagation();knowledgeSplitOpen(note.dataset.knSplitNote,note.dataset.side);}
   const move=event.target.closest('[data-kn-move-tab]');
   if(move){event.preventDefault();event.stopImmediatePropagation();knowledgeMoveTab(move.dataset.knMoveTab,move.dataset.side);}
 },true);
 document.addEventListener('contextmenu',event=>{
-  const tab=event.target.closest('[data-kn-document]');if(!tab)return;
+  const tab=event.target.closest('.kn-document-tab')?.querySelector('[data-kn-document]');if(!tab)return;
   event.preventDefault();event.stopImmediatePropagation();
-  const split=knowledgeSplitLayout(),other=split?.leftTabs.includes(tab.dataset.knDocument)?'right':'left';
-  shellMountSurface(`<div class="surface-popover kn-split-menu" role="menu" aria-label="笔记页签操作"><button type="button" class="button" role="menuitem" data-kn-split-note="${escAttr(tab.dataset.knDocument)}" data-side="left">在左侧分屏打开</button><button type="button" class="button" role="menuitem" data-kn-split-note="${escAttr(tab.dataset.knDocument)}" data-side="right">在右侧分屏打开</button>${split?`<button type="button" class="button" role="menuitem" data-kn-move-tab="${escAttr(tab.dataset.knDocument)}" data-side="${other}">移动到${other==='left'?'左':'右'}栏</button><button type="button" class="button" role="menuitem" data-kn-layout="merge">合并为单栏</button>`:''}</div>`,tab,210);
+  const note=knowledgeFindDocument(tab.dataset.knDocument);if(!note)return;
+  const split=knowledgeSplitLayout(),other=split?.leftTabs.includes(note.id)?'right':'left';
+  const multiple=state.knowledgeWorkspace.openIds.length>1, noteId=escAttr(note.id);
+  const menu=shellMountSurface(`<div class="surface-popover kn-split-menu" role="menu" aria-label="笔记页签操作">
+    <button type="button" class="button" role="menuitem" data-kn-tab-action="rename">重命名 <small>双击</small></button>
+    ${multiple?`<button type="button" class="button" role="menuitem" data-kn-split-note="${noteId}" data-side="left">在左侧分屏打开</button><button type="button" class="button" role="menuitem" data-kn-split-note="${noteId}" data-side="right">在右侧分屏打开</button>`:''}
+    ${split?`<button type="button" class="button" role="menuitem" data-kn-move-tab="${noteId}" data-side="${other}">移动到${other==='left'?'左':'右'}栏</button><button type="button" class="button" role="menuitem" data-kn-layout="merge">合并为单栏</button>`:''}
+    <button type="button" class="button" role="menuitem" data-kn-tab-action="copy-path">复制相对路径</button>
+    <div class="menu-divider"></div>
+    ${multiple?'<button type="button" class="button" role="menuitem" data-kn-tab-action="close-others">关闭其他页签</button>':''}
+    <button type="button" class="button" role="menuitem" data-kn-tab-action="close">关闭页签</button></div>`,tab,210);
+  if(!menu)return;
+  menu.dataset.returnFocus=`[data-kn-document="${CSS.escape(note.id)}"]`;
+  if(event.clientX || event.clientY){
+    menu.style.left=event.clientX+'px';menu.style.top=event.clientY+'px';shellClampFloatingSurface(menu);
+  }
+  menu.addEventListener('click',click=>{
+    const action=click.target.closest('[data-kn-tab-action]')?.dataset.knTabAction;
+    if(!action)return;
+    shellCloseOverlay({restoreFocus:action==='copy-path'});
+    if(action==='rename')knowledgeRename(note,tab);
+    if(action==='copy-path')void knowledgeCopyPath(note);
+    if(action==='close')knowledgeRequestClose(note.id,tab);
+    if(action==='close-others')knowledgeCloseOtherTabs(note);
+  });
+},true);
+document.addEventListener('mousedown',event=>{
+  if(event.button===1&&event.target.closest('.kn-document-tab:has([data-kn-document])'))event.preventDefault();
+},true);
+document.addEventListener('auxclick',event=>{
+  const tab=event.target.closest('.kn-document-tab')?.querySelector('[data-kn-document]');
+  if(event.button!==1||!tab)return;
+  event.preventDefault();event.stopImmediatePropagation();
+  knowledgeRequestClose(tab.dataset.knDocument,tab);
 },true);
 function knowledgeLocation() {
   const resource=knowledgeActiveResource();
@@ -418,11 +477,17 @@ function knowledgeBindToolbar() {
   const actions=surface.querySelector('.knowledge-note-actions');if(!actions)continue;
   const controller=new AbortController();
   const body=surface.querySelector('.knowledge-body');
+  const taskId=surface.closest('.knowledge-pane')?.dataset.taskId;
   const binding={surface,actions,controller,frame:0};
   const update=()=>{
     binding.frame=0;
     if(!surface.isConnected)return;
-    actions.classList.toggle('raised', (body?.scrollTop ?? 0) > 6);
+    const splitPane=surface.closest('.kn-split-pane');
+    actions.classList.toggle('raised', (!splitPane || splitPane.dataset.active==='true') && (body?.scrollTop ?? 0) > 6);
+    if(body && body.knowledgeHeadings?.length){
+      const task=knowledgeFindDocument(taskId);
+      if(task)knowledgeUpdateOutlineActive(task);
+    }
     const footer=surface.querySelector('.knowledge-footer-meta');
     if(footer)footer.toggleAttribute('data-over-content',knowledgeToolbarContentUnder(footer,surface));
   };
@@ -475,7 +540,8 @@ function knowledgeLayoutTabs(binding) {
   const minimum=parseFloat(css.getPropertyValue('--kn-tab-min-width'));
   const maximum=parseFloat(css.getPropertyValue('--kn-tab-max-width'));
   const overflowWidth=parseFloat(css.getPropertyValue('--kn-tab-overflow-width'));
-  const available=bar.clientWidth-parseFloat(css.paddingLeft)-parseFloat(css.paddingRight)-(bar.querySelector('.kn-document-new')?.offsetWidth||0)-6;
+  const fixed=[...bar.querySelectorAll(':scope > button:not([data-kn-scroll])')];
+  const available=bar.clientWidth-parseFloat(css.paddingLeft)-parseFloat(css.paddingRight)-fixed.reduce((sum,button)=>sum+button.offsetWidth+gap,0)-4;
   const fitted=count?Math.floor((available-(count-1)*gap)/count):maximum;
   const overflows=fitted<minimum;
   const scrollControls=[...bar.querySelectorAll('[data-kn-scroll]')];
@@ -582,11 +648,14 @@ function knowledgeBindTabReordering(viewport,owner,bindingSignal) {
     const grabX=startX-startBounds.left,grabY=startY-startBounds.top;
     const gesture=new AbortController(),signal=gesture.signal;
     let dragging=false,finished=false,autoFrame=0,pointerX=startX,pointerY=startY,drop=null,preview=null,ghost=null;
-    const clearMarks=()=>{
-      for(const item of document.querySelectorAll('[data-tab-insert],[data-tab-after]')){
-        item.removeAttribute('data-tab-insert');
-        item.removeAttribute('data-tab-after');
-      }
+    let mark=null,edge='';
+    const markInsertion=(item,side)=>{
+      if(mark===item&&edge===side)return;
+      mark?.removeAttribute('data-tab-insert');
+      mark?.classList.remove('drag-over-l','drag-over-r');
+      mark=item;edge=side;
+      mark?.setAttribute('data-tab-insert','');
+      if(mark)mark.classList.add('drag-over-'+edge);
     };
     const clearPreview=()=>{preview?.remove();preview=null;};
     const showPreview=(side,bounds,label)=>{
@@ -632,7 +701,7 @@ function knowledgeBindTabReordering(viewport,owner,bindingSignal) {
       if(!sameBar)for(const animation of peerAnimations.values())animation.cancel();
       if(viewport.hasPointerCapture(event.pointerId))viewport.releasePointerCapture(event.pointerId);
       tab.classList.remove('kn-tab-dragging');
-      clearMarks();clearPreview();ghost?.remove();document.body.classList.remove('kn-tab-drag-active');
+      markInsertion(null,'');clearPreview();ghost?.remove();document.body.classList.remove('kn-tab-drag-active');
       if(dragging){
         knowledgeLastTabClick=null;
         if(!committedDrop)restore();
@@ -654,6 +723,10 @@ function knowledgeBindTabReordering(viewport,owner,bindingSignal) {
       // shift the hit thresholds while they slide into their new positions.
       const contentLeft=target.getBoundingClientRect().left-target.scrollLeft;
       const next=peers.find(item=>pointerX<contentLeft+item.offsetLeft+item.offsetWidth/2);
+      const hovered=peers.find(item=>pointerX>=contentLeft+item.offsetLeft&&pointerX<contentLeft+item.offsetLeft+item.offsetWidth);
+      if(hovered)markInsertion(hovered,hovered===next?'l':'r');
+      else if(target!==viewport||pointerX<contentLeft+tab.offsetLeft||pointerX>=contentLeft+tab.offsetLeft+tab.offsetWidth)
+        markInsertion(next||peers.at(-1)||null,next?'l':'r');
       const anchor=next||target.querySelector('[data-kn-resource]')?.parentElement||null;
       if(target===viewport&&tab.nextElementSibling!==anchor){
         const before=new Map(peers.map(item=>[item,item.getBoundingClientRect().left]));
@@ -665,15 +738,11 @@ function knowledgeBindTabReordering(viewport,owner,bindingSignal) {
           if(shift)peerAnimations.set(item,item.animate([{transform:`translateX(${shift}px)`},{transform:'none'}],{duration:130,easing:'ease-out'}));
         }
       }
-      clearMarks();
-      if(target===viewport)tab.setAttribute('data-tab-insert','');
-      else if(next)next.setAttribute('data-tab-insert','');
-      else peers.at(-1)?.setAttribute('data-tab-after','');
       return next?peers.indexOf(next):peers.length;
     };
     const contains=(rect,x,y)=>rect.width>0&&rect.height>0&&x>=rect.left&&x<=rect.right&&y>=rect.top&&y<=rect.bottom;
     const hit=()=>{
-      clearMarks();drop=null;
+      drop=null;
       // Header hit testing wins: even at the extreme edge it is only sorting
       // or a cross-pane move, never a request to create a split.
       const bar=[...document.querySelectorAll('.kn-document-bar')].find(bar=>contains(bar.getBoundingClientRect(),pointerX,pointerY));
@@ -686,6 +755,7 @@ function knowledgeBindTabReordering(viewport,owner,bindingSignal) {
         else clearPreview();
         return;
       }
+      markInsertion(null,'');
       const pointedElement=document.elementFromPoint(pointerX,pointerY);
       const pointedPane=pointedElement?.closest('.kn-split-pane');
       const surface=pointedElement?.closest('.knowledge-note-surface')
@@ -763,7 +833,6 @@ function knowledgeAbsolutePath(from, relative) {
   const base=String(from||'').replaceAll('\\','/').split('/').slice(0,-1).join('/');
   return knowledgeNormalizePath(base?base+'/'+relative:relative);
 }
-function knowledgeText(task) { return nodeNoteDrafts.get(noteDraftKey(task.id, ''))?.markdown ?? task.notes ?? ''; }
 function knowledgeCurrentEntry(taskId = knowledgeActiveDocument()?.id) { return milkdownEditors.get(noteDraftKey(taskId, ''))?.instance; }
 function knowledgeSaveOwner(task) {
   const active=state.tasks.find(t=>t.id===state.activeTaskId);
@@ -855,24 +924,50 @@ function knowledgeHasUnsavedContent(note) {
     : Boolean(nodeNoteDrafts.get(noteDraftKey(note.id, ''))?.markdown ?? note.notes);
 }
 
-function knowledgeRequestClose(noteId, trigger) {
+function knowledgeCloseOtherTabs(keep) {
+  const ownerId=state.activeTaskId;
+  const pending=state.knowledgeWorkspace.openIds.filter(id=>id!==keep.id),closed=[];
+  knowledgeAttach(keep);
+  const next=()=>{
+    if(state.activeTaskId!==ownerId || !pending.length)return;
+    knowledgeRequestClose(pending.shift(),null,note=>{
+      closed.push(note.id);
+      knowledgeOfferReopen(ownerId,closed);
+      next();
+    });
+  };
+  next();
+}
+
+function knowledgeOfferReopen(ownerId, ids) {
+  showWorkspaceFeedback(ids.length===1?'已关闭笔记':'已关闭其他页签',
+    `<button type="button" data-kn-reopen="${escAttr(JSON.stringify(ids))}" data-owner-id="${escAttr(ownerId)}">重新打开</button>`,
+    {source:'knowledge-close'});
+}
+
+function knowledgeRequestClose(noteId, trigger, onClosed = null) {
   const note = knowledgeFindDocument(noteId);
   if (!note || !state.knowledgeWorkspace.openIds.includes(noteId)) return { canceled: true };
   captureMountedMilkdownDrafts();
   flushNodeNoteDraft(noteDraftKey(noteId, ''), { persist: true });
-  if (!knowledgeHasUnsavedContent(note)) {
+  const ownerId = state.activeTaskId;
+  const close = () => {
     shellCloseOverlay({ restoreFocus: false });
     knowledgeDetach(noteId);
+    if(onClosed)onClosed(note);
+    else knowledgeOfferReopen(ownerId,[noteId]);
+  };
+  if (!knowledgeHasUnsavedContent(note)) {
+    close();
     return { success: true };
   }
 
   clearTimeout(knowledgeAutosaveTimers.get(noteId));
   knowledgeAutosaveTimers.delete(noteId);
-  const ownerId = state.activeTaskId;
   const needsNewFile = () => ['EXTERNAL_CHANGED', 'FILE_MISSING', 'READ_ONLY'].includes(note.knowledgeNote.documentState);
   const returnFocus = trigger?.dataset.knDetach
     ? `[data-kn-detach="${CSS.escape(noteId)}"]`
-    : `.knowledge-pane[data-task-id="${CSS.escape(noteId)}"] [data-action="knowledge-file-menu"]`;
+    : `[data-kn-document="${CSS.escape(noteId)}"]`;
   shellKnowledgeDialog('关闭前保存笔记？',
     `<p class="knowledge-dialog-copy">「${esc(LoopKnowledgeCore.noteTitle(note))}」还有未保存到文件的内容。</p>
      <p class="knowledge-dialog-copy" role="status" data-kn-close-status></p>
@@ -917,8 +1012,7 @@ function knowledgeRequestClose(noteId, trigger) {
       }
       if (!dialog.isConnected || state.activeTaskId !== ownerId || !knowledgeHasDocument(note)) return;
       dialog.removeAttribute('aria-busy');
-      shellCloseOverlay({ restoreFocus: false });
-      knowledgeDetach(noteId);
+      close();
     } catch (failure) {
       error.textContent = failure.message;
       error.hidden = false;
@@ -939,6 +1033,7 @@ function knowledgeDetach(noteId) {
   const task=state.tasks.find(t=>t.id===state.activeTaskId);if(!task)return;
   captureMountedMilkdownDrafts();flushNodeNoteDrafts({persist:true});
   const session=state.knowledgeWorkspace,index=session.openIds.indexOf(noteId);
+  session.recentIds=[noteId,...session.recentIds.filter(id=>id!==noteId)].slice(0,40);
   const split=knowledgeSplitLayout(task);
   const returning=!knowledgeActiveResource()&&session.activeId===noteId?knowledgeTakeReturn({kind:'note',id:noteId}):null;
   if(split){
@@ -1016,7 +1111,7 @@ function knowledgeEditorOptions(task) {
       if(scope[source])return scope[source];
       try{return scope[decodeURIComponent(source)]||'';}catch{return '';}
     },
-    onSelectionChange: () => { shellRefreshNoteFormatState(); knowledgeUpdateOutlineActive(task); },
+    onSelectionChange: () => { shellRefreshNoteFormatState(); },
     onFeedback: message=>shellToast(message),
     onImageMenu: (image,point,copy,layout) => {
       const alignments=[['left','左对齐'],['center','居中'],['right','右对齐']];
@@ -1120,13 +1215,28 @@ function knowledgeUpdateChrome(task) {
   if (target) {target.textContent = receipt.text;target.dataset.state=receipt.state;target.title=knowledgeSaveStatus(task)?.error||receipt.text;target.hidden=!['failed','conflict'].includes(receipt.state);}
   const saveButton = pane.querySelector('[data-note-save]');
   if (saveButton) {saveButton.hidden=receipt.state==='saved';saveButton.disabled=knowledgeFileWriteBusy.has(task.id); saveButton.title=receipt.shortcut;saveButton.innerHTML=shellIcon('check')+(knowledgeFileWriteBusy.has(task.id)?'保存中…':'保存');}
-  const shortcut=document.querySelector('.workspace-foot .foot-shortcut');
-  if(shortcut)shortcut.textContent='';
+  const metadata=pane.querySelector('[data-note-metadata]');
+  if(metadata)metadata.textContent=knowledgeMetadata(task);
+  const pathButton=pane.querySelector('.kn-meta [data-kn-action="copy-path"]');
+  if(pathButton){
+    const path=knowledgeRelativePath(task);
+    pathButton.textContent=path;pathButton.title='复制相对路径：'+path;
+  }
   const menuSave=document.querySelector(`[data-knowledge-save-label][data-task-id="${CSS.escape(task.id)}"]`);
   if(menuSave){menuSave.textContent=receipt.menuLabel;menuSave.disabled=knowledgeFileWriteBusy.has(task.id);}
-  const statsTarget=pane.querySelector('[data-note-stats]');
-  if(statsTarget){const text=knowledgeText(task),characters=[...text].length,words=(text.match(/[\p{Script=Han}]/gu)||[]).length+(text.match(/[\p{L}\p{N}]+/gu)||[]).filter(word=>!/[\p{Script=Han}]/u.test(word)).length;statsTarget.textContent=`${words} 字/词 · ${characters} 字符`;}
   pane.querySelector('[data-note-recovery]')?.remove();
+}
+
+function knowledgeUpdateModeStatus(ratio) {
+  const split=knowledgeSplitLayout(),mod=/Mac/.test(navigator.platform)?'⌘':'Ctrl+';
+  for(const target of document.querySelectorAll('[data-kn-mode-status]')){
+    const side=target.closest('[data-kn-side]')?.dataset.knSide;
+    const mode=shellKnowledgeMode(target.closest('.knowledge-pane').dataset.taskId);
+    const percent=Math.round((ratio??split?.ratio??.5)*100);
+    const label={edit:'富文本',source:'源码',preview:'阅读'}[mode];
+    target.textContent=side?`分屏 ${percent}/${100-percent} · ${side==='left'?'左栏':'右栏'} · ${label}`:label;
+    target.title=`${mod}F 查找 · ${mod}/ 切换富文本与源码 · ${mod}Shift+F 专注`;
+  }
 }
 // Names used by the old draft hooks now have one implementation and one state.
 function note23EvaluateDraft(task) { knowledgeUpdateChrome(task); }
@@ -1322,26 +1432,34 @@ function knowledgeBindOutlineDivider(body, aside, noteId) {
   }, { signal });
 }
 
+function knowledgeOutlineOpen(task, pane = knowledgePane(task.id), headings = LoopKnowledgeCore.headings(knowledgeText(task))) {
+  return knowledgePanels.has(task.id) || (headings.length>0 && !pane?.closest('.kn-split') && !knowledgeOutlineClosed.has(task.id));
+}
 function knowledgeRefreshPanels(task) {
-  const pane=knowledgePane(task?.id);if(!pane)return;
-  const body=pane.querySelector('.knowledge-body');if(!body)return;
-  let aside=pane.querySelector('.kn-side-panel');
-  const headings=LoopKnowledgeCore.headings(knowledgeText(task));
-  const backlinksOpen=knowledgeBacklinkPanels.has(task.id);
-  const defaultOutline=headings.length>0 && !pane.closest('.kn-split') && !knowledgeOutlineClosed.has(task.id);
-  const open=knowledgePanels.has(task.id)||backlinksOpen||defaultOutline;
-  pane.querySelector('.knowledge-header [data-kn-action="panels"]')?.setAttribute('aria-expanded',String(open));
-  if(!open || backlinksOpen) knowledgeOutlineBindings.get(body)?.();
-  if(!open){aside?.remove();return;}
-  if(!aside){aside=document.createElement('aside');aside.className='kn-side-panel kn-outline';aside.id=`kn-side-panel-${encodeURIComponent(task.id)}`;body.append(aside);}
-  aside.setAttribute('aria-label',backlinksOpen?'反向链接':'笔记大纲');
-  if(!backlinksOpen){
-    knowledgeBindOutlineDivider(body, aside, task.id);
-    const base=Math.min(...headings.map(h=>h.level),6);
-    const html=`<header><strong>大纲</strong><button type="button" class="icon-button" data-kn-action="panels" aria-label="关闭大纲">${shellIcon('close')}</button></header><nav aria-label="笔记大纲">${headings.length?headings.map((h,i)=>`<button type="button" class="kn-outline-link" style="padding-left:${8+(h.level-base)*12}px" data-kn-heading="${i}" title="${escAttr(h.text)}">${esc(h.text)}</button>`).join(''):'<p>添加标题后会显示在这里</p>'}</nav>`;
-    if(aside.knowledgeHTML!==html){aside.innerHTML=html;aside.knowledgeHTML=html;}
-    knowledgeUpdateOutlineActive(task);return;
+  const pane=knowledgePane(task?.id),body=pane?.querySelector('.knowledge-body');
+  if(!body)return;
+  let aside=body.querySelector('.kn-side-panel');
+  const headings=LoopKnowledgeCore.headings(LoopKnowledgeCore.sourceFormat(knowledgeText(task)).text);
+  const outline=knowledgeOutlineOpen(task,pane,headings),backlinks=knowledgeBacklinkPanels.has(task.id);
+  if(!outline)knowledgeOutlineBindings.get(body)?.();
+  if(!outline&&!backlinks){aside?.remove();body.knowledgeHeadings=null;return;}
+  if(!aside){
+    aside=document.createElement('aside');
+    aside.className='kn-side-panel';
+    aside.id=`kn-side-panel-${encodeURIComponent(task.id)}`;
+    body.append(aside);
   }
+  aside.setAttribute('aria-label',outline&&backlinks?'笔记信息':outline?'笔记大纲':'反向链接');
+  if(outline)knowledgeBindOutlineDivider(body,aside,task.id);
+  const base=Math.min(...headings.map(h=>h.level),6);
+  const outlineHtml=outline?`<section class="kn-outline"><header><strong>大纲</strong><button type="button" class="icon-button" data-kn-action="panels" aria-label="关闭大纲">${shellIcon('close')}</button></header><nav aria-label="笔记大纲">${headings.length?headings.map((h,i)=>`<button type="button" class="kn-outline-link" style="padding-left:${8+(h.level-base)*12}px" data-kn-heading="${i}" title="${escAttr(h.text)}">${esc(h.text)}</button>`).join(''):'<p>添加标题后会显示在这里</p>'}</nav></section>`:'';
+  const html=outlineHtml+(backlinks?knowledgeRenderBacklinks(task):'');
+  if(aside.knowledgeHTML!==html){aside.innerHTML=html;aside.knowledgeHTML=html;}
+  body.knowledgeHeadings=outline?headings:null;
+  knowledgeUpdateOutlineActive(task);
+}
+
+function knowledgeRenderBacklinks(task) {
   const notes=knowledgeNotes();
   // Index titles and paths once: resolving every link against every note made a
   // 1,100-reference panel block for about half a second (KN-39).
@@ -1368,34 +1486,40 @@ function knowledgeRefreshPanels(task) {
     if(note.id===task.id||seen.has(note.id))continue;
     const text=knowledgeText(note);let cached=knowledgeBacklinkCache.get(note.id);
     if(cached?.text!==text){cached={text,links:LoopKnowledgeCore.links(text),relatives:LoopKnowledgeCore.relativeLinks(text)};knowledgeBacklinkCache.set(note.id,cached);}
-    let hit=false;
-    for(const link of cached.links){
+    const matches=link=>{
       const target=link.target||'';
-      if(target.startsWith('note:')){hit=byId.get(target.slice(5))?.id===task.id;}
-      else{const matches=byTitle.get(knowledgeNormalizeTitle(target))||[];hit=matches.length===1&&matches[0].id===task.id;}
-      if(hit)break;
+      if(target.startsWith('note:'))return byId.get(target.slice(5))?.id===task.id;
+      const candidates=byTitle.get(knowledgeNormalizeTitle(target))||[];
+      return candidates.length===1&&candidates[0].id===task.id;
+    };
+    const hit=cached.links.find(matches)||(targetPath&&note.knowledgeNote?.filePath
+      ? cached.relatives.find(link=>knowledgeAbsolutePath(note.knowledgeNote.filePath,link.dest)===targetPath)
+      : null);
+    if(hit){
+      seen.add(note.id);
+      const lineStart=text.lastIndexOf('\n',Math.max(0,hit.from-1))+1;
+      const excerpt=text.slice(Math.max(lineStart,hit.from-60),Math.max(hit.to,hit.from+100)).trim().replace(/\s+/g,' ');
+      backlinks.push({note,excerpt});
     }
-    if(!hit&&targetPath&&note.knowledgeNote?.filePath){
-      for(const reference of cached.relatives){
-        if(knowledgeAbsolutePath(note.knowledgeNote.filePath,reference.dest)===targetPath){hit=true;break;}
-      }
-    }
-    if(hit){seen.add(note.id);backlinks.push(note);}
   }
-  const base=Math.min(...headings.map(h=>h.level),6);
-  const html=`<header><strong>反向链接 <small>${backlinks.length}</small></strong><button type="button" class="icon-button" data-kn-action="backlinks" aria-label="关闭反向链接">${shellIcon('close')}</button></header>${backlinks.map(note=>`<button type="button" class="kn-backlink" data-kn-note="${escAttr(note.id)}">${esc(LoopKnowledgeCore.noteTitle(note))}<small>${esc(knowledgeDetail(note))}</small></button>`).join('')||'<p>暂无笔记引用</p>'}`;
-  if(aside.knowledgeHTML!==html){aside.innerHTML=html;aside.knowledgeHTML=html;}
-  knowledgeUpdateOutlineActive(task);
+  return `<section class="kn-backlinks"><header><strong>反向链接 <small>${backlinks.length}</small></strong><button type="button" class="icon-button" data-kn-action="backlinks" aria-label="关闭反向链接">${shellIcon('close')}</button></header>${backlinks.map(({note,excerpt})=>`<button type="button" class="kn-backlink" data-kn-note="${escAttr(note.id)}"><span>${esc(LoopKnowledgeCore.noteTitle(note))}</span><small>${esc(excerpt)}</small></button>`).join('')||'<p>暂无笔记引用</p>'}</section>`;
+}
+
+function knowledgeSetOutlineActive(body, index) {
+  const previous=body.querySelector('.kn-outline-link[aria-current]');
+  const next=body.querySelector(`[data-kn-heading="${index}"]`);
+  if(previous===next)return;
+  previous?.removeAttribute('aria-current');previous?.classList.remove('is-active');
+  next?.setAttribute('aria-current','location');next?.classList.add('is-active');
 }
 function knowledgeUpdateOutlineActive(task) {
-  if(!knowledgePanels.has(task.id))return;
-  const editor=knowledgeCurrentEntry(task.id);if(!editor)return;
-  const headings=LoopKnowledgeCore.headings(editor.getEditorText()),pos=editor.view.state.selection.main.head;
-  const index=headings.findLastIndex(h=>h.offset<=pos);
-  knowledgePane(task.id)?.querySelectorAll('.kn-side-panel [data-kn-heading]').forEach(button=>{
-    if(Number(button.dataset.knHeading)===index)button.setAttribute('aria-current','location');
-    else button.removeAttribute('aria-current');
-  });
+  const body=knowledgePane(task.id)?.querySelector('.knowledge-body');
+  const headings=body?.knowledgeHeadings,editor=knowledgeCurrentEntry(task.id);
+  if(!body?.clientHeight||!headings?.length||!editor?.root.isConnected||!body.querySelector('.kn-outline'))return;
+  if(body.knowledgeOutlineJump)return;
+  const top=body.getBoundingClientRect().top+52;
+  const index=editor.headingAtHeight(headings,top);
+  knowledgeSetOutlineActive(body,Math.max(0,index));
 }
 function knowledgeOpen(task,anchor='') {
   if(!state.tasks.includes(task)){knowledgeAttach(task,anchor);return;}
@@ -1535,11 +1659,36 @@ function knowledgeOfferLinkUpdate(previousPath,nextPath) {
   };
 }
 function knowledgeRename(task,trigger) {
-  // Escape/cancel must return to the control the dialog was opened from.
-  const returnFocus=trigger?.dataset.knDocument?`[data-kn-document="${CSS.escape(task.id)}"]`:'[data-wb-action="more"]';
-  shellKnowledgeDialog('重命名笔记',`<label class="knowledge-dialog-copy" for="kn-rename-title">笔记名称</label><input id="kn-rename-title" value="${escAttr(LoopKnowledgeCore.noteTitle(task))}" maxlength="200" aria-describedby="kn-rename-error"><p id="kn-rename-error" class="kn-rename-error" role="alert"></p>${task.knowledgeNote.filePath?'<p class="knowledge-dialog-copy">保存后会同步重命名本地文件，扩展名保持不变。</p>':''}`,'<button class="button" data-action="close-dialog">取消</button><button class="button primary" id="kn-rename-commit">保存名称</button>',520,returnFocus);
-  const field=document.querySelector('#kn-rename-title'),button=document.querySelector('#kn-rename-commit'),error=document.querySelector('#kn-rename-error'),surface=field.closest('[role="dialog"]');
+  if(document.querySelector('#kn-rename-title'))return;
+  const tabSelector=`[data-kn-document="${CSS.escape(task.id)}"]`;
+  const tab=trigger?.dataset.knDocument?document.querySelector(tabSelector):null;
+  const input=`<input id="kn-rename-title" value="${escAttr(LoopKnowledgeCore.noteTitle(task))}" maxlength="200" aria-label="笔记名称" aria-describedby="kn-rename-error">`;
+  const message='<p id="kn-rename-error" class="kn-rename-error" role="alert"></p>';
+  let surface,error;
+  if(tab){
+    surface=document.createElement('div');surface.className='kn-inline-rename';
+    surface.innerHTML=input+`<button type="button" id="kn-rename-commit" aria-label="保存名称" title="保存名称（Enter）">${shellIcon('check')}</button>`;
+    tab.after(surface);tab.parentElement.toggleAttribute('data-renaming',true);
+    const host=tab.closest('.kn-split-pane, .knowledge-pane').querySelector('.knowledge-note-surface');
+    host.insertAdjacentHTML('beforeend',message);
+  }else{
+    const returnFocus=`.knowledge-pane[data-task-id="${CSS.escape(task.id)}"] [data-wb-action="more"]`;
+    shellKnowledgeDialog('重命名笔记',`<label class="knowledge-dialog-copy" for="kn-rename-title">笔记名称</label>${input}${message}${task.knowledgeNote.filePath?'<p class="knowledge-dialog-copy">保存后会同步重命名本地文件，扩展名保持不变。</p>':''}`,'<button class="button" data-action="close-dialog">取消</button><button class="button primary" id="kn-rename-commit">保存名称</button>',520,returnFocus);
+    surface=document.querySelector('#kn-rename-title').closest('[role="dialog"]');
+  }
+  const field=surface.querySelector('#kn-rename-title'),button=surface.querySelector('#kn-rename-commit');
+  error=document.querySelector('#kn-rename-error');
   const noteId=task.knowledgeNote.noteId;let busy=false,composing=false;
+  const dismiss=()=>{
+    if(!tab){shellCloseOverlay();return;}
+    surface.remove();error.remove();tab.parentElement?.removeAttribute('data-renaming');
+    tab.focus({preventScroll:true});
+  };
+  if(tab)surface.addEventListener('focusout',event=>{
+    if(!busy && event.relatedTarget && !surface.contains(event.relatedTarget)){
+      surface.remove();error.remove();tab.parentElement?.removeAttribute('data-renaming');
+    }
+  });
   field.focus();field.select();
   const owns=()=>surface.isConnected && document.querySelector('#kn-rename-title')===field;
   const clearError=()=>{error.textContent='';field.removeAttribute('aria-invalid');};
@@ -1550,8 +1699,8 @@ function knowledgeRename(task,trigger) {
     const title=field.value.trim();
     if(!title){error.textContent='请输入笔记名称';field.setAttribute('aria-invalid','true');field.focus();return;}
     if(!knowledgeHasDocument(task)||task.knowledgeNote.noteId!==noteId)return;
-    if(title===LoopKnowledgeCore.noteTitle(task)){shellCloseOverlay();return;}
-    clearError();busy=true;button.disabled=true;field.readOnly=true;surface.setAttribute('aria-busy','true');button.textContent='正在保存…';
+    if(title===LoopKnowledgeCore.noteTitle(task)){dismiss();return;}
+    clearError();busy=true;button.disabled=true;field.readOnly=true;surface.setAttribute('aria-busy','true');if(!tab)button.textContent='正在保存…';
     const previous={...task.knowledgeNote},previousUpdatedAt=task.updatedAt,previousTitle=task.title;
     let outcome;
     try{
@@ -1595,13 +1744,13 @@ function knowledgeRename(task,trigger) {
         return {success:true,filePath,previousFilePath:renamedFile?previous.filePath:null,missingFile,watched};
       });
     }catch(failure){console.error('Failed to rename knowledge note.',failure);outcome={failure:{code:'RENAME_FAILED',message:failure?.message}};}
-    finally{busy=false;button.disabled=false;field.readOnly=false;surface.removeAttribute('aria-busy');button.textContent='保存名称';}
+    finally{busy=false;button.disabled=false;field.readOnly=false;surface.removeAttribute('aria-busy');if(!tab)button.textContent='保存名称';}
     if(outcome?.canceled)return;
     if(outcome?.failure){
-      if(owns()){error.textContent=knowledgeRenameFailureText(outcome.failure);if(knowledgeActiveDocument()?.id===task.id)field.focus();}
+      if(owns()){error.textContent=knowledgeRenameFailureText(outcome.failure);field.setAttribute('aria-invalid','true');field.focus();}
       return;
     }
-    if(owns())shellCloseOverlay();
+    if(owns())dismiss();
     knowledgeCurrentEntry(task.id)?.refresh();render();
     // Main already re-pointed the watcher silently; only re-sync when it had no
     // entry to update, otherwise a baseline read could mark a draft as saved.
@@ -1615,11 +1764,14 @@ function knowledgeRename(task,trigger) {
     }
   };
   button.onclick=()=>void commit();
-  field.onkeydown=event=>{
-    if(event.key!=='Enter'||event.isComposing||event.keyCode===229||composing)return;
-    event.preventDefault();
-    if(!event.shiftKey&&!event.altKey&&!event.repeat)void commit();
-  };
+  surface.addEventListener('keydown',event=>{
+    if(event.isComposing||event.keyCode===229||composing)return;
+    if(event.key==='Escape'){event.preventDefault();event.stopPropagation();if(!busy)dismiss();}
+    if(event.key==='Enter'&&event.target===field){
+      event.preventDefault();event.stopPropagation();
+      if(!event.shiftKey&&!event.altKey&&!event.repeat)void commit();
+    }
+  });
 }
 function knowledgeFocusTableCell(editor,widget,row,column,selection=null) {
   if(editor!==knowledgeCurrentEntry()||editor.destroyed)return;
@@ -1742,6 +1894,7 @@ shellBindKnowledge = function() {
   knowledgeBindResources();
   knowledgeBindSplit();
   knowledgeSyncFocus();
+  knowledgeUpdateModeStatus();
   const task=knowledgeActiveDocument();if(!task||!document.querySelector('.knowledge-pane'))return;
   for(const pane of document.querySelectorAll('.knowledge-pane[data-task-id]')){
     const note=knowledgeFindDocument(pane.dataset.taskId);if(!note)continue;
@@ -1800,8 +1953,40 @@ document.addEventListener('click',event=>{
     viewport.scrollLeft+=Number(scroll.dataset.knScroll)*Math.max(120,viewport.clientWidth*.65);
     knowledgeUpdateTabScroll();return;
   }
-  const heading=event.target.closest('[data-kn-heading]');if(heading){const task=knowledgeActiveDocument(),h=LoopKnowledgeCore.headings(knowledgeCurrentEntry()?.getEditorText()||LoopKnowledgeCore.sourceFormat(knowledgeText(task)).text)[Number(heading.dataset.knHeading)];if(h)knowledgeCurrentEntry()?.locate(h.offset);return;}
-  const back=event.target.closest('[data-kn-note]');if(back){const note=knowledgeAllDocuments().find(t=>t.id===back.dataset.knNote);if(note)knowledgeAttach(note);return;}
+  const heading=event.target.closest('[data-kn-heading]');
+  if(heading){
+    const body=heading.closest('.knowledge-body'),taskId=body.closest('.knowledge-pane').dataset.taskId;
+    const entry=knowledgeCurrentEntry(taskId),index=Number(heading.dataset.knHeading);
+    const target=entry&&LoopKnowledgeCore.headings(entry.getEditorText())[index];
+    if(target&&entry?.scrollToHeading(target.offset,body)){
+      knowledgeSetOutlineActive(body,index);
+      const jump={};body.knowledgeOutlineJump=jump;
+      const resume=()=>{
+        if(body.knowledgeOutlineJump!==jump)return;
+        body.knowledgeOutlineJump=null;
+        const task=knowledgeFindDocument(taskId);if(task)knowledgeUpdateOutlineActive(task);
+      };
+      body.addEventListener('scrollend',resume,{once:true});
+      setTimeout(()=>{body.removeEventListener('scrollend',resume);resume();},650);
+    }
+    return;
+  }
+  const reopen=event.target.closest('[data-kn-reopen]');
+  if(reopen){
+    if(reopen.dataset.ownerId!==state.activeTaskId){shellToast('请返回原任务，从最近打开找回笔记');return;}
+    clearWorkspaceFeedback('knowledge-close');
+    for(const id of JSON.parse(reopen.dataset.knReopen)){
+      const note=knowledgeFindDocument(id);
+      if(note&&!note.knowledgeNote?.isDeleted)knowledgeAttach(note);
+    }
+    return;
+  }
+  const link=event.target.closest('[data-kn-note], [data-kn-recent-note]');
+  if(link){
+    const note=knowledgeFindDocument(link.dataset.knNote||link.dataset.knRecentNote);
+    if(note)knowledgeAttach(note);
+    return;
+  }
   const button=event.target.closest('[data-kn-action]');if(!button)return;
   const action=button.dataset.knAction;
   if(action==='membership'){
@@ -1817,13 +2002,15 @@ document.addEventListener('click',event=>{
   if(action==='insert-menu')knowledgeInsertMenu(button);
   if(action==='insert-format')shellApplyNoteFormat(button.dataset.knFormat);
   if(action==='panels'||action==='backlinks'){
-    const closing=button.closest('.kn-side-panel'),current=action==='panels'?knowledgePanels:knowledgeBacklinkPanels,other=action==='panels'?knowledgeBacklinkPanels:knowledgePanels;
-    const outlineOpen = Boolean(knowledgePane(task.id)?.querySelector(".kn-side-panel")) && !knowledgeBacklinkPanels.has(task.id);
-    if (action === 'panels' && outlineOpen) { current.delete(task.id); knowledgeOutlineClosed.add(task.id); }
-    else if (current.has(task.id)) current.delete(task.id);
-    else { current.add(task.id); other.delete(task.id); if (action === 'panels') knowledgeOutlineClosed.delete(task.id); }
-    shellCloseOverlay({restoreFocus:false});knowledgeRefreshPanels(task);if(closing)knowledgePane(task.id)?.querySelector('[data-wb-action="more"]')?.focus({preventScroll:true});
+    const closing=button.closest('.kn-side-panel');
+    if(action==='panels'){
+      if(knowledgeOutlineOpen(task)){knowledgePanels.delete(task.id);knowledgeOutlineClosed.add(task.id);}
+      else{knowledgePanels.add(task.id);knowledgeOutlineClosed.delete(task.id);}
+    }else if(knowledgeBacklinkPanels.has(task.id))knowledgeBacklinkPanels.delete(task.id);
+    else knowledgeBacklinkPanels.add(task.id);
+    shellCloseOverlay();knowledgeRefreshPanels(task);if(closing)knowledgePane(task.id)?.querySelector('[data-wb-action="more"]')?.focus({preventScroll:true});
   }
+  if(action==='copy-path')void knowledgeCopyPath(task);
   if(action==='rename')knowledgeRename(task,button);
   if(action==='find')knowledgeCurrentEntry()?.openSearch();
   if(action==='table-tools')knowledgeTableTools();
@@ -1832,6 +2019,11 @@ document.addEventListener('click',event=>{
 document.addEventListener('keydown',event=>{
   const tab=event.target.closest('.kn-document-tabs [role=tab]');
   if(tab&&(event.isComposing||event.keyCode===229))return;
+  if(tab?.dataset.knDocument&&(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10')){
+    event.preventDefault();
+    tab.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));
+    return;
+  }
   if(tab?.dataset.knDocument&&event.altKey&&event.shiftKey&&['ArrowLeft','ArrowRight'].includes(event.key)){
     event.preventDefault();event.stopImmediatePropagation();
     const viewport=tab.closest('.kn-document-tabs'),item=tab.parentElement;
@@ -1855,10 +2047,18 @@ document.addEventListener('keydown',event=>{
     const next=tabs[event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:tabs.length-1))%tabs.length];
     if(next.dataset.knResource)knowledgeSelectResource(next.dataset.knResource);else knowledgeAttach(knowledgeFindDocument(next.dataset.knDocument));document.querySelector(next.dataset.knDocument?`[data-kn-document="${CSS.escape(next.dataset.knDocument)}"]`:'.kn-document-tabs [aria-selected=true]')?.focus();return;
   }
-  if(event.isComposing||!(event.ctrlKey||event.metaKey)||state.taskPane!=='notes'||shellOverlayIsOpen())return;
+  if(event.isComposing||event.keyCode===229||event.altKey||!(event.ctrlKey||event.metaKey)||state.taskPane!=='notes'||shellOverlayIsOpen())return;
   const key=event.key.toLowerCase();
   if(key==='o'){event.preventDefault();event.stopImmediatePropagation();void knowledgeOpenFile();}
-  if(key==='f'){event.preventDefault();event.stopImmediatePropagation();knowledgeCurrentEntry()?.openSearch();}
+  if(key==='f'){
+    event.preventDefault();event.stopImmediatePropagation();
+    if(event.shiftKey){if(knowledgeCurrentEntry())workbenchSetFocus();}
+    else knowledgeCurrentEntry()?.openSearch();
+  }
+  if(key==='/'&&!event.shiftKey&&knowledgeCurrentEntry()){
+    event.preventDefault();event.stopImmediatePropagation();
+    knowledgeSetMode(shellKnowledgeMode()==='source'?'edit':'source');
+  }
 },true);
 // Dismissing this formatting menu must not rerender the workspace and discard
 // the trigger's keyboard focus. Other Loop dialogs keep their own dismissal.

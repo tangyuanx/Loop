@@ -259,6 +259,6 @@ window.addEventListener('keydown',event=>{
     const field=cell&&entry.tableField(cell),coords=field?.getBoundingClientRect()||entry.view.coordsAtPos(entry.view.state.selection.main.head);
     workbenchFormatMenu(field||entry.root,coords?{x:coords.left,y:coords.bottom}:null);return;
   }
-  if(event.key==='Escape'&&Workbench.focus&&!shellOverlayIsOpen()&&!knowledgeCurrentEntry()?.find?.active){event.preventDefault();workbenchSetFocus(false);}
+  if(event.key==='Escape'&&Workbench.focus&&!shellOverlayIsOpen()&&!event.target.closest('.kn-inline-rename')&&!knowledgeCurrentEntry()?.find?.active){event.preventDefault();workbenchSetFocus(false);}
 },true);
 window.addEventListener('resize',()=>{if(Workbench.context&&document.querySelector('.wb-context-menu'))workbenchClose(false);});

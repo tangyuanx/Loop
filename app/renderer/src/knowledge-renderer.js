@@ -223,7 +223,7 @@ export function createRenderer(options) {
     // Mermaid is commonly written as `mermaid`; accept the short `mmd` alias
     // as well so imported notes keep their diagram semantics.
     if(language==='mermaid' || language==='mmd') return `<div class="kn-mermaid" role="img" aria-label="Mermaid 图表"><pre><code>${escape(t.content)}</code></pre></div>`;
-    return `<div class="kn-code">${language ? `<span class="kn-code-language">${escape(language)}</span>` : ""}<button type="button" class="kn-code-copy" aria-label="复制代码">复制</button>${defaultFence(tokens,i,o,env,self)}</div>`;
+    return `<div class="kn-code" data-lang="${escape(language)}">${language ? `<span class="kn-code-language">${escape(language)}</span>` : ""}<button type="button" class="kn-code-copy" aria-label="复制代码">复制</button>${defaultFence(tokens,i,o,env,self)}</div>`;
   };
   const defaultLink=md.renderer.rules.link_open || ((ts,i,o,_e,s)=>s.renderToken(ts,i,o));
   md.renderer.rules.link_open=(tokens,i,o,env,self)=>{

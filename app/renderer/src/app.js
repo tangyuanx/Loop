@@ -2068,7 +2068,7 @@ function updateLocalSaveReceipt() {
   }
   const status = document.querySelector("[data-workspace-status]");
   if (status) {
-    if(status.closest?.('.knowledge-footer'))status.hidden=!workspaceFeedback&&localSaveOutcome!=='failed';
+    if(status.closest?.('.knowledge-footer, .kn-split-workspace'))status.hidden=!workspaceFeedback&&localSaveOutcome!=='failed';
     const markup = renderWorkspaceStatus();
     if (status.workspaceStatusMarkup !== markup) {
       if (status.innerHTML !== markup) status.innerHTML = markup;

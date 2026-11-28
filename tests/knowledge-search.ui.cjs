@@ -129,6 +129,7 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
     });
     assert.equal(await page.locator('.task-work-main > .tabs-bar [data-kn-action=find]').count(),0);
     assert.equal(await page.locator('.knowledge-note-actions.raised').count(),0);
+    assert.equal(await page.locator('.knowledge-note-actions').evaluate(el=>getComputedStyle(el).backgroundColor),'rgba(0, 0, 0, 0)');
     const measure=()=>page.evaluate(()=>{
      const r=document.querySelector('.knowledge-body').getBoundingClientRect(),b=document.querySelector('[data-wb-action=focus]').getBoundingClientRect();
      return {top:r.top,height:r.height,focusX:b.x,focusY:b.y};
@@ -137,7 +138,12 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
     await openFind();await frame();
     assert.equal(await page.locator('[data-kn-action=find]').isVisible(),false);
     assert.deepEqual(await measure(),before);
-    const inline=await page.locator('.kn-find').evaluate(el=>{const r=el.getBoundingClientRect(),b=document.querySelector('[data-wb-action=focus]').getBoundingClientRect();return r.right<=b.left&&Math.abs(r.top-b.top)<2;});assert.equal(inline,true);
+    const inline=await page.locator('.kn-find').evaluate(el=>{
+      const panel=el.getBoundingClientRect(),focus=document.querySelector('[data-wb-action=focus]').getBoundingClientRect();
+      const close=el.querySelector('[name=close]').getBoundingClientRect();
+      return panel.right<=focus.left&&Math.abs(panel.top-focus.top)<2&&close.right<=panel.right;
+    });
+    assert.equal(inline,true);
     await input.evaluate(el=>el.blur());
     const neutral=await page.locator('.kn-find-field').evaluate(el=>getComputedStyle(el).backgroundColor);
     await input.focus();
@@ -148,6 +154,7 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
     await page.locator('.kn-find [name=toggleReplace]').click();await frame();assert.deepEqual(await measure(),before);
     await page.screenshot({path:path.join(out,`floating-${theme}.png`)});
     await input.press('Escape');assert.equal(await page.locator('[data-kn-action=find]').isVisible(),true);
+    assert.equal(await page.locator('[data-kn-action=find]').evaluate(el=>el===document.activeElement),true);
     assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().view===window.__floatingView),true);
    }
    // The toolbar raises when the document scrolls underneath it.
@@ -162,6 +169,14 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
     body.scrollTop+=Math.max(8,line.top-tools.top+4);
    });
    await page.waitForFunction(()=>document.querySelector('.knowledge-note-actions')?.classList.contains('raised'));
+   for(const theme of ['light','dark']){
+    await page.evaluate(theme=>{state.theme=theme;render();document.querySelector('.knowledge-body').scrollTop=100;},theme);
+    await frame();
+    assert.equal(await page.locator('.knowledge-note-actions.raised').evaluate(el=>{
+      const style=getComputedStyle(el),canvas=getComputedStyle(el.closest('.knowledge-workspace'));
+      return style.backgroundColor===canvas.backgroundColor&&style.backgroundColor.startsWith('rgb(')&&style.backdropFilter==='none';
+    }),true);
+   }
    const anchored=await page.locator('.knowledge-note-actions').boundingBox();
    await page.locator('.knowledge-body').hover();await page.mouse.wheel(0,200);await frame();
    assert.ok(await page.locator('.knowledge-body').evaluate(el=>el.scrollTop>0));

@@ -32,11 +32,20 @@ const report={checks:[],errors:[],limitations:['native Windows','physical cross-
  assert.deepEqual(await page.locator('.knowledge-body').evaluateAll(els=>els.map(el=>el.scrollTop)),positions);
  const divider=page.locator('.kn-split-divider'),box=await divider.boundingBox();await page.mouse.move(box.x+3,box.y+30);await page.mouse.down();await page.mouse.move(box.x+73,box.y+30,{steps:8});await page.mouse.up();
  const ratio=await page.evaluate(()=>knowledgeSplitLayout().ratio);assert.ok(ratio>.52);
+ await divider.dblclick();
+ assert.equal(await page.evaluate(()=>knowledgeSplitLayout().ratio),.5);
+ assert.equal(await page.getByText('已恢复 50/50 分栏',{exact:true}).isVisible(),true);
  await divider.focus();await page.keyboard.press('ArrowLeft');assert.ok(await page.evaluate(()=>knowledgeSplitLayout().ratio)<ratio);
  const keepRatio=await page.evaluate(()=>knowledgeSplitLayout().ratio);
- await pane('right').locator('[data-wb-action="focus"]').click();await settle();assert.equal(await pane('left').isVisible(),false);assert.equal(await pane('right').isVisible(),true);
+ await pane('right').locator('.cm-content').focus();
+ await page.keyboard.press(mod+'+Shift+F');await settle();assert.equal(await pane('left').isVisible(),false);assert.equal(await pane('right').isVisible(),true);
  await page.keyboard.press('Escape');await settle();assert.equal(await pane('left').isVisible(),true);assert.equal(await page.evaluate(()=>knowledgeSplitLayout().ratio),keepRatio);
  assert.equal(await page.evaluate(()=>__splitLeft===knowledgeCurrentEntry('owner')&&__splitRight===knowledgeCurrentEntry('right')),true);
+ const swap=page.getByRole('button',{name:'左右互换',exact:true});
+ await swap.click();
+ assert.deepEqual(await page.evaluate(()=>[knowledgeSplitLayout().leftId,knowledgeSplitLayout().rightId,knowledgeSplitLayout().ratio]),['right','owner',keepRatio]);
+ await swap.click();
+ assert.deepEqual(await page.evaluate(()=>[knowledgeSplitLayout().leftId,knowledgeSplitLayout().rightId,knowledgeSplitLayout().ratio]),['owner','right',keepRatio]);
  check('scroll positions survive redraw; divider supports pointer/keyboard; focus restores both editors and width');
  for(const side of ['left','right']){
    await pane(side).locator('[data-wb-action="more"]').click();

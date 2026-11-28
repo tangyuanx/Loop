@@ -276,7 +276,7 @@
     if (!leftTabs.length || !rightTabs.length) return null;
     const mode = value => ['edit', 'source', 'preview'].includes(value) ? value : 'edit';
     return {leftId:leftTabs.includes(value.leftId)?value.leftId:leftTabs.at(-1),rightId:rightTabs.includes(value.rightId)?value.rightId:rightTabs.at(-1),
-      active:value.active==='right'?'right':'left',ratio:Math.max(.25,Math.min(.75,Number(value.ratio)||.5)),
+      active:value.active==='right'?'right':'left',ratio:Math.max(.26,Math.min(.74,Number(value.ratio)||.5)),
       leftMode:mode(value.leftMode),rightMode:mode(value.rightMode),leftTabs,rightTabs};
   }
 

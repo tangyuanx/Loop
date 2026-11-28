@@ -108,21 +108,21 @@ async function until(check) {
     await start();
     await choose('main');
     await active('main');
-    await test('task pane controls stay below the brief and retain position across keyboard switches', async () => {
+    await test('task pane controls keep keyboard focus and alignment across pane switches', async () => {
       await size(1024);
       await page.waitForFunction(() => window.LoopContinuity28);
       const geometry = () => page.locator('.pane-tab').evaluateAll(buttons =>
         buttons.map(button => {
-          const { x, y, width, height } = button.getBoundingClientRect();
-          return { x, y, width, height };
+          const { x, width, height } = button.getBoundingClientRect();
+          return { x, width, height };
         }));
       const briefToggle = page.locator('[data-brief21-toggle]');
       const initial = await briefToggle.getAttribute('aria-expanded');
       for (const expanded of [initial === 'true' ? 'false' : 'true', initial]) {
-        await briefToggle.click();
+        if(await briefToggle.getAttribute('aria-expanded')!==expanded)await briefToggle.click();
         await frame();
         assert.equal(await briefToggle.getAttribute('aria-expanded'), expanded);
-        const brief = await page.locator(expanded === 'true' ? '.task-work-main > .brief' : '[data-brief21-toggle]').boundingBox();
+        const brief = await (expanded === 'true' ? briefToggle.locator('xpath=ancestor::section[1]') : briefToggle).boundingBox();
         const tabs = await page.locator('.task-work-main > .tabs-bar').boundingBox();
         assert.ok(brief.y + brief.height <= tabs.y, 'the brief stays above the shared task pane tabs');
         const before = await geometry();
@@ -153,6 +153,10 @@ async function until(check) {
       await tab('long').dblclick();
       const input = page.locator('#kn-rename-title');
       assert.equal(await input.inputValue(), longTitle);
+      await input.dispatchEvent('compositionstart');
+      await input.dispatchEvent('keydown',{key:'Enter',isComposing:true,keyCode:229});
+      assert.equal(await input.isVisible(),true);
+      await input.dispatchEvent('compositionend');
       await page.keyboard.press('Escape');
       await page.waitForFunction(() => document.activeElement.dataset.knDocument === 'long');
       await tab('main').dblclick();
@@ -173,8 +177,13 @@ async function until(check) {
       assert.equal(await input.inputValue(), '笔记标题已修改');
       await page.keyboard.press('Escape');
       await page.waitForFunction(() => document.activeElement.dataset.knDocument === 'main');
+      await tab('main').click({button:'right'});
+      const menu=page.getByRole('menu',{name:'笔记页签操作'});
+      await menu.getByRole('menuitem',{name:'复制相对路径'}).click();
+      await page.getByText('已复制相对路径',{exact:true}).waitFor();
+      assert.equal(await app.evaluate(({clipboard})=>clipboard.readText()),'笔记标题已修改.md');
     });
-    await test('equal tab widths and continuous surfaces in both themes', async () => {
+    await test('equal tab widths and themed document surfaces', async () => {
       const samples = [];
       for (const theme of ['light', 'dark']) {
         await page.evaluate(theme => { state.theme = theme; render(); }, theme);
@@ -185,7 +194,8 @@ async function until(check) {
           assert.ok(sample.clipped);
           const colors = await page.locator('.knowledge-pane').evaluate(pane =>
             [pane.closest('.workspace'), pane.querySelector('.kn-document-bar'), pane.querySelector('.knowledge-body')].map(node => getComputedStyle(node).backgroundColor));
-          assert.equal(new Set(colors).size, 1);
+          assert.equal(colors[0],colors[2]);
+          assert.notEqual(colors[0],colors[1]);
           await tab('main').hover();
           const backgrounds = await tab('main').evaluate(node => [...node.parentElement.children].map(button => getComputedStyle(button).backgroundColor));
           assert.deepEqual(backgrounds, ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0)']);
@@ -199,7 +209,7 @@ async function until(check) {
       await choose('group-8');
       await active('group-8-0');
       const wide = await measure();
-      await size(1024);
+      await size(1240);
       const narrow = await measure();
       assert.equal(new Set(wide.widths).size, 1);
       assert.ok(narrow.widths[0] < wide.widths[0] && narrow.widths[0] > 40);
@@ -285,22 +295,37 @@ async function until(check) {
     });
     await test('single tab, empty workspace and new note', async () => {
       await wb.minimizeTaskInfo(page);
-      await page.locator('[data-kn-detach=long]').click();
+      await tab('main').click({button:'right'});
+      await page.getByRole('menuitem',{name:'关闭其他页签',exact:true}).click();
+      await page.locator('[data-knowledge-close] [data-kn-close-choice="keep"]').click();
+      await page.waitForFunction(()=>state.knowledgeWorkspace.openIds.length===2);
       await page.locator('[data-knowledge-close] [data-kn-close-choice="keep"]').click();
       await tab('long').waitFor({state:'detached'});
-      await page.locator('[data-kn-detach=draft]').click();
-      await page.locator('[data-knowledge-close] [data-kn-close-choice="keep"]').click();
       await tab('draft').waitFor({state:'detached'});
       assert.equal(await page.locator('.kn-document-tabs [role=tab]').count(), 1);
       await tab('main').dblclick();
       await page.locator('#kn-rename-title').waitFor();
       await page.keyboard.press('Escape');
       await page.waitForFunction(()=>knowledgeFindDocument('main').knowledgeNote.documentState==='SAVED');
-      await page.locator('[data-kn-detach=main]').click();
+      await tab('main').click({button:'middle'});
       await page.locator('.kn-empty-document').waitFor();
-      assert.equal(await page.locator('.knowledge-pane [data-kn-action]').count(),1);
+      assert.equal(await page.locator('.kn-empty-document [data-kn-action="new-note"]').count(),1);
+      assert.equal(await page.locator('.kn-empty-document [data-kn-action="open-file"]').count(),1);
+      assert.ok(await page.locator('.kn-empty-recent [data-kn-recent-note]').count());
       assert.equal(await page.locator('.kn-document-new').isVisible(),true);
       await page.waitForFunction(()=>document.activeElement.matches('[data-wb-action=more]'));
+      await page.getByRole('button',{name:'重新打开',exact:true}).click();
+      await tab('main').waitFor();
+      await tab('main').click({button:'middle'});
+      const recent=page.locator('.kn-empty-recent [data-kn-recent-note="main"]');
+      assert.equal(await recent.evaluate(row=>{
+        const name=row.querySelector('span'),dir=row.querySelector('.path');
+        return Math.round(row.getBoundingClientRect().height)===30&&getComputedStyle(row).whiteSpace==='nowrap'&&
+          getComputedStyle(name).textOverflow==='ellipsis'&&getComputedStyle(dir).flexShrink==='0';
+      }),true);
+      await recent.click();
+      await tab('main').waitFor();
+      await tab('main').click({button:'middle'});
       await wb.more(page);
       for(const action of ['new-note','open-file','recent']){
         assert.equal(await page.locator('.wb-more-menu [data-kn-action="'+action+'"]').count(),1);

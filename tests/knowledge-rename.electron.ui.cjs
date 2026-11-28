@@ -153,7 +153,7 @@ const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
     assert.equal(await fs.readFile(retried,'utf8'), external);
     assert.deepEqual(await fs.readFile(path.join(files, 'assets/example.png')), image);
     await wb.more(page);await page.locator('.wb-more-menu [data-kn-action="recent"]').click();
-    await page.locator('[data-kn-note="rename"]').click();
+    await page.locator('.kn-switcher-list [data-kn-note="rename"]').click();
     await page.waitForFunction(text => knowledgeCurrentEntry()?.getMarkdown()===text, external);
     await page.evaluate(async () => {save();await flushSave();});
     await page.reload();await page.waitForFunction(text => knowledgeCurrentEntry()?.getMarkdown()===text, external);

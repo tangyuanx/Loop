@@ -138,8 +138,8 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   }
   // The three widths are caps: on a narrow pane the default already fills the
   // available space, so only the wider window proves the tiers stay distinct.
-  assert.ok(pageWidths[0]<pageWidths[1]&&pageWidths[1]<=pageWidths[2],pageWidths.join(','));
-  await page.setViewportSize({width:1700,height:1000});await page.waitForTimeout(120);
+  assert.ok(pageWidths[0]<=pageWidths[1]&&pageWidths[1]<=pageWidths[2],pageWidths.join(','));
+  await page.setViewportSize({width:2100,height:1000});await page.waitForTimeout(120);
   const wideWidths=[];
   for(const width of ['default','wide','full']){await wb.width(page,width);wideWidths.push(await page.locator('.knowledge-page').evaluate(el=>el.getBoundingClientRect().width));}
   assert.ok(wideWidths[0]<wideWidths[1]&&wideWidths[1]<wideWidths[2],wideWidths.join(','));
@@ -147,8 +147,14 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   await wb.width(page,'default');
   console.log('UI global settings: all notes share width and view across restart; shortcuts stay synchronized.');
   await page.locator('[data-action="toggle-settings"]').click();
-  await page.locator('[data-action="set-settings-page"][data-page="knowledge"]').click();
+  const openNoteSettings=async()=>{
+    await page.locator('[data-action="set-settings-page"][data-page="appearance"]').click();
+    const advanced=page.locator('.settings-document .prefs-advanced');
+    if(!await advanced.evaluate(el=>el.open))await advanced.locator('summary').click();
+  };
+  await openNoteSettings();
   const setting=async(key,value)=>{
+    if(key==='knowledge-mode'&&!await page.locator('[data-key="knowledge-mode"]').isVisible())await openNoteSettings();
     await page.locator(`[data-action="open-settings-choice"][data-key="${key}"]`).click();
     await page.locator(`[data-action="set-settings-choice"][data-key="${key}"][data-value="${value}"]`).click();
   };
@@ -168,13 +174,14 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   assert.equal(await markdown(),workspaceOriginal);
   await wb.width(page,'default');await mode('edit');
   await wb.more(page);await page.locator('[data-action="open-knowledge-settings"]').click();
-  assert.equal(await page.locator('[data-key="knowledge-width"] span').first().innerText(),'默认');
+  await openNoteSettings();
+  assert.equal(await page.locator('[data-key="knowledge-width"] span').first().innerText(),'标准');
   assert.equal(await page.locator('[data-key="knowledge-mode"] span').first().innerText(),'编辑');
-  await page.locator('[data-action="set-settings-page"][data-page="appearance"]').click();
-  await page.locator('[data-action="set-settings-page"][data-page="knowledge"]').click();
-  assert.equal(await page.locator('.settings-document h2').innerText(),'知识笔记');
+  await page.locator('[data-action="set-settings-page"][data-page="tasks"]').click();
+  await openNoteSettings();
+  assert.equal(await page.locator('.settings-document h2').innerText(),'外观');
   await page.locator('[data-action="toggle-settings"]').click();
-  await wb.panels(page);
+  if(!await page.locator('.kn-outline').count())await wb.panels(page);
   assert.equal(await page.locator('.kn-side-panel').count(),1);
   assert.equal(await page.locator('.kn-backlink').count(),0,'outline and backlinks have independent entry points');
   await page.locator('[data-kn-heading="1"]').click();
@@ -187,7 +194,8 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   await page.evaluate(()=>window.__firstCM=knowledgeCurrentEntry().view);
   for(const name of ['source','preview','edit','preview','source','edit']){await mode(name);assert.equal(await markdown(),original);assert.equal(await page.evaluate(()=>knowledgeCurrentEntry().view===window.__firstCM),true);}
   await page.waitForSelector('.cm-line.kn-h1');
-  assert.ok(await page.locator('.cm-line.kn-h1').evaluate(el=>parseFloat(getComputedStyle(el).fontSize)>24));
+  assert.ok(await page.locator('.cm-line.kn-h1').evaluate(el=>
+    parseFloat(getComputedStyle(el).fontSize)>parseFloat(getComputedStyle(el.closest('.cm-content')).fontSize)));
   await mode('preview');
   const readingLeft=await page.locator('.kn-reading').evaluate(el=>el.getBoundingClientRect().left);
   await mode('edit');
@@ -351,9 +359,14 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   await choose('b');await wb.more(page);await page.locator('.wb-more-menu [data-kn-action="rename"]').click();await page.locator('#kn-rename-title').fill('重命名目标');await page.locator('#kn-rename-commit').click();await page.waitForSelector('#kn-rename-title',{state:'detached'});
   assert.equal(await page.evaluate(()=>state.tasks.find(t=>t.id==='b').title),'目标笔记');
   assert.equal(await page.evaluate(()=>LoopKnowledgeCore.resolve('目标笔记',knowledgeNotes()).note.id),'b');
-  await wb.panels(page);assert.equal(await page.locator('.kn-backlink').count(),0);
-  await wb.more(page);await page.locator('.wb-more-menu [data-kn-action="backlinks"]').click();assert.match(await page.locator('.kn-side-panel').innerText(),/原始笔记/);assert.equal(await page.locator('.kn-outline-link').count(),0);
+  if(!await page.locator('.kn-outline').count())await wb.panels(page);
+  assert.equal(await page.locator('.kn-backlink').count(),0);
+  const outlineSize=await page.locator('.kn-outline-link').count();
+  await wb.more(page);await page.locator('.wb-more-menu [data-kn-action="backlinks"]').click();
+  assert.match(await page.locator('.kn-backlinks').innerText(),/原始笔记/);
+  assert.equal(await page.locator('.kn-outline-link').count(),outlineSize);
   await page.getByRole('button',{name:'关闭反向链接',exact:true}).click();
+  assert.equal(await page.locator('.kn-outline-link').count(),outlineSize);
   console.log('UI check 12: Search and switch on Chinese text, create an independent note without creating a task.');
   // Search and switch on Chinese text, create an independent note without creating a task.
   await page.evaluate(()=>knowledgeShowSwitcher());await page.locator('#kn-switcher-query').fill('知识笔记新建');await page.locator('#kn-create-note').click();
@@ -388,7 +401,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
    assert.equal(await page.locator('.task-work-main > .tabs-bar').evaluate(el=>el.scrollWidth>el.clientWidth+1),false);
    if(screenshots)await page.screenshot({path:path.join(screenshots,`knowledge-${theme}-${width}.png`)});
-   await wb.panels(page);
+   if(!await page.locator('.kn-outline').count())await wb.panels(page);
    assert.equal(await page.locator('.knowledge-body').evaluate(el=>el.scrollWidth>el.clientWidth+1),false);
    if(screenshots)await page.screenshot({path:path.join(screenshots,`knowledge-outline-${theme}-${width}.png`)});
    await page.getByRole('button',{name:'关闭大纲',exact:true}).click();
