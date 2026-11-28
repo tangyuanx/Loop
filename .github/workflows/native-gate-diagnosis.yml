@@ -9,18 +9,8 @@ permissions:
 
 jobs:
   native-gates:
-    name: Native gates (${{ matrix.platform }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macOS
-            os: macos-latest
-            build: npm run dist:mac -- --arm64 --dir --publish never
-          - platform: Windows
-            os: windows-latest
-            build: npm run dist:win -- --dir --publish never
+    name: Packaged Windows table headers
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -28,27 +18,19 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - id: build
-        name: Build packaged diagnostic app
-        run: ${{ matrix.build }}
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-      - name: Check flow navigation and native resize
-        run: npm run test:ui:flow-navigation
+      - run: npm run dist:win -- --dir --publish never
       - name: Select actual packaged executable
-        if: steps.build.outcome == 'success' && !cancelled()
-        shell: bash
+        shell: pwsh
         run: |
-          if [[ "$RUNNER_OS" = macOS ]]; then
-            executable="$PWD/release/mac-arm64/Loop.app/Contents/MacOS/Loop"
-            if [ ! -f "$executable" ]; then executable="$PWD/release/mac/Loop.app/Contents/MacOS/Loop"; fi
-          else
-            executable="$(cygpath -w "$PWD/release/win-unpacked/Loop.exe")"
-          fi
-          echo "LOOP_APP_EXECUTABLE=$executable" >> "$GITHUB_ENV"
-      - name: Check packaged floating knowledge tools
-        if: steps.build.outcome == 'success' && !cancelled()
-        run: node tests/knowledge-search.ui.cjs
-      - name: Check packaged table widths
-        if: steps.build.outcome == 'success' && !cancelled()
-        run: node tests/knowledge-table-report.ui.cjs
+          $executable = Join-Path $PWD "release/win-unpacked/Loop.exe"
+          if (-not (Test-Path -LiteralPath $executable)) { throw "Packaged Loop.exe is missing." }
+          "LOOP_APP_EXECUTABLE=$executable" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Check packaged table headers, editing and undo
+        run: node tests/knowledge-table-headers.ui.cjs
+      - name: Preserve table header evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-table-header-evidence
+          path: .local-review/table-headers-*/result.json
+          include-hidden-files: true

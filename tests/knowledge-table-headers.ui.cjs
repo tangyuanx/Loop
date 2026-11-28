@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs/promises');
 const path=require('node:path');
-const {launchRepository,task}=require('./electron-ui-helpers.cjs');
+const {launchRepository,resizeRepositoryWindow,task}=require('./electron-ui-helpers.cjs');
 const {readKnowledgeDocument}=require('../app/main/knowledge-file.cjs');
 
 const mod=process.platform==='darwin'?'Meta':'Control';
@@ -66,7 +66,7 @@ async function main(){
     await page.locator('[data-pane=notes]').click();await page.waitForFunction(()=>knowledgeCurrentEntry()?.view);
     await page.evaluate(()=>document.fonts.ready);
     for(const [theme,size,index] of [['light',[1280,850],17],['dark',[1024,768],20]]){
-      await app.evaluate(({BrowserWindow},size)=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(...size),size);
+      await resizeRepositoryWindow(app,page,...size);
       await page.evaluate(theme=>{state.theme=theme;render();},theme);
       // Measure several preceding tables, then let CodeMirror virtualize them.
       // The edited document creates equal, unmounted widget instances; a save
@@ -74,11 +74,17 @@ async function main(){
       for(let warm=0;warm<24;warm++)await reveal(warm);
       await reveal(index);
       const cell=widget(index).locator('tbody tr').nth(8).locator('td').first();
+      const activeEditor=cell.locator('.kn-table-cell-editor:focus');
       const initial=await source();
       await observe(index,theme+' cell click',async()=>{
-        const r=await cell.boundingBox();await page.mouse.click(r.x+20,r.y+18);
+        await cell.click({position:{x:20,y:18}});
+        await activeEditor.waitFor();
       });
-      await observe(index,theme+' input',async()=>{await page.keyboard.press('End');await page.keyboard.insertText('X');});
+      await observe(index,theme+' input',async()=>{
+        await activeEditor.press('End');
+        await page.keyboard.insertText('X');
+        await page.waitForFunction(initial=>knowledgeCurrentEntry()?.getEditorText()!==initial,initial);
+      });
       assert.notEqual(await source(),initial);
       await observe(index,theme+' save refresh',()=>page.evaluate(()=>saveKnowledgeTask(knowledgeActiveDocument().id)));
       assert.equal(await fs.readFile(file,'utf8'),await source());
