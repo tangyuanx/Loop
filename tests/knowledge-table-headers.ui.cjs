@@ -76,6 +76,12 @@ async function main(){
       const cell=widget(index).locator('tbody tr').nth(8).locator('td').first();
       const activeEditor=cell.locator('.kn-table-cell-editor:focus');
       const initial=await source();
+      await widget(index).evaluate(widget=>{
+        const header=widget.querySelector('thead').getBoundingClientRect();
+        const edge=widget.querySelector('.kn-table-row-resizer[data-row="0"]').getBoundingClientRect();
+        if(Math.abs(edge.top+edge.height/2-header.bottom)>1)
+          throw Error('Header resize edge did not follow its row: '+JSON.stringify({headerBottom:header.bottom,edgeY:edge.top+edge.height/2}));
+      });
       await observe(index,theme+' cell click',async()=>{
         await cell.click();
         await activeEditor.waitFor();

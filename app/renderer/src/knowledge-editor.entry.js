@@ -1559,6 +1559,8 @@ class KnowledgeEditor {
         if(header.style.translate===translate)continue;
         header.toggleAttribute('data-table-pinned',offset>0);
         header.style.translate=translate;
+        const stage=header.parentElement.parentElement;
+        if(stage.classList.contains('kn-table-stage'))stage.style.setProperty('--kn-pinned-header-offset',offset+'px');
       }
     }});
   }

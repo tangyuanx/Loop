@@ -60,7 +60,12 @@ export function installTableControls(owner,widget) {
   function layout() {
     if(!widget.isConnected||owner.destroyed)return;
     const bounds=table.getBoundingClientRect(),base=stage.getBoundingClientRect();
-    const rowRects=Array.from(table.rows,row=>row.getBoundingClientRect());
+    const pinnedOffset=Number.parseFloat(stage.style.getPropertyValue('--kn-pinned-header-offset'))||0;
+    const rowRects=Array.from(table.rows,row=>{
+      const rect=row.getBoundingClientRect();
+      const offset=row.parentElement===table.tHead?pinnedOffset:0;
+      return {top:rect.top-offset,bottom:rect.bottom-offset,height:rect.height};
+    });
     const columnRects=Array.from(columnBoxes,col=>col.getBoundingClientRect());
     for(const item of handles){const rect=item.kind==='row'?rowRects[item.index]:columnRects[item.index];
       item.el.style.left=(item.kind==='row'?bounds.left-base.left-20:rect.left-base.left)+'px';
