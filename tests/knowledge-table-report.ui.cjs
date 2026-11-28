@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { launchRepository, task } = require('./electron-ui-helpers.cjs');
+const { launchRepository, resizeRepositoryWindow, task } = require('./electron-ui-helpers.cjs');
 const { readKnowledgeDocument } = require('../app/main/knowledge-file.cjs');
 const { readTaskData } = require('../app/main/storage.cjs');
 
@@ -74,6 +74,10 @@ async function main() {
         knowledgeNote: { ...disk, title: '表格核对', documentState: 'SAVED', dirty: false } })],
     }, 'table-report', process.env.LOOP_APP_EXECUTABLE);
     const { page, app, errors } = run;
+    // Use a known workspace width so auto-layout tests compare visible column
+    // proportions on the same geometry on both runner displays.
+    const windowGeometry = await resizeRepositoryWindow(app, page, 1280, 820);
+    assert.equal(windowGeometry.viewport[0], 1280, JSON.stringify(windowGeometry));
     await page.locator('[data-pane=notes]').click();
     const widgets = page.locator('.kn-table-widget');
     const editorField = page.locator('.kn-table-cell-editor:focus');
@@ -227,12 +231,25 @@ async function main() {
 
     await fixture(mergeLayout);
     await table.waitFor();
-    await page.waitForFunction(() => {
-      const table = document.querySelector('.kn-edit-surface:not([hidden]) .kn-table-widget table');
-      if (table?.querySelector('thead th')?.textContent.trim() !== '项目') return false;
-      const widths = Array.from(table.querySelectorAll('colgroup col'), column => Math.round(column.getBoundingClientRect().width));
-      return widths.length === 3 && widths[1] > widths[0] + 50;
-    });
+    await page.evaluate(() => document.fonts.ready.then(() => true));
+    try {
+      await page.waitForFunction(() => {
+        const table = document.querySelector('.kn-edit-surface:not([hidden]) .kn-table-widget table');
+        if (table?.querySelector('thead th')?.textContent.trim() !== '项目') return false;
+        const widths = Array.from(table.querySelectorAll('colgroup col'), column => Math.round(column.getBoundingClientRect().width));
+        return widths.length === 3 && widths[1] > widths[0] + 50;
+      });
+    } catch (error) {
+      console.error('Automatic table column geometry:', await table.evaluate(widget => {
+        const table = widget.querySelector('table');
+        return {
+          viewport: [innerWidth, innerHeight], widget: widget.clientWidth, table: table?.clientWidth,
+          headings: [...widget.querySelectorAll('thead th')].map(cell => [cell.textContent, cell.clientWidth]),
+          columns: [...widget.querySelectorAll('colgroup col')].map(col => [col.style.width, col.getBoundingClientRect().width]),
+        };
+      }));
+      throw error;
+    }
     const originalWidths = await columnWidths(table);
     assert.ok(originalWidths[1] > originalWidths[0] + 50);
     const mergeRectangle = async () => {
@@ -254,7 +271,9 @@ async function main() {
     await mode('preview');
     assert.deepEqual(await columnWidths(reading), originalWidths);
     await mode('edit');
+    await merged.waitFor();
     await page.locator('.knowledge-body').evaluate(body => { body.scrollTop = 0; });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
     await page.evaluate(() => {
       const editor = knowledgeCurrentEntry(), body = editor.root.closest('.knowledge-body'), samples = [];
@@ -282,7 +301,10 @@ async function main() {
     assert.ok(frames.at(-1).top < 100, 'wheel returned to the table');
     assert.ok(frames.every(frame => !frame.raw), 'scroll never exposes the merged table source');
     const heights = frames.map(frame => frame.height);
-    assert.ok(Math.max(...heights) - Math.min(...heights) < 80, 'scroll never substitutes source height for the table');
+    const shortest = Math.min(...heights);
+    const tallest = Math.max(...heights);
+    assert.ok(tallest - shortest < 80, 'scroll never substitutes source height for the table: ' +
+      JSON.stringify({ shortest: frames.find(frame => frame.height === shortest), tallest: frames.find(frame => frame.height === tallest) }));
     assert.deepEqual(await columnWidths(table), originalWidths);
 
     await merged.click({ button: 'right', position: { x: 9, y: 9 } });

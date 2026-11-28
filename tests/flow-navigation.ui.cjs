@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const {launchRepository, task} = require('./electron-ui-helpers.cjs');
+const {launchRepository, resizeRepositoryWindow, task} = require('./electron-ui-helpers.cjs');
 const {minimizeTaskInfo,openFlowOptions} = require('./workbench-helpers.cjs');
 
 const stamp = new Date().toISOString();
@@ -25,13 +25,8 @@ const long = Array.from({length:12},(_,i)=>`第${i+1}行：完整保留中英文
   const bar=p.locator('.flow-context-bar');
   const settle=()=>p.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
   const resize=async (width,height)=>{
-    await app.evaluate(({BrowserWindow},size)=>{
-      const window=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/index.html'));
-      // Let the inspector reply before native Windows resize events reenter Electron.
-      setTimeout(()=>window.setSize(...size),50);
-      return true;
-    },[width,height]);
-    await p.waitForFunction(([width,height])=>Math.abs(outerWidth-width)<=2&&Math.abs(outerHeight-height)<=2,[width,height]);
+    const geometry=await resizeRepositoryWindow(app,p,width,height);
+    console.log('Native flow test window: '+JSON.stringify(geometry));
   };
   const go=async id=>{
     await row(id).evaluate(el=>{
