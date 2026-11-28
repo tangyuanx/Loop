@@ -75,7 +75,7 @@ const report = { checks: [], layouts: [], limitations: ['Physical native title-b
     });
     assert.equal(await page.evaluate(() => state.tasks.length), 1);
     await page.locator('#create-form button[type="submit"]').focus(); await page.keyboard.press('Tab');
-    assert.equal(await page.evaluate(() => document.activeElement?.dataset.action), 'close-dialog');
+    assert.equal(await page.evaluate(() => document.activeElement?.dataset.composerType), 'task');
     await page.keyboard.press('Shift+Tab');
     assert.equal(await page.evaluate(() => document.activeElement?.type), 'submit');
     check('dismiss/reopen retains all task fields; IME Enter is ignored and Tab stays inside the dialog');

@@ -49,16 +49,11 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
 
     const originalGroup = await page.evaluate(() => shellActiveTask().groupId);
     await page.locator('[data-action="open-task-menu"]').click();
-    await page.locator('[data-task-menu] [data-action="toggle-task-group-select"]').click();
-    const moveSearch = page.locator('#manage24-move-search');
-    await moveSearch.fill('工作');
-    await page.locator('[data-manage24-target="work"]').click();
-    await moveSearch.press('Shift+Enter');
-    assert.ok(await moveSearch.isVisible());
-    await moveSearch.press('Enter');
-    assert.equal(await page.evaluate(() => document.activeElement?.dataset.manage24Target), 'work');
-    assert.equal(await page.evaluate(() => shellActiveTask().groupId), originalGroup);
-    await page.keyboard.press('Escape');
+    await page.getByRole('menu', { name: '任务操作' }).getByRole('menuitem', { name: '移动到分组…' }).click();
+    const moveMenu = page.getByRole('menu', { name: '移动到分组' });
+    await moveMenu.getByRole('menuitemradio', { name: '工作组' }).press('Escape');
+    await moveMenu.waitFor({ state: 'hidden' });
+    assert.equal(await page.evaluate(() => shellActiveTask().groupId), originalGroup, 'dismissing the group menu keeps the current group');
 
     await open();
     await title.fill('新建任务重试');
@@ -118,7 +113,7 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     assert.equal((await disk()).filter(task => task.title === '修改后创建').length, 1);
 
     await open();
-    await form.getByRole('button', { name: '改为速记', exact: true }).click();
+    await form.getByRole('button', { name: '速记', exact: true }).click();
     await title.fill('主窗口速记');
     await title.press('ControlOrMeta+Enter');
     await form.waitFor({ state: 'detached' });

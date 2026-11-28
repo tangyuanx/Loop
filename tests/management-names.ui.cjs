@@ -61,7 +61,7 @@ const {launchRepository,task}=require('./electron-ui-helpers.cjs');
     await p.evaluate(()=>{state.activeGroupId='group_all';state.activeTaskId='a';render();});
     if(kind==='row')await p.locator('.task-select[data-task-id="a"]').dblclick();
     if(kind==='heading')await heading.click();
-    if(kind==='group'){await p.locator('.navigation [data-group-id="work"]').focus();await p.keyboard.press('F2');}
+    if(kind==='group')await p.locator('.navigation [data-action="select-nav-group"][data-group-id="work"]').press('F2');
     await input.waitFor();assert.equal(await input.evaluate(el=>el===document.activeElement),true);
    };
    await flush();const original=await model();await open();await input.fill(kind+'失败输入');
@@ -132,11 +132,11 @@ const {launchRepository,task}=require('./electron-ui-helpers.cjs');
 
   await p.locator('[data-action="toggle-settings"]').click();
   await p.locator('[data-action="set-settings-page"][data-page="tasks"]').click();
-  assert.equal(await p.locator('.settings-content [data-action="manage-node-states"]').count(),0);
+  await p.locator('.settings-content').getByRole('button',{name:'管理状态'}).waitFor();
   assert.deepEqual(await p.evaluate(()=>state.nodeStates),[legacyState]);
   await p.locator('[data-action="toggle-settings"]').click();await flush();
   assert.deepEqual((await disk()).nodeStates,[legacyState]);
-  await done('published three-state UI keeps the retired manager hidden and preserves legacy definitions');
+  await done('task settings expose the status manager and preserve existing definitions');
   await select('b');
   for(const theme of ['light','dark']){
    await p.evaluate(theme=>{state.theme=theme;render();},theme);

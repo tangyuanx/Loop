@@ -19,10 +19,10 @@ const {launchRepository,task} = require('./electron-ui-helpers.cjs');
   await status.press('Enter');assert.equal(await p.evaluate(()=>findNode(shellActiveTask().nodes,'parent').status),'review');
   await status.press('Space');assert.equal(await p.evaluate(()=>findNode(shellActiveTask().nodes,'parent').status),'todo');
   assert.equal(await p.evaluate(()=>taskCompletionBlocker(shellActiveTask())),'FLOW_INCOMPLETE');
-  // Hiding the old custom-state UI must not delete existing records or metadata.
+  // Opening task settings must preserve existing custom states and records.
   await p.locator('[data-action="toggle-settings"]').click();
   await p.locator('[data-action="set-settings-page"][data-page="tasks"]').click();
-  assert.equal(await p.locator('[data-action="manage-node-states"]').count(),0);
+  await p.locator('.settings-content').getByRole('button',{name:'管理状态'}).waitFor();
   await p.locator('[data-action="toggle-settings"]').click();
   await p.evaluate(()=>flushSave());await p.reload();await status.waitFor();
   assert.deepEqual(await p.evaluate(()=>state.nodeStates),[legacy]);
