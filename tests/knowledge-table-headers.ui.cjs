@@ -77,7 +77,7 @@ async function main(){
       const activeEditor=cell.locator('.kn-table-cell-editor:focus');
       const initial=await source();
       await observe(index,theme+' cell click',async()=>{
-        await cell.click({position:{x:20,y:18}});
+        await cell.click();
         await activeEditor.waitFor();
       });
       await observe(index,theme+' input',async()=>{
