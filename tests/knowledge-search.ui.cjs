@@ -118,8 +118,13 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
    const frame=()=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
    const short='# 阅读记录\n\n短正文不会从工具下方经过。\n\n测试，测试。\n';
    for(const theme of ['light','dark']){
-    await page.evaluate(({theme,short})=>{state.theme=theme;render();const e=knowledgeCurrentEntry();e.view.dispatch({changes:{from:0,to:e.view.state.doc.length,insert:short}});document.querySelector('.knowledge-body').scrollTop=0;window.__floatingView=e.view;},{theme,short});
+    await page.evaluate(({theme,short})=>{state.theme=theme;render();const e=knowledgeCurrentEntry();e.view.dispatch({changes:{from:0,to:e.view.state.doc.length,insert:short}});window.__floatingView=e.view;},{theme,short});
     await frame();
+    await page.locator('.knowledge-body').evaluate(body=>{body.scrollTop=0;});
+    await page.waitForFunction(()=>{
+     const body=document.querySelector('.knowledge-body');
+     return body?.scrollTop===0&&!body.querySelector('.knowledge-note-actions.raised');
+    });
     assert.equal(await page.locator('.task-work-main > .tabs-bar [data-kn-action=find]').count(),0);
     assert.equal(await page.locator('.knowledge-note-actions.raised').count(),0);
     const measure=()=>page.evaluate(()=>{

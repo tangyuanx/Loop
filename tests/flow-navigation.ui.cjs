@@ -24,6 +24,15 @@ const long = Array.from({length:12},(_,i)=>`第${i+1}行：完整保留中英文
   const nav=p.locator('[data-flow-breadcrumb]');
   const bar=p.locator('.flow-context-bar');
   const settle=()=>p.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+  const resize=async (width,height)=>{
+    await app.evaluate(({BrowserWindow},size)=>{
+      const window=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/index.html'));
+      // Let the inspector reply before native Windows resize events reenter Electron.
+      setTimeout(()=>window.setSize(...size),50);
+      return true;
+    },[width,height]);
+    await p.waitForFunction(([width,height])=>Math.abs(outerWidth-width)<=2&&Math.abs(outerHeight-height)<=2,[width,height]);
+  };
   const go=async id=>{
     await row(id).evaluate(el=>{
       const scroll=el.closest('.flow-scroll');
@@ -33,7 +42,7 @@ const long = Array.from({length:12},(_,i)=>`第${i+1}行：完整保留中英文
   };
   const shot=async name=>{if(process.env.LOOP_REVIEW_OUTPUT){await fs.mkdir(process.env.LOOP_REVIEW_OUTPUT,{recursive:true});await p.screenshot({path:path.join(process.env.LOOP_REVIEW_OUTPUT,name+'.png')});}};
   try{
-    await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/index.html')).setSize(1280,850));
+    await resize(1280,850);
     await minimizeTaskInfo(p); await nav.waitFor({state:'attached'}); await settle();
     const scroll=p.locator('.flow-scroll');
     const optionsButton=p.locator('[data-action="open-flow-options"]');
@@ -181,7 +190,7 @@ const long = Array.from({length:12},(_,i)=>`第${i+1}行：完整保留中英文
 
     for(const theme of ['light','dark'])for(const width of [1280,1024]){
       await p.evaluate(theme=>{state.theme=theme;state.fontScale='largest';render();},theme);
-      await app.evaluate(({BrowserWindow},width)=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/index.html')).setSize(width,720),width);
+      await resize(width,720);
       await minimizeTaskInfo(p);await go('deep-15');await settle();
       const geometry=await p.evaluate(()=>{
         const scroll=document.querySelector('.flow-scroll'),bar=document.querySelector('.flow-context-bar'),nav=document.querySelector('[data-flow-breadcrumb]');

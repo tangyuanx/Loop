@@ -227,6 +227,12 @@ async function main() {
 
     await fixture(mergeLayout);
     await table.waitFor();
+    await page.waitForFunction(() => {
+      const table = document.querySelector('.kn-edit-surface:not([hidden]) .kn-table-widget table');
+      if (table?.querySelector('thead th')?.textContent.trim() !== '项目') return false;
+      const widths = Array.from(table.querySelectorAll('colgroup col'), column => Math.round(column.getBoundingClientRect().width));
+      return widths.length === 3 && widths[1] > widths[0] + 50;
+    });
     const originalWidths = await columnWidths(table);
     assert.ok(originalWidths[1] > originalWidths[0] + 50);
     const mergeRectangle = async () => {
