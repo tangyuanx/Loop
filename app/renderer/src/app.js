@@ -315,8 +315,8 @@ let state = {
 // RUNTIME VARIABLES
 // ============================================================
   reviewPreset: "week",
-  // Phase18: the Today route's own view — active list or today's completions.
-  todayFilter: "active",
+  todayFilter: "all",
+  todayDoneOpen: true,
   // Phase20: the task brief is collapsed while a node record is open and can be
   // expanded from the toggle in a wide window.
   scale20SummaryOpen: false,
@@ -4183,11 +4183,7 @@ function filteredTasks({ includeQuery = true, at = loopNow() } = {}) {
 
 function computeFilteredTasks({ includeQuery = true, at = loopNow() } = {}) {
   const q = state.query.trim().toLowerCase();
-  if (state.quickInboxOpen) {
-    return state.tasks.filter(task => shellTaskIsNote(task) && task.status !== "done"
-      && (!includeQuery || !q || `${task.title} ${task.description}`.toLowerCase().includes(q)))
-      .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
-  }
+  if (shellShowsOnlyQuickInbox()) return shellOpenQuickTasks(includeQuery ? q : "");
   const repositoryTypes = repositoryTypeSelection();
   // Only the blocked/later filters need the node tree walked, and only the
   // blocked filter needs the tag set. Computing both for every task made the
@@ -4205,9 +4201,11 @@ function computeFilteredTasks({ includeQuery = true, at = loopNow() } = {}) {
       const hasLater = filterNeedsLater
         && flatten(task.nodes).some((node) => node.status === "later");
       if (today) {
+        if (state.captureSourceFilter !== "quick" && shellTaskIsNote(task)) return false;
         if (task.status === "done") {
           if (!completedToday?.has(task)) return false;
-        } else if (state.todayFilter === "done" || !isTaskScheduledForToday(task, at)) return false;
+        } else if (state.todayFilter === "done" || !(state.captureSourceFilter === "quick"
+          ? isTaskScheduledForToday(task, at) : isTaskInTodayList(task, at))) return false;
       }
       if (state.taskFilter === "active" && task.status === "done") return false;
       if (state.taskFilter === "done" && task.status !== "done") return false;
@@ -4865,6 +4863,23 @@ function isRecurringTaskDue(task, at = loopNow()) {
 function isTaskScheduledForToday(task, at = loopNow()) {
   const deadline = safeDate(task.deadlineAt);
   return normalizeTaskTags(task.tags).today || isRecurringTaskDue(task, at) || Boolean(deadline && localDateKey(deadline) === localDateKey(at));
+}
+
+function todayDeadlineSection(task, todayKey) {
+  const deadline = safeDate(task.deadlineAt);
+  if (!deadline || task.status === "done") return "";
+  const key = localDateKey(deadline);
+  if (key < todayKey) return "overdue";
+  return key === todayKey ? "dueToday" : "";
+}
+
+function isTaskInTodayList(task, at = loopNow()) {
+  return todayDeadlineSection(task, localDateKey(at)) === "overdue" || isTaskScheduledForToday(task, at);
+}
+
+function canUnpinTaskToday(task, at = loopNow()) {
+  return task.status !== "done" && normalizeTaskTags(task.tags).today
+    && !todayDeadlineSection(task, localDateKey(at)) && !isRecurringTaskDue(task, at);
 }
 
 /**
@@ -6676,6 +6691,7 @@ function bindTaskRepositoryRows(scope = document) {
           event.stopPropagation();
           return;
         }
+        if (event.target.closest(".task-row-qact")) return;
         if (!activateRepositoryTask(element.dataset.taskId)) return;
         syncRepositoryTaskSelection();
 
@@ -7555,7 +7571,7 @@ function applySetting(key, value) {
   if (key === "task-filter") {
     state.globalListReturn = null;
     state.taskFilter = normalizeTaskFilter(value);
-    if (state.taskFilter === "today") state.todayFilter = "active";
+    if (state.taskFilter === "today") state.todayFilter = "all";
     // 今日 / 任务仓库 must leave every full-width route, settings included.
     state.calendarOpen = false;
     state.reviewOpen = false;

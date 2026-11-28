@@ -140,7 +140,7 @@ function shellIgnoreImplicitSubmit(form) {
 function shellCreateDraftFresh() {
   const route = shellRoute();
   return {
-    kind: state.quickInboxOpen || state.captureSourceFilter === "quick" ? "quick" : "task",
+    kind: shellShowsOnlyQuickInbox() || state.captureSourceFilter === "quick" ? "quick" : "task",
     title: "",
     description: "",
     groupId: defaultComposerGroupId(),
@@ -1382,7 +1382,8 @@ function shellOption(value, label, selected) {
 function shellAdvancedListFilter(trigger) {
   const today = shellRoute() === "today";
   const kinds = [["all", "全部"], ["task", "任务"], ["quick", "速记"]];
-  const statuses = today ? [["active", "未完成"], ["done", "已完成"]] : [["active", "未完成"], ["all", "全部"], ["done", "已完成"], ["blocked", "卡住"], ["later", "稍后"]];
+  const statuses = [["active", "未完成"], ["all", "全部"], ["done", "已完成"]];
+  if (!today) statuses.push(["blocked", "卡住"], ["later", "稍后"]);
   shellMountSurface(
     `<form class="surface-popover" id="combined-filter-form" role="dialog" aria-modal="true" aria-label="筛选记录">${shellSurfaceHeader("筛选")}
       <div class="filter-fields">
@@ -1400,7 +1401,10 @@ function shellAdvancedListFilter(trigger) {
     event.preventDefault();
     const data = new FormData(event.target);
     state.captureSourceFilter = normalizeCaptureSourceFilter(String(data.get("kind")));
-    if (today) state.todayFilter = data.get("status") === "done" ? "done" : "active";
+    if (today) {
+      state.todayFilter = normalizeTaskFilter(String(data.get("status")));
+      if (state.todayFilter === "done") state.todayDoneOpen = true;
+    }
     state.taskFilter = today ? "today" : normalizeTaskFilter(String(data.get("status")));
     state.priorityFilter = normalizePriorityFilter(String(data.get("priority")));
     state.taskDeadlineFilter = Object.hasOwn(SHELL_DEADLINE_SCOPE_LABELS, String(data.get("deadline"))) ? String(data.get("deadline")) : "all";
@@ -2140,6 +2144,30 @@ function shellCloseTaskMenu({ restoreFocus = false } = {}) {
 // Dispatcher
 // ------------------------------------------------------------
 
+let shellTodayDeadlineUndo = [];
+
+function shellDeferTodayTasks(taskId, bulk) {
+  const at = loopNow();
+  const todayKey = localDateKey(at);
+  const changes = [];
+  for (const task of filteredTasks({ at })) {
+    if ((!bulk && task.id !== taskId) || todayDeadlineSection(task, todayKey) !== "overdue") continue;
+    const before = task.deadlineAt;
+    const deadline = safeDate(before);
+    deadline.setFullYear(at.getFullYear(), at.getMonth(), at.getDate());
+    const after = deadline.toISOString();
+    task.deadlineAt = after;
+    task.updatedAt = at.toISOString();
+    changes.push({ id: task.id, before, after });
+  }
+  if (!changes.length) return;
+  save();
+  showWorkspaceFeedback(bulk ? `已将 ${changes.length} 项逾期任务顺延到今天` : "已顺延到今天",
+    '<button type="button" data-action="undo-defer-today">撤销</button>',
+    { source: "today-deadline", onDismiss: () => { shellTodayDeadlineUndo = []; } });
+  shellTodayDeadlineUndo = changes;
+}
+
 async function shellAction(data, event) {
   const trigger = event?.target?.closest?.("[data-action]") || event?.currentTarget || event?.target;
   const task = shellActiveTask();
@@ -2218,13 +2246,44 @@ async function shellAction(data, event) {
     case "open-command-palette":
       shellOpenCommandPalette();
       return true;
-    case "set-today-filter":
-      state.todayFilter = ["active", "all", "done"].includes(data.value) ? data.value : "active";
-      state.quickInboxOpen = false;
+    case "defer-task-today":
+    case "defer-all-overdue":
+      event?.stopPropagation();
+      if (shellShowsTodayList() && !shellBulk.active) shellDeferTodayTasks(data.taskId, data.action === "defer-all-overdue");
+      return true;
+    case "undo-defer-today": {
+      const tasks = new Map(state.tasks.map((item) => [item.id, item]));
+      for (const { id, before, after } of shellTodayDeadlineUndo) {
+        const item = tasks.get(id);
+        if (item?.deadlineAt !== after) continue;
+        item.deadlineAt = before;
+        item.updatedAt = now();
+      }
+      clearWorkspaceFeedback("today-deadline");
+      save();
+      return true;
+    }
+    case "unpin-task-today": {
+      event?.stopPropagation();
+      if (!shellShowsTodayList() || shellBulk.active) return true;
+      const selected = state.tasks.find((item) => item.id === data.taskId);
+      if (!selected || !canUnpinTaskToday(selected)) return true;
+      toggleTaskTag(selected.id, "today");
+      save();
+      showWorkspaceFeedback("已移出今日安排",
+        `<button type="button" data-action="undo-dock-today" data-task-id="${escAttr(selected.id)}" data-added="false">撤销</button>`,
+        { source: "dock-today" });
+      return true;
+    }
+    case "toggle-today-done":
+      state.todayDoneOpen = !state.todayDoneOpen;
+      if (trigger?.matches(":focus-visible")) {
+        window.requestAnimationFrame(() => document.querySelector('[data-action="toggle-today-done"]')?.focus({ preventScroll: true }));
+      }
       return true;
     case "toggle-quick-inbox":
       state.quickInboxOpen = !state.quickInboxOpen;
-      if (state.quickInboxOpen && !shellTaskIsNote(task)) state.activeTaskId = "";
+      if (shellShowsOnlyQuickInbox() && !shellTaskIsNote(task)) state.activeTaskId = "";
       return true;
     case "set-list-priority":
       state.priorityFilter = state.priorityFilter === data.value ? "all" : normalizePriorityFilter(data.value);
@@ -2357,6 +2416,7 @@ async function shellAction(data, event) {
     case "show-today-completed":
       // Phase18: today's completions stay reachable after they leave the list.
       state.todayFilter = "done";
+      state.todayDoneOpen = true;
       state.activeTaskId = "";
       shellCloseOverlay({ restoreFocus: false });
       return true;

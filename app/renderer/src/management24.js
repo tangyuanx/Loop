@@ -283,19 +283,13 @@
   }
 
   const manage24BaseTaskRow = renderShellTaskRow;
+  const manage24RowSelectPattern = /<button class="task-select"[\s\S]*?<\/button>/;
 
-  /** The real row, with the list position and the pressed state it currently has. */
-  function manage24RowMarkup(task) {
-    const list = filteredTasks();
-    const index = list.findIndex((item) => item.id === task.id);
-    return manage24BaseTaskRow(task, index >= 0 ? index + 1 : 1);
-  }
-
-  renderShellTaskRow = function manage24TaskRow(task, displayOrder) {
-    const markup = manage24BaseTaskRow(task, displayOrder);
+  renderShellTaskRow = function manage24TaskRow(task, ...rowOptions) {
+    const markup = manage24BaseTaskRow(task, ...rowOptions);
     if (manage24RowTitleSession?.id === task.id) {
       // Keep the sequence/complete control and its geometry while naming.
-      return markup.replace(/<button class="task-select"[\s\S]*?<\/button>/, () => manage24RowEditorMarkup());
+      return markup.replace(manage24RowSelectPattern, () => manage24RowEditorMarkup());
     }
     return markup;
   };
@@ -333,7 +327,7 @@
 
   /**
    * Save, or restore the field on an invalid (empty) value. `fromBlur` repaints
-   * only the edited row so the click that caused the blur is not consumed.
+   * only the title control so the click that caused the blur is not consumed.
    */
   async function manage24EndRowTitle({ cancel = false, fromBlur = false } = {}) {
     if (!manage24RowTitleSession) return true;
@@ -364,10 +358,10 @@
     manage24RowTitleSession = null;
     manage24RowTitleDrafts.delete(session.id);
     if (fromBlur && task) {
-      // Restore the title button while retaining the row's current state.
+      // Keep the section's row, quick action and drag/selection bindings.
       const editor = document.querySelector(".manage24-row-title");
-      const row = editor?.closest(".task-item[data-task-id]");
-      if (row) row.outerHTML = manage24RowMarkup(task);
+      const button = manage24BaseTaskRow(task, 1).match(manage24RowSelectPattern)?.[0];
+      if (editor && button) editor.outerHTML = button;
       if (state.activeTaskId === task.id) manage24RepaintTitleHeading(task);
       return true;
     }

@@ -21,7 +21,8 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     await todayNav.click();
     const footer = page.locator('.list-foot');
     assert.deepEqual(await footer.locator('button').allTextContents(), ['定位当前', '多选']);
-    await page.locator('.list-filter [data-action="set-today-filter"][data-value="done"]').click();
+    assert.equal(await page.locator('.today-strip').count(), 1);
+    assert.equal(await page.locator('[data-action="toggle-today-done"]').getAttribute('aria-expanded'), 'true');
     assert.deepEqual(await footer.locator('button').allTextContents(), ['定位当前', '多选']);
     const list = page.locator('#task-results');
     const selected = list.locator('[data-task-row="locate-27"] .task-select');
@@ -85,7 +86,7 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     assert.equal(await selected.evaluate(button => button === document.activeElement), true);
     assert.deepEqual(await layout(), before);
     await todayNav.click();
-    assert.equal(await page.evaluate(() => state.todayFilter), 'active');
+    assert.equal(await page.evaluate(() => state.todayFilter), 'all');
 
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
       .find(window => window.webContents.getURL().endsWith('/app/renderer/index.html')).setSize(1024, 680));
@@ -97,6 +98,7 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     });
     await list.locator('[data-task-row="pending-26"] .task-select').click();
     await page.waitForFunction(() => state.activeTaskId === 'pending-26');
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await list.evaluate(element => {
       const selected = element.querySelector('.task-item.selected');
       const rowTop = selected.getBoundingClientRect().top - element.getBoundingClientRect().top + element.scrollTop;
@@ -110,9 +112,14 @@ const { launchRepository, task } = require('./electron-ui-helpers.cjs');
     await assertFooterEdges();
     assert.deepEqual(await bulk.boundingBox(), narrowBulkBounds);
 
-    await page.locator('.navigation [data-value="active"]').click();
     await page.locator('.list-filter [data-action="toggle-quick-inbox"]').click();
-    assert.equal(await list.locator('[data-task-row="quick-note"]').isVisible(), true);
+    assert.equal(await page.locator('.quick-inbox-button').getAttribute('aria-pressed'), 'true');
+    assert.equal(await list.locator('.today-quick-inbox [data-task-row="quick-note"]').isVisible(), true);
+    assert.equal(await page.evaluate(() => state.activeTaskId), 'pending-26');
+    assert.equal(await list.locator('[data-task-row="pending-26"]').count(), 1);
+    await page.locator('.quick-inbox-button').click();
+    assert.equal(await list.locator('[data-task-row="quick-note"]').count(), 0);
+    assert.equal(await page.locator('.today-strip').count(), 1);
     assert.deepEqual(run.errors, []);
     console.log('PASS: locating scrolls only the task list and preserves footer actions, note draft, and Today navigation.');
   } finally {

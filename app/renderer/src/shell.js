@@ -112,7 +112,7 @@ function shellTodayCount() {
   return state.tasks
     .filter((task) => task.status !== "done")
     .filter((task) => !shellTaskIsNote(task))
-    .filter((task) => isTaskScheduledForToday(task))
+    .filter((task) => isTaskInTodayList(task))
     .length;
 }
 
@@ -398,7 +398,7 @@ function shellSyncPaneVisibility() {
 // ------------------------------------------------------------
 
 function shellListTitle() {
-  if (state.quickInboxOpen) return "速记";
+  if (shellShowsOnlyQuickInbox()) return "速记";
   if (shellRoute() === "today") {
     return state.captureSourceFilter === "quick" ? "今日速记" : "今日";
   }
@@ -413,14 +413,29 @@ function shellListFoot() {
   return "";
 }
 
+function shellShowsTodayList() {
+  return shellRoute() === "today" && state.captureSourceFilter !== "quick";
+}
+
+function shellShowsOnlyQuickInbox() {
+  return state.quickInboxOpen && state.taskFilter !== "today";
+}
+
+function shellOpenQuickTasks(query = "") {
+  return state.tasks.filter(task => shellTaskIsNote(task) && task.status !== "done"
+    && (!query || `${task.title} ${task.description}`.toLowerCase().includes(query)))
+    .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
+}
+
 function shellCompactDueLabel(task) {
   const deadline = safeDate(task.deadlineAt);
   if (!deadline) return null;
   const now = loopNow();
-  const overdue = task.status !== "done" && deadline.getTime() < now.getTime();
-  const todayKey = loopTodayKey();
+  const todayKey = localDateKey(now);
   const tomorrowKey = localDateKey(new Date(now.getTime() + 86400000));
   const key = localDateKey(deadline);
+  const overdue = task.status !== "done"
+    && (shellShowsTodayList() ? key < todayKey : deadline.getTime() < now.getTime());
   const time = typeof shellTimeLabel === "function" ? shellTimeLabel(deadline) : "";
   const mmdd = `${deadline.getMonth() + 1}/${String(deadline.getDate()).padStart(2, "0")}`;
   let text = key === todayKey
@@ -460,7 +475,11 @@ function shellTaskRowMeta(task) {
   if (tags.later) parts.push('<span class="task-meta-tag is-later">稍后</span>');
   const nodes = typeof shellNodeList === "function" ? shellNodeList(task) : [];
   if (nodes.length) {
-    const doneN = typeof shellCountDoneNodes === "function" ? shellCountDoneNodes(task) : 0;
+    if (shellShowsTodayList()) {
+      const reviewCount = nodes.filter((node) => node.status === "review").length;
+      if (reviewCount) parts.push(`<span class="task-meta-review">${reviewCount} 待确认</span>`);
+    }
+    const doneN = nodes.filter((node) => node.status === "done").length;
     parts.push(`<span class="task-row-progress">${doneN}/${nodes.length}</span>`);
   }
   return parts.length ? `<span class="task-row-sub">${parts.join("")}</span>` : "";
@@ -473,19 +492,35 @@ function shellTaskRowSignals(task) {
   return `<span class="task-pri-bars p${rank}" aria-hidden="true" title="优先级 ${p === "high" ? "高" : p === "medium" ? "中" : "低"}"><i></i><i></i><i></i></span>`;
 }
 
-function renderShellTaskRow(task, displayOrder) {
+function shellTodayRowAction(task, section, at) {
+  if (section === "overdue") {
+    return `<button class="task-row-qact" type="button" data-action="defer-task-today" data-task-id="${escAttr(task.id)}" title="顺延截止日期到今天">顺延</button>`;
+  }
+  if (section === "planned" && canUnpinTaskToday(task, at)) {
+    return `<button class="task-row-qact" type="button" data-action="unpin-task-today" data-task-id="${escAttr(task.id)}" aria-label="移出今日安排" title="移出今日安排">${shellIcon("close")}</button>`;
+  }
+  return "";
+}
+
+function renderShellTaskRow(task, displayOrder, section = "", at) {
   const selected = task.id === state.activeTaskId;
   const done = task.status === "done";
   const note = shellTaskIsNote(task);
+  const inbox = section === "quick";
+  const quickAction = shellTodayRowAction(task, section, at);
+  const title = task.title || (inbox ? "未命名速记" : "未命名任务");
+  const captured = inbox && safeDate(task.createdAt);
+  const time = captured ? `<time datetime="${captured.toISOString()}">${shellTimeLabel(captured)}</time>` : "";
   return `
-    <li class="task-item ${selected ? "selected" : ""} ${done ? "done" : ""} ${note ? "is-note" : ""}" data-task-row="${escAttr(task.id)}" data-task-id="${escAttr(task.id)}" data-context="task" draggable="true" data-task-drag-target="${escAttr(task.id)}">
-      <span class="task-sequence-action">
+    <li class="task-item ${selected ? "selected" : ""} ${done ? "done" : ""} ${note ? "is-note" : ""}${section === "overdue" ? " is-today-overdue" : ""}${quickAction ? " has-row-qact" : ""}" data-task-row="${escAttr(task.id)}" data-task-id="${escAttr(task.id)}" data-context="task" draggable="true" data-task-drag-target="${escAttr(task.id)}">
+      ${inbox ? "" : `<span class="task-sequence-action">
         <span class="task-sequence" aria-hidden="true">${note ? shellIcon("note") : String(displayOrder).padStart(2, "0")}</span>
         <button class="task-complete" type="button" data-action="toggle-task-done" data-task-id="${escAttr(task.id)}" aria-label="${done ? "恢复任务" : "完成任务"}：${escAttr(task.title)}" aria-pressed="${done}" title="${done ? "恢复任务" : "完成任务"}"><span class="task-check-ring">${shellIcon("check")}</span></button>
-      </span>
+      </span>`}
       <button class="task-select" type="button" data-task-id="${escAttr(task.id)}" aria-pressed="${selected}" title="${escAttr(task.title)}">
-        <span class="task-select-main"><span class="task-item-title">${esc(task.title || "未命名任务")}</span>${shellTaskRowSignals(task)}</span>${shellTaskRowMeta(task)}
+        <span class="task-select-main"><span class="task-item-title">${esc(title)}</span>${time}${shellTaskRowSignals(task)}</span>${shellTaskRowMeta(task)}
       </button>
+      ${quickAction}
     </li>`;
 }
 
@@ -500,12 +535,50 @@ function shellActiveFilterLabels() {
   return labels;
 }
 
-function renderShellTaskRows(list) {
+function shellTodaySections(list, todayKey) {
+  const sections = { overdue: [], dueToday: [], planned: [], done: [] };
+  for (const task of list) {
+    const section = task.status === "done" ? "done" : todayDeadlineSection(task, todayKey) || "planned";
+    sections[section].push(task);
+  }
+  return sections;
+}
+
+function renderShellTodayRows({ overdue, dueToday, planned, done }, filtered, at) {
+  let displayOrder = 0;
+  const renderRows = (tasks, label, section) => `<ol class="task-rows" aria-label="${label}">${tasks.map((task) => renderShellTaskRow(task, ++displayOrder, section, at)).join("")}</ol>`;
+  const renderSection = (tasks, label, section, extra = "") => tasks.length ? `
+    <section class="today-list-section">
+      <div class="list-section-head${extra ? " is-warn" : ""}"><span>${label}</span><span class="n">${tasks.length}</span>${extra}</div>
+      ${renderRows(tasks, label, section)}
+    </section>` : "";
+  const cleared = done.length && !overdue.length && !dueToday.length && !planned.length
+    && !filtered && state.todayFilter === "all";
+  const deferAll = '<button class="list-section-act" type="button" data-action="defer-all-overdue" title="将所有逾期任务顺延到今天">全部顺延</button>';
+  return renderSection(overdue, "已逾期", "overdue", deferAll)
+    + renderSection(dueToday, "今日到期", "dueToday")
+    + renderSection(planned, "今日安排", "planned")
+    + (cleared ? `<div class="today-clear">${shellIcon("check")}<span>今日待办已全部完成</span></div>` : "")
+    + (done.length ? `<section class="today-list-section">
+        <button class="list-section-head is-done-toggle${state.todayDoneOpen ? "" : " is-folded"}" type="button" data-action="toggle-today-done" aria-expanded="${state.todayDoneOpen}">
+          <span>今天完成</span><span class="n">${done.length}</span>${shellIcon("down")}
+        </button>
+        ${state.todayDoneOpen ? renderRows(done, "今天完成", "done") : ""}
+      </section>` : "");
+}
+
+function renderShellTaskRows(list, todaySections, at) {
   if (shellBulk.active && list.length) return renderShellBulkRows(list);
+  const filtered = shellActiveFilterLabels().length > 0 || Boolean(state.taskDateFilter);
+  if (todaySections && list.length) return renderShellTodayRows(todaySections, filtered, at);
   if (!list.length) {
-    const filtered = shellActiveFilterLabels().length > 0 || Boolean(state.taskDateFilter);
-    const today = shellRoute() === "today";
-    const noun = state.captureSourceFilter === "quick" || state.quickInboxOpen ? "速记" : "任务";
+    const today = Boolean(todaySections);
+    if (today && !filtered && state.todayFilter === "all") {
+      return `<div class="repository-empty today-empty"><p role="status">今天还没有安排任务</p>
+        <div class="today-empty-actions"><button class="button" type="button" data-action="add-task">${shellIcon("plus")}新建任务</button><button class="text-button" type="button" data-action="select-nav-group" data-group-id="${ALL_TASKS_GROUP_ID}">去任务挑选</button></div>
+      </div>`;
+    }
+    const noun = state.captureSourceFilter === "quick" || shellShowsOnlyQuickInbox() ? "速记" : "任务";
     const message = filtered ? `没有匹配的${noun}` : today
       ? (state.todayFilter === "done" ? "今天暂无完成任务" : "暂无待办")
       : state.taskFilter === "done" ? `暂无已完成${noun}` : `这里还没有${noun}`;
@@ -517,18 +590,42 @@ function renderShellTaskRows(list) {
   return `<ol class="task-rows" aria-label="任务列表">${list.map((task, index) => renderShellTaskRow(task, index + 1)).join("")}</ol>`;
 }
 
-function renderShellListFilter() {
-  const today = shellRoute() === "today";
-  const current = today ? state.todayFilter : state.taskFilter;
-  const options = [["active", "进行中"], ["all", "全部"], ["done", "已完成"]];
-  const quickCount = state.tasks.filter(task => shellTaskIsNote(task) && task.status !== "done").length;
-  return `<div class="list-filter">${options.map(([value, text]) => `<button class="filter-tab ${current === value ? "active" : ""}" type="button" ${today ? 'data-action="set-today-filter"' : 'data-setting-button="task-filter"'} data-value="${value}" aria-pressed="${current === value}">${text}</button>`).join("")}
-    ${!today && quickCount ? shellQuickInboxButton(quickCount) : ""}
+function renderShellTodayStrip({ overdue, dueToday, planned, done }, quickButton) {
+  const open = overdue.length + dueToday.length + planned.length;
+  const completed = done.length;
+  const total = open + completed;
+  const progress = `<span class="mono">${completed}/${total}</span>`;
+  let summary = "<span>今日暂无安排</span>";
+  if (open) {
+    summary = `${overdue.length ? `<span class="over-tag">${overdue.length} 逾期</span><span class="sep">·</span>` : ""}<span>${open} 项待办</span>${completed ? `<span class="sep">·</span><span>已完成 ${progress}</span>` : ""}`;
+  } else if (completed) {
+    summary = `<span class="all-done">${shellIcon("check")}今日已闭环</span>${progress}`;
+  }
+  return `<div class="list-filter today-strip">
+    <div class="today-strip-top"><div class="today-stat">${summary}</div>${quickButton}</div>
+    ${total ? `<div class="today-bar" role="progressbar" aria-label="今日闭环进度" aria-valuemax="${total}" aria-valuenow="${completed}" title="今日闭环进度 ${completed}/${total}"><i style="width:${Math.round(completed / total * 100)}%"></i></div>` : ""}
   </div>`;
 }
 
+function renderShellListFilter(todaySections) {
+  const quickCount = state.tasks.filter(task => shellTaskIsNote(task) && task.status !== "done").length;
+  const showQuick = shellShowsOnlyQuickInbox() || (quickCount && !state.query.trim()
+    && (!todaySections || shellShowsTodayList()));
+  const quickButton = showQuick ? shellQuickInboxButton(quickCount) : "";
+  if (todaySections) return renderShellTodayStrip(todaySections, quickButton);
+  const options = shellRoute() === "today" ? [] : [["active", "进行中"], ["all", "全部"], ["done", "已完成"]];
+  return `<div class="list-filter">${options.map(([value, text]) => `<button class="filter-tab ${state.taskFilter === value ? "active" : ""}" type="button" data-setting-button="task-filter" data-value="${value}" aria-pressed="${state.taskFilter === value}">${text}</button>`).join("")}
+    ${quickButton}</div>`;
+}
+
 function shellQuickInboxButton(count) {
-  return `<button class="icon-button quick-inbox-button" type="button" data-action="toggle-quick-inbox" aria-label="速记 ${count}" title="速记" aria-pressed="${state.quickInboxOpen}">${shellIcon("bolt")}${count}</button>`;
+  return `<button class="icon-button quick-inbox-button" type="button" data-action="toggle-quick-inbox" aria-label="速记 ${count}" title="${state.quickInboxOpen ? "关闭速记" : "打开速记"}" aria-pressed="${state.quickInboxOpen}">${shellIcon("bolt")}${count}</button>`;
+}
+
+function renderShellTodayQuickInbox() {
+  if (!shellShowsTodayList() || !state.quickInboxOpen || state.query.trim()) return "";
+  const quick = shellOpenQuickTasks();
+  return quick.length ? `<ol class="task-rows today-quick-inbox" aria-label="速记">${quick.map((task) => renderShellTaskRow(task, 0, "quick")).join("")}</ol>` : "";
 }
 
 function renderShellScopeChip() {
@@ -539,7 +636,9 @@ function renderShellScopeChip() {
 }
 
 function renderShellTaskList(list) {
-  const note = state.captureSourceFilter === "quick" || state.quickInboxOpen;
+  const note = state.captureSourceFilter === "quick" || shellShowsOnlyQuickInbox();
+  const at = loopNow();
+  const todaySections = shellRoute() === "today" ? shellTodaySections(list, localDateKey(at)) : null;
   const filters = shellActiveFilterLabels();
   const searching = Boolean(state.searchOpen || state.query.trim());
   const footLabel = shellListFoot();
@@ -566,10 +665,10 @@ function renderShellTaskList(list) {
           <button class="icon-button" type="button" data-action="add-task" aria-label="新建${note ? "速记" : "任务"}" title="新建${note ? "速记" : "任务"}（${desktopPlatform === "darwin" ? "⌘" : "Ctrl"} + N）">${shellIcon("plus")}</button>
         </div>
       </div>
-      ${renderShellListFilter()}
+      ${renderShellListFilter(todaySections)}
       ${filters.length ? `<div class="active-list-filters"><span title="${escAttr(filters.join(" · "))}">${esc(filters.join(" · "))}</span><button class="icon-button" type="button" data-action="clear-list-filters" aria-label="清除筛选" title="清除筛选">${shellIcon("close")}</button></div>` : ""}
       ${renderShellScopeChip()}
-      <div id="task-results" class="tasks-scroll" data-context="task-list">${renderShellTaskRows(list)}</div>
+      <div id="task-results" class="tasks-scroll" data-context="task-list">${renderShellTodayQuickInbox()}${renderShellTaskRows(list, shellShowsTodayList() ? todaySections : null, at)}</div>
       ${shellBulk.active
         ? `<footer class="list-foot bulk-dock" aria-label="批量操作">${shellBulkFooter()}</footer>`
         : `<footer class="list-foot">${footLabel ? `<span>${esc(footLabel)}</span>` : ""}${shellBulkFooter()}</footer>`}

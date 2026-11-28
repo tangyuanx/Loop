@@ -4499,10 +4499,12 @@ test("production Today widget uses its dedicated frontend and a sandboxed Electr
   assert.match(rendererApp, /function recurringOccurrenceKey\(task, at = loopNow\(\)\)/);
   assert.match(rendererApp, /function syncRecurringTasks\(at = loopNow\(\)\)/);
   assert.match(rendererApp, /return loopNow\(\)\.toISOString\(\);/);
-  // today's completions stay reachable; minimal empty states; no row tags
+  // Today opens with both pending and completed tasks, with the old scopes
+  // still reachable from advanced filtering and the workspace.
   assert.match(rendererApp, /function shellCompletedToday\(at = loopNow\(\)\)/);
-  assert.match(rendererApp, /state\.todayFilter === "done"/);
-  assert.match(shellSource2, /state\.todayFilter === "done" \? "今天暂无完成任务" : "暂无待办"/);
+  assert.match(rendererApp, /todayFilter: "all",\s*todayDoneOpen: true/);
+  assert.match(shellSource2, /class="list-filter today-strip"/);
+  assert.match(shellSource2, /data-action="toggle-today-done" aria-expanded=/);
   assert.match(workspaceSource, /renderShellEmptyPrompt\("check", "今天暂无完成任务"[\s\S]*?data-action="show-today-active"/);
   assert.match(workspaceSource, /renderShellEmptyPrompt\("check", "今日任务已完成"[\s\S]*?data-action="show-today-completed"/);
   assert.match(actionsSource2, /function shellCycleState\(\)/);
@@ -6594,9 +6596,10 @@ test("recurrence controls feed every Today surface and refresh while the app sta
   assert.match(app, /data-recurrence-mode=/);
   assert.match(app, /data-recurrence-weekday=/);
   assert.match(app, /data-recurrence-field="time"/);
-  // Phase18: the Today route now switches between the active list and today's
-  // completions (completed occurrences included), not only scheduled tasks.
-  assert.match(app, /new Set\(shellCompletedToday\(at\)\)[\s\S]*completedToday\?\.has\(task\)[\s\S]*isTaskScheduledForToday\(task, at\)/);
+  // Today's completions include completed occurrences, while its open list
+  // still includes scheduled occurrences and also carries over overdue work.
+  assert.match(app, /new Set\(shellCompletedToday\(at\)\)[\s\S]*completedToday\?\.has\(task\)[\s\S]*isTaskInTodayList\(task, at\)/);
+  assert.match(app, /function isTaskInTodayList\([^)]*loopNow\(\)\) \{[^}]*isTaskScheduledForToday\(task, at\)/);
   assert.match(app, /\.filter\(\(task\) => isTaskScheduledForToday\(task\)\)/);
   assert.match(app, /window\.setInterval\?\.\([\s\S]*?30000/);
 });
