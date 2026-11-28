@@ -796,10 +796,12 @@ function shellBindFlowKeyboard() {
   window.__loopFlowKeysBound = true;
   document.addEventListener("keydown", (event) => {
     if (event.isComposing || event.keyCode === 229) return;
-    if (event.defaultPrevented || event.ctrlKey || event.metaKey || shellOverlayIsOpen() || state.contextMenu || state.taskMenuOpen || recovery26Busy || flowNodeDragState?.active) return;
     const title = event.target.closest?.(".flow-scroll .node-title");
+    if (!title || event.defaultPrevented || event.ctrlKey || event.metaKey || shellOverlayIsOpen()
+        || state.contextMenu || state.taskMenuOpen || flowNodeDragState?.active) return;
+    if (typeof recovery26Busy === "undefined" || recovery26Busy) return;
     const task = shellActiveTask();
-    if (!title || !task || title.dataset.taskId !== task.id) return;
+    if (!task || title.dataset.taskId !== task.id) return;
     const nodeId = title.dataset.nodeId;
     const key = event.key.toLowerCase();
     const vertical = key === "arrowdown" || key === "arrowup";

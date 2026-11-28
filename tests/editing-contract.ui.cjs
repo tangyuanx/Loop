@@ -72,7 +72,9 @@ const {launchRepository,task} = require('./electron-ui-helpers.cjs');
       assert.equal(await draft.count(),1);
       assert.equal(await p.locator('.node-draft .node-title').count(),0);
       assert.doesNotMatch(await p.locator('.node-draft').innerText(),/未输入节点标题/);
-      await draft.fill('草稿第一行');await draft.press('Shift+Enter');await draft.pressSequentially('second');
+      await draft.fill('待取消的节点标题');
+      await draft.dispatchEvent('keydown',{key:'Enter',shiftKey:true,isComposing:true,keyCode:229});
+      assert.equal(await draft.inputValue(),'待取消的节点标题');
       await draft.press('Escape');await draft.waitFor({state:'detached'});
       assert.equal(await p.evaluate(()=>shellNodeList(shellActiveTask()).length),1);
     }

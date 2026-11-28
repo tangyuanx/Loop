@@ -6,6 +6,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+test('flow key listener leaves inputs and node titles alone before recovery loads', () => {
+  const { context, document, field } = harness();
+  let listener;
+  document.addEventListener = (name, callback) => {
+    if (name === 'keydown') listener = callback;
+  };
+  context.flowNodeDragState = null;
+  context.shellBindFlowKeyboard();
+  const event = { key: 'Escape', target: { closest: () => null } };
+  assert.doesNotThrow(() => listener(event));
+  const title = field('', { taskId: 't', nodeId: 'n' });
+  assert.doesNotThrow(() => listener({ key: 'Delete', target: { closest: () => title } }));
+});
+
 function harness() {
   const listeners = new Map(), elements = new Map(), bindings = new WeakMap();
   const task = {id:'t', description:'背景原文', hypothesis:'进展原文', conclusion:'结论原文', history:[],
