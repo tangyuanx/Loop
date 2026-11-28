@@ -18,7 +18,7 @@ async function main(){
   const file=path.join(evidence,'Tables.md');await fs.writeFile(file,notes);
   const disk=await readKnowledgeDocument(file);
   const run=await launchRepository({activeTaskId:'headers',taskPane:'notes',tasks:[task('headers',{
-    notes,knowledgeNote:{...disk,title:'多表格稳定性',documentState:'SAVED',dirty:false},
+    notes,knowledgeNote:{...disk,title:'多表格稳定性',documentState:'SAVED',dirty:false,tableRowHeights:[[180,0]]},
   })]},'table-headers',process.env.LOOP_APP_EXECUTABLE);
   const {page,app,errors}=run,results=[];
   const settle=()=>page.waitForTimeout(250);
@@ -65,6 +65,13 @@ async function main(){
   try{
     await page.locator('[data-pane=notes]').click();await page.waitForFunction(()=>knowledgeCurrentEntry()?.view);
     await page.evaluate(()=>document.fonts.ready);
+    const firstHeader=widget(0).locator('thead tr');
+    assert.equal(await firstHeader.evaluate(row=>row.style.height),'');
+    const headerMenu=widget(0).locator('[data-table-handle="row"][data-index="0"]');
+    await headerMenu.press('Enter');
+    await page.getByRole('menu',{name:'表头行操作'}).waitFor();
+    assert.equal(await page.locator('.kn-table-menu [data-table-command="row-fit"]').count(),0);
+    await page.keyboard.press('Escape');
     for(const [theme,size,index] of [['light',[1280,850],17],['dark',[1024,768],20]]){
       await resizeRepositoryWindow(app,page,...size);
       await page.evaluate(theme=>{state.theme=theme;render();},theme);
@@ -76,12 +83,8 @@ async function main(){
       const cell=widget(index).locator('tbody tr').nth(8).locator('td').first();
       const activeEditor=cell.locator('.kn-table-cell-editor:focus');
       const initial=await source();
-      await widget(index).evaluate(widget=>{
-        const header=widget.querySelector('thead').getBoundingClientRect();
-        const edge=widget.querySelector('.kn-table-row-resizer[data-row="0"]').getBoundingClientRect();
-        if(Math.abs(edge.top+edge.height/2-header.bottom)>1)
-          throw Error('Header resize edge did not follow its row: '+JSON.stringify({headerBottom:header.bottom,edgeY:edge.top+edge.height/2}));
-      });
+      assert.equal(await widget(index).locator('.kn-table-row-resizer[data-row="0"]').count(),0);
+      assert.equal(await widget(index).locator('.kn-table-row-resizer[data-row="8"]').count(),1);
       await observe(index,theme+' cell click',async()=>{
         await cell.click();
         await activeEditor.waitFor();

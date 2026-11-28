@@ -1640,7 +1640,7 @@ function knowledgeTableMenu({widget,row=0,column=0,cellSelection=null,scope='tab
   const item=(operation,label,{disabled=false,value,checked,shortcut=''}={})=>`<button type="button" role="${checked===undefined?'menuitem':'menuitemradio'}" ${checked===undefined?'':`aria-checked="${checked}"`} data-table-command="${operation}" ${value===undefined?'':`data-value="${escAttr(String(value))}"`} ${disabled?'disabled':''}><span>${label}</span>${shortcut?`<kbd>${shortcut}</kbd>`:''}</button>`;
   const divider='<div class="menu-divider" role="separator"></div>';
   const align=table.rows[1][column]||'---',alignment=/^:.*:$/.test(align)?'center':/:$/.test(align)?'right':'left';
-  const rowItems=()=>item('row-fit','最合适的行高')+divider+item('row-before','上方插入行')+item('row-add','下方插入行')+item('row-duplicate','复制一行',{disabled:row===0})+divider+
+  const rowItems=()=>(row>0?item('row-fit','最合适的行高')+divider:'')+item('row-before','上方插入行')+item('row-add','下方插入行')+item('row-duplicate','复制一行',{disabled:row===0})+divider+
     item('row-move','上移一行',{value:row,disabled:row<=1})+item('row-move','下移一行',{value:row+2,disabled:row===0||row>=rowCount})+divider+item('row-clear','清空这一行')+item('row-delete','删除这一行',{disabled:row===0});
   const columnItems=()=>item('column-fit','最合适的列宽')+divider+item('column-before','左侧插入列')+item('column-add','右侧插入列')+item('column-duplicate','复制一列')+divider+
     item('column-move','向左移动',{value:column-1,disabled:column===0})+item('column-move','向右移动',{value:column+1,disabled:column>=columnCount-1})+divider+

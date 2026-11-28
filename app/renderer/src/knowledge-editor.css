@@ -92,7 +92,6 @@
 .kn-table-resizer {position:absolute;width:8px;cursor:col-resize;pointer-events:auto;}
 .kn-table-resizer:hover::after {content:'';position:absolute;inset:0 3px;background:var(--secondary);}
 .kn-table-row-resizer {position:absolute;height:8px;cursor:row-resize;pointer-events:auto;touch-action:none;}
-.kn-table-controls-layer :is(.kn-table-row-handle[data-index="0"],.kn-table-row-resizer[data-row="0"]) {translate:0 var(--kn-pinned-header-offset,0px);}
 .kn-table-row-resizer:hover::after {content:'';position:absolute;inset:3px 0;background:var(--secondary);}
 .kn-table-resizer {touch-action:none;z-index:1;}
 .kn-table-size-probe {position:absolute;left:-100000px;top:0;visibility:hidden;pointer-events:none;}
