@@ -12,6 +12,7 @@ const { openFlowOptions } = require('./workbench-helpers.cjs');
         { id: 'task', title: '处理流筛选验证', status: 'active', createdAt: stamp, updatedAt: stamp, nodes: [
           node('done-parent', 'done', [node('done-child', 'done'), node('todo-child', 'todo', [node('blocked', 'blocked')])], true),
           node('todo-root', 'todo', [node('done-leaf', 'done')]), node('later', 'later'),
+          node('review-root', 'review', [node('review-child', 'review')]),
           ...Array.from({ length: 28 }, (_, i) => node('step-' + i, i % 2 ? 'todo' : 'done')),
         ] },
         { id: 'complete', title: '全部完成', status: 'active', createdAt: stamp, updatedAt: stamp, nodes: [node('only-done', 'done')] },
@@ -34,6 +35,8 @@ const { openFlowOptions } = require('./workbench-helpers.cjs');
     await page.keyboard.press('Escape');
     assert.equal(await row('done-parent').count(), 0);
     assert.equal(await row('done-leaf').count(), 0);
+    assert.equal(await row('todo-root').locator('button.collapse').count(), 0);
+    assert.equal(await page.locator('.flow-filter-count').textContent(), `显示 ${await page.locator('.flow-row[data-node-id]').count()}/37`);
     assert.equal(await row('todo-child').count(), 1, 'unfinished children of collapsed completed parents stay visible');
     assert.equal(await row('blocked').count(), 1);
     assert.equal(await row('later').count(), 1);
@@ -85,6 +88,44 @@ const { openFlowOptions } = require('./workbench-helpers.cjs');
       const box = await toggle.boundingBox();
       assert.ok(box && box.x >= 0 && box.x + box.width <= 1024, 'filter is reachable at the supported minimum width: ' + JSON.stringify(box));
       await page.keyboard.press('Escape');
+      await page.evaluate(() => { state.activeTaskId = 'task'; state.selectedNodeId = ''; render(); });
+      await page.locator('.flow-scroll').evaluate(el => { el.scrollTop = 0; });
+      await page.getByRole('button', { name: '折叠全部', exact: true }).click();
+      assert.equal(await row('review-root').locator('.node-collapsed-review').textContent(), '含 1 待确认');
+      const geometry = await page.evaluate(() => {
+        const bar = document.querySelector('.flow-filterbar').getBoundingClientRect();
+        const rows = [...document.querySelectorAll('.flow-tree > .flow-item > .flow-row[data-node-id]')];
+        return {
+          lefts: rows.map(row => row.querySelector('.node-status').getBoundingClientRect().left),
+          folded: rows.filter(row => row.querySelector('.is-folded')).map(row => {
+            const button = row.querySelector('.is-folded'), box = button.getBoundingClientRect(), bounds = row.getBoundingClientRect();
+            return box.top >= Math.max(bar.bottom, bounds.top) && box.bottom <= bounds.bottom &&
+              box.left >= bounds.left && box.right <= bounds.right &&
+              getComputedStyle(button).backgroundColor !== 'rgba(0, 0, 0, 0)';
+          }),
+        };
+      });
+      assert.equal(new Set(geometry.lefts).size, 1);
+      assert.ok(geometry.folded.length && geometry.folded.every(Boolean));
+      const review = row('review-root');
+      const unselected = await review.locator('.flow-node-main').evaluate(el => getComputedStyle(el).boxShadow);
+      await review.locator('.node-title').click();
+      await page.waitForFunction(() => getComputedStyle(document.querySelector('.flow-row.review.selected .flow-node-main')).boxShadow.includes('inset'));
+      assert.notEqual(await review.locator('.flow-node-main').evaluate(el => getComputedStyle(el).boxShadow), unselected);
+      await review.locator('.node-title').hover();
+      assert.equal(await review.locator('.node-gutter').evaluate(el => getComputedStyle(el).opacity), '1');
+      await review.locator('.node-gutter-zone').hover();
+      assert.equal(await review.locator('.node-gutter').evaluate(el => getComputedStyle(el).opacity), '0');
+      assert.equal(await review.locator('.flow-grip').evaluate(el => getComputedStyle(el).opacity), '1');
+      await (await openFlowOptions(page)).getByRole('button', { name: /^仅看待确认/ }).click();
+      assert.equal(await page.locator('.flow-filter-tag').count(), 2);
+      await page.getByRole('button', { name: '清除筛选' }).click();
+      assert.equal(await page.locator('.flow-filterbar').count(), 0);
+      assert.equal(await page.evaluate(() => localStorage.getItem(SHELL_HIDE_COMPLETED_KEY)), null);
+      if (theme === 'light') {
+        await (await openFlowOptions(page)).getByRole('button', { name: '隐藏已完成' }).click();
+        await page.getByRole('button', { name: '展开全部', exact: true }).click();
+      }
     }
     assert.deepEqual(errors, []);
     console.log('Completed filter passed: mixed hierarchy, collapsed completed ancestors, status changes, record autosave, counts, locator, scroll continuity, restart, all-done, add node, minimum desktop width light/dark.');

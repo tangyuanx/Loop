@@ -1198,9 +1198,9 @@
   });
 
   window.addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
     const form = event.target.closest?.("#manage24-property-form, #manage24-move-form, #manage24-delete-group");
     if (form && event.key === "Enter" && event.target.matches("input, textarea, select")) shellIgnoreImplicitSubmit(form);
-    if (event.isComposing || event.keyCode === 229) return;
 
     if (event.target.id === "manage24-move-search" && ["Enter", "ArrowDown"].includes(event.key) && !event.shiftKey) {
       event.preventDefault();

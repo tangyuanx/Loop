@@ -3233,10 +3233,12 @@ function bindGooeySearch() {
   const control = document.querySelector("[data-gooey-search]");
   const search = control?.querySelector("#search");
   const trigger = control?.querySelector("[data-gooey-search-trigger]");
-  if (!control || !search) return;
+  if (!control || !search || !bindRenderElement(search, "gooey-search")) return;
   const persistent = control.dataset.persistentSearch === "true";
 
+  let originalQuery = search.value;
   search.addEventListener("focus", () => {
+    originalQuery = search.value;
     if (!persistent || state.searchOpen) return;
     state.searchOpen = true;
     state.focusSearch = true;
@@ -3273,17 +3275,18 @@ function bindGooeySearch() {
     if (!isComposing) refreshSearch();
   });
   search.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+    if (isComposing || event.isComposing || event.keyCode === 229) return;
+    if (event.key !== "Escape" && !(event.key === "Enter" && !event.shiftKey)) return;
     event.preventDefault();
     event.stopPropagation();
-    if (search.value) {
-      search.value = "";
-      state.query = "";
-      state.searchCursor = 0;
-      refreshGlobalSearchResults();
-      return;
+    if (event.key === "Escape") search.value = originalQuery;
+    refreshSearch();
+    state.focusSearch = false;
+    search.blur();
+    if (!search.value && event.key === "Escape") {
+      closeGlobalSearch();
+      document.querySelector("[data-gooey-search-trigger]")?.focus({ preventScroll: true });
     }
-    closeGlobalSearch();
   });
 
   control.addEventListener("focusout", () => {
@@ -6559,9 +6562,13 @@ function finishFlowNodePointerDrag(event) {
   if (!active) return;
   suppressFlowNodeClickUntil = Date.now() + 450;
   const moved = targetId && placement
-    ? moveFlowNode(taskId, nodeId, targetId, placement)
-    : root && moveFlowNode(taskId, nodeId, "", "root");
-  if (moved) render();
+    ? moveFlowNode(taskId, nodeId, targetId, placement, { offerUndo: true })
+    : root && moveFlowNode(taskId, nodeId, "", "root", { offerUndo: true });
+  if (moved) {
+    if (document.querySelector(".flow-scroll .flow-row[data-node-id]")) shellSelectFlowNode(nodeId);
+    render();
+    if (shellFlowSelectionOnly) shellFocusFlowNode(nodeId);
+  }
 }
 
 function cancelFlowNodePointerDrag(event) {
@@ -6604,6 +6611,7 @@ function bindFlowNodeDragAndDrop() {
     const stamp = Date.now();
     const sameGesture = previous && stamp - previous.stamp <= 500
       && Math.hypot(event.clientX - previous.x, event.clientY - previous.y) <= 6;
+    if (event.target.closest?.(".nnote-fold, .nnote-bar, .node-conclusion-text a, [data-flow-table-line]")) { flowNodeLastTitleClick = null; return; }
     if (sameGesture && event.detail === 2 && !shellOverlayIsOpen() && (!title || field !== previous.field
       || title.dataset.nodeId !== previous.nodeId || title.dataset.taskId !== previous.taskId)) {
       field = previous.field;
@@ -6849,25 +6857,29 @@ function bindTaskRepositoryRows(scope = document) {
   });
 
   document.querySelectorAll("[data-group-title]").forEach((element) => {
-    if (element.dataset.groupTitleBound === "1") return;
-    element.dataset.groupTitleBound = "1";
-    element.addEventListener("click", (event) => event.stopPropagation());
-    element.addEventListener("input", (event) => renameGroup(event.target.dataset.groupTitle, event.target.value, false));
+    if (!bindRenderElement(element, "group-title")) return;
+    const groupId = element.dataset.groupTitle;
+    let done = false;
+    const finish = commit => {
+      if (done || state.editingGroupId !== groupId) return;
+      done = true;
+      if (commit) renameGroup(groupId, element.value, true);
+      else state.editingGroupId = "";
+      state.focusGroupTitleId = "";
+    };
+    element.addEventListener("click", event => event.stopPropagation());
     element.addEventListener("blur", (event) => {
-      renameGroup(event.target.dataset.groupTitle, event.target.value, true);
-      if (event.relatedTarget?.closest?.(".task-title, .page-title")) return;
-      render();
+      if (done) return;
+      finish(true);
+      if (!event.relatedTarget?.closest?.(".task-title, .page-title")) render();
     });
     element.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        renameGroup(event.target.dataset.groupTitle, event.target.value, true);
-        render();
-      }
-      if (event.key === "Escape") {
-        state.editingGroupId = "";
-        render();
-      }
+      if (event.isComposing || event.keyCode === 229) return;
+      if (event.key !== "Escape" && !(event.key === "Enter" && !event.shiftKey)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      finish(event.key === "Enter");
+      render();
     });
   });
 
@@ -6927,6 +6939,7 @@ function bindTaskRepositoryRows(scope = document) {
       }
     });
     repositoryGroupSearch.addEventListener("keydown", (event) => {
+      if (event.isComposing || event.keyCode === 229) return;
       if (event.key === "Escape") {
         event.preventDefault();
         repositoryGroupPickerOpen = false;
@@ -8593,7 +8606,7 @@ async function action(data, event = null) {
   // recognises is executed there and re-rendered, the legacy chain below
   // keeps handling the remaining project commands.
   if (typeof shellAction === "function" && await shellAction(data, event)) {
-    if (!["note-format", "note-heading", "toggle-nav", "toggle-task-list", "toggle-task-info", "open-dock-schedule", "open-dock-priority", "open-dock-marks", "edit-node-conclusion", "toggle-node-conclusion", "select-flow-node", "read-node-conclusion"].includes(data.action)) render();
+    if (!["note-format", "note-heading", "toggle-nav", "toggle-task-list", "toggle-task-info", "open-dock-schedule", "open-dock-priority", "open-dock-marks", "edit-node-conclusion", "toggle-done-conclusion", "select-flow-node"].includes(data.action)) render();
     return;
   }
   state.contextMenu = null;
@@ -9087,7 +9100,7 @@ async function action(data, event = null) {
     selectNodeForInspector(data.taskId, data.nodeId);
     shellFlowSelectionOnly = data.action === "select-flow-node";
     render();
-    if (fromLocator) document.querySelector(".node-record-window-close")?.focus({ preventScroll: true });
+    if (fromLocator) shellFocusFlowNode(data.nodeId);
     return;
   }
   if (data.action === "navigate-node-detail" && data.nodeId) {
@@ -9113,6 +9126,7 @@ async function action(data, event = null) {
     saveNodeInspectorRecord();
   }
   render();
+  if (data.action === "open-global-search-node") shellFocusFlowNode(data.nodeId);
   if (cycleTrigger && document.activeElement === document.body) {
     const selector = `.node-status[data-task-id="${CSS.escape(data.taskId)}"][data-node-id="${CSS.escape(data.nodeId)}"]`;
     (document.querySelector(selector) || document.querySelector('[data-action="open-flow-options"]'))?.focus({ preventScroll: true });
@@ -10215,9 +10229,10 @@ function removeNode(nodes, nodeId) {
  * @param {string} sourceId - Root of the subtree being moved
  * @param {string} targetId - Target node, empty for root append
  * @param {"before"|"inside"|"after"|"root"} placement - Destination relative to target
+ * @param {{offerUndo?: boolean}} options - Persist and show an undo action for a user move
  * @returns {boolean} Whether a valid move was applied
  */
-function moveFlowNode(taskId, sourceId, targetId = "", placement = "inside") {
+function moveFlowNode(taskId, sourceId, targetId = "", placement = "inside", { offerUndo = false } = {}) {
   const task = state.tasks.find((item) => item.id === taskId);
   const allowedPlacements = new Set(["before", "inside", "after", "root"]);
   if (!task || !sourceId || !allowedPlacements.has(placement)) return false;
@@ -10260,6 +10275,13 @@ function moveFlowNode(taskId, sourceId, targetId = "", placement = "inside") {
     insertionIndex = targetItems.length;
   }
 
+  if (targetItems === sourceCollection.items && insertionIndex === sourceIndex) {
+    sourceCollection.items.splice(sourceIndex, 0, sourceNode);
+    reorder(sourceCollection.items);
+    return false;
+  }
+
+  const originalParentId = sourceNode.parentId;
   const changedAt = now();
   sourceNode.parentId = targetParentId;
   sourceNode.type = targetParentId ? "subtask" : "step";
@@ -10268,6 +10290,29 @@ function moveFlowNode(taskId, sourceId, targetId = "", placement = "inside") {
   reorder(targetItems);
   if (insideTarget) insideTarget.collapsed = false;
   task.updatedAt = changedAt;
+  if (!offerUndo) return true;
+  save();
+  void flushSave().then(saved => {
+    if (!saved || !state.tasks.includes(task) || findNode(task.nodes, sourceId) !== sourceNode
+        || sourceNode.parentId !== targetParentId || targetItems.indexOf(sourceNode) !== insertionIndex) return;
+    recovery26Receipt(placement === "inside" ? "已移为下级节点" : "已移动节点", [], async () => {
+      if (!state.tasks.includes(task) || findNode(task.nodes, sourceId) !== sourceNode
+          || sourceNode.parentId !== targetParentId || targetItems.indexOf(sourceNode) !== insertionIndex) return;
+      const originalParent = originalParentId && findNode(task.nodes, originalParentId);
+      if (originalParentId && (!originalParent || findNode(sourceNode.children, originalParentId))) return;
+      targetItems.splice(insertionIndex, 1);
+      reorder(targetItems);
+      const originalItems = originalParent ? originalParent.children : task.nodes;
+      originalItems.splice(sourceIndex, 0, sourceNode);
+      reorder(originalItems);
+      sourceNode.parentId = originalParentId;
+      sourceNode.type = originalParentId ? "subtask" : "step";
+      sourceNode.updatedAt = task.updatedAt = now();
+      save();
+      render();
+      if (await flushSave()) shellToast("已撤销节点移动");
+    });
+  });
   return true;
 }
 
@@ -10312,7 +10357,7 @@ function nodeStatusBadgeText(status) {
  * @param {string} value - Raw Markdown text
  * @returns {string} HTML string
  */
-function renderMarkdown(value) {
+function renderMarkdown(value, { editableTableCells = false } = {}) {
   const lines = String(value || "").replace(/\r\n/g, "\n").split("\n");
   const html = [];
   let paragraph = [];
@@ -10376,6 +10421,7 @@ function renderMarkdown(value) {
     if (line.includes("|") && lines[index + 1] && isMarkdownTableDivider(lines[index + 1])) {
       flushParagraph();
       flushList();
+      const headerLine = index;
       const headers = splitMarkdownTableRow(line);
       const rows = [];
       index += 2;
@@ -10384,7 +10430,7 @@ function renderMarkdown(value) {
         index += 1;
       }
       index -= 1;
-      html.push(renderMarkdownTable(headers, rows));
+      html.push(renderMarkdownTable(headers, rows, editableTableCells ? headerLine : null));
       continue;
     }
 
@@ -10576,30 +10622,25 @@ function cleanMarkdownUrl(value) {
 }
 
 function isMarkdownTableDivider(line) {
-  const trimmed = line.trim();
-  return trimmed.includes("|") && /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(trimmed);
+  const cells = splitMarkdownTableRow(line);
+  return cells.length > 0 && cells.every(cell => /^:?-{3,}:?$/.test(cell));
 }
 
 function splitMarkdownTableRow(line) {
-  return line
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((cell) => cell.trim());
+  return LoopKnowledgeCore.splitRow(line);
 }
 
-function renderMarkdownTable(headers, rows) {
-  return `
-    <table>
-      <thead><tr>${headers.map((header) => `<th>${renderInlineMarkdown(header)}</th>`).join("")}</tr></thead>
-      <tbody>
-        ${rows
-          .map((row) => `<tr>${headers.map((_, index) => `<td>${renderInlineMarkdown(row[index] || "")}</td>`).join("")}</tr>`)
-          .join("")}
-      </tbody>
-    </table>
-  `;
+function renderMarkdownTable(headers, rows, headerLine = null) {
+  const renderCell = (tag, value, line, column) => {
+    const editable = headerLine !== null;
+    const attrs = editable ? ` data-flow-table-line="${line}" data-flow-table-column="${column}" tabindex="0" title="双击或按 Enter 编辑单元格"` : "";
+    const content = value.split(/<br\s*\/?\s*>/i).map(part => renderInlineMarkdown(part.replaceAll("\\|", "|"))).join("<br>");
+    return `<${tag}${attrs}>${content}</${tag}>`;
+  };
+  const head = headers.map((header, column) => renderCell("th", header, headerLine, column)).join("");
+  const body = rows.map((row, index) => `<tr>${headers.map((_, column) =>
+    renderCell("td", row[column] || "", headerLine + index + 2, column)).join("")}</tr>`).join("");
+  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
 
 

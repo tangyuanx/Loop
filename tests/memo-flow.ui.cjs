@@ -18,6 +18,9 @@ const {launchRepository,task} = require('./electron-ui-helpers.cjs');
   await status.focus();await status.press('Space');assert.equal(await p.evaluate(()=>findNode(shellActiveTask().nodes,'parent').status),'done');
   await status.press('Enter');assert.equal(await p.evaluate(()=>findNode(shellActiveTask().nodes,'parent').status),'review');
   await status.press('Space');assert.equal(await p.evaluate(()=>findNode(shellActiveTask().nodes,'parent').status),'todo');
+  await status.click({modifiers:['Shift']});
+  assert.equal(await p.getByRole('menuitemradio',{name:/历史状态/}).count(),1);
+  await p.keyboard.press('Escape');
   assert.equal(await p.evaluate(()=>taskCompletionBlocker(shellActiveTask())),'FLOW_INCOMPLETE');
   // Opening task settings must preserve existing custom states and records.
   await p.locator('[data-action="toggle-settings"]').click();

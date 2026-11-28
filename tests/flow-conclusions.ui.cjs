@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { launchRepository, task } = require('./electron-ui-helpers.cjs');
+const { launchRepository, resizeRepositoryWindow, task } = require('./electron-ui-helpers.cjs');
 const stamp = '2026-11-08T08:00:00.000Z';
 const n = (id, title, status, conclusion, children = [], note = '') =>
   ({ id, title, status, conclusion, children, note, createdAt: stamp, updatedAt: stamp });
@@ -13,7 +13,7 @@ const normal = task('normal', { title: '优化导出体验', description: '定�
   ]),
   n('solution', '确定优化方案', 'todo', '优先拆分文档生成，避免占用界面线程。', [
     n('compare', '比较分批与后台生成', 'done', '后台生成更合适，分批仍会打断操作。'),
-    n('compatibility', '验证格式兼容', 'todo', ''),
+    n('compatibility', '验证格式兼容', 'todo', '| 格式 | 结果 |\n| --- | --- |\n| Markdown | 可以编辑 |'),
   ]),
   n('regression', '回归导出与节点关系', 'todo', ''),
 ] });
@@ -36,10 +36,7 @@ const edge = task('edge', { title: '长内容与深层级验收', nodes: [
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
     await Promise.all(document.getAnimations().filter(a => a.effect?.getComputedTiming().endTime !== Infinity).map(a => a.finished.catch(() => {})));
   });
-  const size = async (width, height) => {
-    await app.evaluate(({ BrowserWindow }, s) => { const win = BrowserWindow.getAllWindows().find(w => w.webContents.getURL().endsWith('/app/renderer/index.html')); win.setMinimumSize(500, 500); win.setSize(s.width, s.height); }, { width, height });
-    await settle();
-  };
+  const size = (width, height) => resizeRepositoryWindow(app, page, width, height);
   const activate = async id => {
     await page.evaluate(id => { state.activeTaskId = id; state.selectedNodeId = ''; state.taskPane = 'flow'; render(); }, id);
     await settle();
@@ -49,15 +46,20 @@ const edge = task('edge', { title: '长内容与深层级验收', nodes: [
   const editor = page.locator('[data-shell-node-conclusion]');
   const value = id => page.evaluate(id => findNode(shellActiveTask().nodes, id).conclusion, id);
   try {
-    await page.locator('.flow-column-head').waitFor();
+    await page.locator('.flow-scroll').waitFor();
     await size(1440, 985);
-    assert.equal(await page.locator('.node-conclusion-preview').count(), 7);
+    assert.equal(await page.locator('.nnote-fold').count(), 4);
+    assert.equal(await page.locator('.node-conclusion-preview').count(), 2);
     await title('reproduce').click(); await settle();
     assert.equal(await page.locator('.node-record-window').count(), 0, 'title selection does not open a record');
     assert.equal(await title('reproduce').getAttribute('aria-pressed'), 'true');
     await shot('candidate-normal-light');
     const original = await value('reproduce');
-    await conclusion('reproduce').locator('.node-conclusion-text').click();
+    const originalEditorValue = await page.evaluate(() => shellNodeConclusionValue(findNode(shellActiveTask().nodes, 'reproduce')));
+    await conclusion('reproduce').click();
+    await conclusion('reproduce').getByRole('button', { name: '收起' }).click();
+    assert.equal(await conclusion('reproduce').evaluate(el => el.matches('.nnote-fold')), true);
+    await title('reproduce').press('n');
     await editor.waitFor();
     assert.equal(await page.locator('.node-record-window').count(), 0);
     const undoKey = process.platform === 'darwin' ? 'Meta+z' : 'Control+z';
@@ -65,24 +67,29 @@ const edge = task('edge', { title: '长内容与深层级验收', nodes: [
     await page.keyboard.insertText('新增结论');
     await page.evaluate(() => { window.__conclusionEditor = document.querySelector('[data-shell-node-conclusion]'); render(); });
     assert.equal(await editor.evaluate(el => el === window.__conclusionEditor && el === document.activeElement), true, 'rerenders reuse the focused editor');
-    await page.keyboard.press(undoKey); assert.equal(await editor.inputValue(), original);
-    await page.keyboard.press(redoKey); assert.equal(await editor.inputValue(), original + '新增结论');
+    await page.keyboard.press(undoKey); assert.equal(await editor.inputValue(), originalEditorValue);
+    await page.keyboard.press(redoKey); assert.equal(await editor.inputValue(), originalEditorValue + '新增结论');
     await editor.dispatchEvent('keydown', { key: 'Enter', ctrlKey: true, isComposing: true });
     assert.equal(await editor.count(), 1, 'IME confirmation never finishes editing');
     await page.keyboard.press('Escape');
     assert.equal(await value('reproduce'), original, 'Escape restores the edit session');
-    await conclusion('reproduce').locator('.node-conclusion-text').click();
+    await title('reproduce').press('n');
     await editor.fill('可搜索且持久保存的短结论');
-    await page.keyboard.press('Tab');
-    assert.equal(await editor.count(), 0);
-    assert.equal(await value('reproduce'), '可搜索且持久保存的短结论');
+    await editor.press('Shift+Enter'); await page.keyboard.insertText('保留原始性能日志');
+    const savedConclusion = '可搜索且持久保存的短结论\n保留原始性能日志';
+    await editor.press('Enter'); await editor.waitFor({ state: 'detached' });
+    assert.equal(await value('reproduce'), savedConclusion);
+    await page.locator('[data-recovery26="undo"]').click();
+    await page.waitForFunction(value => findNode(shellActiveTask().nodes, 'reproduce').conclusion === value, original);
     assert.equal(await page.evaluate(() => findNode(shellActiveTask().nodes, 'reproduce').note), '保留原始性能日志');
+    await title('reproduce').press('n');
+    await editor.fill(savedConclusion); await editor.press('Enter'); await editor.waitFor({ state: 'detached' });
     assert.match(await page.evaluate(() => taskMarkdown(shellActiveTask())), /结论：[\s\S]*可搜索且持久保存的短结论/);
     await page.evaluate(() => flushSave());
     const disk = JSON.parse(await fs.readFile(path.join(run.profile, 'task-data.json'), 'utf8'));
-    assert.equal(disk.tasks[0].nodes[0].children[0].conclusion, '可搜索且持久保存的短结论');
-    await page.reload(); await page.locator('.flow-column-head').waitFor();
-    assert.equal(await value('reproduce'), '可搜索且持久保存的短结论');
+    assert.equal(disk.tasks[0].nodes[0].children[0].conclusion, savedConclusion);
+    await page.reload(); await page.locator('.flow-scroll').waitFor();
+    assert.equal(await value('reproduce'), savedConclusion);
     await page.locator('[data-action="open-flow-locator"]').click();
     await page.locator('#flow-locator-query').fill('可搜索且持久保存');
     assert.equal(await page.locator('.flow-locator .flow-result[data-node-id="reproduce"]').count(), 1);
@@ -90,9 +97,7 @@ const edge = task('edge', { title: '长内容与深层级验收', nodes: [
     // Move a genuine subtree. Child records and conclusions stay attached.
     await title('trace').click();
     await page.evaluate(() => { openTaskFromGlobalList('normal', 'reproduce'); render(); });
-    await page.locator('.node-record-window[data-node-id="reproduce"]').waitFor();
-    assert.equal(await page.locator('[data-shell-node-record]').inputValue(), '保留原始性能日志', 'global navigation retains its explicit record entry');
-    await page.getByRole('button', { name: '关闭节点记录', exact: true }).click();
+    assert.equal(await title('reproduce').getAttribute('aria-pressed'), 'true', 'global navigation selects the requested node');
     const before = await page.evaluate(() => structuredClone(findNode(shellActiveTask().nodes, 'scope')));
     await page.waitForFunction(() => Date.now() >= suppressFlowNodeClickUntil);
     const from = await title('scope').boundingBox();
@@ -106,6 +111,23 @@ const edge = task('edge', { title: '长内容与深层级验收', nodes: [
     assert.equal(after.parentId, 'solution');
     assert.deepEqual(after.children, before.children);
     assert.equal(after.conclusion, before.conclusion);
+    await page.locator('[data-recovery26="undo"]').click();
+    await page.waitForFunction(() => !findNode(shellActiveTask().nodes, 'scope').parentId);
+    assert.equal(await page.evaluate(() => shellActiveTask().nodes[0].id), 'scope');
+    const cell = conclusion('compatibility').locator('td').last();
+    await cell.dblclick();
+    const input = page.getByRole('textbox', { name: '编辑结论表格单元格' });
+    await input.fill('取消编辑');
+    await input.dispatchEvent('keydown', { key: 'Enter', keyCode: 229 });
+    assert.equal(await input.count(), 1);
+    await input.press('Escape');
+    assert.equal(await cell.innerText(), '可以编辑');
+    await cell.press('Enter');
+    await input.fill('首行'); await input.press('Shift+Enter'); await page.keyboard.insertText('次行 | 字面竖线');
+    await input.press('Enter'); await input.waitFor({ state: 'detached' });
+    assert.match(await value('compatibility'), /首行<br>次行/);
+    assert.equal(await cell.evaluate(el => el.querySelectorAll('br').length), 1);
+    assert.equal(await cell.evaluate(el => el === document.activeElement), true);
     await activate('edge');
     for (const [width, height, theme] of [[1440, 985, 'light'], [1024, 820, 'dark'], [640, 740, 'light']]) {
       await size(width, height);
@@ -115,7 +137,7 @@ const edge = task('edge', { title: '长内容与深层级验收', nodes: [
         const title = row.querySelector('.node-title'), cell = row.querySelector('.flow-conclusion');
         const flow = document.querySelector('.flow-scroll');
         return { outerOverflow: document.documentElement.scrollWidth > innerWidth + 1, titleOverflow: title.scrollWidth > title.clientWidth + 1,
-          overlap: title.getBoundingClientRect().right > cell.getBoundingClientRect().left, flowOverflow: flow.scrollWidth > flow.clientWidth,
+          overlap: title.getBoundingClientRect().bottom > cell.getBoundingClientRect().top, flowOverflow: flow.scrollWidth > flow.clientWidth,
           lefts: [...document.querySelectorAll('.flow-conclusion')].map(el => el.getBoundingClientRect().left) };
       });
       assert.equal(layout.outerOverflow, false, 'outer app never scrolls horizontally');
@@ -123,30 +145,31 @@ const edge = task('edge', { title: '长内容与深层级验收', nodes: [
       assert.equal(layout.overlap, false, 'titles never enter conclusion cells');
       const longAlignment = await page.locator('.flow-row[data-node-id="long"]').evaluate(el => {
         const title = el.querySelector('.node-title'), status = el.querySelector('.node-status'), t = title.getBoundingClientRect(), box = status.getBoundingClientRect();
-        return Math.abs(box.y + box.height / 2 - t.y - parseFloat(getComputedStyle(title).lineHeight) / 2);
+        return Math.abs(box.y + box.height / 2 - t.y - parseFloat(getComputedStyle(title).paddingTop) - parseFloat(getComputedStyle(title).lineHeight) / 2);
       });
       assert.ok(longAlignment <= .6, 'multiline titles keep their status button on the first line');
       assert.ok(Math.max(...layout.lefts) - Math.min(...layout.lefts) < 1, 'all conclusions share a column');
-      assert.equal(await conclusion('long').locator('.conclusion-expand').isVisible(), true);
       await shot('candidate-long-' + theme + '-' + width);
-      const tabsBefore = await page.locator('.tabs-bar').boundingBox();
-      await conclusion('long').locator('.conclusion-expand').click(); await settle();
-      assert.equal(await conclusion('long').locator('.conclusion-expand').getAttribute('aria-expanded'), 'true');
       const full = await conclusion('long').locator('.node-conclusion-preview').evaluate(el => ({ height: el.clientHeight, scroll: el.scrollHeight, text: el.textContent }));
       assert.ok(full.scroll <= full.height + 1);
       assert.ok(full.text.endsWith('END-OF-CONCLUSION'));
-      assert.deepEqual(await page.locator('.tabs-bar').boundingBox(), tabsBefore, 'expansion leaves outer tabs stationary');
-      await conclusion('long').locator('.conclusion-expand').click(); await settle();
-      await conclusion('long').locator('.node-conclusion-text').click();
-      const focus = await editor.evaluate(el => { const s = getComputedStyle(el); return { bg: s.backgroundColor, border: s.borderBottomColor, outline: s.outlineStyle, shadow: s.boxShadow }; });
-      assert.equal(focus.bg, 'rgba(0, 0, 0, 0)');
-      assert.equal(focus.outline, 'none');
-      const borderChannels = focus.border.match(/[\d.]+/g).slice(0, 3);
-      assert.ok(borderChannels.every(c => c === borderChannels[0]), 'focus border stays neutral');
-      if (focus.shadow !== 'none') {
-        const shadowChannels = focus.shadow.match(/[\d.]+/g).slice(0, 3);
-        assert.ok(shadowChannels.every(c => c === shadowChannels[0]) && focus.shadow.includes('inset'), 'focus is an inset neutral cue');
-      }
+      await conclusion('long').locator('.node-conclusion-text').dblclick();
+      const focus = await editor.evaluate(el => {
+        const style = getComputedStyle(el);
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const green = color => {
+          ctx.clearRect(0, 0, 1, 1);
+          ctx.fillStyle = color;
+          ctx.fillRect(0, 0, 1, 1);
+          const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+          return a > 0 && g > r + 8 && g > b + 8;
+        };
+        const shadowColor = style.boxShadow.match(/(?:rgba?|color)\([^)]*\)/)?.[0];
+        return { bg: style.backgroundColor, outline: style.outlineStyle,
+          inset: style.boxShadow.includes('inset'), green: Boolean(shadowColor && green(shadowColor)) };
+      });
+      assert.deepEqual(focus, { bg: 'rgba(0, 0, 0, 0)', outline: 'none', inset: true, green: false });
       await page.keyboard.press('Escape');
     }
     await size(1024, 820);
@@ -158,14 +181,13 @@ const edge = task('edge', { title: '长内容与深层级验收', nodes: [
         internalOverflow: flow.scrollWidth > flow.clientWidth, outerOverflow: document.documentElement.scrollWidth > innerWidth + 1,
         depth: document.querySelector('[data-flow-id="deep-leaf"]').dataset.flowDepth };
     });
-    assert.equal(deepLayout.aligned, true); assert.equal(deepLayout.internalOverflow, true); assert.equal(deepLayout.outerOverflow, false);
+    assert.equal(deepLayout.aligned, false, "conclusions follow each node’s indentation"); assert.equal(deepLayout.internalOverflow, false); assert.equal(deepLayout.outerOverflow, false);
     assert.equal(deepLayout.depth, '15');
     await title('deep-leaf').scrollIntoViewIfNeeded(); await settle();
     await shot('candidate-deep-1024');
-    await conclusion('deep-leaf').locator('.node-conclusion-text').click();
-    await editor.fill('最深层编辑后保存的结论'); await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
-    assert.equal(await value('deep-leaf'), '最深层编辑后保存的结论');
-    assert.equal(await page.evaluate(() => findNode(shellActiveTask().nodes, 'deep-leaf').note), '深层记录不变');
+    await conclusion('deep-leaf').locator('.node-conclusion-text').dblclick();
+    await editor.fill('最深层编辑后保存的结论\n深层记录不变'); await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
+    assert.equal(await value('deep-leaf'), '最深层编辑后保存的结论\n深层记录不变');
     assert.deepEqual(errors, []);
     console.log('PASS: selection, conclusion editing/undo/IME, disk reload, search/export, subtree identity, long wrapping, expansion, light/dark focus, 640/1024/1440 and 16 levels.');
   } catch (error) {

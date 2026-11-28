@@ -30,7 +30,7 @@ let shellHideCompletedNodes = false;
 try { shellHideCompletedNodes = localStorage.getItem(SHELL_HIDE_COMPLETED_KEY) === "1"; } catch {}
 
 function shellFlowNodeVisible(node) {
-  return (!shellHideCompletedNodes || node.status !== "done") && (!shellReviewOnly || shellFlowHasReview(node));
+  return node.id === state.focusNodeTitleId || ((!shellHideCompletedNodes || node.status !== "done") && (!shellReviewOnly || shellFlowHasReview(node)));
 }
 
 function shellFlowHasReview(node) {
@@ -195,7 +195,7 @@ function renderShellTabs(task, flowToolbar = "") {
 }
 
 function shellNodeStatusLabel(status) {
-  return SHELL_NODE_STATUS_LABELS[status] || '未完成';
+  return SHELL_NODE_STATUS_LABELS[status] || state.nodeStates.find(item => item.id === status)?.name || '未完成';
 }
 
 function shellNodeStatusStyle(status) {
@@ -229,7 +229,7 @@ function shellFormatNodePath(path) {
 
 function renderShellNodeDraft(task, depth = 0) {
   const parentId = state.focusNodeTitleId ? shellParentIdOf(task, state.focusNodeTitleId) : null;
-  return `<li class="flow-item node-draft" style="${shellFlowIndentStyle(depth)}"><div class="flow-row adding"><div class="flow-node-main"><span class="draft-spacer"></span><span class="node-status-slot"><span class="node-status todo" role="img" aria-label="未完成">${briefFieldIcon('circle')}</span></span><textarea class="node-title-input" id="node-title-draft" rows="1" aria-label="${parentId ? "子节点标题" : "节点标题"}" placeholder="输入节点标题" maxlength="160" autocomplete="off" data-shell-node-draft="1" data-node-id="${escAttr(state.focusNodeTitleId)}">${esc(shellNodeTitle(task,state.focusNodeTitleId))}</textarea></div></div></li>`;
+  return `<li class="flow-item node-draft" style="${shellFlowIndentStyle(depth)}"><div class="flow-row adding"><div class="flow-node-main"><span class="node-gutter-zone"></span><span class="collapse empty" aria-hidden="true"></span><span class="node-status-slot"><span class="node-status todo" role="img" aria-label="未完成">${briefFieldIcon('circle')}</span></span><textarea class="node-title-input" id="node-title-draft" rows="1" aria-label="${parentId ? "子节点标题" : "节点标题"}" placeholder="输入节点标题" maxlength="160" autocomplete="off" data-shell-node-draft="1" data-node-id="${escAttr(state.focusNodeTitleId)}">${esc(shellNodeTitle(task,state.focusNodeTitleId))}</textarea></div></div></li>`;
 }
 
 function shellNodeTitle(task, nodeId) {
@@ -262,36 +262,47 @@ function shellNodeConclusionValue(node) {
   return note.includes(conclusion) ? note : `${conclusion}\n\n${note}`;
 }
 
-function shellToggleCompletedReading(taskId, nodeId, field) {
+function shellToggleCompletedTitle(taskId, nodeId) {
   const node = findNode(state.tasks.find(task => task.id === taskId)?.nodes || [], nodeId);
   if (node?.status !== "done") return;
-  const expanded = field === "title" ? shellExpandedTitles : shellExpandedConclusions;
   const key = shellConclusionKey(taskId, nodeId);
-  if (expanded.has(key)) expanded.delete(key); else expanded.add(key);
-  document.querySelector(`.flow-row[data-node-id="${CSS.escape(nodeId)}"]`)?.classList.toggle(`expanded-${field}`, expanded.has(key));
+  if (shellExpandedTitles.has(key)) shellExpandedTitles.delete(key); else shellExpandedTitles.add(key);
+  document.querySelector(`.flow-row[data-node-id="${CSS.escape(nodeId)}"]`)?.classList.toggle("expanded-title", shellExpandedTitles.has(key));
+}
+
+function noteSummary(raw) {
+  const line = raw.split(/\r?\n/).map(text => text.trim()).find(text =>
+    text && !/^(?:```|~~~)/.test(text) && !/^\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?$/.test(text)
+  ) || "";
+  const plain = line.replace(/!?\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^(?:[>#]+\s*|[-+*]\s+|\d+\.\s+)/, "")
+    .replace(/[`*_~]/g, "").replace(/\s*\|\s*/g, " · ").replace(/\s+/g, " ").replace(/^ · | · $/g, "").trim();
+  const chars = Array.from(plain);
+  return chars.length > 160 ? chars.slice(0, 159).join("") + "…" : plain || "查看结论";
 }
 
 function renderShellNodeConclusion(task, node) {
   const attrs = `data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}"`;
+  const host = `data-conclusion-node="${escAttr(node.id)}"`;
   const draft = shellConclusionDraft;
   if (draft?.taskId === task.id && draft.nodeId === node.id) {
-    return `<div class="flow-conclusion editing" data-conclusion-node="${escAttr(node.id)}"><textarea class="node-conclusion-editor" data-shell-node-conclusion ${attrs} rows="1" placeholder="支持 Markdown（文字、代码块、表格等）" aria-label="节点结论：${escAttr(node.title)}">${esc(draft.value)}</textarea></div>`;
+    const hint = `node-conclusion-keys-${escAttr(node.id)}`;
+    return `<div class="flow-conclusion editing" ${host}><textarea class="node-conclusion-editor" data-shell-node-conclusion ${attrs} rows="1" placeholder="支持 Markdown（文字、代码块、表格等）" aria-label="节点结论：${escAttr(node.title)}" aria-describedby="${hint}">${esc(draft.value)}</textarea><div class="node-conclusion-keys" id="${hint}">↵ 完成 · ⇧↵ 换行 · Esc 取消</div></div>`;
   }
   const value = shellNodeConclusionValue(node);
-  const expanded = shellExpandedConclusions.has(shellConclusionKey(task.id, node.id));
-  if (!value.trim()) return `<div class="flow-conclusion is-empty" data-conclusion-node="${escAttr(node.id)}"></div>`;
-  const rendered = typeof renderMarkdown === "function" ? renderMarkdown(value, task) : esc(value);
-  return `<div class="flow-conclusion ${expanded ? "expanded" : ""}" data-conclusion-node="${escAttr(node.id)}">
-    <button class="node-conclusion-text" type="button" data-action="read-node-conclusion" ${attrs} aria-label="结论：${escAttr(node.title)}，双击编辑" title="${escAttr(value)}"><span class="node-conclusion-preview md-concl">${rendered}</span></button>
+  if (!value.trim()) return `<div class="flow-conclusion is-empty" ${host}></div>`;
+  const done = node.status === "done";
+  if (done && !shellExpandedConclusions.has(shellConclusionKey(task.id, node.id))) {
+    return `<button class="flow-conclusion nnote-fold" ${host} type="button" data-action="toggle-done-conclusion" ${attrs} aria-expanded="false" title="点击展开完整结论"><span class="nf-lbl">结论</span><span class="nf-txt">${esc(noteSummary(value))}</span><span class="nf-act">展开</span></button>`;
+  }
+  const rendered = typeof renderMarkdown === "function" ? renderMarkdown(value, { editableTableCells: true }) : esc(value);
+  return `<div class="flow-conclusion" ${host}>
+    <div class="node-conclusion-text" ${attrs} title="双击编辑结论"><div class="node-conclusion-preview md-concl">${rendered}</div></div>
+    <div class="nnote-bar">${done ? `<button type="button" data-action="toggle-done-conclusion" ${attrs} aria-expanded="true">收起</button>` : ""}<button type="button" data-action="edit-node-conclusion" ${attrs}>编辑</button></div>
   </div>`;
 }
 
 function shellSyncConclusionLayout() {
-  document.querySelectorAll(".flow-conclusion:not(.editing)").forEach(cell => {
-    const preview = cell.querySelector(".node-conclusion-preview");
-    const toggle = cell.querySelector(".conclusion-expand");
-    if (preview && toggle) toggle.hidden = !cell.classList.contains("expanded") && preview.scrollHeight <= preview.clientHeight + 1;
-  });
   const editor = document.querySelector("[data-shell-node-conclusion]");
   if (editor) {
     editor.style.overflowY = "hidden";
@@ -314,9 +325,8 @@ function renderShellFlowNode(task, node, depth = 0, path = "") {
     const inner = children.length && !node.collapsed ? `<ol class="flow-children">${children.map((child, idx) => renderShellFlowNode(task, child, depth + 1, path ? `${path}.${idx + 1}` : String(idx + 1))).join("")}</ol>` : "";
     return `${renderShellNodeDraft(task, depth)}${inner}`;
   }
-  const children = sort(node.children || []).filter(shellFlowBranchVisible);
-  const adding = false;
-  const hasChildren = children.length > 0 || adding;
+  const children = sort(node.children || []);
+  const hasChildren = children.some(shellFlowBranchVisible);
   const selected = node.id === state.selectedNodeId;
   const key = shellConclusionKey(task.id, node.id);
   const displayCollapsed = node.collapsed && !shellReviewOnly;
@@ -332,17 +342,22 @@ function renderShellFlowNode(task, node, depth = 0, path = "") {
     ? (() => {
         const sub = flatten(node.children || []);
         const subDone = sub.filter((item) => item.status === "done").length;
-        return `<span class="node-collapsed-count" aria-hidden="true">${subDone}/${sub.length}</span>`;
+        const review = sub.filter((item) => item.status === "review").length;
+        return `<span class="node-collapsed-count">${subDone}/${sub.length}</span>${review ? `<span class="node-collapsed-review">${node.status === "review" ? "含 " : ""}${review} 待确认</span>` : ""}`;
       })()
     : "";
   const gutterText = shellFormatNodePath(path);
   const gutterCompact = gutterText !== path;
-  const body = `<div class="flow-row ${statusClass} ${hasChildren ? "is-parent" : ""} ${selected ? "selected" : ""} ${shellExpandedTitles.has(key) ? "expanded-title" : ""} ${shellExpandedConclusions.has(key) ? "expanded-summary" : ""}" data-context="node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" data-flow-drag-source data-flow-drag-target>
+  const body = `<div class="flow-row ${statusClass} ${hasChildren ? "is-parent" : ""} ${selected ? "selected" : ""} ${shellExpandedTitles.has(key) ? "expanded-title" : ""}" data-context="node" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" data-flow-drag-source data-flow-drag-target>
     <div class="flow-node-main">
-      <span class="node-gutter${gutterCompact ? " is-compact" : ""}"${gutterCompact ? ` title="层级 ${escAttr(path)}"` : ""} aria-hidden="true">${esc(gutterText)}</span>
-      <span class="flow-grip" title="拖动调整节点位置" aria-hidden="true">${shellIcon("grip")}</span>
-      <button class="collapse ${hasChildren ? "" : "empty"}" type="button" data-action="toggle-node-collapse" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" aria-label="${displayCollapsed ? "展开" : "收起"} ${escAttr(node.title)}" aria-expanded="${!displayCollapsed}" ${hasChildren && !shellReviewOnly ? "" : "disabled"}>${shellIcon(displayCollapsed ? "chevron" : "down")}</button>
-      <span class="node-status-slot"><button class="node-status ${statusClass}"${statusStyle} type="button" data-action="cycle-node-status" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" title="${escAttr(shellNodeStatusLabel(node.status))} · 点击切换为${escAttr(shellNodeStatusLabel(nextNodeStatus(node.status)))}" aria-label="${escAttr(shellNodeStatusButtonLabel(node))}"><span class="st-dot" aria-hidden="true">${node.status === "done" ? shellIcon("check") : ""}</span></button></span>
+      <span class="node-gutter-zone" title="拖动调整节点位置（层级 ${escAttr(path)}）" aria-hidden="true">
+        <span class="node-gutter${gutterCompact ? " is-compact" : ""}">${esc(gutterText)}</span>
+        <span class="flow-grip">${shellIcon("grip")}</span>
+      </span>
+      ${hasChildren && !shellReviewOnly
+        ? `<button class="collapse${displayCollapsed ? " is-folded" : ""}" type="button" data-action="toggle-node-collapse" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" aria-label="${displayCollapsed ? "展开" : "收起"} ${escAttr(node.title)}" aria-expanded="${!displayCollapsed}">${shellIcon("down")}</button>`
+        : '<span class="collapse empty" aria-hidden="true"></span>'}
+      <span class="node-status-slot"><button class="node-status ${statusClass}"${statusStyle} type="button" data-action="cycle-node-status" data-task-id="${escAttr(task.id)}" data-node-id="${escAttr(node.id)}" title="${escAttr(shellNodeStatusLabel(node.status))} · 点击切换为${escAttr(shellNodeStatusLabel(nextNodeStatus(node.status)))} · Shift+点击选择状态" aria-label="${escAttr(shellNodeStatusButtonLabel(node))}"><span class="st-dot" aria-hidden="true">${node.status === "done" ? shellIcon("check") : ""}</span></button></span>
       ${renderShellNodeTitle(task, node, selected)}
       ${collapsedSummary}${statusTag}
       <div class="flow-row-actions">
@@ -372,13 +387,21 @@ function renderShellFlow(task) {
   // The first draft is a temporary node. Keep the empty entry mounted beneath
   // it so cancelling a blank draft in place can reveal the same entry again.
   const empty = !list.length || (list.length === 1 && list[0].id === state.focusNodeTitleId);
-  const selected = list.find((node) => node.id === state.selectedNodeId);
   const roots = sort(task.nodes || []);
   const doneCount = shellCountDoneNodes(task);
   const ratio = list.length ? Math.round((doneCount / list.length) * 100) : 0;
   const addButton = `<button class="add-node" type="button" data-action="add-root-node" data-task-id="${escAttr(task.id)}"${empty ? ' aria-describedby="flow-start-hint"' : ""}>${shellIcon("plus")}${empty ? "添加第一个节点" : "添加节点"}</button>`;
   const maxDepth = shellFlowDepth(task.nodes || []);
-  const branches = list.filter((node) => node.children?.length && node.id !== state.focusNodeTitleId);
+  const branches = list.filter(node => shellFlowNodeVisible(node) && node.children?.some(shellFlowBranchVisible) && node.id !== state.focusNodeTitleId);
+  const countVisible = nodes => nodes.reduce((count, node) => {
+    const visible = shellFlowNodeVisible(node);
+    return count + Number(visible) + (!visible || !node.collapsed || shellReviewOnly ? countVisible(node.children || []) : 0);
+  }, 0);
+  const filterBar = filters.length ? `<div class="flow-filterbar">
+    <span class="flow-filter-tags">${filters.map(label => `<span class="flow-filter-tag${label === "仅待确认" ? " review" : ""}">${label === "隐藏已完成" ? "已隐藏完成" : label}</span>`).join("")}</span>
+    <span class="flow-filter-count">显示 ${countVisible(roots)}/${list.length}</span>
+    <button type="button" data-action="reset-flow-filters">清除筛选</button>
+  </div>` : "";
   const toolbar = `<div class="flow-toolbar">
       <span class="flow-progress"><span class="flow-progress-meter" aria-hidden="true"><i style="width:${ratio}%"></i></span>${doneCount} / ${list.length} 已完成</span>
       <div class="flow-context-bar" hidden>
@@ -396,6 +419,7 @@ function renderShellFlow(task) {
   const content = `<section class="flow-pane${empty ? " flow-empty" : ""}" aria-label="层级处理流">
     <div class="flow-scroll" data-context="flow-root" data-task-id="${escAttr(task.id)}" data-processing-flow-scroll data-processing-flow-view="${escAttr(processingFlowViewKey(task))}">
       <div class="flow-outline${maxDepth === 0 ? " flow-flat" : ""}" style="--flow-depth:${maxDepth};${shellFlowIndentStyle(maxDepth)};--flow-title-track:${state.flowWidths.title}fr;--flow-note-track:${state.flowWidths.note}fr">
+      ${filterBar}
       <ol class="flow-tree">
         ${roots.map((node, idx) => renderShellFlowNode(task, node, 0, String(idx + 1))).join("")}
       </ol>
@@ -555,6 +579,7 @@ const SHELL_FOCUS_KEYS = ["data-node-id", "data-action", "data-bulk-action", "da
 const SHELL_REPOSITORY_FOCUS_KEYS = [...SHELL_FOCUS_KEYS, "data-group-id", "data-task-id", "data-bulk-id", "data-value", "data-tag", "data-setting-button"];
 
 function shellBeforeRender() {
+  if (shellFlowTableEdit) shellFlowTableEdit.hadFocus = document.activeElement === shellFlowTableEdit.input;
   const task = shellActiveTask();
   if (state.focusNodeTitleId) {
     const owner = state.tasks.find(item => findNode(item.nodes, state.focusNodeTitleId));
@@ -676,6 +701,7 @@ function shellAfterRender() {
       draft.rendering = false;
     }
   }
+  shellBindFlowConclusionTables();
   shellSyncConclusionLayout();
   const outline = document.querySelector(".flow-outline");
   if (outline !== shellConclusionObserved && typeof ResizeObserver === "function") {
@@ -726,60 +752,116 @@ function shellAfterRender() {
   if (shellNodeRenameDraft) shellNodeRenameDraft.rendering = false;
 }
 
-/** Arrow-key navigation inside the processing flow, mirroring the Demo. */
+function shellVisibleFlowTitles() {
+  return [...document.querySelectorAll(".flow-scroll .node-title")].filter(title =>
+    !title.closest("[inert]") && title.getClientRects().length);
+}
+
+function shellSelectFlowNode(nodeId) {
+  if (state.selectedNodeId && (!shellFlowSelectionOnly || state.selectedNodeId !== nodeId)) {
+    flushNodeNoteDrafts({ persist: true });
+    exitNodeDetail();
+  }
+  state.selectedNodeId = nodeId;
+  shellFlowSelectionOnly = Boolean(nodeId);
+  document.querySelectorAll(".flow-row.selected").forEach(row => {
+    row.classList.remove("selected");
+    row.querySelector(".node-title")?.setAttribute("aria-pressed", "false");
+  });
+  const title = document.querySelector(`.flow-scroll .node-title[data-node-id="${CSS.escape(nodeId)}"]`);
+  title?.setAttribute("aria-pressed", "true");
+  title?.closest(".flow-row")?.classList.add("selected");
+  return title;
+}
+
+function shellFocusFlowNode(nodeId, { reveal = false } = {}) {
+  const title = shellVisibleFlowTitles().find(item => item.dataset.nodeId === nodeId);
+  const target = title || document.querySelector(".flow-tools [data-action='add-root-node']");
+  target?.focus({ preventScroll: true });
+  if (reveal) title?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+function shellAdjacentFlowNode(nodeId, excludedIds, { previousOnly = false } = {}) {
+  const rows = [...document.querySelectorAll(".flow-scroll .flow-row")].filter(row =>
+    !row.closest("[inert]") && row.getClientRects().length);
+  const index = rows.findIndex(row => row.dataset.nodeId === nodeId || row.querySelector("[data-shell-node-draft]")?.dataset.nodeId === nodeId);
+  if (index < 0) return "";
+  const candidates = [...(previousOnly ? [] : rows.slice(index + 1)), ...rows.slice(0, index).reverse()];
+  return candidates.find(row => row.dataset.nodeId && !excludedIds.has(row.dataset.nodeId))?.dataset.nodeId || "";
+}
+
+/** Navigation shortcuts belong to the focused node title, outside editors and menus. */
 function shellBindFlowKeyboard() {
-  if (typeof document.addEventListener !== "function") return;
-  if (window.__loopFlowKeysBound) return;
+  if (typeof document.addEventListener !== "function" || window.__loopFlowKeysBound) return;
   window.__loopFlowKeysBound = true;
   document.addEventListener("keydown", (event) => {
-    if (event.isComposing) return;
-    if (shellOverlayIsOpen?.()) return;
-    const title = event.target.closest?.(".node-title");
-    if (!title || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || shellOverlayIsOpen() || state.contextMenu || state.taskMenuOpen || recovery26Busy || flowNodeDragState?.active) return;
+    const title = event.target.closest?.(".flow-scroll .node-title");
     const task = shellActiveTask();
-    if (!task) return;
+    if (!title || !task || title.dataset.taskId !== task.id) return;
     const nodeId = title.dataset.nodeId;
-    if (event.key === "F2") {
-      event.preventDefault();
-      shellStartNodeTitleEdit(title);
-      return;
-    }
-    if (state.selectedNodeId === nodeId && !state.contextMenu && ["Enter", "Tab", " "].includes(event.key)) {
+    const key = event.key.toLowerCase();
+    const vertical = key === "arrowdown" || key === "arrowup";
+    if (event.altKey && !vertical) return;
+    const arrow = vertical || key === "arrowleft" || key === "arrowright";
+    if (!arrow && (nodeId !== state.selectedNodeId || !["enter", "tab", " ", "e", "f2", "n", "backspace", "delete"].includes(key))) return;
+    if (event.altKey && nodeId !== state.selectedNodeId) return;
+    if (key === "tab") {
       const { index, parent } = shellNodeSiblings(task, nodeId);
-      if (event.key === "Tab" && (event.shiftKey ? !parent : index <= 0)) return;
-      event.preventDefault();
-      if (event.repeat) return;
-      if (event.key === "Enter") void action({ action: "add-sibling-node", taskId: task.id, nodeId });
-      else if (event.key === " ") void action({ action: "cycle-node-status", taskId: task.id, nodeId });
-      else void action({ action: "move-node", nodeId, direction: event.shiftKey ? "out" : "in" }).then(() => {
-        document.querySelector(`.node-title[data-node-id="${CSS.escape(nodeId)}"]`)?.focus({ preventScroll: true });
-      });
-      return;
+      if (event.shiftKey ? !parent : index <= 0) return;
     }
-    if (!["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    const path = shellNodePath(task, nodeId);
-    const node = path.at(-1);
-    const visible = [...document.querySelectorAll(".flow-scroll .node-title")].filter(el => !el.closest("[inert]") && el.getClientRects().length);
-    const index = visible.indexOf(title);
-    if (event.key === "ArrowDown") {
-      visible[Math.min(index + 1, visible.length - 1)]?.focus();
-    } else if (event.key === "ArrowUp") {
-      visible[Math.max(index - 1, 0)]?.focus();
-    } else if (event.key === "ArrowRight" && node?.children?.length) {
-      if (node.collapsed) {
-        node.collapsed = false;
-        render();
-      } else {
-        title.closest(".flow-item")?.querySelector(".flow-branch .node-title")?.focus();
+    if (event.repeat && (!arrow || event.altKey)) return;
+    const dispatch = (name, extra) => action({ action: name, taskId: task.id, nodeId, ...extra });
+    if (event.altKey || key === "tab") {
+      const direction = event.altKey ? (key === "arrowdown" ? "down" : "up") : (event.shiftKey ? "out" : "in");
+      void dispatch("move-node", { direction });
+    } else if (key === "enter") {
+      void dispatch(event.shiftKey ? "add-child-node" : "add-sibling-node");
+    } else if (key === " ") {
+      const node = findNode(task.nodes, nodeId);
+      if (!node) return;
+      const status = { todo: "review", review: "done", done: "todo" }[node.status] || "todo";
+      const nextId = shellAdjacentFlowNode(nodeId, new Set([nodeId]));
+      void dispatch("mark-node-status", { status }).then(() => {
+        if (task.id !== state.activeTaskId || (state.selectedNodeId && state.selectedNodeId !== nodeId)
+            || shellVisibleFlowTitles().some(item => item.dataset.nodeId === nodeId)) return;
+        shellSelectFlowNode(nextId);
+        shellFocusFlowNode(nextId);
+      });
+    } else if (key === "e" || key === "f2") {
+      shellStartNodeTitleEdit(title);
+    } else if (key === "n") {
+      shellStartNodeConclusionEdit(task.id, nodeId);
+    } else if (key === "delete" || key === "backspace") {
+      void recovery26DeleteFlowNode(task.id, nodeId);
+    } else if (vertical) {
+      const visible = shellVisibleFlowTitles();
+      const index = visible.indexOf(title);
+      const next = visible[Math.max(0, Math.min(visible.length - 1, index + (key === "arrowdown" ? 1 : -1)))];
+      if (next) {
+        shellSelectFlowNode(next.dataset.nodeId);
+        shellFocusFlowNode(next.dataset.nodeId, { reveal: true });
       }
-    } else if (event.key === "ArrowLeft") {
-      if (node?.children?.length && !node.collapsed) {
-        node.collapsed = true;
-        render();
-      } else if (path.at(-2)) {
-        document.querySelector(`.node-title[data-node-id="${CSS.escape(path.at(-2).id)}"]`)?.focus();
+    } else {
+      const row = title.closest(".flow-row");
+      const collapse = row.querySelector("button.collapse");
+      const right = key === "arrowright";
+      if (collapse?.getAttribute("aria-expanded") === String(!right)) {
+        void dispatch("toggle-node-collapse");
+        return;
+      }
+      const path = shellNodePath(task, nodeId);
+      const visible = shellVisibleFlowTitles();
+      const branch = row.nextElementSibling;
+      const next = right
+        ? visible.find(item => branch?.contains(item))
+        : path.slice(0, -1).reverse().map(node => visible.find(item => item.dataset.nodeId === node.id)).find(Boolean);
+      if (next) {
+        shellSelectFlowNode(next.dataset.nodeId);
+        shellFocusFlowNode(next.dataset.nodeId, { reveal: true });
       }
     }
   }, true);
@@ -1142,7 +1224,7 @@ function renderShellWorkspace(task, visibleTaskCount) {
       </div>
       ${renderShellTaskInfo(task)}
     </section>
-    ${pane === "notes" ? "" : renderShellWorkspaceFooter(pane === "flow" && !(task.nodes || []).length ? "" : pane)}`;
+    ${pane === "notes" ? "" : renderShellWorkspaceFooter(pane)}`;
 }
 
 function renderShellWorkspaceFooter(pane = "") {
@@ -1151,7 +1233,7 @@ function renderShellWorkspaceFooter(pane = "") {
     ? knowledgeSavePresentation(task).shortcut : '⌘ / Ctrl + S 保存笔记';
   return `<footer class="workspace-foot">
     <div data-workspace-status>${renderWorkspaceStatus()}</div>
-    ${pane === "flow" ? `<span class="foot-shortcut"><span><kbd>↵</kbd> 同级</span><span><kbd>Tab</kbd> 下级</span><button type="button" data-action="open-command-palette"><kbd>${desktopPlatform === "darwin" ? "⌘K" : "Ctrl K"}</kbd> 命令</button></span>` : pane === "notes" ? `<span class="foot-shortcut">${shortcut}</span>` : ""}
+    ${pane === "flow" ? `<span class="foot-shortcut"><span><kbd>↵</kbd> 同级</span><span><kbd>⇧↵</kbd> 下级</span><span><kbd>Space</kbd> 状态</span><span><kbd>N</kbd> 结论</span><span><kbd>${desktopPlatform === "darwin" ? "⌥↑↓" : "Alt ↑↓"}</kbd> 移动</span></span>` : pane === "notes" ? `<span class="foot-shortcut">${shortcut}</span>` : ""}
   </footer>`;
 }
 

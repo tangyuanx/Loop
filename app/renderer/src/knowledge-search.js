@@ -169,12 +169,17 @@ export class KnowledgeFind {
       if(event.isComposing||this.composing||event.keyCode===229)return;
       if(event.key==='F3'||((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='g'&&!event.altKey)){
         event.preventDefault();event.stopPropagation();this.move(event.shiftKey?-1:1);
-      }else if(event.key==='Escape'){event.preventDefault();event.stopPropagation();this.clear();}
+      }else if(event.key==='Escape'){event.preventDefault();event.stopPropagation();this.clear(true);}
       else if(event.key==='Enter'&&(event.target===this.input||event.target===this.replacement)){
         event.preventDefault();event.stopPropagation();
-        if(event.target===this.replacement){
+        const replacing=event.target===this.replacement;
+        if(replacing){
           if(!event.shiftKey&&!event.repeat)this.replace(false);
         }else this.move(event.shiftKey?-1:1);
+        if(!event.shiftKey){
+          const button=this.dom.querySelector(replacing?'[name=replaceNext]':'[name=next]');
+          (button.disabled?this.dom.querySelector('[name=close]'):button).focus({preventScroll:true});
+        }
       }
     });
     this.update();
@@ -193,6 +198,7 @@ export class KnowledgeFind {
     return this.owner.mode==='preview'?this.owner.readHost:null;
   }
   open(query) {
+    if(this.dom.hidden)this.originalInputs=[this.input.value,this.replacement.value];
     this.dom.hidden=false;
     this.attach();
     const root=this.renderedRoot(),selection=window.getSelection();
@@ -401,8 +407,10 @@ export class KnowledgeFind {
     if(!this.style) {this.style=document.createElement('style');this.style.textContent=`::highlight(${this.highlightKey}){background:var(--kn-find-match);color:var(--text)}::highlight(${this.highlightKey}-active){background:var(--kn-find-current);color:var(--text)}`;document.head.append(this.style);}
   }
   clearHighlights(){this.widgetRanges=null;CSS.highlights?.delete(this.highlightKey);CSS.highlights?.delete(this.highlightKey+'-active');}
-  clear() {
-    this.active=false;this.dom.hidden=true;this.attach();this.input.value='';this.replacement.value='';this.composing=false;
+  clear(restoreInput=false) {
+    this.active=false;this.dom.hidden=true;this.attach();
+    [this.input.value,this.replacement.value]=restoreInput&&this.originalInputs?this.originalInputs:['',''];
+    this.composing=false;
     this.dom.querySelector('.kn-replace-row').hidden=true;const toggle=this.dom.querySelector('[name=toggleReplace]');toggle.setAttribute('aria-expanded','false');toggle.setAttribute('aria-label','展开替换');toggle.title='展开替换';
     cancelAnimationFrame(this.revealFrame);this.syncQuery();this.update();
     const rendered=this.renderedRoot();

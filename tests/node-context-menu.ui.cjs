@@ -131,7 +131,7 @@ const { launchRepository } = require('./electron-ui-helpers.cjs');
     await page.getByRole('menuitem', { name: '添加子节点' }).click();
     await page.locator('.tabs-bar').click({ position: { x: 8, y: 12 } });
     await expectCancelled();
-    assert.equal(await page.locator('.collapse[data-node-id="n44"]').isDisabled(), true);
+    assert.equal(await page.locator('.flow-row[data-node-id="n44"] .collapse.empty').count(), 1);
 
     assert.equal(await page.locator('[data-action="focus-next-pending"]').count(), 0);
     assert.equal(await page.evaluate(() => typeof shellFocusNextPending), 'undefined');

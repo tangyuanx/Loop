@@ -144,6 +144,47 @@ const long = Array.from({length:12},(_,i)=>`第${i+1}行：完整保留中英文
     await p.evaluate(()=>{const t=shellActiveTask();t.nodes=removeNode(t.nodes,'b-child');render();});await settle();
     assert.doesNotMatch(await nav.innerText(),/改名后的子节点/);
 
+    // Node shortcuts act on the selection only after the input has finished.
+    await go('branch-b'); await title('branch-b').click();
+    await p.keyboard.press('Shift+Enter');
+    const draft = p.locator('[data-shell-node-draft]');
+    const nodeCount = await p.evaluate(() => shellNodeList(shellActiveTask()).length);
+    const created = await draft.getAttribute('data-node-id');
+    await draft.fill('键盘新建的下级');
+    await draft.dispatchEvent('keydown', { key: 'Enter', keyCode: 229 });
+    assert.equal(await draft.count(), 1);
+    await draft.press('Shift+Enter'); await draft.waitFor({ state: 'detached' });
+    assert.equal(await p.evaluate(() => shellNodeList(shellActiveTask()).length), nodeCount);
+    assert.equal(await p.evaluate(id => findNode(shellActiveTask().nodes, id).parentId, created), 'branch-b');
+    assert.equal(await title(created).getAttribute('aria-pressed'), 'true');
+    await p.keyboard.press('e');
+    const name = p.locator('[data-shell-node-rename]');
+    await name.fill('未提交的标题'); await name.press('Escape');
+    assert.equal(await title(created).textContent(), '键盘新建的下级');
+    await p.keyboard.press('Enter'); await draft.waitFor();
+    await draft.press('Backspace'); await draft.waitFor({ state: 'detached' });
+    assert.equal(await p.evaluate(() => document.activeElement.dataset.nodeId), created);
+    await p.keyboard.press('Space');
+    assert.equal(await p.evaluate(id => findNode(shellActiveTask().nodes, id).status, created), 'review');
+    await p.keyboard.press('ArrowLeft');
+    assert.equal(await p.evaluate(() => state.selectedNodeId), 'branch-b');
+    await p.keyboard.press('ArrowRight');
+    assert.equal(await p.evaluate(() => state.selectedNodeId), created);
+    await p.keyboard.press('Shift+Tab');
+    const originalIndex = await p.evaluate(id => shellActiveTask().nodes.findIndex(node => node.id === id), created);
+    await p.keyboard.press('Alt+ArrowUp');
+    assert.equal(await p.evaluate(id => shellActiveTask().nodes.findIndex(node => node.id === id), created), originalIndex - 1);
+    await p.locator('[data-recovery26="undo"]').click();
+    await p.waitForFunction(({ id, index }) => shellActiveTask().nodes[index].id === id, { id: created, index: originalIndex });
+    await title(created).click();
+    const next = await p.evaluate(id => shellVisibleFlowTitles()[shellVisibleFlowTitles().findIndex(el => el.dataset.nodeId === id) + 1].dataset.nodeId, created);
+    await p.keyboard.press('Delete');
+    await row(created).waitFor({ state: 'detached' });
+    assert.equal(await p.evaluate(() => document.activeElement.dataset.nodeId), next);
+    await p.locator('[data-recovery26="undo"]').click();
+    await row(created).waitFor();
+    await p.evaluate(id => { shellActiveTask().nodes = removeNode(shellActiveTask().nodes, id); render(); }, created);
+
     // Hidden completed ancestors are navigable without deleting their history.
     await (await openFlowOptions(p)).getByRole('button',{name:'隐藏已完成'}).click();await go('unfinished-child');
     assert.equal(await p.getByRole('button',{name:/处理流选项.*隐藏已完成/}).getAttribute('data-filter-active'),'');

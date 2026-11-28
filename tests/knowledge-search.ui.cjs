@@ -53,7 +53,9 @@ async function test(id,fn){try{await fn();results.push({id,status:'PASS'});}catc
    await mode('source');assert.equal(await input.isVisible(),false);await openFind();assert.equal(await page.locator('[data-kn-action=find]').getAttribute('aria-expanded'),'true');
    await input.fill('测试');assert.equal(await count.innerText(),'1/4');assert.ok(await page.locator('.cm-searchMatch').count()>=3);assert.equal(await page.locator('[role=dialog]').count(),0);
    assert.equal(await input.evaluate(el=>el===document.activeElement),true);
-   await input.press('Enter');assert.equal(await count.innerText(),'2/4');await input.press('Shift+Enter');assert.equal(await count.innerText(),'1/4');
+   await input.press('Enter');assert.equal(await count.innerText(),'2/4');
+   assert.equal(await page.locator('.kn-find [name=next]').evaluate(el=>el===document.activeElement),true);
+   await input.press('Shift+Enter');assert.equal(await count.innerText(),'1/4');
    await page.locator('.kn-find [name=previous]').click();assert.equal(await count.innerText(),'4/4');
    const visible=await page.evaluate(()=>{const e=knowledgeCurrentEntry(),rect=e.view.coordsAtPos(e.view.state.selection.main.from),body=document.querySelector('.knowledge-body').getBoundingClientRect();return rect.top>=body.top&&rect.bottom<=body.bottom;});assert.equal(visible,true);
    await page.screenshot({path:path.join(out,'source-find.png')});

@@ -73,20 +73,23 @@ const conclusionHint = '可在节点右侧添加结论，双击结论可修改�
     await rename.fill('父节点已改名');await saveEnter(rename);assert.equal((await model('parent')).title,'父节点已改名');
     for(const theme of ['light','dark']){
       await page.evaluate(theme=>{state.theme=theme;render();},theme);await settle();
-      await text('complete').dblclick({delay:70});await field.waitFor();
+      await title('complete').click();await page.keyboard.press('n');await field.waitFor();
       await field.fill(longText+'\n新增换行\n最后一行完整显示');await settle();
       const geometry=await field.evaluate(el=>{const s=getComputedStyle(el);return{fits:el.scrollHeight<=el.clientHeight+1,width:el.getBoundingClientRect().width,outline:s.outlineStyle,shadow:s.boxShadow};});
       assert.ok(geometry.fits);assert.ok(geometry.width>100);assert.equal(geometry.outline,'none');
       await shot('outline-edit-'+theme);await field.press('Escape');
     }
-    // Completed title collapses and expands on hover; conclusion stays visible and softly muted until hover/click.
+    // Completed titles and conclusions retain separate reading controls.
     await page.reload();await page.locator('.flow-scroll').waitFor();await minimizeTaskInfo(page);
     await page.mouse.move(20,20);await settle();
-    const compact=await row('complete').evaluate(el=>{const t=el.querySelector('.node-title'),c=el.querySelector('.flow-conclusion');return{title:t.clientHeight,noteVisible:c.clientHeight>0,opacity:parseFloat(getComputedStyle(c).opacity)};});
-    assert.ok(compact.title<30&&compact.noteVisible&&compact.opacity<1);
-    await title('complete').hover();assert.ok(await title('complete').evaluate(el=>el.clientHeight)>compact.title);
-    await page.mouse.move(20,20);await text('complete').click();await page.mouse.move(20,20);assert.equal(await row('complete').evaluate(el=>el.classList.contains('expanded-summary')),true);
-    await shot('outline-reading');
+    const compact = await title('complete').evaluate(el => el.clientHeight);
+    const fold = row('complete').locator('.nnote-fold');
+    assert.ok(compact < 30);
+    assert.equal(await fold.evaluate(el => getComputedStyle(el.querySelector('.nf-txt')).whiteSpace), 'nowrap');
+    await title('complete').hover();assert.ok(await title('complete').evaluate(el=>el.clientHeight)>compact);
+    await fold.click();await text('complete').waitFor();
+    await row('complete').getByRole('button', { name: '收起', exact: true }).click();
+    await fold.waitFor();await shot('outline-reading');
     // Filtering preserves ancestors and the actual data tree.
     const before=await page.evaluate(()=>structuredClone(shellActiveTask().nodes));
     await (await openFlowOptions(page)).getByRole('button',{name:/^仅看待确认/}).click();assert.equal(await row('review').count(),1);assert.equal(await row('parent').count(),1);assert.equal(await row('blank').count(),0);

@@ -183,6 +183,7 @@ function snapshotRecovery26State() {
     workNavigation: structuredClone(state.workNavigation),
     activeTaskId: state.activeTaskId,
     selectedNodeId: state.selectedNodeId,
+    flowSelectionOnly: typeof shellFlowSelectionOnly !== "undefined" && shellFlowSelectionOnly,
     activeGroupId: state.activeGroupId,
     recordDraft: state.recordDraft,
     nodeDetailFullscreen: state.nodeDetailFullscreen,
@@ -199,6 +200,7 @@ function restoreRecovery26State(before) {
   state.workNavigation = before.workNavigation;
   state.activeTaskId = before.activeTaskId;
   state.selectedNodeId = before.selectedNodeId;
+  if (typeof shellFlowSelectionOnly !== "undefined") shellFlowSelectionOnly = before.flowSelectionOnly;
   state.activeGroupId = before.activeGroupId;
   state.recordDraft = before.recordDraft;
   state.nodeDetailFullscreen = before.nodeDetailFullscreen;
@@ -389,6 +391,24 @@ function recovery26NodeLocation(nodes, nodeId) {
   return null;
 }
 
+async function recovery26DeleteFlowNode(taskId, nodeId) {
+  if (recovery26Busy) return;
+  recovery26Capture();
+  recovery26Busy = true;
+  const outcome = await recovery26Transaction(() => recovery26DeleteNode(taskId, nodeId));
+  recovery26Busy = false;
+  if (!outcome.ok) {
+    render();
+    if (state.activeTaskId === taskId) shellFocusFlowNode(nodeId);
+    showWorkspaceError(outcome.message);
+    return;
+  }
+  recovery26AfterRemoval(outcome.entries, "1 项已移到最近删除");
+  if (state.activeTaskId === taskId && state.taskPane === "flow" && state.selectedNodeId === outcome.nextNodeId) {
+    shellFocusFlowNode(outcome.nextNodeId, { reveal: true });
+  }
+}
+
 function recovery26DeleteNode(taskId, nodeId) {
   const task = r26Task(taskId);
   const located = task ? recovery26NodeLocation(task.nodes, nodeId) : null;
@@ -412,10 +432,14 @@ function recovery26DeleteNode(taskId, nodeId) {
   located.siblings.splice(located.index, 1);
   reorder(located.siblings);
   task.updatedAt = now();
-  // No dangling selection, detail pane or draft may point at the removed ids.
   const removedIds = new Set(subtree.map((item) => item.id));
+  let nextNodeId;
   if (removedIds.has(state.selectedNodeId)) {
-    state.selectedNodeId = "";
+    nextNodeId = state.activeTaskId === taskId && state.taskPane === "flow"
+      ? shellAdjacentFlowNode(nodeId, removedIds)
+      : "";
+    state.selectedNodeId = nextNodeId;
+    shellFlowSelectionOnly = Boolean(nextNodeId);
     state.recordDraft = "";
     state.nodeDetailFullscreen = false;
     state.nodeDetailPosition = null;
@@ -426,7 +450,7 @@ function recovery26DeleteNode(taskId, nodeId) {
     window.clearTimeout(nodeNoteSaveTimers?.get(noteDraftKey(task.id, id)));
     try { nodeNoteSaveTimers?.delete(noteDraftKey(task.id, id)); } catch (error) { /* optional */ }
   }
-  return { ok: true, entries: [entry] };
+  return { ok: true, entries: [entry], nextNodeId };
 }
 
 // ------------------------------------------------------------
@@ -726,6 +750,9 @@ async function recovery26CommitDelete() {
     }
     if (recovery26Pending === pending) recovery26Pending = null;
     recovery26AfterRemoval(outcome.entries, "1 项已移到最近删除");
+    if (outcome.nextNodeId !== undefined && state.activeTaskId === pending.taskId && state.taskPane === "flow") {
+      shellFocusFlowNode(outcome.nextNodeId, { reveal: true });
+    }
     return;
   }
   if (pending.mode === "note") {
