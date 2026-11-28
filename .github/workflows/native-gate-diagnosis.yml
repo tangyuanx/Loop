@@ -1,0 +1,54 @@
+name: Diagnose desktop release gates
+
+on:
+  push:
+    branches: [codex/loop-native-release-diagnosis]
+
+permissions:
+  contents: read
+
+jobs:
+  native-gates:
+    name: Native gates (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macOS
+            os: macos-latest
+            build: npm run dist:mac -- --arm64 --dir --publish never
+          - platform: Windows
+            os: windows-latest
+            build: npm run dist:win -- --dir --publish never
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - id: build
+        name: Build packaged diagnostic app
+        run: ${{ matrix.build }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Check flow navigation and native resize
+        run: npm run test:ui:flow-navigation
+      - name: Select actual packaged executable
+        if: steps.build.outcome == 'success' && !cancelled()
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" = macOS ]]; then
+            executable="$PWD/release/mac-arm64/Loop.app/Contents/MacOS/Loop"
+            if [ ! -f "$executable" ]; then executable="$PWD/release/mac/Loop.app/Contents/MacOS/Loop"; fi
+          else
+            executable="$(cygpath -w "$PWD/release/win-unpacked/Loop.exe")"
+          fi
+          echo "LOOP_APP_EXECUTABLE=$executable" >> "$GITHUB_ENV"
+      - name: Check packaged floating knowledge tools
+        if: steps.build.outcome == 'success' && !cancelled()
+        run: node tests/knowledge-search.ui.cjs
+      - name: Check packaged table widths
+        if: steps.build.outcome == 'success' && !cancelled()
+        run: node tests/knowledge-table-report.ui.cjs

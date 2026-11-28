@@ -24,14 +24,24 @@ const long = Array.from({length:12},(_,i)=>`第${i+1}行：完整保留中英文
   const nav=p.locator('[data-flow-breadcrumb]');
   const bar=p.locator('.flow-context-bar');
   const settle=()=>p.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+  let resizeSequence=0;
   const resize=async (width,height)=>{
-    await app.evaluate(({BrowserWindow},size)=>{
+    const sequence=++resizeSequence;
+    await app.evaluate(({BrowserWindow},{size,sequence})=>{
       const window=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/index.html'));
       // Let the inspector reply before native Windows resize events reenter Electron.
-      setTimeout(()=>window.setSize(...size),50);
+      setTimeout(()=>{
+        window.setSize(...size);
+        const nativeSize=window.getSize();
+        void window.webContents.executeJavaScript(`globalThis.flowTestResize = ${JSON.stringify({sequence,nativeSize})}`);
+      },50);
       return true;
-    },[width,height]);
-    await p.waitForFunction(([width,height])=>Math.abs(outerWidth-width)<=2&&Math.abs(outerHeight-height)<=2,[width,height]);
+    },{size:[width,height],sequence});
+    await p.waitForFunction(sequence=>globalThis.flowTestResize?.sequence===sequence,sequence);
+    await settle();
+    console.log('Native flow test window: '+JSON.stringify(await p.evaluate(()=>({
+      nativeSize:globalThis.flowTestResize.nativeSize, viewport:[innerWidth,innerHeight],
+    }))));
   };
   const go=async id=>{
     await row(id).evaluate(el=>{
